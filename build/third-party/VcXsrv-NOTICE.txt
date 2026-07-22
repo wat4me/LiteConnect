@@ -1,0 +1,17 @@
+VcXsrv Windows X Server
+=======================
+
+This liteSSH distribution includes the following OPTIONAL, independently
+installed third-party component:
+
+  File: vcxsrv-64.1.20.14.0.installer.exe
+  Version: 1.20.14.0 (64-bit)
+  SHA-256: 7A5CD7D9D0AC982F09C8A93051FC48AB072FCC4B52237D1B91494363B9DAD27E
+  Project: https://github.com/marchaesen/vcxsrv
+  Legacy download page: https://sourceforge.net/projects/vcxsrv/
+  License: GNU General Public License, version 3 (GPL-3.0)
+
+VcXsrv is not part of liteSSH and is not installed or launched automatically.
+It is offered only when a user explicitly chooses to install support for X11
+graphical forwarding. Refer to the VcXsrv project for complete license terms
+and corresponding source code.

@@ -1,0 +1,63 @@
+/**
+ * Teleported run-scope menu styles (body portal).
+ * Owned by the active action rail (DbQueryActionRail); import from that
+ * component so styles load even when legacy DbQueryActionBar is unmounted.
+ * Do not duplicate these rules in component SFCs.
+ */
+
+.run-menu-portal {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  max-width: min(320px, calc(100vw - 16px));
+}
+
+.run-menu-portal .run-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-menu-portal .run-menu-item:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.run-menu-portal .run-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.run-menu-portal .run-menu-label {
+  font-weight: 600;
+}
+
+.run-menu-portal .run-menu-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.run-menu-portal .run-menu-item:hover:not(:disabled) .run-menu-desc {
+  color: inherit;
+  opacity: 0.85;
+}

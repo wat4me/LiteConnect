@@ -1,0 +1,53 @@
+{
+  "name": "lite-connect",
+  "version": "1.0.1",
+  "description": "Lightweight multi-protocol connection manager (SSH, database) with embedded terminal",
+  "author": "LiteConnect",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit --incremental",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "electron:dev": "vite",
+    "electron:build": "npm run typecheck && vite build && electron-builder"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron-updater": "^6.8.3",
+    "element-plus": "^2.8.8",
+    "mysql2": "^3.22.6",
+    "pg": "^8.22.0",
+    "ssh2": "^1.15.0",
+    "uuid": "^10.0.0",
+    "vue": "^3.5.12",
+    "vue-i18n": "^10.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.20.0",
+    "@types/ssh2": "^1.15.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-vue": "^5.1.4",
+    "electron": "^41.2.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-electron": "^0.28.8",
+    "vite-plugin-electron-renderer": "^0.14.0",
+    "vitest": "^3.2.7",
+    "vue-tsc": "^2.1.6"
+  }
+}

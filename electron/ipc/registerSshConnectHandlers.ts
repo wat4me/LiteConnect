@@ -1,0 +1,463 @@
+import { ipcMain, BrowserWindow } from 'electron'
+import {
+  isValidUUID,
+  isValidSshWriteData,
+  AuthConnectionParams,
+  validateConnectionParams,
+  safeSend,
+  DecryptionError,
+} from '../utils/validation'
+import { diagnoseSshConnection } from '../ssh/diagnosis'
+import { testSshConnection } from '../ssh/testConnection'
+import { KnownHostsStore } from '../ssh/knownHosts'
+import { SSHManager } from '../ssh/manager'
+import { SettingsStore } from '../store/settingsStore'
+import { CredentialStore } from '../store/credentialStore'
+
+/** Batch SSH output as string chunks to reduce GC vs repeated string concat. */
+const dataBatches: Map<string, string[]> = new Map()
+let dataBatchScheduled = false
+
+type MainWindowGetter = () => BrowserWindow | null
+
+function scheduleDataBatch(getMainWindow: MainWindowGetter) {
+  if (dataBatchScheduled) return
+  dataBatchScheduled = true
+  setImmediate(() => {
+    dataBatchScheduled = false
+    for (const [sessionId, chunks] of dataBatches) {
+      dataBatches.delete(sessionId)
+      safeSend(getMainWindow(), `ssh:data:${sessionId}`, chunks.join(''))
+    }
+  })
+}
+
+function emitSshData(getMainWindow: MainWindowGetter, sessionId: string, data: string) {
+  let chunks = dataBatches.get(sessionId)
+  if (!chunks) {
+    chunks = []
+    dataBatches.set(sessionId, chunks)
+  }
+  chunks.push(data)
+  scheduleDataBatch(getMainWindow)
+}
+
+/** Resolve secrets in main process only — never send them to the renderer. */
+function resolveAuthParams(
+  params: AuthConnectionParams,
+  credentialStore: CredentialStore,
+): AuthConnectionParams {
+  let password = typeof params.password === 'string' ? params.password : ''
+  let privateKey = params.privateKey
+
+  if (!password && params.savedCredentialId && isValidUUID(params.savedCredentialId)) {
+    password = credentialStore.getSavedCredentialPassword(params.savedCredentialId) || ''
+  }
+
+  if (params.connectionId && isValidUUID(params.connectionId)) {
+    const stored = credentialStore.getConnectionForAuth(params.connectionId)
+    if (stored) {
+      if (!password) password = stored.password || ''
+      if (!privateKey && stored.privateKey) privateKey = stored.privateKey
+    }
+  }
+
+  return {
+    host: params.host,
+    port: params.port,
+    username: params.username,
+    password,
+    privateKey,
+    useAgent: params.useAgent,
+    connectionId: params.connectionId,
+    savedCredentialId: params.savedCredentialId,
+  }
+}
+
+const latencyTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+export function clearLatencyTimers(): void {
+  for (const [, timer] of latencyTimers) clearInterval(timer)
+  latencyTimers.clear()
+}
+
+export function registerSshConnectHandlers(
+  getMainWindow: MainWindowGetter,
+  sshManager: SSHManager,
+  settingsStore: SettingsStore,
+  credentialStore: CredentialStore,
+  knownHosts: KnownHostsStore,
+): void {
+  const ensureCredentialStoreReady = () => credentialStore.init()
+  const ensureSettingsStoreReady = () => settingsStore.init()
+  const ensureKnownHostsReady = () => knownHosts.init()
+
+  // Host key management
+  ipcMain.handle('ssh:removeHostKey', async (_event, host: string, port: number) => {
+    if (typeof host !== 'string' || !host.trim()) {
+      throw new Error('Invalid host')
+    }
+    if (typeof port !== 'number' || port <= 0 || port > 65535 || !Number.isInteger(port)) {
+      throw new Error('Invalid port')
+    }
+    await ensureKnownHostsReady()
+    await knownHosts.remove(host, port)
+  })
+
+  ipcMain.handle('ssh:updateHostKey', async (_event, host: string, port: number, keyBuffer: Buffer) => {
+    if (typeof host !== 'string' || !host.trim()) {
+      throw new Error('Invalid host')
+    }
+    if (typeof port !== 'number' || port <= 0 || port > 65535 || !Number.isInteger(port)) {
+      throw new Error('Invalid port')
+    }
+    if (!keyBuffer || !Buffer.isBuffer(keyBuffer)) {
+      throw new Error('Invalid key buffer')
+    }
+    await ensureKnownHostsReady()
+    const fingerprint = await knownHosts.updateHostKey(host, port, keyBuffer)
+    return fingerprint
+  })
+
+  ipcMain.handle('ssh:getHostKeyFingerprint', async (_event, host: string, port: number) => {
+    if (typeof host !== 'string' || !host.trim()) {
+      throw new Error('Invalid host')
+    }
+    if (typeof port !== 'number' || port <= 0 || port > 65535 || !Number.isInteger(port)) {
+      throw new Error('Invalid port')
+    }
+    await ensureKnownHostsReady()
+    return knownHosts.getFingerprint(host, port) || null
+  })
+
+  // SSH test and connection — same Host Key / jump / shell policy as formal connect
+  ipcMain.handle('ssh:testConnection', async (_event, connectionId: string) => {
+    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+    if (!isValidUUID(connectionId)) {
+      throw new Error('Invalid connection id')
+    }
+    const connection = credentialStore.getConnectionForAuth(connectionId)
+    if (!connection) throw new Error('Connection not found')
+
+    return testSshConnection(
+      {
+        host: connection.host,
+        port: connection.port || 22,
+        username: connection.username,
+        password: connection.password,
+        privateKey: connection.privateKey,
+        useAgent: connection.useAgent,
+        jumpHost: connection.jumpHost,
+        jumpPort: connection.jumpPort,
+        jumpUsername: connection.jumpUsername,
+        jumpPassword: connection.jumpPassword,
+        jumpPrivateKey: connection.jumpPrivateKey,
+        checkShell: true,
+      },
+      knownHosts,
+    )
+  })
+
+  ipcMain.handle('ssh:testConnectionParams', async (_event, params: AuthConnectionParams) => {
+    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+    const validation = validateConnectionParams(params)
+    if (!validation.valid) {
+      throw new Error(validation.error)
+    }
+    const resolved = resolveAuthParams(params, credentialStore)
+
+    // Optional jump fields when form/list tests a draft connection
+    const jumpHost =
+      typeof (params as any).jumpHost === 'string' ? (params as any).jumpHost : undefined
+    const jumpPort =
+      typeof (params as any).jumpPort === 'number' ? (params as any).jumpPort : undefined
+    const jumpUsername =
+      typeof (params as any).jumpUsername === 'string' ? (params as any).jumpUsername : undefined
+    const jumpPassword =
+      typeof (params as any).jumpPassword === 'string' ? (params as any).jumpPassword : undefined
+    const jumpPrivateKey =
+      typeof (params as any).jumpPrivateKey === 'string' ? (params as any).jumpPrivateKey : undefined
+
+    let storedJump:
+      | {
+          jumpHost?: string
+          jumpPort?: number
+          jumpUsername?: string
+          jumpPassword?: string
+          jumpPrivateKey?: string
+          useAgent?: boolean
+        }
+      | undefined
+    if (resolved.connectionId && isValidUUID(resolved.connectionId)) {
+      const stored = credentialStore.getConnectionForAuth(resolved.connectionId)
+      if (stored) {
+        storedJump = {
+          jumpHost: stored.jumpHost,
+          jumpPort: stored.jumpPort,
+          jumpUsername: stored.jumpUsername,
+          jumpPassword: stored.jumpPassword,
+          jumpPrivateKey: stored.jumpPrivateKey,
+          useAgent: stored.useAgent,
+        }
+      }
+    }
+
+    return testSshConnection(
+      {
+        host: resolved.host,
+        port: resolved.port,
+        username: resolved.username,
+        password: resolved.password,
+        privateKey: resolved.privateKey,
+        useAgent: storedJump?.useAgent,
+        jumpHost: jumpHost ?? storedJump?.jumpHost,
+        jumpPort: jumpPort ?? storedJump?.jumpPort,
+        jumpUsername: jumpUsername ?? storedJump?.jumpUsername,
+        jumpPassword: jumpPassword ?? storedJump?.jumpPassword,
+        jumpPrivateKey: jumpPrivateKey ?? storedJump?.jumpPrivateKey,
+        checkShell: true,
+      },
+      knownHosts,
+    )
+  })
+
+  ipcMain.handle('ssh:diagnoseConnectionParams', async (_event, params: AuthConnectionParams) => {
+    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+    const validation = validateConnectionParams(params)
+    if (!validation.valid) {
+      throw new Error(validation.error)
+    }
+    const resolved = resolveAuthParams(params, credentialStore)
+    const jumpHost =
+      typeof (params as any).jumpHost === 'string' ? (params as any).jumpHost : undefined
+    const jumpPort =
+      typeof (params as any).jumpPort === 'number' ? (params as any).jumpPort : undefined
+    const jumpUsername =
+      typeof (params as any).jumpUsername === 'string' ? (params as any).jumpUsername : undefined
+    const jumpPassword =
+      typeof (params as any).jumpPassword === 'string' ? (params as any).jumpPassword : undefined
+    const jumpPrivateKey =
+      typeof (params as any).jumpPrivateKey === 'string' ? (params as any).jumpPrivateKey : undefined
+    return await diagnoseSshConnection(
+      {
+        ...resolved,
+        jumpHost,
+        jumpPort,
+        jumpUsername,
+        jumpPassword,
+        jumpPrivateKey,
+      },
+      knownHosts,
+    )
+  })
+
+  ipcMain.handle('ssh:connect', async (_event, connectionId: string) => {
+    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+    if (!isValidUUID(connectionId)) {
+      throw new Error('Invalid connection id')
+    }
+
+    let connection
+    try {
+      connection = credentialStore.getConnectionForAuth(connectionId)
+    } catch (err) {
+      if (DecryptionError.is(err)) {
+        safeSend(getMainWindow(), 'ssh:decryptionFailed', {
+          connectionId,
+          field: err.field || 'password',
+          message: err.message,
+        })
+      }
+      throw err
+    }
+    if (!connection) {
+      throw new Error(`Connection ${connectionId} not found`)
+    }
+
+    // Always open a fresh SSH session. Renderer serializes multi-tab reconnects;
+    // sharing one in-flight promise would hand the same sessionId to two tabs.
+    try {
+      const sessionId = await sshManager.connect(connection, {
+        onData: (sid, data) => {
+          emitSshData(getMainWindow, sid, data)
+        },
+        onClose: (sid) => {
+          safeSend(getMainWindow(), `ssh:closed:${sid}`)
+        },
+        onError: (sid, err) => {
+          safeSend(getMainWindow(), `ssh:error:${sid}`, err)
+        },
+      })
+      return sessionId
+    } catch (err: any) {
+      const pending = sshManager.getPendingHostKey(connectionId)
+      if (pending) {
+        safeSend(getMainWindow(), 'ssh:hostKeyMismatch', {
+          connectionId,
+          host: pending.host,
+          port: pending.port,
+          existingFingerprint: pending.existingFingerprint,
+          newFingerprint: pending.fingerprint,
+          role: pending.role,
+        })
+      }
+      throw err
+    }
+  })
+
+  ipcMain.handle('ssh:confirmHostKey', async (_event, connectionId: string) => {
+    if (!isValidUUID(connectionId)) {
+      throw new Error('Invalid connection id')
+    }
+    // Capture resume id before confirm clears pending
+    const resumeSessionId = sshManager.getPendingHostKeyResumeSessionId(connectionId)
+    const hadLiveSession = !!(resumeSessionId && sshManager.hasSession(resumeSessionId))
+    // After host-key failure the live map is usually empty; still treat a known
+    // resumeSessionId as in-place when the renderer already owns that tab.
+    const sessionId = await sshManager.confirmHostKey(connectionId)
+    // Notify TerminalTab when this was a reconnect-style resume (session id reused)
+    if (resumeSessionId && resumeSessionId === sessionId) {
+      // Always emit reconnected so an existing tab can clear disconnected state.
+      // For first-connect confirm, no listener is bound yet — emit is harmless.
+      safeSend(getMainWindow(), `ssh:reconnected:${sessionId}`)
+    } else if (hadLiveSession) {
+      safeSend(getMainWindow(), `ssh:reconnected:${sessionId}`)
+    }
+    return sessionId
+  })
+
+  ipcMain.handle('ssh:rejectHostKey', async (_event, connectionId: string) => {
+    sshManager.rejectHostKey(connectionId)
+  })
+
+  ipcMain.handle('ssh:disconnect', (_event, sessionId: string) => {
+    if (!isValidUUID(sessionId)) {
+      throw new Error('Invalid session id')
+    }
+    const timer = latencyTimers.get(sessionId)
+    if (timer) {
+      clearInterval(timer)
+      latencyTimers.delete(sessionId)
+    }
+    sshManager.disconnect(sessionId)
+  })
+
+  /** In-place reconnect: same sessionId, new SSH+shell (keeps TerminalTab mounted). */
+  ipcMain.handle('ssh:reconnect', async (_event, sessionId: string, connectionId: string) => {
+    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+    if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
+    if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
+
+    let connection
+    try {
+      connection = credentialStore.getConnectionForAuth(connectionId)
+    } catch (err) {
+      if (DecryptionError.is(err)) {
+        safeSend(getMainWindow(), 'ssh:decryptionFailed', {
+          connectionId,
+          field: err.field || 'password',
+          message: err.message,
+        })
+      }
+      throw err
+    }
+    if (!connection) throw new Error(`Connection ${connectionId} not found`)
+
+    const timer = latencyTimers.get(sessionId)
+    if (timer) {
+      clearInterval(timer)
+      latencyTimers.delete(sessionId)
+    }
+
+    try {
+      const id = await sshManager.reconnect(sessionId, connection, {
+        onData: (sid, data) => {
+          emitSshData(getMainWindow, sid, data)
+        },
+        onClose: (sid) => {
+          safeSend(getMainWindow(), `ssh:closed:${sid}`)
+        },
+        onError: (sid, err) => {
+          safeSend(getMainWindow(), `ssh:error:${sid}`, err)
+        },
+      })
+      safeSend(getMainWindow(), `ssh:reconnected:${id}`)
+      return id
+    } catch (err: any) {
+      const pending = sshManager.getPendingHostKey(connectionId)
+      if (pending) {
+        safeSend(getMainWindow(), 'ssh:hostKeyMismatch', {
+          connectionId,
+          host: pending.host,
+          port: pending.port,
+          existingFingerprint: pending.existingFingerprint,
+          newFingerprint: pending.fingerprint,
+          role: pending.role,
+        })
+      }
+      throw err
+    }
+  })
+
+  ipcMain.on('ssh:write', (_event, sessionId: string, data: string) => {
+    if (!isValidUUID(sessionId)) return
+    if (!isValidSshWriteData(data)) return
+    const ok = sshManager.write(sessionId, data)
+    if (!ok) {
+      console.warn('[ssh:write] Session not writable, possible disconnect:', sessionId)
+    }
+  })
+
+  ipcMain.on('ssh:resize', (_event, sessionId: string, cols: number, rows: number) => {
+    if (!isValidUUID(sessionId)) return
+    if (typeof cols !== 'number' || cols <= 0 || cols > 1000 || !Number.isInteger(cols)) return
+    if (typeof rows !== 'number' || rows <= 0 || rows > 1000 || !Number.isInteger(rows)) return
+    sshManager.resize(sessionId, cols, rows)
+  })
+
+  // Latency monitors
+  ipcMain.handle('ssh:startLatencyMonitor', async (_event, sessionId: string) => {
+    if (!isValidUUID(sessionId)) {
+      throw new Error('Invalid session id')
+    }
+    if (latencyTimers.has(sessionId)) return
+
+    await ensureSettingsStoreReady()
+    const interval = settingsStore.getLatencyIntervalMs()
+
+    const measure = async () => {
+      if (!sshManager.hasSession(sessionId)) {
+        clearInterval(latencyTimers.get(sessionId))
+        latencyTimers.delete(sessionId)
+        return
+      }
+      try {
+        const latency = await sshManager.measureLatency(sessionId)
+        safeSend(getMainWindow(), `ssh:latency:${sessionId}`, latency)
+      } catch {
+        safeSend(getMainWindow(), `ssh:latency:${sessionId}`, -1)
+      }
+    }
+
+    const timer = setInterval(measure, interval)
+    latencyTimers.set(sessionId, timer)
+
+    measure()
+  })
+
+  ipcMain.handle('ssh:stopLatencyMonitor', (_event, sessionId: string) => {
+    if (!isValidUUID(sessionId)) return
+    const timer = latencyTimers.get(sessionId)
+    if (timer) {
+      clearInterval(timer)
+      latencyTimers.delete(sessionId)
+    }
+  })
+
+  ipcMain.handle('ssh:measureLatency', async (_event, sessionId: string) => {
+    if (!isValidUUID(sessionId)) {
+      throw new Error('Invalid session id')
+    }
+    return await sshManager.measureLatency(sessionId)
+  })
+}
