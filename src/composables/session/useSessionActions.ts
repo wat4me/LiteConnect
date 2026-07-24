@@ -1,11 +1,11 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
-import type { Connection } from '../env.d'
+import type { Connection } from '../../env.d'
 import type { ConnectionGroup, Session } from './useSessionManager'
-import type { SplitMode, SplitSide } from './useSplitTerminal'
-import type { TerminalPwdTracker } from './useTerminalPwd'
-import type { BatchCommandTarget } from './useBatchCommand'
-import { buildBatchSessionTarget } from '../utils/sessionDisplay'
-import { isNonRetryableSshError } from '../utils/sshErrorRetry'
+import type { SplitMode, SplitSide } from '../terminal/useSplitTerminal'
+import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
+import type { BatchCommandTarget } from '../useBatchCommand'
+import { buildBatchSessionTarget } from '../../utils/sessionDisplay'
+import { isNonRetryableSshError } from '../../utils/sshErrorRetry'
 
 export type SplitDropPayload = {
   mode: 'horizontal' | 'vertical'

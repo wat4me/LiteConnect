@@ -26,6 +26,8 @@ export default {
     connectLocalFailed: '图形界面转发失败：无法连接本机显示服务 {host}:{port}（{error}）',
     shellRejected:
       '远端拒绝 X11 转发（{detail}）。已改用普通终端连接。请检查服务器是否允许 X11Forwarding，以及本机显示服务是否就绪。',
+    shellRejectedLocalUnavailable:
+      '远端拒绝 X11 转发（{detail}），且检测到本机显示服务未监听 {host}:{port}。已改用普通终端连接；请检查 VcXsrv/Xming 是否已退出、显示编号是否正确，或防火墙是否拦截。',
     selectExeTitle: '选择本机显示服务可执行文件',
   },
   sftp: {

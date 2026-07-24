@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { TransferItem } from '../env.d.ts'
-import { formatSize } from '../utils/format'
-import { formatSpeed } from '../composables/useTransfers'
+import type { TransferItem } from '../../env.d.ts'
+import { formatSize } from '../../utils/format'
+import { formatSpeed } from '../../composables/sftp/useTransfers'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -59,18 +60,10 @@ function onDragStart(e: DragEvent, item: TransferItem) {
       @dragstart="onDragStart($event, item)"
     >
       <div class="transfer-info">
-        <svg v-if="item.status === 'completed'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="transfer-done-icon">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-        </svg>
-        <svg v-else-if="item.status === 'skipped'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="transfer-skip-icon">
-          <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-        </svg>
-        <svg v-else-if="item.status === 'uploading'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="transfer-direction-icon">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-        <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="transfer-file-icon">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
+        <AppIcon v-if="item.status === 'completed'" name="check" :size="12" class="transfer-done-icon" />
+        <AppIcon v-else-if="item.status === 'skipped'" name="clear" :size="12" class="transfer-skip-icon" />
+        <AppIcon v-else-if="item.status === 'uploading'" name="upload" :size="12" class="transfer-direction-icon" />
+        <AppIcon v-else name="download" :size="12" class="transfer-file-icon" />
         <div class="transfer-text">
           <span class="transfer-name" :title="item.localPath">{{ item.fileName }}</span>
           <span v-if="item.status === 'downloading' || item.status === 'uploading'" class="transfer-detail">
@@ -110,9 +103,7 @@ function onDragStart(e: DragEvent, item: TransferItem) {
         @click.stop="emit('cancel', id)"
         :title="t('sftp.cancel')"
       >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
+        <AppIcon name="close" :size="10" />
       </button>
       <button
         v-if="canResume(item)"
@@ -128,9 +119,7 @@ function onDragStart(e: DragEvent, item: TransferItem) {
         @click.stop="emit('remove', id)"
         :title="t('sftp.remove')"
       >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
+        <AppIcon name="close" :size="10" />
       </button>
     </div>
   </div>

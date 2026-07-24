@@ -1,4 +1,4 @@
-import type { DockerLogEntry } from '../env.d'
+import type { DockerLogEntry } from '../../env.d'
 
 /** Renderer ring buffer hard limits (entries + total characters). */
 export const DOCKER_LOG_UI_MAX_ENTRIES = 10_000

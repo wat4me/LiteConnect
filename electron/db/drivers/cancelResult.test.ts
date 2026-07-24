@@ -3,7 +3,7 @@ import type { DbCancelResult } from '../types'
 import { sanitizeCancelError } from '../common'
 
 /**
- * Structured cancel status contract (DB-007) shared by MySQL/Postgres drivers.
+ * Structured cancel status contract (DB-007) shared by MySQL/Postgres/Oracle drivers.
  */
 function mapMysqlKillError(err: { message?: string; errno?: number; code?: string }): DbCancelResult {
   const msg = String(err?.message || 'KILL QUERY failed')
@@ -53,5 +53,28 @@ describe('cancel structured results', () => {
 
   it('no active query -> already_finished', () => {
     expect(mapPgCancel(false, true, true)).toEqual({ status: 'already_finished' })
+  })
+
+  it('oracle break success -> cancelled; missing session -> already_finished', () => {
+    const mapOracle = (
+      activeExists: boolean,
+      sessionExists: boolean,
+      breakOk: boolean,
+      errMsg?: string,
+    ): DbCancelResult => {
+      if (!activeExists) return { status: 'already_finished' }
+      if (!sessionExists) return { status: 'already_finished' }
+      if (errMsg) {
+        if (/not connected|invalid|closed|NJS-003|DPI-1010/i.test(errMsg)) {
+          return { status: 'already_finished' }
+        }
+        return { status: 'failed', error: sanitizeCancelError(errMsg) }
+      }
+      if (!breakOk) return { status: 'already_finished' }
+      return { status: 'cancelled' }
+    }
+    expect(mapOracle(true, true, true)).toEqual({ status: 'cancelled' })
+    expect(mapOracle(true, false, true)).toEqual({ status: 'already_finished' })
+    expect(mapOracle(false, true, true)).toEqual({ status: 'already_finished' })
   })
 })

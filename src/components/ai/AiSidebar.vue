@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiHistorySummary, AiSettings } from '../env.d.ts'
-import { useAiChat, type ChatItem } from '../composables/useAiChat'
-import { appConfirm } from '../composables/useAppDialog'
+import type { AiSettings } from '../../env.d.ts'
+import { useAiChat, type ChatItem } from '../../composables/ai/useAiChat'
+import { appConfirm } from '../../composables/useAppDialog'
 import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
-} from '../utils/terminalPaste'
-import AppIcon from './icons/AppIcon.vue'
-import AiHistoryList from './AiHistoryList.vue'
+} from '../../utils/terminalPaste'
+import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'
 
@@ -49,20 +48,12 @@ const loading = ref(false)
 const showSettings = ref(false)
 const showHistory = ref(false)
 const showModelSwitcher = ref(false)
-const historyList = ref<AiHistorySummary[]>([])
 const consumedSelectionIds = new Set<number>()
 const settingsPanelRef = ref<InstanceType<typeof AiSettingsPanel> | null>(null)
-
-const contextChips = computed(() => {
-  const chips: { id: string; label: string }[] = []
-  chips.push({ id: 'session', label: t('ai.sessionChip', { id: props.sessionId.slice(0, 8) }) })
-  if (displayModelName.value) {
-    chips.push({ id: 'model', label: displayModelName.value })
-  }
-  const p = activeProvider.value
-  if (p?.name) chips.push({ id: 'provider', label: p.name })
-  return chips
-})
+const historyButtonRef = ref<HTMLButtonElement | null>(null)
+const settingsButtonRef = ref<HTMLButtonElement | null>(null)
+const popoverRef = ref<HTMLElement | null>(null)
+const popoverStyle = ref<Record<string, string>>({})
 
 const hasApiConfigured = computed(() => {
   const list = settings.value.providers || []
@@ -70,9 +61,19 @@ const hasApiConfigured = computed(() => {
 })
 
 let initialLoadPromise: Promise<void> | null = null
-let historyListLoaded = false
-
 const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
+
+const historyItems = computed(() =>
+  messages.value
+    .filter((message) => message.role === 'user')
+    .slice()
+    .reverse()
+    .map((message) => ({
+      id: message.id,
+      title: message.content.replace(/\s+/g, ' ').trim(),
+      createdAt: message.createdAt,
+    })),
+)
 
 const modelSwitcherGroups = computed(() => {
   return (settings.value.providers || [])
@@ -100,10 +101,16 @@ onMounted(() => {
   input.value = state.input
   loading.value = state.loading
   ensureInitialLoad().catch(() => {})
+  document.addEventListener('pointerdown', closePopoverOnOutsideClick)
+  document.addEventListener('keydown', closePopoverOnEscape)
+  window.addEventListener('resize', repositionPopover)
 })
 
 onBeforeUnmount(() => {
   saveSessionInput(props.sessionId, input.value)
+  document.removeEventListener('pointerdown', closePopoverOnOutsideClick)
+  document.removeEventListener('keydown', closePopoverOnEscape)
+  window.removeEventListener('resize', repositionPopover)
 })
 
 watch(
@@ -121,12 +128,6 @@ watch(
 
 watch(input, (value) => {
   saveSessionInput(props.sessionId, value)
-})
-
-watch(showHistory, (value) => {
-  if (value) {
-    void ensureHistoryListLoaded()
-  }
 })
 
 watch(
@@ -148,47 +149,6 @@ watch(
   },
   { immediate: true }
 )
-
-async function loadHistoryList() {
-  try {
-    historyList.value = await window.LiteConnect.listAiSessionHistories()
-    historyListLoaded = true
-  } catch {
-    historyList.value = []
-    historyListLoaded = false
-  }
-}
-
-async function ensureHistoryListLoaded(force = false) {
-  if (historyListLoaded && !force) return
-  await loadHistoryList()
-}
-
-async function loadHistorySession(sessionId: string) {
-  try {
-    const records = await window.LiteConnect.getAiSessionHistory(sessionId)
-    const items = records.map((r) => ({
-      id: r.id,
-      role: r.role,
-      content: r.content,
-      reasoningContent: r.reasoningContent,
-      usage: r.usage,
-      error: r.error,
-      createdAt: r.createdAt,
-    }))
-    // Prefer full history of the selected session file; also mirror into that session's memory state
-    const state = getSessionState(sessionId)
-    state.messages.splice(0, state.messages.length, ...items)
-    // Show in current panel (history may be from another SSH session id)
-    messages.value = items
-    showHistory.value = false
-    if (items.every((m) => m.role === 'user')) {
-      ElMessage.info(t('ai.historyUserOnly'))
-    }
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.loadHistoryFailed'))
-  }
-}
 
 async function ensureInitialLoad() {
   if (!initialLoadPromise) {
@@ -247,63 +207,87 @@ async function handleStop() {
   loading.value = getSessionState(props.sessionId).loading
 }
 
-function openSettingsCta() {
+async function openSettingsCta() {
   showSettings.value = true
   showHistory.value = false
+  await nextTick()
+  positionPopover(settingsButtonRef.value, 330)
 }
 
-function openHistoryPanel() {
-  showHistory.value = !showHistory.value
-  if (showHistory.value) showSettings.value = false
-}
-
-function openSettingsPanel() {
-  showSettings.value = !showSettings.value
-  if (showSettings.value) showHistory.value = false
-}
-
-function closeHistoryPanel() {
+async function openSettingsPanel() {
+  showSettings.value = true
   showHistory.value = false
+  await nextTick()
+  positionPopover(settingsButtonRef.value, 330)
 }
 
 function closeSettingsPanel() {
   showSettings.value = false
 }
 
-async function deleteHistorySession(sessionId: string) {
-  try {
-    await appConfirm({
-      title: t('ai.deleteHistoryTitle'),
-      message: t('ai.deleteHistoryMessage'),
-      detail: t('ai.deleteHistoryDetail'),
-      confirmText: t('common.delete'),
-      cancelText: t('common.cancel'),
-      danger: true,
-      tone: 'danger',
-    })
-  } catch {
-    return
-  }
-  try {
-    await window.LiteConnect.clearAiSessionHistory(sessionId)
-    const state = getSessionState(sessionId)
-    state.messages.splice(0, state.messages.length)
-    if (sessionId === props.sessionId) {
-      syncMessages(state.messages)
-    }
-    await loadHistoryList()
-    ElMessage.success(t('ai.historyDeleted'))
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.deleteHistoryFailed'))
+async function openHistoryPanel() {
+  showHistory.value = true
+  showSettings.value = false
+  await nextTick()
+  positionPopover(historyButtonRef.value, 330)
+}
+
+function closeHistoryPanel() {
+  showHistory.value = false
+}
+
+function reuseHistoryItem(content: string) {
+  input.value = content
+  closeHistoryPanel()
+}
+
+function formatHistoryTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function positionPopover(trigger: HTMLElement | null, preferredWidth: number) {
+  if (!trigger) return
+  const rect = trigger.getBoundingClientRect()
+  const width = Math.min(preferredWidth, window.innerWidth - 16)
+  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+  popoverStyle.value = {
+    top: `${Math.min(rect.bottom + 8, window.innerHeight - 160)}px`,
+    left: `${left}px`,
   }
 }
 
-async function clearAllHistories() {
-  if (historyList.value.length === 0) return
+function repositionPopover() {
+  if (showSettings.value) positionPopover(settingsButtonRef.value, 330)
+  else if (showHistory.value) positionPopover(historyButtonRef.value, 330)
+}
+
+function closePopoverOnOutsideClick(event: PointerEvent) {
+  if (!showSettings.value && !showHistory.value) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (popoverRef.value?.contains(target)) return
+  if (historyButtonRef.value?.contains(target) || settingsButtonRef.value?.contains(target)) return
+  closeSettingsPanel()
+  closeHistoryPanel()
+}
+
+function closePopoverOnEscape(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  closeSettingsPanel()
+  closeHistoryPanel()
+}
+
+async function clearCurrentHistory() {
+  if (messages.value.length === 0) return
   try {
     await appConfirm({
-      title: t('ai.clearAllHistoryTitle'),
-      message: t('ai.clearAllHistoryMessage', { count: historyList.value.length }),
+      title: t('ai.clearHistoryTitle'),
+      message: t('ai.clearHistoryMessage'),
       confirmText: t('ai.clear'),
       cancelText: t('common.cancel'),
       danger: true,
@@ -312,20 +296,7 @@ async function clearAllHistories() {
   } catch {
     return
   }
-  try {
-    const ids = historyList.value.map((item) => item.sessionId)
-    await Promise.all(ids.map((id) => window.LiteConnect.clearAiSessionHistory(id)))
-    for (const id of ids) {
-      const state = getSessionState(id)
-      state.messages.splice(0, state.messages.length)
-    }
-    const current = getSessionState(props.sessionId)
-    syncMessages(current.messages)
-    await loadHistoryList()
-    ElMessage.success(t('ai.allHistoryCleared'))
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.clearHistoryFailed'))
-  }
+  clearMessages(props.sessionId, syncMessages)
 }
 
 async function confirmAiTerminalAction(action: 'fill' | 'run', code: string): Promise<string | null> {
@@ -373,10 +344,6 @@ async function runCodeToTerminal(code: string) {
 
 function handleClearMessages() {
   clearMessages(props.sessionId, syncMessages)
-  historyListLoaded = false
-  if (showHistory.value) {
-    loadHistoryList().catch(() => {})
-  }
 }
 </script>
 
@@ -387,37 +354,16 @@ function handleClearMessages() {
         <div class="ai-title">{{ t('ai.title') }}</div>
       </div>
       <div class="ai-header-actions">
-        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
+        <button ref="historyButtonRef" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
           <AppIcon name="history" :size="14" />
         </button>
-        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
+        <button ref="settingsButtonRef" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
           <AppIcon name="settings" :size="14" />
         </button>
         <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('ai.closePanel')">
           <AppIcon name="close" :size="14" />
         </button>
       </div>
-    </div>
-
-    <AiHistoryList
-      v-if="showHistory"
-      :items="historyList"
-      @select="loadHistorySession"
-      @close="closeHistoryPanel"
-      @clear-all="clearAllHistories"
-      @delete="deleteHistorySession"
-    />
-
-    <AiSettingsPanel
-      v-if="showSettings"
-      ref="settingsPanelRef"
-      :model-value="settings"
-      @saved="onSettingsSaved"
-      @close="closeSettingsPanel"
-    />
-
-    <div v-if="contextChips.length" class="context-chips" :aria-label="t('ai.contextAria')">
-      <span v-for="chip in contextChips" :key="chip.id" class="context-chip">{{ chip.label }}</span>
     </div>
 
     <AiChatView
@@ -440,8 +386,8 @@ function handleClearMessages() {
         @keydown.meta.enter.prevent="sendMessage"
       />
       <div class="composer-actions">
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="handleClearMessages" :title="t('ai.clearChat')">
-          <AppIcon name="delete" :size="14" />
+        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="handleClearMessages" :title="t('ai.clearChat')">
+          {{ t('ai.clear') }}
         </button>
         <div class="composer-actions-right">
           <div class="model-switcher-wrap">
@@ -500,11 +446,74 @@ function handleClearMessages() {
         </div>
       </div>
     </form>
+
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="showSettings"
+      ref="popoverRef"
+      class="ai-popover ai-settings-popover"
+      :style="popoverStyle"
+      role="dialog"
+      :aria-label="t('ai.settings')"
+    >
+      <AiSettingsPanel
+        ref="settingsPanelRef"
+        :model-value="settings"
+        @saved="onSettingsSaved"
+        @close="closeSettingsPanel"
+      />
+    </div>
+
+    <section
+      v-if="showHistory"
+      ref="popoverRef"
+      class="ai-popover ai-history-popover"
+      :style="popoverStyle"
+      role="dialog"
+      :aria-label="t('ai.history')"
+    >
+      <div class="ai-layer-header">
+        <div class="ai-layer-heading">
+          <span class="ai-layer-title">{{ t('ai.history') }}</span>
+          <span class="ai-layer-subtitle">{{ t('ai.title') }}</span>
+        </div>
+        <div class="ai-layer-actions">
+          <button
+            type="button"
+            class="ui-btn ui-btn-xs ui-btn-ghost"
+            :disabled="messages.length === 0"
+            @click="clearCurrentHistory"
+          >
+            {{ t('ai.clear') }}
+          </button>
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.closeHistory')" @click="closeHistoryPanel">
+            <AppIcon name="close" :size="14" />
+          </button>
+        </div>
+      </div>
+      <div v-if="historyItems.length === 0" class="ai-history-empty">{{ t('ai.emptyHistory') }}</div>
+      <div v-else class="ai-history-list">
+        <button
+          v-for="item in historyItems"
+          :key="item.id"
+          type="button"
+          class="ai-history-item"
+          :title="item.title"
+          @click="reuseHistoryItem(item.title)"
+        >
+          <span class="ai-history-item-title">{{ item.title }}</span>
+          <span class="ai-history-item-meta">{{ formatHistoryTime(item.createdAt) }}</span>
+        </button>
+      </div>
+    </section>
+  </Teleport>
 </template>
 
 <style scoped>
 .ai-sidebar {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -512,6 +521,121 @@ function handleClearMessages() {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   overflow: hidden;
+}
+
+.ai-popover {
+  position: fixed;
+  z-index: 10500;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+.ai-settings-popover {
+  width: min(330px, calc(100vw - 16px));
+  height: min(420px, calc(100vh - 96px));
+}
+
+.ai-settings-popover :deep(.settings-box) {
+  flex: 1;
+  max-height: none;
+  border-bottom: none;
+}
+
+.ai-history-popover {
+  width: min(330px, calc(100vw - 16px));
+  height: min(260px, calc(100vh - 96px));
+}
+
+.ai-layer-header {
+  min-height: 48px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.ai-layer-heading,
+.ai-layer-actions {
+  display: flex;
+  align-items: center;
+}
+
+.ai-layer-heading {
+  min-width: 0;
+  gap: 6px;
+}
+
+.ai-layer-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ai-layer-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.ai-layer-actions {
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.ai-history-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.ai-history-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-history-item:hover {
+  background: var(--hover-bg);
+}
+
+.ai-history-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-history-item-meta {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.ai-history-empty {
+  padding: 18px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 .ai-header {
@@ -658,30 +782,6 @@ function handleClearMessages() {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-}
-
-.context-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-}
-
-.context-chip {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .composer-input {

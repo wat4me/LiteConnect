@@ -71,4 +71,26 @@ describe('classifyDbError', () => {
     expect(e.message).not.toContain('hunter2')
     expect((e as any).detail || '').not.toContain('hunter2')
   })
+
+  it('classifies Oracle ORA codes', () => {
+    expect(
+      classifyDbError({ message: 'ORA-01017: invalid username/password', errorNum: 1017 }, 'oracle')
+        .category,
+    ).toBe('auth')
+    expect(
+      classifyDbError({ message: 'ORA-00933: SQL command not properly ended', errorNum: 933 }, 'oracle')
+        .category,
+    ).toBe('syntax')
+    expect(
+      classifyDbError({ message: 'ORA-12541: TNS:no listener', errorNum: 12541 }, 'oracle').category,
+    ).toBe('refused')
+    expect(
+      classifyDbError({ message: 'ORA-00060: deadlock detected', errorNum: 60 }, 'oracle').category,
+    ).toBe('deadlock')
+  })
+
+  it('redacts Oracle connect strings', () => {
+    const s = sanitizeDbErrorText('NJS-500: connect to 10.0.0.5:1521/ORCLPDB1 failed')
+    expect(s).not.toContain('10.0.0.5:1521/ORCLPDB1')
+  })
 })

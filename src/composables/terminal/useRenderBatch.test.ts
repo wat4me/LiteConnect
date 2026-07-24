@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useRenderBatch } from './useRenderBatch'
+import { useRenderBatch } from '../session/'
 import type { Terminal } from '@xterm/xterm'
 
 function mockTerminal() {

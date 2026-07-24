@@ -3,7 +3,7 @@ import type {
   DockerExecShell,
   DockerExecState,
   DockerTransportErrorCode,
-} from '../env.d'
+} from '../../env.d'
 
 export type DockerExecUiState = DockerExecState | 'idle'
 

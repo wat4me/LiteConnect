@@ -20,6 +20,11 @@ function emptySsl(): DbSslOptions {
   return { enabled: false, rejectUnauthorized: false }
 }
 
+function normalizeEngine(engine: unknown): DbEngine {
+  if (engine === 'postgres' || engine === 'oracle' || engine === 'mysql') return engine
+  return 'mysql'
+}
+
 function emptyForm(): ConnectionFormModel {
   return {
     name: '',
@@ -31,6 +36,7 @@ function emptyForm(): ConnectionFormModel {
     database: '',
     ssl: false,
     sslOptions: emptySsl(),
+    extraOptions: {},
     group: '',
     sshConnectionId: '',
   }
@@ -159,7 +165,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
 
   async function openEdit(conn: DbConnection) {
     const password = await window.LiteConnect.dbGetConnectionPassword(conn.id)
-    const engine = conn.engine === 'postgres' ? 'postgres' : 'mysql'
+    const engine = normalizeEngine(conn.engine)
     editingId.value = conn.id
     const sslOptions: DbSslOptions = {
       enabled: !!(conn.sslOptions?.enabled ?? conn.ssl),
@@ -178,6 +184,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
       database: conn.database || '',
       ssl: !!sslOptions.enabled,
       sslOptions,
+      extraOptions: { ...(conn.extraOptions || {}) },
       group: conn.group || '',
       sshConnectionId: conn.sshConnectionId || '',
     }
@@ -206,7 +213,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
     }
     saving.value = true
     try {
-      const engine = form.value.engine === 'postgres' ? 'postgres' : 'mysql'
+      const engine = normalizeEngine(form.value.engine)
       const sslOptions: DbSslOptions = {
         enabled: !!(form.value.sslOptions?.enabled ?? form.value.ssl),
         rejectUnauthorized: form.value.sslOptions?.rejectUnauthorized,
@@ -225,6 +232,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
         database: form.value.database.trim() || undefined,
         ssl: !!sslOptions.enabled,
         sslOptions,
+        extraOptions: form.value.extraOptions,
         group: form.value.group.trim() || undefined,
         sshConnectionId: form.value.sshConnectionId.trim() || undefined,
       })
@@ -246,7 +254,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
     testing.value = true
     testHint.value = ''
     try {
-      const engine = form.value.engine === 'postgres' ? 'postgres' : 'mysql'
+      const engine = normalizeEngine(form.value.engine)
       const sslOptions: DbSslOptions = {
         enabled: !!(form.value.sslOptions?.enabled ?? form.value.ssl),
         rejectUnauthorized: form.value.sslOptions?.rejectUnauthorized,
@@ -263,6 +271,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
         database: form.value.database.trim() || undefined,
         ssl: !!sslOptions.enabled,
         sslOptions,
+        extraOptions: form.value.extraOptions,
         sshConnectionId: form.value.sshConnectionId.trim() || undefined,
         connectionId: editingId.value || undefined,
       })

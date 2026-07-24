@@ -176,11 +176,7 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
             :size="12"
           />
           <span class="nav-conn-icon" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <ellipse cx="12" cy="5" rx="8" ry="3" />
-              <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
-              <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
-            </svg>
+            <AppIcon name="database" :size="14" />
           </span>
           <span
             class="nav-conn-name"
@@ -227,11 +223,7 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
                 name="chevron-right"
                 :size="12"
               />
-              <svg class="bk-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <ellipse cx="12" cy="5" rx="9" ry="3" />
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-              </svg>
+              <AppIcon name="database" :size="14" class="bk-ico" />
               <span class="bk-name">{{ db }}</span>
               <span
                 v-if="isTreeLoading(treeDbKey(conn.id, db))"
@@ -251,32 +243,18 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
                 @dblclick="emit('tableClick', conn.id, db, t)"
                 @contextmenu="emit('tableContext', $event, conn.id, db, t)"
               >
-                <svg
+                <AppIcon
                   v-if="t.type === 'view'"
+                  name="eye"
+                  :size="13"
                   class="bk-ico view"
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <svg
+                />
+                <AppIcon
                   v-else
+                  name="table"
+                  :size="13"
                   class="bk-ico table"
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <path d="M3 9h18M3 15h18M9 3v18" />
-                </svg>
+                />
                 <span class="bk-name">{{ t.name }}</span>
                 <span v-if="t.rows != null" class="bk-rowcount">{{ formatRows(t.rows) }}</span>
               </button>

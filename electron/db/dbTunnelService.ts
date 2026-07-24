@@ -136,5 +136,7 @@ export class DbTunnelService {
 }
 
 function defaultDbPort(engine?: DbEngine | string): number {
-  return engine === 'postgres' ? 5432 : 3306
+  if (engine === 'postgres') return 5432
+  if (engine === 'oracle') return 1521
+  return 3306
 }

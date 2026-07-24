@@ -1,7 +1,7 @@
 import { ref } from 'vue'
-import { t } from '../i18n'
-import type { FileEntry } from '../env.d.ts'
-import type { TerminalPwdTracker } from './useTerminalPwd'
+import { t } from '../../i18n'
+import type { FileEntry } from '../../env.d.ts'
+import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
 
 function cleanRemotePath(path: string): string {
   return path.replace(/\/+$/, '') || '/'

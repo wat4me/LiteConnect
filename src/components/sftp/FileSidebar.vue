@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { FileEntry } from '../env.d.ts'
-import { useSftpNavigation } from '../composables/useSftpNavigation'
-import { useSftpDirTree } from '../composables/useSftpDirTree'
-import { useTransfers, ensureTransferListeners } from '../composables/useTransfers'
-import { useContextMenu } from '../composables/useContextMenu'
-import { useSessionState } from '../composables/useSessionState'
-import { useSftpUpload } from '../composables/useSftpUpload'
-import { useSftpFileActions } from '../composables/useSftpFileActions'
-import type { TerminalPwdTracker } from '../composables/useTerminalPwd'
+import type { FileEntry } from '../../env.d.ts'
+import { useSftpNavigation } from '../../composables/sftp/useSftpNavigation'
+import { useSftpDirTree } from '../../composables/sftp/useSftpDirTree'
+import { useTransfers, ensureTransferListeners } from '../../composables/sftp/useTransfers'
+import { useContextMenu } from '../../composables/useContextMenu'
+import { useSessionState } from '../../composables/session/useSessionState'
+import { useSftpUpload } from '../../composables/sftp/useSftpUpload'
+import { useSftpFileActions } from '../../composables/sftp/useSftpFileActions'
+import type { TerminalPwdTracker } from '../../composables/terminal/useTerminalPwd'
 import SftpDirTree from './SftpDirTree.vue'
 import SftpToolbar from './SftpToolbar.vue'
 import SftpPathBar from './SftpPathBar.vue'
@@ -18,6 +18,7 @@ import TransferList from './TransferList.vue'
 import UploadConfirmModal from './UploadConfirmModal.vue'
 import FileEditorModal from './FileEditorModal.vue'
 import FilePropertiesModal from './FilePropertiesModal.vue'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 const fileListRef = ref<InstanceType<typeof SftpDirTree> | null>(null)
@@ -598,10 +599,8 @@ defineExpose({ handleTerminalCd, clearSessionState })
 
     <div v-else-if="activeTab === 'transfers'" class="sidebar-content">
       <div class="transfers-header">
-        <button type="button" class="sidebar-btn" :title="t('sftp.backToFiles')" @click="activeTab = 'files'">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.backToFiles')" @click="activeTab = 'files'">
+          <AppIcon name="chevron-left" :size="16" />
         </button>
         <div class="transfers-header-title">
           <span>{{ t('sftp.transfers') }}</span>
@@ -609,10 +608,8 @@ defineExpose({ handleTerminalCd, clearSessionState })
         </div>
         <div style="flex:1"></div>
         <button type="button" class="ui-btn ui-btn-xs" @click="clearFinishedTransfers(transferDirection)">{{ t('sftp.clearRecords') }}</button>
-        <button class="sidebar-btn sidebar-btn-close" @click="emit('close')" :title="t('sftp.closeSidebar')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('sftp.closeSidebar')">
+          <AppIcon name="close" :size="14" />
         </button>
       </div>
       <div class="transfers-toolbar">
@@ -755,31 +752,6 @@ defineExpose({ handleTerminalCd, clearSessionState })
     --sftp-row-min-height: 2rem;
     --sftp-row-font: 0.875rem;
   }
-}
-
-.sidebar-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 7px;
-  cursor: pointer;
-  transition: all 0.15s;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.sidebar-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.sidebar-btn-close:hover {
-  color: var(--danger);
 }
 
 .transfer-action-badge {

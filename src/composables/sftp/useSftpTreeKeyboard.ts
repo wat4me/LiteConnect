@@ -1,5 +1,5 @@
 import type { Ref } from 'vue'
-import type { FileEntry } from '../env.d.ts'
+import type { FileEntry } from '../../env.d.ts'
 
 export type SftpTreeFlatRow =
   | { kind: 'dir'; name: string; path: string; depth: number; entry: FileEntry | null }

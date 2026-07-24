@@ -339,6 +339,16 @@ export class SettingsStore {
     await this.save()
   }
 
+  /** Local shell history / parameter popup. Default off to preserve native SSH behavior. */
+  getTerminalCommandSuggestEnabled(): boolean {
+    return this.settings.terminalCommandSuggestEnabled === true
+  }
+
+  async setTerminalCommandSuggestEnabled(enabled: boolean): Promise<void> {
+    this.settings.terminalCommandSuggestEnabled = !!enabled
+    await this.save()
+  }
+
   /** Default strategy when a local download path already exists. */
   getDownloadConflictStrategy(): 'overwrite' | 'skip' | 'rename' {
     const v = this.settings.downloadConflictStrategy

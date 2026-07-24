@@ -8,6 +8,8 @@ import { DbExportService } from '../db/exportService'
 import { SqlScriptImportService } from '../db/scriptImportService'
 import { assessSqlRisk } from '../db/sqlRisk'
 import { prepareDbQueryRequest } from '../db/prepareDbQuery'
+import { DEFAULT_DB_PORT, normalizeDbEngine } from '../db/types'
+import { normalizeExtraOptions } from '../../shared/dbConnectionUrl'
 import {
   isValidHost,
   isValidPort,
@@ -167,8 +169,8 @@ export function registerDbHandlers(
     await ensureStore()
     if (!params || typeof params !== 'object') throw new Error('Invalid params')
     if (!isValidHost(params.host)) throw new Error('Invalid host')
-    const engine = params.engine === 'postgres' ? 'postgres' : 'mysql'
-    const defaultPort = engine === 'postgres' ? 5432 : 3306
+    const engine = normalizeDbEngine(params.engine)
+    const defaultPort = DEFAULT_DB_PORT[engine]
     if (!isValidPort(params.port ?? defaultPort)) throw new Error('Invalid port')
     if (!isValidUsername(params.username)) throw new Error('Invalid username')
     if (typeof params.password !== 'string') throw new Error('Invalid password')
@@ -195,6 +197,7 @@ export function registerDbHandlers(
       database: typeof params.database === 'string' ? params.database.trim() : undefined,
       ssl: !!params.ssl,
       sslOptions: params.sslOptions,
+      extraOptions: normalizeExtraOptions(params.extraOptions),
       sshConnectionId,
     })
   })
@@ -345,7 +348,9 @@ export function registerDbHandlers(
       const prepared = prepareDbQueryRequest(sessionId, sql, options, {
         getDialect: (sid) => {
           const session = dbManager.getSession(sid)
-          return session?.engine === 'postgres' ? 'postgres' : 'mysql'
+          if (session?.engine === 'postgres') return 'postgres'
+          if (session?.engine === 'oracle') return 'oracle'
+          return 'mysql'
         },
       })
       return await dbManager.query(prepared.sessionId, prepared.sql, prepared.options)
@@ -367,7 +372,9 @@ export function registerDbHandlers(
     const explainSql =
       session.engine === 'postgres'
         ? `EXPLAIN (ANALYZE false, VERBOSE false, COSTS true, FORMAT TEXT) ${trimmed}`
-        : `EXPLAIN ${trimmed}`
+        : session.engine === 'oracle'
+          ? `EXPLAIN PLAN FOR ${trimmed}`
+          : `EXPLAIN ${trimmed}`
     return await dbManager.query(sessionId, explainSql, {
       maxRows: 500,
       timeoutMs: 60_000,

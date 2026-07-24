@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { HostKeyMismatchData } from '../composables/useSecurityDialogs'
+import AppIcon from './icons/AppIcon.vue'
 
 const props = defineProps<{
   data: HostKeyMismatchData | null
@@ -42,11 +43,7 @@ const warningText = computed(() => {
   >
     <div class="ui-modal-card host-key-dialog">
       <div class="dialog-header">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" aria-hidden="true">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
+        <AppIcon name="alert-triangle" :size="24" class="dialog-tone-icon warning" />
         <span id="host-key-title" class="dialog-title">{{ t('dialog.hostKeyTitle') }}</span>
       </div>
       <div class="dialog-body">
@@ -100,6 +97,10 @@ const warningText = computed(() => {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.dialog-tone-icon.warning {
+  color: var(--warning);
 }
 
 .dialog-body {

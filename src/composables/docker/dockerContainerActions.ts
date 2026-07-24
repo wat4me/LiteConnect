@@ -1,4 +1,4 @@
-import type { DockerContainerAction } from '../env.d'
+import type { DockerContainerAction } from '../../env.d'
 
 /**
  * Which action buttons to show for a container state (conservative for unknown).

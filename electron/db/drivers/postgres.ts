@@ -36,6 +36,7 @@ import type {
   DbTransactionState,
 } from '../types'
 import { resolveSslConfig } from '../types'
+import { mapPostgresExtraOptions } from '../../../shared/dbConnectionUrl'
 
 interface LiveSession {
   id: string
@@ -50,6 +51,7 @@ interface LiveSession {
   password: string
   ssl: boolean
   sslOptions?: DbConnection['sslOptions']
+  extraOptions?: DbConnection['extraOptions']
   /**
    * Pools isolated by database name (sessionId + database).
    * Concurrent tabs must not replace a shared pool.
@@ -181,6 +183,7 @@ export class PostgresDriver implements DbDriver {
         password: session.password,
         ssl: session.ssl,
         sslOptions: session.sslOptions,
+        extraOptions: session.extraOptions,
       },
       db,
     )
@@ -276,6 +279,7 @@ export class PostgresDriver implements DbDriver {
       password: conn.password || '',
       ssl: !!(conn.sslOptions?.enabled ?? conn.ssl),
       sslOptions: conn.sslOptions,
+      extraOptions: conn.extraOptions,
       pools,
       poolLastUsed,
     })
@@ -286,7 +290,10 @@ export class PostgresDriver implements DbDriver {
   async test(conn: DbTestParams): Promise<DbTestResult> {
     const start = Date.now()
     const database = (conn.database || 'postgres').trim() || 'postgres'
-    const ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+    const extras = mapPostgresExtraOptions(conn.extraOptions)
+    let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+    if (extras.sslEnabled === true && !ssl) ssl = { rejectUnauthorized: false } as any
+    if (extras.sslEnabled === false) ssl = undefined
     const pool = new Pool({
       host: conn.host,
       port: conn.port || 5432,
@@ -295,8 +302,9 @@ export class PostgresDriver implements DbDriver {
       database,
       ssl: ssl || undefined,
       max: 1,
-      connectionTimeoutMillis: 12_000,
+      connectionTimeoutMillis: extras.connectionTimeoutMillis ?? 12_000,
       idleTimeoutMillis: 1_000,
+      ...(extras.application_name ? { application_name: extras.application_name } : {}),
     })
     try {
       const res = await pool.query<{ v: string }>('SELECT version() AS v')
@@ -1035,7 +1043,7 @@ export class PostgresDriver implements DbDriver {
       }
 
       await client.query(`SET statement_timeout = ${Math.floor(timeoutMs)}`)
-      const plan = planSqlRowLimit(trimmed, maxRows)
+      const plan = planSqlRowLimit(trimmed, maxRows, 'postgres')
 
       try {
         if (plan.mode === 'unsupported') {
@@ -1300,17 +1308,28 @@ export class PostgresDriver implements DbDriver {
   }
 
   private createPool(
-    conn: Pick<DbConnection, 'host' | 'port' | 'username' | 'password' | 'ssl' | 'sslOptions'> | {
-      host: string
-      port: number
-      username: string
-      password: string
-      ssl: boolean
-      sslOptions?: DbConnection['sslOptions']
-    },
+    conn:
+      | Pick<
+          DbConnection,
+          'host' | 'port' | 'username' | 'password' | 'ssl' | 'sslOptions' | 'extraOptions'
+        >
+      | {
+          host: string
+          port: number
+          username: string
+          password: string
+          ssl: boolean
+          sslOptions?: DbConnection['sslOptions']
+          extraOptions?: DbConnection['extraOptions']
+        },
     database: string,
   ): Pool {
-    const ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+    const extras = mapPostgresExtraOptions(
+      'extraOptions' in conn ? conn.extraOptions : undefined,
+    )
+    let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+    if (extras.sslEnabled === true && !ssl) ssl = { rejectUnauthorized: false } as any
+    if (extras.sslEnabled === false) ssl = undefined
     return new Pool({
       host: conn.host,
       port: conn.port || 5432,
@@ -1320,7 +1339,8 @@ export class PostgresDriver implements DbDriver {
       ssl: ssl || undefined,
       max: 5,
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 15_000,
+      connectionTimeoutMillis: extras.connectionTimeoutMillis ?? 15_000,
+      ...(extras.application_name ? { application_name: extras.application_name } : {}),
     })
   }
 

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { FileEntry } from '../env.d.ts'
-import { formatSize } from '../utils/format'
-import { ancestorPaths } from '../composables/useSftpDirTree'
-import { useSftpTreeScroll } from '../composables/useSftpTreeScroll'
-import { useSftpTreeKeyboard } from '../composables/useSftpTreeKeyboard'
+import type { FileEntry } from '../../env.d.ts'
+import { formatSize } from '../../utils/format'
+import { ancestorPaths } from '../../composables/sftp/useSftpDirTree'
+import { useSftpTreeScroll } from '../../composables/sftp/useSftpTreeScroll'
+import { useSftpTreeKeyboard } from '../../composables/sftp/useSftpTreeKeyboard'
 import FileTypeIcon from './FileTypeIcon.vue'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -378,9 +379,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
     @dragleave="onTreeDragLeave"
   >
     <div v-if="searchVisible" class="file-search-bar">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
+      <AppIcon name="search" :size="12" />
       <input
         :ref="setSearchInputRef"
         v-model="searchQuery"
@@ -388,10 +387,8 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
         :placeholder="t('sftp.searchInTree')"
         @keydown="onSearchKeydown"
       />
-      <button type="button" class="file-search-close" :title="t('sftp.closeSearch')" @click="toggleSearch">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+      <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSearch')" @click="toggleSearch">
+        <AppIcon name="close" :size="12" />
       </button>
     </div>
 
@@ -475,9 +472,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
             :title="isExpanded(row.path) ? t('sftp.collapse') : t('sftp.expand')"
             @click="onChevronClick($event, row.path)"
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <polyline points="9 6 15 12 9 18" />
-            </svg>
+            <AppIcon name="chevron-right" :size="10" />
           </button>
           <!-- 文件：复选框，无箭头 -->
           <span v-else class="tree-select-slot">
@@ -505,10 +500,10 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
           >{{ formatSize(row.entry.size) }}</span>
           <div v-if="row.kind === 'file'" class="tree-quick-actions">
             <button type="button" class="tree-quick-btn" :title="t('sftp.download')" @click.stop="emit('download', row.entry)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 21h14"/></svg>
+              <AppIcon name="download" :size="12" />
             </button>
             <button v-if="canEdit?.(row.name)" type="button" class="tree-quick-btn" :title="t('sftp.edit')" @click.stop="emit('edit', row.entry)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              <AppIcon name="edit" :size="12" />
             </button>
           </div>
         </template>
@@ -869,21 +864,6 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
   font-size: 12px;
   outline: none;
   height: 30px;
-}
-
-.file-search-close {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 4px;
-}
-
-.file-search-close:hover {
-  color: var(--accent);
-  background: var(--hover-bg);
 }
 
 .file-selection-bar {

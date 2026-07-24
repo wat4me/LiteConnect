@@ -46,6 +46,8 @@ export interface SettingsDraft {
   terminalPasteConfirmEnabled: boolean
   /** Single-line paste confirm threshold; multiline always confirms when enabled */
   terminalPasteConfirmMaxChars: PasteConfirmMaxChars
+  /** Local shell history / parameter popup. Defaults off. */
+  terminalCommandSuggestEnabled: boolean
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
   dirTransferConcurrency: number
   dirTransferFailPolicy: 'continue' | 'stop'
@@ -82,6 +84,7 @@ export function createEmptyDraft(): SettingsDraft {
     terminalScrollback: 5000,
     terminalPasteConfirmEnabled: true,
     terminalPasteConfirmMaxChars: PASTE_CONFIRM_MAX_CHARS,
+    terminalCommandSuggestEnabled: false,
     downloadConflictStrategy: 'rename',
     dirTransferConcurrency: 3,
     dirTransferFailPolicy: 'stop',
@@ -120,6 +123,7 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.terminalScrollback === b.terminalScrollback
     && a.terminalPasteConfirmEnabled === b.terminalPasteConfirmEnabled
     && a.terminalPasteConfirmMaxChars === b.terminalPasteConfirmMaxChars
+    && a.terminalCommandSuggestEnabled === b.terminalCommandSuggestEnabled
     && a.downloadConflictStrategy === b.downloadConflictStrategy
     && a.dirTransferConcurrency === b.dirTransferConcurrency
     && a.dirTransferFailPolicy === b.dirTransferFailPolicy
@@ -182,6 +186,7 @@ export function useSettingsDraft(): {
       terminalScrollback: 5000,
       terminalPasteConfirmEnabled: true,
       terminalPasteConfirmMaxChars: PASTE_CONFIRM_MAX_CHARS,
+      terminalCommandSuggestEnabled: false,
       downloadConflictStrategy: 'rename',
       dirTransferConcurrency: 3,
       dirTransferFailPolicy: 'stop',
@@ -216,6 +221,7 @@ export function useSettingsDraft(): {
         nextTerminalScrollback,
         nextTerminalPasteConfirm,
         nextTerminalPasteMaxChars,
+        nextTerminalCommandSuggest,
         nextDownloadConflict,
         nextDirConcurrency,
         nextDirFailPolicy,
@@ -245,6 +251,7 @@ export function useSettingsDraft(): {
         window.LiteConnect.getTerminalScrollback(),
         window.LiteConnect.getTerminalPasteConfirmEnabled(),
         window.LiteConnect.getTerminalPasteConfirmMaxChars().catch(() => PASTE_CONFIRM_MAX_CHARS),
+        window.LiteConnect.getTerminalCommandSuggestEnabled().catch(() => false),
         window.LiteConnect.getDownloadConflictStrategy(),
         window.LiteConnect.getDirTransferConcurrency().catch(() => 3),
         window.LiteConnect.getDirTransferFailPolicy().catch(() => 'stop' as const),
@@ -283,6 +290,7 @@ export function useSettingsDraft(): {
         terminalScrollback: Math.max(2000, Math.min(20000, Math.round(nextTerminalScrollback) || 5000)),
         terminalPasteConfirmEnabled: nextTerminalPasteConfirm !== false,
         terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(nextTerminalPasteMaxChars),
+        terminalCommandSuggestEnabled: nextTerminalCommandSuggest === true,
         downloadConflictStrategy:
           nextDownloadConflict === 'overwrite' || nextDownloadConflict === 'skip' || nextDownloadConflict === 'rename'
             ? nextDownloadConflict
@@ -370,6 +378,7 @@ export function useSettingsDraft(): {
       await window.LiteConnect.setTerminalScrollback(d.terminalScrollback)
       await window.LiteConnect.setTerminalPasteConfirmEnabled(d.terminalPasteConfirmEnabled)
       await window.LiteConnect.setTerminalPasteConfirmMaxChars(d.terminalPasteConfirmMaxChars)
+      await window.LiteConnect.setTerminalCommandSuggestEnabled(d.terminalCommandSuggestEnabled)
       await window.LiteConnect.setDownloadConflictStrategy(d.downloadConflictStrategy)
       await window.LiteConnect.setDirTransferConcurrency(d.dirTransferConcurrency)
       await window.LiteConnect.setDirTransferFailPolicy(d.dirTransferFailPolicy)
@@ -393,6 +402,7 @@ export function useSettingsDraft(): {
           scrollback: d.terminalScrollback,
           pasteConfirmEnabled: d.terminalPasteConfirmEnabled,
           pasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
+          commandSuggestEnabled: d.terminalCommandSuggestEnabled,
         },
       }))
 

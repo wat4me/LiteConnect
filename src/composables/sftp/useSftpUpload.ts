@@ -1,6 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 import { useDragDrop, type DropUploadItem } from './useDragDrop'
-import { localBaseName } from '../utils/sftpEditable'
+import { localBaseName } from '../../utils/sftpEditable'
 
 export type DownloadConflictStrategy = 'overwrite' | 'skip' | 'rename'
 

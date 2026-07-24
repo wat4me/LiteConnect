@@ -1,7 +1,8 @@
 import { ref, type Ref } from 'vue'
 
 /**
- * Mutually exclusive right-side workspace panels (batch / snippets / monitor).
+ * Right-side panels (batch / snippets) are mutually exclusive.
+ * Monitor is a bottom dock and can stay open alongside them.
  */
 export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
   const batchPanelVisible = ref(false)
@@ -14,7 +15,6 @@ export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
     batchPanelVisible.value = !batchPanelVisible.value
     if (batchPanelVisible.value) {
       snippetsPanelVisible.value = false
-      monitorVisible.value = false
     }
   }
 
@@ -22,14 +22,12 @@ export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
     snippetsPanelVisible.value = !snippetsPanelVisible.value
     if (snippetsPanelVisible.value) {
       batchPanelVisible.value = false
-      monitorVisible.value = false
     }
   }
 
   function openSnippetsPanelWithDraft(command: string) {
     snippetDraftCommand.value = command
     batchPanelVisible.value = false
-    monitorVisible.value = false
     snippetsPanelVisible.value = true
   }
 
@@ -50,19 +48,12 @@ export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
   }
 
   function toggleMonitorPanel() {
-    if (monitorVisible.value) {
-      monitorVisible.value = false
-      return
-    }
-    snippetsPanelVisible.value = false
-    batchPanelVisible.value = false
-    monitorVisible.value = true
+    monitorVisible.value = !monitorVisible.value
   }
 
   function openBatchWithCommand(command: string) {
     batchInitialCommand.value = command
     snippetsPanelVisible.value = false
-    monitorVisible.value = false
     batchPanelVisible.value = true
   }
 

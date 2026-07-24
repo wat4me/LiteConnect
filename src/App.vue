@@ -16,19 +16,19 @@ const GlobalJumpPalette = defineAsyncComponent(() => import('./components/Global
 import type { AppBootstrapData } from './env.d'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { useTheme } from './composables/useTheme'
-import { useTerminalPwd } from './composables/useTerminalPwd'
-import { useSessionManager, HOME_ID } from './composables/useSessionManager'
+import { useTerminalPwd } from './composables/terminal/useTerminalPwd'
+import { useSessionManager, HOME_ID } from './composables/session/useSessionManager'
 import { useSidebarState } from './composables/useSidebarState'
-import { useLatencyState } from './composables/useLatencyState'
+import { useLatencyState } from './composables/session/useLatencyState'
 import { useAppKeyboard } from './composables/useAppKeyboard'
-import { useSplitTerminal } from './composables/useSplitTerminal'
-import { useAiReplyBadge } from './composables/useAiReplyBadge'
-import { useAiChat } from './composables/useAiChat'
+import { useSplitTerminal } from './composables/terminal/useSplitTerminal'
+import { useAiReplyBadge } from './composables/ai/useAiReplyBadge'
+import { useAiChat } from './composables/ai/useAiChat'
 import { useSecurityDialogs } from './composables/useSecurityDialogs'
 import { useAppNavigation } from './composables/useAppNavigation'
 import { useWorkspacePanels } from './composables/useWorkspacePanels'
-import { useDockerWorkspaceMode } from './composables/useDockerWorkspaceMode'
-import { useSessionActions } from './composables/useSessionActions'
+import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
+import { useSessionActions } from './composables/session/useSessionActions'
 import {
   formatSnippetPayloadForWrite,
   matchSnippetHotkey,
@@ -298,7 +298,7 @@ const {
 
 /** Flatten all open sessions so TerminalWorkspace can keep every xterm mounted. */
 const allSessions = computed(() => {
-  const list: import('./composables/useSessionManager').Session[] = []
+  const list: import('./composables/session/useSessionManager').Session[] = []
   for (const g of groups.value) {
     for (const s of g.sessions) list.push(s)
   }

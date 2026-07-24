@@ -1,5 +1,5 @@
 import type { DbBrowseOptions, DbColumnFilter, DbFilterOp } from './types'
-import { assertIdent, quoteIdentMysql, quoteIdentPostgres } from './common'
+import { assertIdent, quoteIdentMysql, quoteIdentOracle, quoteIdentPostgres } from './common'
 
 const FILTER_OPS: readonly DbFilterOp[] = [
   'eq',
@@ -57,15 +57,21 @@ export function sanitizeBrowseOptions(options?: DbBrowseOptions): DbBrowseOption
 
 type QuoteFn = (name: string) => string
 
+function bindPlaceholder(style: 'mysql' | 'postgres' | 'oracle', paramIndex: number): string {
+  if (style === 'postgres') return `$${paramIndex}`
+  if (style === 'oracle') return `:${paramIndex}`
+  return '?'
+}
+
 function opSql(
   quote: QuoteFn,
   filter: DbColumnFilter,
   paramIndex: number,
-  style: 'mysql' | 'postgres',
+  style: 'mysql' | 'postgres' | 'oracle',
 ): { sql: string; params: unknown[]; next: number } {
   assertIdent(filter.column)
   const col = quote(filter.column)
-  const ph = style === 'postgres' ? `$${paramIndex}` : '?'
+  const ph = bindPlaceholder(style, paramIndex)
   switch (filter.op) {
     case 'is_null':
       return { sql: `${col} IS NULL`, params: [], next: paramIndex }
@@ -124,6 +130,49 @@ export function buildWhereClausePg(
       for (const col of useCols) {
         assertIdent(col)
         likes.push(`CAST(${quote(col)} AS TEXT) LIKE $${p}`)
+        params.push(`%${search}%`)
+        p += 1
+      }
+      parts.push(`(${likes.join(' OR ')})`)
+    }
+  }
+
+  if (parts.length === 0) return { clause: '', params: [] }
+  return { clause: ` WHERE ${parts.join(' AND ')}`, params }
+}
+
+/** Oracle 12c+ binds as :1, :2, … (node-oracledb positional). */
+export function buildWhereClauseOracle(
+  options: DbBrowseOptions | undefined,
+  fallbackSearchColumns: string[] = [],
+): { clause: string; params: unknown[] } {
+  if (!options) return { clause: '', params: [] }
+  const quote = quoteIdentOracle
+  const parts: string[] = []
+  const params: unknown[] = []
+  let p = 1
+
+  if (options.filters?.length) {
+    for (const f of options.filters) {
+      const built = opSql(quote, f, p, 'oracle')
+      parts.push(built.sql)
+      params.push(...built.params)
+      p = built.next
+    }
+  }
+
+  const search = options.search?.trim()
+  if (search) {
+    const cols =
+      options.searchColumns && options.searchColumns.length > 0
+        ? options.searchColumns
+        : fallbackSearchColumns
+    const useCols = cols.slice(0, 32)
+    if (useCols.length > 0) {
+      const likes: string[] = []
+      for (const col of useCols) {
+        assertIdent(col)
+        likes.push(`TO_CHAR(${quote(col)}) LIKE :${p}`)
         params.push(`%${search}%`)
         p += 1
       }

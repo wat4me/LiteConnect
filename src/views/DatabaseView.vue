@@ -232,7 +232,13 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
         <div class="bk-topbar-left">
           <span
             class="bk-engine-badge sm"
-            :class="session?.engine === 'postgres' ? 'postgres' : 'mysql'"
+            :class="
+              session?.engine === 'postgres'
+                ? 'postgres'
+                : session?.engine === 'oracle'
+                  ? 'oracle'
+                  : 'mysql'
+            "
           >
             {{ session ? engineLabel(session.engine || 'mysql') : t('database.title') }}
           </span>
@@ -296,11 +302,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
         <div class="bk-editor">
           <template v-if="!session">
             <div class="bk-tab-empty welcome">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
-                <ellipse cx="12" cy="5" rx="9" ry="3" />
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-              </svg>
+              <AppIcon name="database" :size="40" />
               <p class="welcome-title">{{ t('database.welcomeTitle') }}</p>
               <p class="welcome-desc">{{ t('database.welcomeDesc') }}</p>
               <button type="button" class="ui-btn ui-btn-primary" @click="openCreate">{{ t('database.newConnection') }}</button>
@@ -547,6 +549,11 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
 .bk-engine-badge.postgres {
   background: #63b3ed1a;
   color: #3182ce;
+}
+
+.bk-engine-badge.oracle {
+  background: #fc81811a;
+  color: #c53030;
 }
 
 .bk-engine-badge.sm {

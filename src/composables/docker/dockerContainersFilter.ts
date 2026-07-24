@@ -1,4 +1,4 @@
-import type { DockerContainerSummary } from '../env.d'
+import type { DockerContainerSummary } from '../../env.d'
 
 export type DockerListStateFilter = 'all' | 'running' | 'stopped'
 

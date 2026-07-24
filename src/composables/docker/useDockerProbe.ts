@@ -1,5 +1,5 @@
 import { computed, getCurrentInstance, onBeforeUnmount, ref, watch, type Ref } from 'vue'
-import type { DockerAvailability } from '../env.d'
+import type { DockerAvailability } from '../../env.d'
 
 export type DockerProbeUiState =
   | { kind: 'idle' }

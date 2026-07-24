@@ -351,9 +351,7 @@ onMounted(loadSnippets)
         :disabled="!canExecute"
         @click="handleExecute"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-        </svg>
+        <AppIcon name="play" :size="14" />
         <span>{{ t('batch.execute') }}</span>
       </button>
       <button
@@ -362,9 +360,7 @@ onMounted(loadSnippets)
         type="button"
         @click="handleCancel"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin-icon">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-        </svg>
+        <AppIcon name="refresh" :size="14" class="spin-icon" />
         <span>{{ t('batch.cancel') }}</span>
       </button>
       <button v-if="hasResults && !isRunning" type="button" class="ui-btn ui-btn-sm" @click="handleExport">{{ t('batch.exportResults') }}</button>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -102,9 +103,7 @@ function onBlur() {
       :title="t('sftp.editPath')"
       @click.stop="emit('toggle')"
     >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-      </svg>
+      <AppIcon name="edit" :size="12" />
     </button>
     <button
       v-else
@@ -114,9 +113,7 @@ function onBlur() {
       @mousedown.prevent
       @click="emit('submit')"
     >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
+      <AppIcon name="check" :size="12" />
     </button>
   </div>
 </template>

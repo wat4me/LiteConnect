@@ -4,29 +4,29 @@ import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import TerminalSearchBar from './TerminalSearchBar.vue'
-import { useTerminalSearch } from '../composables/useTerminalSearch'
+import TerminalSearchBar from '../terminal/TerminalSearchBar.vue'
+import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
 import {
   dockerExecStateI18nKey,
   useDockerContainerExec,
-} from '../composables/useDockerContainerExec'
+} from '../../composables/docker/useDockerContainerExec'
 import {
   createReconcileController,
   decideRetryCommit,
   shouldResetForTarget,
   type ReconcileController,
-} from '../composables/dockerContainerTerminalReconcile'
-import { useTheme, getTerminalColors, type TerminalPaletteId } from '../composables/useTheme'
+} from '../../composables/docker/dockerContainerTerminalReconcile'
+import { useTheme, getTerminalColors, type TerminalPaletteId } from '../../composables/useTheme'
 import {
   PASTE_CONFIRM_MAX_CHARS,
   normalizePasteConfirmMaxChars,
   shouldConfirmPaste,
   countPasteLines,
   buildPastePreview,
-} from '../utils/terminalPaste'
-import { canMeasureTerminal } from '../utils/terminalResizePolicy'
-import { appConfirm } from '../composables/useAppDialog'
-import type { DockerExecShell } from '../env.d'
+} from '../../utils/terminalPaste'
+import { canMeasureTerminal } from '../../utils/terminalResizePolicy'
+import { appConfirm } from '../../composables/useAppDialog'
+import type { DockerExecShell } from '../../env.d'
 
 const props = defineProps<{
   sessionId: string

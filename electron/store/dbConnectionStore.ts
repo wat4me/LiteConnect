@@ -4,6 +4,7 @@ import { join, dirname } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import type { DbConnection, DbEngine, DbSslOptions } from '../db/types'
 import { DEFAULT_DB_PORT, normalizeDbEngine } from '../db/types'
+import { normalizeExtraOptions } from '../../shared/dbConnectionUrl'
 import { DecryptionError, isValidHost, isValidPort, isValidUsername } from '../utils/validation'
 import { t } from '../i18n'
 
@@ -18,6 +19,7 @@ export type SaveDbConnectionInput = {
   database?: string
   ssl?: boolean
   sslOptions?: DbSslOptions
+  extraOptions?: Record<string, string>
   group?: string
   sshConnectionId?: string
   order?: number
@@ -80,11 +82,13 @@ export class DbConnectionStore {
   private normalizeLoaded(c: any): DbConnection {
     const engine = normalizeDbEngine(c?.engine)
     const sslOptions = normalizeSslOptions(c?.sslOptions, c?.ssl)
+    const extraOptions = normalizeExtraOptions(c?.extraOptions)
     return {
       ...c,
       engine,
       ssl: !!(sslOptions?.enabled ?? c?.ssl),
       sslOptions,
+      extraOptions,
       group: typeof c?.group === 'string' && c.group.trim() ? c.group.trim() : undefined,
       sshConnectionId:
         typeof c?.sshConnectionId === 'string' && c.sshConnectionId.trim()
@@ -181,6 +185,7 @@ export class DbConnectionStore {
     if (!isValidPort(port)) throw new Error('Invalid port')
 
     const sslOptions = normalizeSslOptions(input.sslOptions, input.ssl)
+    const extraOptions = normalizeExtraOptions(input.extraOptions)
     const group =
       typeof input.group === 'string' && input.group.trim() ? input.group.trim() : undefined
     const sshConnectionId =
@@ -206,6 +211,7 @@ export class DbConnectionStore {
         database: input.database?.trim() || undefined,
         ssl: !!(sslOptions?.enabled),
         sslOptions,
+        extraOptions,
         group,
         sshConnectionId,
         updatedAt: now,
@@ -230,6 +236,7 @@ export class DbConnectionStore {
       database: input.database?.trim() || undefined,
       ssl: !!(sslOptions?.enabled),
       sslOptions,
+      extraOptions,
       group,
       sshConnectionId,
       order: typeof input.order === 'number' ? input.order : maxOrder + 1,

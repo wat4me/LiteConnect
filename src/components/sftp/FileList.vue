@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { FileEntry } from '../env.d.ts'
-import { formatSize } from '../utils/format'
+import type { FileEntry } from '../../env.d.ts'
+import { formatSize } from '../../utils/format'
 import FileTypeIcon from './FileTypeIcon.vue'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -168,9 +169,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
 <template>
   <div class="file-list-container" @keydown="handleKeydown" tabindex="0">
     <div v-if="searchVisible" class="file-search-bar">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
+      <AppIcon name="search" :size="12" />
       <input
         :ref="setSearchInputRef"
         v-model="searchQuery"
@@ -179,10 +178,8 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
         @keydown="onSearchKeydown"
       />
       <span v-if="isSearching" class="search-count">{{ t('sftp.searchResultCount', { count: filteredFiles.length }) }}</span>
-      <button class="file-search-close" @click="toggleSearch" :title="t('sftp.closeSearch')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
+      <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="toggleSearch" :title="t('sftp.closeSearch')">
+        <AppIcon name="close" :size="12" />
       </button>
     </div>
 
@@ -403,25 +400,6 @@ function highlightMatch(text: string, query: string): { text: string; highlight:
   font-size: 10px;
   color: var(--text-secondary);
   white-space: nowrap;
-}
-
-.file-search-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-.file-search-close:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
 }
 
 .sidebar-error {

@@ -418,15 +418,21 @@ function classifySpecialSelect(sql: string): 'lock' | 'into_outfile' | 'into_tab
   return kind
 }
 
+export type SqlLimitDialect = 'mysql' | 'postgres' | 'oracle'
+
 /**
  * Decide how to cap rows for a query.
- * - rewrite: append LIMIT maxRows+1 when safe
+ * - rewrite: append LIMIT (mysql/pg) or FETCH FIRST (oracle) when safe
  * - stream: SELECT-like, cap via driver stream/cursor
  * - plain: run as-is (no rewrite/cursor) — e.g. SELECT INTO
  * - unsupported: refuse with explicit error (multi-statement SELECT)
  * - none: DML/DDL (including WITH … UPDATE/DELETE/INSERT)
  */
-export function planSqlRowLimit(sql: string, maxRows: number): SqlLimitPlan {
+export function planSqlRowLimit(
+  sql: string,
+  maxRows: number,
+  dialect: SqlLimitDialect = 'mysql',
+): SqlLimitPlan {
   const trimmed = sql.trim()
   if (!trimmed) return { mode: 'none' }
 
@@ -463,6 +469,10 @@ export function planSqlRowLimit(sql: string, maxRows: number): SqlLimitPlan {
 
   const core = stripTrailingSemicolons(trimmed)
   const limit = Math.max(1, Math.floor(maxRows) + 1)
+  if (dialect === 'oracle') {
+    // Oracle 12c+; LIMIT is not valid SQL
+    return { mode: 'rewrite', sql: `${core}\nFETCH FIRST ${limit} ROWS ONLY` }
+  }
   return { mode: 'rewrite', sql: `${core}\nLIMIT ${limit}` }
 }
 

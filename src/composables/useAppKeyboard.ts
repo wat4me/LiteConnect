@@ -1,5 +1,5 @@
 import type { ComputedRef, Ref } from 'vue'
-import type { ConnectionGroup } from './useSessionManager'
+import type { ConnectionGroup } from './session/useSessionManager'
 
 export function useAppKeyboard(deps: {
   isHomeActive: ComputedRef<boolean>

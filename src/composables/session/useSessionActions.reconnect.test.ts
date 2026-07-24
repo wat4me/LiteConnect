@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ref, computed } from 'vue'
-import { isNonRetryableSshError } from '../utils/sshErrorRetry'
+import { isNonRetryableSshError } from '../../utils/sshErrorRetry'
 
 /**
  * Mirrors handleReconnect catch path: non-retryable errors must set nonRetryable

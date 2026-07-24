@@ -44,6 +44,15 @@ describe('planSqlRowLimit', () => {
     }
   })
 
+  it('rewrites Oracle SELECT with FETCH FIRST maxRows+1', () => {
+    const plan = planSqlRowLimit('SELECT * FROM t', 100, 'oracle')
+    expect(plan.mode).toBe('rewrite')
+    if (plan.mode === 'rewrite') {
+      expect(plan.sql).toMatch(/FETCH FIRST 101 ROWS ONLY\s*$/i)
+      expect(plan.sql).not.toMatch(/\bLIMIT\b/i)
+    }
+  })
+
   it('strips trailing semicolon before rewrite', () => {
     const plan = planSqlRowLimit('SELECT 1;', 10)
     expect(plan.mode).toBe('rewrite')

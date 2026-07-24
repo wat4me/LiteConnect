@@ -10,6 +10,7 @@ import {
 } from '../../utils/queryOutputPanel'
 import { nextOutputPanel, outputPanelDomIds } from '../../utils/queryUiController'
 import { filterRows, sortRows } from '../../utils/dbSql'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -231,11 +232,7 @@ watch(
         @copy-cell="emit('copyCell', $event)"
       />
       <div v-else class="output-empty-container">
-        <svg class="empty-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <ellipse cx="12" cy="5" rx="9" ry="3" />
-          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-        </svg>
+        <AppIcon name="database" :size="40" class="empty-icon" />
         <span class="empty-title">{{ t('database.query.resultEmpty') }}</span>
         <div class="empty-tips">
           <div class="tip-item">

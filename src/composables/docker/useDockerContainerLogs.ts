@@ -4,7 +4,7 @@ import type {
   DockerLogStreamState,
   DockerLogTail,
   DockerTransportErrorCode,
-} from '../env.d'
+} from '../../env.d'
 import {
   appendDockerLogEntries,
   clearDockerLogRingBuffer,

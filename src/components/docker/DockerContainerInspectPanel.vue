@@ -7,7 +7,7 @@ import {
   inspectMatchDisplay,
   nextInspectMatchIndex,
   prevInspectMatchIndex,
-} from '../../composables/inspectJsonSearch'
+} from '../../composables/docker/inspectJsonSearch'
 import type { DockerContainerInspectResult } from '../../env.d'
 
 const props = defineProps<{

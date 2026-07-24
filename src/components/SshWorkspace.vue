@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import LeftToolbar from './LeftToolbar.vue'
-import TerminalWorkspace from './TerminalWorkspace.vue'
+import TerminalWorkspace from './terminal/TerminalWorkspace.vue'
 import type { Connection } from '../env.d'
-import type { ConnectionGroup, Session } from '../composables/useSessionManager'
-import type { SplitMode, SplitSide } from '../composables/useSplitTerminal'
+import type { ConnectionGroup, Session } from '../composables/session/useSessionManager'
+import type { SplitMode, SplitSide } from '../composables/terminal/useSplitTerminal'
 import type { BatchCommandTarget } from '../composables/useBatchCommand'
-import type { SplitDropPayload } from '../composables/useSessionActions'
+import type { SplitDropPayload } from '../composables/session/useSessionActions'
 import { getSnippetContext } from '../utils/sessionDisplay'
 import {
   ensureTransferListeners,
   globalActiveTransfers,
   teardownTransferListeners,
-} from '../composables/useTransfers'
+} from '../composables/sftp/useTransfers'
 import { scheduleAfterTerminalVisible } from '../utils/workspaceTerminalFocus'
 
 onMounted(() => {
@@ -25,13 +25,13 @@ onBeforeUnmount(() => {
   teardownTransferListeners()
 })
 
-const FileSidebar = defineAsyncComponent(() => import('./FileSidebar.vue'))
+const FileSidebar = defineAsyncComponent(() => import('./sftp/FileSidebar.vue'))
 const MonitorPanel = defineAsyncComponent(() => import('./MonitorPanel.vue'))
-const AiSidebar = defineAsyncComponent(() => import('./AiSidebar.vue'))
+const AiSidebar = defineAsyncComponent(() => import('./ai/AiSidebar.vue'))
 const BatchCommandPanel = defineAsyncComponent(() => import('./BatchCommandPanel.vue'))
 const CommandSnippetsPanel = defineAsyncComponent(() => import('./CommandSnippetsPanel.vue'))
 const CommandSnippetPalette = defineAsyncComponent(() => import('./CommandSnippetPalette.vue'))
-const DockerWorkspace = defineAsyncComponent(() => import('./DockerWorkspace.vue'))
+const DockerWorkspace = defineAsyncComponent(() => import('./docker/DockerWorkspace.vue'))
 
 const props = defineProps<{
   activeGroup: ConnectionGroup | null
@@ -123,6 +123,8 @@ const emit = defineEmits<{
 }>()
 
 const terminalWorkspaceRef = ref<{ focusActiveTerminal: () => boolean } | null>(null)
+/** Bottom dock is default; side panel opens only when user requests details. */
+const monitorDetailsOpen = ref(false)
 /** Declared before onBeforeUnmount so unmount can cancel stale rAF focus. */
 let cancelPendingTerminalFocus: (() => void) | null = null
 
@@ -146,6 +148,13 @@ watch(
 )
 
 const showSidePanels = () => !props.dockerMode
+
+watch(
+  () => props.monitorVisible,
+  (visible) => {
+    if (!visible) monitorDetailsOpen.value = false
+  },
+)
 </script>
 
 <template>
@@ -219,61 +228,79 @@ const showSidePanels = () => !props.dockerMode
       @mousedown="emit('start-resize', $event)"
     ></div>
 
-    <!-- Keep TerminalWorkspace mounted (v-show) so xterm is never destroyed in Docker mode -->
-    <div v-show="!dockerMode" class="terminal-host">
-      <TerminalWorkspace
-        ref="terminalWorkspaceRef"
-        :active-group="activeGroup"
-        :active-session="activeSession"
-        :connections="connections"
-        :all-sessions="allSessions"
-        :live-session-ids="liveSessionIds"
-        :unread-sessions="unreadSessions"
-        :split-mode="splitMode"
-        :split-ratio="splitRatio"
-        :is-split="isSplit"
-        :is-resizing="isResizing"
-        :preview-mode="previewMode"
-        :preview-side="previewSide"
-        :divider-size="dividerSize"
-        :secondary-session-id="secondarySessionId"
-        :secondary-side="secondarySide"
-        :workspace-visible="!dockerMode"
-        @select-session="emit('select-session', $event)"
-        @close-session="emit('close-session', $event)"
-        @add-session="emit('add-session', $event)"
-        @session-closed="emit('session-closed', $event)"
-        @reconnect="emit('reconnect', $event)"
-        @reconnect-all="emit('reconnect-all', $event)"
-        @cd-command="(sid, cmd) => emit('cd-command', sid, cmd)"
-        @pwd-output="(sid, pwd) => emit('pwd-output', sid, pwd)"
-        @ai-selection="(text, mode) => emit('ai-selection', text, mode)"
-        @save-as-snippet="(cmd) => emit('save-as-snippet', cmd)"
-        @split-preview="emit('split-preview', $event)"
-        @split-commit="emit('split-commit', $event)"
-        @toggle-horizontal="emit('toggle-horizontal')"
-        @toggle-vertical="emit('toggle-vertical')"
-        @start-split-resize="(e, el) => emit('start-split-resize', e, el)"
-        @reset-split-ratio="emit('reset-split-ratio')"
-        @set-secondary-session="emit('set-secondary-session', $event)"
-      />
-    </div>
+    <div class="workspace-main">
+      <!-- Keep TerminalWorkspace mounted (v-show) so xterm is never destroyed in Docker mode -->
+      <div v-show="!dockerMode" class="terminal-host">
+        <TerminalWorkspace
+          ref="terminalWorkspaceRef"
+          :active-group="activeGroup"
+          :active-session="activeSession"
+          :connections="connections"
+          :all-sessions="allSessions"
+          :live-session-ids="liveSessionIds"
+          :unread-sessions="unreadSessions"
+          :split-mode="splitMode"
+          :split-ratio="splitRatio"
+          :is-split="isSplit"
+          :is-resizing="isResizing"
+          :preview-mode="previewMode"
+          :preview-side="previewSide"
+          :divider-size="dividerSize"
+          :secondary-session-id="secondarySessionId"
+          :secondary-side="secondarySide"
+          :workspace-visible="!dockerMode"
+          @select-session="emit('select-session', $event)"
+          @close-session="emit('close-session', $event)"
+          @add-session="emit('add-session', $event)"
+          @session-closed="emit('session-closed', $event)"
+          @reconnect="emit('reconnect', $event)"
+          @reconnect-all="emit('reconnect-all', $event)"
+          @cd-command="(sid, cmd) => emit('cd-command', sid, cmd)"
+          @pwd-output="(sid, pwd) => emit('pwd-output', sid, pwd)"
+          @ai-selection="(text, mode) => emit('ai-selection', text, mode)"
+          @save-as-snippet="(cmd) => emit('save-as-snippet', cmd)"
+          @split-preview="emit('split-preview', $event)"
+          @split-commit="emit('split-commit', $event)"
+          @toggle-horizontal="emit('toggle-horizontal')"
+          @toggle-vertical="emit('toggle-vertical')"
+          @start-split-resize="(e, el) => emit('start-split-resize', e, el)"
+          @reset-split-ratio="emit('reset-split-ratio')"
+          @set-secondary-session="emit('set-secondary-session', $event)"
+        />
+      </div>
 
-    <!--
-      Per-session KeepAlive: A in Docker → switch to B terminal → back to A
-      must restore the same DockerWorkspace instance (list/selection/scroll),
-      not remount and re-probe. key=sessionId so modes never leak across sessions.
-    -->
-    <KeepAlive :max="12">
-      <DockerWorkspace
-        v-if="dockerMode && activeSessionId"
-        :key="activeSessionId"
-        :session-id="activeSessionId"
-        :ssh-disconnected="!!activeSessionSshDisconnected"
-        @back-to-terminal="emit('back-to-terminal')"
-        @reconnect="activeSessionId && emit('reconnect', activeSessionId)"
-      />
-    </KeepAlive>
+      <!--
+        Per-session KeepAlive: A in Docker → switch to B terminal → back to A
+        must restore the same DockerWorkspace instance (list/selection/scroll),
+        not remount and re-probe. key=sessionId so modes never leak across sessions.
+      -->
+      <KeepAlive :max="12">
+        <DockerWorkspace
+          v-if="dockerMode && activeSessionId"
+          :key="activeSessionId"
+          :session-id="activeSessionId"
+          :ssh-disconnected="!!activeSessionSshDisconnected"
+          @back-to-terminal="emit('back-to-terminal')"
+          @reconnect="activeSessionId && emit('reconnect', activeSessionId)"
+        />
+      </KeepAlive>
+
+      <div
+        v-if="showSidePanels() && monitorVisible && activeGroup && activeGroup.sessions.length > 0"
+        class="monitor-dock"
+      >
+        <MonitorPanel
+          :key="'dock-' + activeGroup.connectionId"
+          layout="bottom"
+          :details-open="monitorDetailsOpen"
+          :session-id="activeGroup.sessions[0].id"
+          :connection-id="activeGroup.connectionId"
+          :connection-name="activeGroup.connectionName"
+          @close="emit('close-monitor')"
+          @toggle-details="monitorDetailsOpen = !monitorDetailsOpen"
+        />
+      </div>
+    </div>
 
     <CommandSnippetPalette
       :visible="!!snippetPaletteVisible && showSidePanels()"
@@ -324,23 +351,16 @@ const showSidePanels = () => !props.dockerMode
       </div>
     </template>
 
-    <template v-if="showSidePanels() && monitorVisible">
-      <div
-        v-if="activeGroup && activeGroup.sessions.length > 0"
-        class="resize-handle"
-        @mousedown="emit('start-resize-right', $event)"
-      ></div>
-      <div
-        v-if="activeGroup && activeGroup.sessions.length > 0"
-        class="monitor-panel-wrapper"
-        :style="{ width: monitorWidth + 'px' }"
-      >
+    <template v-if="showSidePanels() && monitorVisible && monitorDetailsOpen && activeGroup && activeGroup.sessions.length > 0">
+      <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
+      <div class="monitor-panel-wrapper" :style="{ width: monitorWidth + 'px' }">
         <MonitorPanel
-          :key="activeGroup.connectionId"
+          :key="'side-' + activeGroup.connectionId"
+          layout="side"
           :session-id="activeGroup.sessions[0].id"
           :connection-id="activeGroup.connectionId"
           :connection-name="activeGroup.connectionName"
-          @close="emit('close-monitor')"
+          @close="monitorDetailsOpen = false"
         />
       </div>
     </template>
@@ -355,6 +375,15 @@ const showSidePanels = () => !props.dockerMode
   min-width: 0;
 }
 
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .terminal-host {
   flex: 1;
   min-width: 0;
@@ -364,10 +393,17 @@ const showSidePanels = () => !props.dockerMode
 }
 
 /* KeepAlive host for DockerWorkspace — fill remaining width like terminal */
-.workspace-content > :deep(.docker-workspace) {
+.workspace-main > :deep(.docker-workspace) {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+.monitor-dock {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  overflow: hidden;
 }
 
 .sidebar-panel {

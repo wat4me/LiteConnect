@@ -4,6 +4,12 @@ import { useI18n } from 'vue-i18n'
 import type { DbEngine, DbSslOptions } from '../../env.d'
 import AppIcon from '../icons/AppIcon.vue'
 import type { ConnectionFormModel } from './types'
+import {
+  ADVANCED_OPTION_KEYS,
+  buildDbConnectionUrl,
+  parseDbConnectionUrl,
+  type DbUrlEngine,
+} from '../../../shared/dbConnectionUrl'
 
 const { t } = useI18n()
 
@@ -13,6 +19,7 @@ const ENGINE_META: Record<
 > = {
   mysql: { label: 'MySQL', defaultPort: 3306, defaultUser: 'root', badgeClass: 'mysql' },
   postgres: { label: 'PostgreSQL', defaultPort: 5432, defaultUser: 'postgres', badgeClass: 'postgres' },
+  oracle: { label: 'Oracle', defaultPort: 1521, defaultUser: 'system', badgeClass: 'oracle' },
 }
 
 export type { ConnectionFormModel }
@@ -34,8 +41,11 @@ const emit = defineEmits<{
   test: []
 }>()
 
-const formTab = ref<'main' | 'ssh' | 'ssl'>('main')
+const formTab = ref<'main' | 'ssh' | 'ssl' | 'advanced'>('main')
 const showPassword = ref(false)
+const urlImport = ref('')
+const urlImportHint = ref('')
+const extraRows = ref<Array<{ key: string; value: string }>>([{ key: '', value: '' }])
 
 const form = computed({
   get: () => props.modelValue,
@@ -81,31 +91,117 @@ const selectedSsh = computed(() =>
   props.sshConnections.find((c) => c.id === props.modelValue.sshConnectionId),
 )
 
-const jdbcUrlPreview = computed(() => {
-  const host = props.modelValue.host.trim() || 'host'
-  const port = props.modelValue.port || engineMeta.value.defaultPort
-  const db = props.modelValue.database.trim()
+const driverUrlPreview = computed(() => {
   const via = selectedSsh.value ? ` (via SSH ${selectedSsh.value.name})` : ''
-  if (props.modelValue.engine === 'postgres') {
-    const path = db ? `/${encodeURIComponent(db)}` : '/postgres'
-    const sslQ = props.modelValue.ssl || props.modelValue.sslOptions?.enabled ? '?sslmode=require' : ''
-    return `jdbc:postgresql://${host}:${port}${path}${sslQ}${via}`
-  }
-  const path = db ? `/${encodeURIComponent(db)}` : ''
-  const sslQ = props.modelValue.ssl || props.modelValue.sslOptions?.enabled ? '?useSSL=true' : ''
-  return `jdbc:mysql://${host}:${port}${path}${sslQ}${via}`
+  return (
+    buildDbConnectionUrl({
+      engine: props.modelValue.engine as DbUrlEngine,
+      host: props.modelValue.host,
+      port: props.modelValue.port || engineMeta.value.defaultPort,
+      database: props.modelValue.database,
+      username: props.modelValue.username,
+      ssl: !!(props.modelValue.ssl || props.modelValue.sslOptions?.enabled),
+      extraOptions: props.modelValue.extraOptions,
+    }) + via
+  )
 })
+
+const presetKeys = computed(
+  () => ADVANCED_OPTION_KEYS[props.modelValue.engine as DbUrlEngine] || ADVANCED_OPTION_KEYS.mysql,
+)
+
+function syncExtraRowsFromForm() {
+  const entries = Object.entries(props.modelValue.extraOptions || {})
+  extraRows.value = entries.length
+    ? entries.map(([key, value]) => ({ key, value }))
+    : [{ key: '', value: '' }]
+}
+
+function commitExtraRows() {
+  const next: Record<string, string> = {}
+  for (const row of extraRows.value) {
+    const k = row.key.trim()
+    if (!k) continue
+    next[k] = row.value
+  }
+  patch('extraOptions', next)
+}
+
+function addExtraRow() {
+  extraRows.value = [...extraRows.value, { key: '', value: '' }]
+}
+
+function removeExtraRow(idx: number) {
+  const next = extraRows.value.filter((_, i) => i !== idx)
+  extraRows.value = next.length ? next : [{ key: '', value: '' }]
+  commitExtraRows()
+}
+
+function applyPresetKey(key: string) {
+  if (!key) return
+  if (extraRows.value.some((r) => r.key === key)) return
+  extraRows.value = [...extraRows.value.filter((r) => r.key.trim() || r.value.trim()), { key, value: '' }]
+  if (!extraRows.value.length) extraRows.value = [{ key, value: '' }]
+  commitExtraRows()
+}
+
+function applyUrlImport() {
+  urlImportHint.value = ''
+  const parsed = parseDbConnectionUrl(urlImport.value, props.modelValue.engine as DbUrlEngine)
+  if (parsed.warnings.includes('empty') || parsed.warnings.includes('invalid_url')) {
+    urlImportHint.value = t('database.connection.urlImportInvalid')
+    return
+  }
+  const next: ConnectionFormModel = { ...props.modelValue }
+  if (parsed.engine) next.engine = parsed.engine
+  if (parsed.host) next.host = parsed.host
+  if (parsed.port) next.port = parsed.port
+  if (parsed.username) next.username = parsed.username
+  if (parsed.password != null && parsed.password !== '') next.password = parsed.password
+  if (parsed.database != null) next.database = parsed.database
+  if (parsed.oracleConnectString) next.database = parsed.oracleConnectString
+  if (parsed.ssl != null) {
+    next.ssl = parsed.ssl
+    next.sslOptions = { ...(next.sslOptions || {}), enabled: parsed.ssl }
+  }
+  const merged = { ...(next.extraOptions || {}), ...parsed.extraOptions }
+  // connectionString already in database for oracle
+  if (merged.connectionString && next.engine === 'oracle') {
+    next.database = merged.connectionString
+  }
+  next.extraOptions = merged
+  emit('update:modelValue', next)
+  syncExtraRowsFromForm()
+  const unmapped = parsed.warnings.filter((w) => w.startsWith('unmapped:'))
+  urlImportHint.value = unmapped.length
+    ? t('database.connection.urlImportPartial', { keys: unmapped.map((w) => w.slice(9)).join(', ') })
+    : t('database.connection.urlImportOk')
+}
 
 watch(
   () => props.modelValue.name + props.modelValue.engine,
   () => {
     formTab.value = 'main'
     showPassword.value = false
+    urlImportHint.value = ''
   },
 )
 
+watch(
+  () => props.modelValue.extraOptions,
+  () => {
+    if (formTab.value === 'advanced') syncExtraRowsFromForm()
+  },
+  { deep: true },
+)
+
+watch(formTab, (tab) => {
+  if (tab === 'advanced') syncExtraRowsFromForm()
+})
+
 onMounted(() => {
   formTab.value = 'main'
+  syncExtraRowsFromForm()
 })
 </script>
 
@@ -124,11 +220,7 @@ onMounted(() => {
       <form class="dbeaver-dialog-body" @submit.prevent="emit('save')">
         <div class="dbeaver-driver-bar">
           <div class="dbeaver-driver-badge" :class="engineMeta.badgeClass" :title="engineMeta.label">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <ellipse cx="12" cy="5" rx="8" ry="3" />
-              <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
-              <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
-            </svg>
+            <AppIcon name="database" :size="28" />
             <span>{{ engineMeta.label }}</span>
           </div>
           <div class="dbeaver-driver-fields">
@@ -142,6 +234,7 @@ onMounted(() => {
               >
                 <option value="mysql">MySQL</option>
                 <option value="postgres">PostgreSQL</option>
+                <option value="oracle">Oracle</option>
               </select>
             </label>
             <label class="dbeaver-name-field">
@@ -188,6 +281,16 @@ onMounted(() => {
           >
             {{ t('database.connection.tabSsl') }}
           </button>
+          <button
+            type="button"
+            role="tab"
+            class="dbeaver-tab"
+            :class="{ active: formTab === 'advanced' }"
+            :aria-selected="formTab === 'advanced'"
+            @click="formTab = 'advanced'"
+          >
+            {{ t('database.connection.tabAdvanced') }}
+          </button>
         </div>
 
         <div class="dbeaver-tab-panel">
@@ -216,11 +319,30 @@ onMounted(() => {
                   />
                 </label>
                 <label class="dbeaver-field full">
-                  <span>{{ t('database.connection.database') }} <em>{{ form.engine === 'postgres' ? t('database.connection.databaseOptionalPg') : t('database.connection.databaseOptional') }}</em></span>
+                  <span>
+                    {{
+                      form.engine === 'oracle'
+                        ? t('database.connection.serviceName')
+                        : t('database.connection.database')
+                    }}
+                    <em>{{
+                      form.engine === 'postgres'
+                        ? t('database.connection.databaseOptionalPg')
+                        : form.engine === 'oracle'
+                          ? t('database.connection.serviceNameOptional')
+                          : t('database.connection.databaseOptional')
+                    }}</em>
+                  </span>
                   <input
                     :value="form.database"
                     class="ui-input"
-                    :placeholder="form.engine === 'postgres' ? 'postgres' : t('database.connection.databasePlaceholder')"
+                    :placeholder="
+                      form.engine === 'postgres'
+                        ? 'postgres'
+                        : form.engine === 'oracle'
+                          ? t('database.connection.serviceNamePlaceholder')
+                          : t('database.connection.databasePlaceholder')
+                    "
                     @input="patch('database', ($event.target as HTMLInputElement).value)"
                   />
                 </label>
@@ -273,7 +395,7 @@ onMounted(() => {
 
             <div class="dbeaver-url-box" :title="t('database.connection.urlPreview')">
               <span class="dbeaver-url-label">URL</span>
-              <code class="dbeaver-url">{{ jdbcUrlPreview }}</code>
+              <code class="dbeaver-url">{{ driverUrlPreview }}</code>
             </div>
           </div>
 
@@ -361,6 +483,75 @@ onMounted(() => {
                 </label>
               </template>
             </section>
+          </div>
+
+          <div v-show="formTab === 'advanced'" class="dbeaver-sections">
+            <section class="dbeaver-section">
+              <h4 class="dbeaver-section-title">{{ t('database.connection.urlImportTitle') }}</h4>
+              <p class="dbeaver-hint">{{ t('database.connection.urlImportHint') }}</p>
+              <label class="dbeaver-field full">
+                <textarea
+                  v-model="urlImport"
+                  class="ui-input ssl-ta"
+                  rows="3"
+                  :placeholder="t('database.connection.urlImportPlaceholder')"
+                />
+              </label>
+              <div class="dbeaver-adv-actions">
+                <button type="button" class="ui-btn ui-btn-sm" @click="applyUrlImport">
+                  {{ t('database.connection.urlImportApply') }}
+                </button>
+              </div>
+              <p v-if="urlImportHint" class="dbeaver-hint ok">{{ urlImportHint }}</p>
+            </section>
+
+            <section class="dbeaver-section">
+              <h4 class="dbeaver-section-title">{{ t('database.connection.extraOptionsTitle') }}</h4>
+              <p class="dbeaver-hint">{{ t('database.connection.extraOptionsHint') }}</p>
+              <label class="dbeaver-field full">
+                <span>{{ t('database.connection.extraOptionsPreset') }}</span>
+                <select
+                  class="ui-input"
+                  value=""
+                  @change="
+                    applyPresetKey(($event.target as HTMLSelectElement).value);
+                    ($event.target as HTMLSelectElement).value = ''
+                  "
+                >
+                  <option value="">{{ t('database.connection.extraOptionsPresetPick') }}</option>
+                  <option v-for="p in presetKeys" :key="p.key" :value="p.key">
+                    {{ p.key }}{{ p.hint ? ` — ${p.hint}` : '' }}
+                  </option>
+                </select>
+              </label>
+              <div class="dbeaver-extra-rows">
+                <div v-for="(row, idx) in extraRows" :key="idx" class="dbeaver-extra-row">
+                  <input
+                    v-model="row.key"
+                    class="ui-input"
+                    :placeholder="t('database.connection.extraKey')"
+                    @change="commitExtraRows"
+                  />
+                  <input
+                    v-model="row.value"
+                    class="ui-input"
+                    :placeholder="t('database.connection.extraValue')"
+                    @change="commitExtraRows"
+                  />
+                  <button type="button" class="ui-btn ui-btn-sm" @click="removeExtraRow(idx)">
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
+              </div>
+              <button type="button" class="ui-btn ui-btn-sm" style="margin-top: 8px" @click="addExtraRow">
+                {{ t('database.connection.extraAddRow') }}
+              </button>
+            </section>
+
+            <div class="dbeaver-url-box" :title="t('database.connection.urlPreview')">
+              <span class="dbeaver-url-label">URL</span>
+              <code class="dbeaver-url">{{ driverUrlPreview }}</code>
+            </div>
           </div>
         </div>
 
@@ -451,6 +642,12 @@ onMounted(() => {
   border-color: color-mix(in srgb, #3182ce 30%, var(--border-color));
   background: linear-gradient(160deg, #63b3ed22, transparent 70%);
   color: #3182ce;
+}
+
+.dbeaver-driver-badge.oracle {
+  border-color: color-mix(in srgb, #e53e3e 30%, var(--border-color));
+  background: linear-gradient(160deg, #fc818122, transparent 70%);
+  color: #c53030;
 }
 
 .dbeaver-driver-fields {
@@ -669,6 +866,26 @@ onMounted(() => {
   font-size: 11px;
   resize: vertical;
   min-height: 48px;
+}
+
+.dbeaver-adv-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dbeaver-extra-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dbeaver-extra-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .dbeaver-test-hint {

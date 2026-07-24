@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import DockerContainerTerminal from '../DockerContainerTerminal.vue'
+import DockerContainerTerminal from './DockerContainerTerminal.vue'
 import DockerContainerOverview from './DockerContainerOverview.vue'
 import DockerContainerLogsPanel from './DockerContainerLogsPanel.vue'
 import DockerContainerInspectPanel from './DockerContainerInspectPanel.vue'
 import { actionsForState, stateTone } from './dockerUiHelpers'
-import type { DockerLogsUiState } from '../../composables/useDockerContainerLogs'
+import type { DockerLogsUiState } from '../../composables/docker/useDockerContainerLogs'
 import type {
   DockerContainerAction,
   DockerContainerInspectResult,

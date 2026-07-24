@@ -149,6 +149,8 @@ export type ConnectionFormModel = {
   database: string
   ssl: boolean
   sslOptions: DbSslOptions
+  /** Advanced options key→value (persisted) */
+  extraOptions: Record<string, string>
   group: string
   sshConnectionId: string
 }

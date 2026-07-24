@@ -4,14 +4,14 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { t } from '../i18n'
-import { getTerminalColors, type TerminalPaletteId } from './useTheme'
-import type { Theme, CustomColors } from './useTheme'
+import { t } from '../../i18n'
+import { getTerminalColors, type TerminalPaletteId } from '../useTheme'
+import type { Theme, CustomColors } from '../useTheme'
 import {
   PASTE_CONFIRM_MAX_CHARS,
   normalizePasteConfirmMaxChars,
-} from '../utils/terminalPaste'
-import { canMeasureTerminal, planTerminalResize } from '../utils/terminalResizePolicy'
+} from '../../utils/terminalPaste'
+import { canMeasureTerminal, planTerminalResize } from '../../utils/terminalResizePolicy'
 
 export function useXtermInstance(deps: {
   terminalRef: Ref<HTMLDivElement | undefined>

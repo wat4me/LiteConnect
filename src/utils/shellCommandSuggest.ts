@@ -1,7 +1,6 @@
-import { SHELL_COMMAND_CATALOG } from './shellCommandCatalog'
 import { getFlagsForCommand } from './shellCommandFlags'
 
-export type ShellSuggestSource = 'history' | 'builtin' | 'flag'
+export type ShellSuggestSource = 'history' | 'flag'
 
 export type ShellSuggestItem = {
   id: string
@@ -23,7 +22,7 @@ export type ShellHistoryEntry = {
 
 /** Latest matching history entries */
 export const HISTORY_SUGGEST_LIMIT = 5
-/** Builtin / flag rows always reserved (floor), independent of history */
+/** Flag rows always reserved (floor), independent of history */
 export const SYSTEM_SUGGEST_LIMIT = 3
 
 /** First token of the current input line (no leading pipe/and chains). */
@@ -76,12 +75,17 @@ function scoreHistory(cmd: string, q: string): number {
   return 0
 }
 
-function scoreBuiltin(name: string, q: string): number {
-  const n = name.toLowerCase()
-  if (n === q) return 100
-  if (n.startsWith(q)) return 90 + Math.max(0, 20 - (n.length - q.length))
-  if (n.includes(q)) return 40
-  return 0
+/**
+ * Bare command typing (`docker`, not `docker ` / `docker p`):
+ * match history by its first token. This keeps full past invocations available
+ * as soon as the user names a command, e.g. `netstat` → `netstat ... | grep`.
+ */
+export function historyMatchesBareCommand(cmd: string, q: string): boolean {
+  const c = cmd.trim().toLowerCase()
+  const query = q.trim().toLowerCase()
+  if (!c || !query) return false
+  const first = c.split(/\s+/)[0] || ''
+  return first.startsWith(query)
 }
 
 function scoreFlag(flag: string, q: string): number {
@@ -122,6 +126,7 @@ function buildHistoryItems(
   query: string,
   history: ShellHistoryEntry[],
   limit: number,
+  opts?: { bareCommand?: boolean },
 ): ShellSuggestItem[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
@@ -131,6 +136,9 @@ function buildHistoryItems(
   for (const h of history) {
     const cmd = (h.command || '').trim()
     if (!cmd || seenHist.has(cmd)) continue
+    // Exact same line as typed — nothing to complete.
+    if (cmd.toLowerCase() === q) continue
+    if (opts?.bareCommand && !historyMatchesBareCommand(cmd, q)) continue
     const score = scoreHistory(cmd, q)
     if (score <= 0) continue
     seenHist.add(cmd)
@@ -233,37 +241,10 @@ function buildFlagItems(
   return scored.slice(0, limit).map(({ score: _s, ...item }) => item)
 }
 
-function buildBuiltinItems(
-  q: string,
-  limit: number,
-  describe?: (descKey: string) => string,
-): ShellSuggestItem[] {
-  const builtins: Array<ShellSuggestItem & { score: number }> = []
-  for (const c of SHELL_COMMAND_CATALOG) {
-    const score = scoreBuiltin(c.name, q)
-    if (score <= 0) continue
-    const desc = describe?.(c.descKey)
-    builtins.push({
-      id: `b:${c.name}`,
-      source: 'builtin',
-      command: c.name,
-      title: c.name,
-      subtitle: desc || c.example,
-      descKey: c.descKey,
-      example: c.example,
-      score,
-    })
-  }
-  builtins.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score
-    return a.title.localeCompare(b.title)
-  })
-  return builtins.slice(0, limit).map(({ score: _s, ...item }) => item)
-}
-
 /**
- * History (up to 5, latest relevant) first, then system builtin/flag (up to 3).
- * With both: max 8 rows. System slots are reserved, not squeezed out by history.
+ * History (up to 5, latest relevant) plus parameter hints (up to 3).
+ * Static command-name suggestions are intentionally omitted: remote shells have
+ * their own commands, aliases and PATH, while history is reliably contextual.
  */
 export function buildShellSuggestions(opts: {
   query: string
@@ -272,7 +253,7 @@ export function buildShellSuggestions(opts: {
   systemLimit?: number
   /** @deprecated use historyLimit + systemLimit */
   limit?: number
-  /** Resolve builtin/flag description (i18n). Optional for pure ranking tests. */
+  /** Resolve parameter-hint description (i18n). Optional for pure ranking tests. */
   describe?: (descKey: string) => string
 }): ShellSuggestItem[] {
   const raw = extractSuggestPrefix(opts.query)
@@ -283,6 +264,7 @@ export function buildShellSuggestions(opts: {
   const sysLimit = opts.systemLimit ?? SYSTEM_SUGGEST_LIMIT
 
   if (isFlagSuggestMode(raw)) {
+    // Flag mode already has args/space — history of full past lines is useful again.
     const histItems = buildHistoryItems(raw, opts.history, histLimit)
     const out: ShellSuggestItem[] = [...histItems]
     for (const f of buildFlagItems(raw, sysLimit, opts.describe)) {
@@ -293,9 +275,12 @@ export function buildShellSuggestions(opts: {
     return out
   }
 
-  const histItems = buildHistoryItems(q, opts.history, histLimit)
-  const builtins = buildBuiltinItems(q, sysLimit, opts.describe)
-  return [...histItems, ...builtins]
+  const { tokens, endsWithSpace } = parseSuggestSegment(raw)
+  // `docker` / `ps` without trailing space: suppress "docker ps" style history.
+  // Partial names (`dock`) still surface longer history first-token matches.
+  const bareCommand = tokens.length === 1 && !endsWithSpace
+  const histItems = buildHistoryItems(q, opts.history, histLimit, { bareCommand })
+  return histItems
 }
 
 /**

@@ -36,6 +36,7 @@ import type {
   DbTransactionState,
 } from '../types'
 import { resolveSslConfig } from '../types'
+import { mapMysqlExtraOptions } from '../../../shared/dbConnectionUrl'
 
 /** Short-lived cancel control connection — must not share the business pool. */
 const CONTROL_CONNECT_TIMEOUT_MS = 5_000
@@ -89,7 +90,12 @@ export class MySqlDriver implements DbDriver {
   private pinnedClients = new Map<string, PinnedClient>()
 
   async connect(conn: DbConnection): Promise<DbSessionInfo> {
-    const ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+    const extras = mapMysqlExtraOptions(conn.extraOptions)
+    let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+    if (extras.sslEnabled === true && !ssl) {
+      ssl = { rejectUnauthorized: false }
+    }
+    if (extras.sslEnabled === false) ssl = undefined
     const password = conn.password || ''
     const pool = mysql.createPool({
       host: conn.host,
@@ -101,10 +107,15 @@ export class MySqlDriver implements DbDriver {
       waitForConnections: true,
       connectionLimit: 5,
       enableKeepAlive: true,
-      connectTimeout: 15_000,
-      dateStrings: false,
+      connectTimeout: extras.connectTimeout ?? 15_000,
+      dateStrings: extras.dateStrings ?? false,
       supportBigNumbers: true,
       bigNumberStrings: true,
+      ...(extras.timezone ? { timezone: extras.timezone } : {}),
+      ...(extras.charset ? { charset: extras.charset } : {}),
+      ...(extras.allowPublicKeyRetrieval != null
+        ? ({ allowPublicKeyRetrieval: extras.allowPublicKeyRetrieval } as any)
+        : {}),
     })
 
     let serverVersion = ''
@@ -158,7 +169,10 @@ export class MySqlDriver implements DbDriver {
     const start = Date.now()
     let connection: mysql.Connection | null = null
     try {
-      const ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+      const extras = mapMysqlExtraOptions(conn.extraOptions)
+      let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
+      if (extras.sslEnabled === true && !ssl) ssl = { rejectUnauthorized: false }
+      if (extras.sslEnabled === false) ssl = undefined
       connection = await mysql.createConnection({
         host: conn.host,
         port: conn.port || 3306,
@@ -166,7 +180,12 @@ export class MySqlDriver implements DbDriver {
         password: conn.password || '',
         database: conn.database || undefined,
         ssl: ssl || undefined,
-        connectTimeout: 12_000,
+        connectTimeout: extras.connectTimeout ?? 12_000,
+        ...(extras.timezone ? { timezone: extras.timezone } : {}),
+        ...(extras.charset ? { charset: extras.charset } : {}),
+        ...(extras.allowPublicKeyRetrieval != null
+          ? ({ allowPublicKeyRetrieval: extras.allowPublicKeyRetrieval } as any)
+          : {}),
       })
       const [rows] = await connection.query<RowDataPacket[]>('SELECT VERSION() AS v')
       return {
@@ -790,7 +809,7 @@ export class MySqlDriver implements DbDriver {
         throw cancelledError()
       }
 
-      const plan = planSqlRowLimit(trimmed, maxRows)
+      const plan = planSqlRowLimit(trimmed, maxRows, 'mysql')
       if (plan.mode === 'unsupported') {
         throw new Error(plan.error)
       }

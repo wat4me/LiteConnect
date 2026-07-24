@@ -3,8 +3,8 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import type { CustomColors, TerminalPaletteId, Theme } from '../composables/useTheme'
-import { getTerminalColors } from '../composables/useTheme'
+import type { CustomColors, TerminalPaletteId, Theme } from '../../composables/useTheme'
+import { getTerminalColors } from '../../composables/useTheme'
 
 const props = defineProps<{
   theme: Theme

@@ -45,6 +45,7 @@ export default defineConfig({
                 'pg-protocol',
                 'pg-types',
                 'pgpass',
+                'oracledb',
               ],
             },
           },

@@ -1,5 +1,5 @@
 import { ref, watch, onBeforeUnmount, type Ref, type ComputedRef } from 'vue'
-import type { ConnectionGroup, Session } from './useSessionManager'
+import type { ConnectionGroup, Session } from './session/useSessionManager'
 
 const SIDEBAR_WIDTH_KEY = 'liteconnect-sftp-sidebar-width'
 const SIDEBAR_MIN_WIDTH = 280

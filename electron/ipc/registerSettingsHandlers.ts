@@ -172,6 +172,16 @@ export function registerSettingsHandlers(
     await settingsStore.setTerminalPasteConfirmMaxChars(n)
   })
 
+  ipcMain.handle('settings:getTerminalCommandSuggestEnabled', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getTerminalCommandSuggestEnabled()
+  })
+
+  ipcMain.handle('settings:setTerminalCommandSuggestEnabled', async (_event, enabled: boolean) => {
+    await ensureSettingsStoreReady()
+    await settingsStore.setTerminalCommandSuggestEnabled(!!enabled)
+  })
+
   ipcMain.handle('settings:setTerminalFontSize', async (_event, size: number) => {
     await ensureSettingsStoreReady()
     if (typeof size !== 'number' || size < 10 || size > 24) {

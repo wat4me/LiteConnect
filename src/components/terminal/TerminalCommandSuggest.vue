@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { ShellSuggestItem } from '../utils/shellCommandSuggest'
+import type { ShellSuggestItem } from '../../utils/shellCommandSuggest'
 
 const props = defineProps<{
   visible: boolean
@@ -61,11 +61,13 @@ function subtitle(item: ShellSuggestItem): string {
         :data-idx="idx"
         role="option"
         :aria-selected="idx === activeIndex"
+        :title="item.source === 'history' ? item.command : undefined"
         @mouseenter="emit('update:activeIndex', idx)"
         @mousedown.prevent="emit('pick', item)"
       >
         <code class="title">{{ item.title }}</code>
         <span v-if="subtitle(item)" class="sub">{{ subtitle(item) }}</span>
+        <span v-if="idx === activeIndex" class="kbd-hint">{{ t('shellSuggest.selectHint') }}</span>
       </button>
     </div>
   </div>
@@ -120,8 +122,9 @@ function subtitle(item: ShellSuggestItem): string {
 }
 
 .title {
-  flex-shrink: 0;
-  max-width: 48%;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 55%;
   font-size: 12px;
   line-height: 16px;
   font-family: ui-monospace, Consolas, monospace;
@@ -130,12 +133,11 @@ function subtitle(item: ShellSuggestItem): string {
   white-space: nowrap;
 }
 
-/* history = warm amber; builtin/flag = cool accent */
+/* history = warm amber; parameter hints = cool accent */
 .cmd-suggest-item.history .title {
   color: #e6a23c;
 }
 
-.cmd-suggest-item.builtin .title,
 .cmd-suggest-item.flag .title {
   color: var(--accent, #4a9eff);
 }
@@ -149,5 +151,16 @@ function subtitle(item: ShellSuggestItem): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.kbd-hint {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--text-secondary, #999);
+  opacity: 0.85;
+  white-space: nowrap;
+  padding-left: 8px;
 }
 </style>

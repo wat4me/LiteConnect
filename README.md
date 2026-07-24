@@ -1,6 +1,6 @@
 # LiteConnect
 
-LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。项目包含 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL/PostgreSQL 数据库工具和 AI 对话面板。
+LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。项目包含 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL/PostgreSQL/Oracle 数据库工具和 AI 对话面板。
 
 ## 功能
 
@@ -47,17 +47,37 @@ LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接�
 
 ### 数据库
 
-- 支持 MySQL 和 PostgreSQL
+- 支持 MySQL、PostgreSQL 和 Oracle
 - 支持直连及经独立 SSH 隧道连接
 - 保存连接配置并测试连通性
 - 支持多个数据库会话同时打开
-- 浏览数据库、Schema、表和视图
+- 浏览数据库、Schema、表和视图（Oracle 导航树中的「库」对应 Schema/Owner）
 - SQL 编辑器提供语法高亮、表/列补全、选中执行和查询取消
 - 查询标签和查询历史保存在本地
 - 查询结果支持排序、筛选、复制和导出
 - 表数据支持分页和服务端排序；满足主键条件时支持编辑、插入和删除
 - 提供表结构和建表语句查看
 - 支持显式事务状态和提交/回滚操作
+
+#### Oracle 说明
+
+| 项 | 说明 |
+|---|---|
+| 驱动 | [node-oracledb](https://node-oracledb.readthedocs.io/)（`oracledb`） |
+| 默认模式 | **Thin**（无需安装 Oracle Instant Client） |
+| 默认端口 | `1521` |
+| 连接字段 `database` | **Service Name**（Easy Connect：`host:port/service`）；也可粘贴完整 connectString / 连接描述符 |
+| 导航「库」 | Schema（owner），不是 PDB 列表 |
+| 分页 | Oracle 12c+ `OFFSET … FETCH NEXT …` |
+| 建库 | 无 MySQL 式 CREATE DATABASE；UI 提供 `CREATE USER` 示例，需 DBA 权限在服务端执行 |
+| Thick / Wallet | 可选后续增强；当前优先 Thin |
+
+**集成验收建议**
+
+- [ ] 12c+ / 19c / 21c 直连，Service Name 与完整 connectString
+- [ ] SSH 隧道到内网 Oracle（主机填 SSH 侧可达地址）
+- [ ] `SELECT 1 FROM DUAL`、表树展开、分页、查询取消、事务提交/回滚、表导出取消
+- [ ] 错误信息无明文密码 / connect string 泄露
 
 ### 服务器监控
 
@@ -100,6 +120,7 @@ LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接�
 | SQL 编辑器 | CodeMirror 6 |
 | MySQL | mysql2 |
 | PostgreSQL | pg |
+| Oracle | oracledb（Thin 优先） |
 
 ## 代码结构
 
@@ -107,7 +128,7 @@ LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接�
 LiteConnect/
 ├── electron/                    # Electron 主进程
 │   ├── db/                      # 数据库会话、驱动、SSH 隧道、查询与导出
-│   │   └── drivers/             # MySQL 和 PostgreSQL 驱动
+│   │   └── drivers/             # MySQL / PostgreSQL / Oracle 驱动
 │   ├── docker/                  # Docker API 传输、容器操作和日志解析
 │   ├── ipc/                     # renderer/main IPC 注册与输入校验
 │   ├── ssh/                     # SSH、SFTP、转发、监控和传输任务

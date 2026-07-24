@@ -96,7 +96,9 @@ const completionGen = createCompletionGeneration()
 let themeObserver: MutationObserver | null = null
 
 function sqlDialectExt() {
-  const dialect = props.dialect === 'postgres' ? PostgreSQL : MySQL
+  // CodeMirror has no Oracle dialect; double-quote + StandardSQL-like ≈ PostgreSQL
+  const dialect =
+    props.dialect === 'postgres' || props.dialect === 'oracle' ? PostgreSQL : MySQL
   return sql({ dialect })
 }
 

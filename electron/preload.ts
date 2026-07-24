@@ -73,6 +73,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   getTerminalPasteConfirmMaxChars: () => ipcRenderer.invoke('settings:getTerminalPasteConfirmMaxChars'),
   setTerminalPasteConfirmMaxChars: (n: number) =>
     ipcRenderer.invoke('settings:setTerminalPasteConfirmMaxChars', n),
+  getTerminalCommandSuggestEnabled: () => ipcRenderer.invoke('settings:getTerminalCommandSuggestEnabled'),
+  setTerminalCommandSuggestEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('settings:setTerminalCommandSuggestEnabled', enabled),
   getDownloadConflictStrategy: () => ipcRenderer.invoke('settings:getDownloadConflictStrategy'),
   setDownloadConflictStrategy: (strategy: 'overwrite' | 'skip' | 'rename') =>
     ipcRenderer.invoke('settings:setDownloadConflictStrategy', strategy),
@@ -99,11 +102,11 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   getAiSettings: () => ipcRenderer.invoke('settings:getAiSettings'),
   setAiSettings: (settings: any) => ipcRenderer.invoke('settings:setAiSettings', settings),
   switchAiModel: (providerId: string, model: string) => ipcRenderer.invoke('settings:switchAiModel', providerId, model),
+  testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => ipcRenderer.invoke('ai:testProvider', provider),
   aiChat: (messages: any[]) => ipcRenderer.invoke('ai:chat', messages),
   aiChatStream: (requestId: string, messages: any[]) => ipcRenderer.invoke('ai:chatStream', requestId, messages),
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
-  listAiSessionHistories: () => ipcRenderer.invoke('ai:listSessionHistories'),
   appendAiSessionHistory: (sessionId: string, record: any) => ipcRenderer.invoke('ai:appendSessionHistory', sessionId, record),
   clearAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:clearSessionHistory', sessionId),
   onAiChatStream: (requestId: string, callback: (payload: any) => void) => {
@@ -125,6 +128,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   /** Reuse sessionId: tear down old transport and open a new shell in place */
   sshReconnect: (sessionId: string, connectionId: string) =>
     ipcRenderer.invoke('ssh:reconnect', sessionId, connectionId),
+  sshTakeStartupNotices: (sessionId: string) => ipcRenderer.invoke('ssh:takeStartupNotices', sessionId),
   sshDisconnect: (sessionId: string) => ipcRenderer.invoke('ssh:disconnect', sessionId),
   sshWrite: (sessionId: string, data: string) => ipcRenderer.send('ssh:write', sessionId, data),
   sshResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.send('ssh:resize', sessionId, cols, rows),

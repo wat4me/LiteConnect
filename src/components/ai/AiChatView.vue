@@ -2,10 +2,10 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiUsage } from '../env.d.ts'
-import { useMarkdownRenderer, type MarkdownBlock } from '../composables/useMarkdownRenderer'
-import type { ChatItem } from '../composables/useAiChat'
-import AppIcon from './icons/AppIcon.vue'
+import type { AiUsage } from '../../env.d.ts'
+import { useMarkdownRenderer, type MarkdownBlock } from '../../composables/useMarkdownRenderer'
+import type { ChatItem } from '../../composables/ai/useAiChat'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   messages: ChatItem[]

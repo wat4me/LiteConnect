@@ -8,8 +8,9 @@ files:
   - dist-electron/**/*
   - "!node_modules/**/*"
   # Externalized native/Node drivers (must match vite main external)
-  # Full transitive trees of: ssh2, mysql2, pg
+  # Full transitive trees of: ssh2, mysql2, pg, oracledb
   - node_modules/asn1/**/*
+  - node_modules/oracledb/**/*
   - node_modules/aws-ssl-profiles/**/*
   - node_modules/bcrypt-pbkdf/**/*
   - node_modules/buildcheck/**/*
@@ -43,6 +44,7 @@ files:
   - node_modules/xtend/**/*
 asarUnpack:
   - node_modules/ssh2/**/*
+  - node_modules/oracledb/**/*
 # Optional, independently installed X11 server. Keep it outside app.asar so
 # the renderer/main process can launch it after explicit user confirmation.
 extraResources:

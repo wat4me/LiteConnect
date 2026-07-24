@@ -86,6 +86,8 @@ declare global {
       setTerminalPasteConfirmEnabled: (enabled: boolean) => Promise<void>
       getTerminalPasteConfirmMaxChars: () => Promise<number>
       setTerminalPasteConfirmMaxChars: (n: number) => Promise<void>
+      getTerminalCommandSuggestEnabled: () => Promise<boolean>
+      setTerminalCommandSuggestEnabled: (enabled: boolean) => Promise<void>
       getDownloadConflictStrategy: () => Promise<'overwrite' | 'skip' | 'rename'>
       setDownloadConflictStrategy: (strategy: 'overwrite' | 'skip' | 'rename') => Promise<void>
       getDirTransferConcurrency: () => Promise<number>
@@ -106,11 +108,11 @@ declare global {
       getAiSettings: () => Promise<AiSettings>
       setAiSettings: (settings: AiSettings) => Promise<void>
       switchAiModel: (providerId: string, model: string) => Promise<AiSettings>
+      testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean }>
       aiChat: (messages: AiChatMessage[]) => Promise<AiChatResult>
       aiChatStream: (requestId: string, messages: AiChatMessage[]) => Promise<AiChatResult>
       aiAbortChatStream: (requestId: string) => Promise<boolean>
       getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
-      listAiSessionHistories: () => Promise<AiHistorySummary[]>
       appendAiSessionHistory: (sessionId: string, record: AiHistoryRecord) => Promise<void>
       clearAiSessionHistory: (sessionId: string) => Promise<void>
       onAiChatStream: (requestId: string, callback: (payload: AiChatStreamPayload) => void) => () => void
@@ -125,6 +127,7 @@ declare global {
 
       sshConnect: (connectionId: string) => Promise<string>
       sshReconnect: (sessionId: string, connectionId: string) => Promise<string>
+      sshTakeStartupNotices: (sessionId: string) => Promise<string[]>
       sshDisconnect: (sessionId: string) => Promise<void>
       sshWrite: (sessionId: string, data: string) => void
       sshResize: (sessionId: string, cols: number, rows: number) => void
@@ -418,6 +421,7 @@ declare global {
         database?: string
         ssl?: boolean
         sslOptions?: DbSslOptions
+        extraOptions?: Record<string, string>
         sshConnectionId?: string
         connectionId?: string
       }) => Promise<{ ok: boolean; latencyMs?: number; serverVersion?: string; error?: string; viaTunnel?: boolean }>
@@ -535,7 +539,7 @@ declare global {
   }
 }
 
-export type DbEngine = 'mysql' | 'postgres'
+export type DbEngine = 'mysql' | 'postgres' | 'oracle'
 
 export type DbSslOptions = {
   enabled?: boolean
@@ -581,6 +585,8 @@ export interface DbConnection {
   database?: string
   ssl?: boolean
   sslOptions?: DbSslOptions
+  /** Advanced driver options (whitelist-mapped at connect) */
+  extraOptions?: Record<string, string>
   group?: string
   sshConnectionId?: string
   order?: number
@@ -901,13 +907,6 @@ export interface AiHistoryRecord {
   usage?: AiUsage
   error?: boolean
   createdAt: number
-}
-
-export interface AiHistorySummary {
-  sessionId: string
-  title: string
-  messageCount: number
-  updatedAt: number
 }
 
 export type AiChatStreamPayload =

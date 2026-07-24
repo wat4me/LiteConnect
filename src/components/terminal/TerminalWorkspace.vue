@@ -1,21 +1,22 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Connection } from '../env.d'
-import type { ConnectionGroup, Session } from '../composables/useSessionManager'
-import type { SplitMode, SplitSide } from '../composables/useSplitTerminal'
+import type { Connection } from '../../env.d'
+import type { ConnectionGroup, Session } from '../../composables/session/useSessionManager'
+import type { SplitMode, SplitSide } from '../../composables/terminal/useSplitTerminal'
 import {
   getSessionSshAddress,
   getSshAddress,
   getTerminalLabel,
-} from '../utils/sessionDisplay'
+} from '../../utils/sessionDisplay'
 import {
   focusPrimaryTerminalTab,
   type FocusableTerminalTab,
-} from '../utils/workspaceTerminalFocus'
+} from '../../utils/workspaceTerminalFocus'
+import AppIcon from '../icons/AppIcon.vue'
 
 const TerminalTab = defineAsyncComponent(() => import('./TerminalTab.vue'))
-const SubTabBar = defineAsyncComponent(() => import('./SubTabBar.vue'))
+const SubTabBar = defineAsyncComponent(() => import('../SubTabBar.vue'))
 
 const { t } = useI18n()
 
@@ -293,28 +294,22 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
         <div class="terminal-layout-actions">
           <span class="layout-action-label">{{ t('terminal.layout') }}</span>
           <button
-            class="layout-action-btn"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
             type="button"
             :class="{ active: splitMode === 'horizontal' }"
             :title="t('terminal.splitHorizontal')"
             @click="emit('toggle-horizontal')"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <line x1="3" y1="12" x2="21" y2="12"/>
-            </svg>
+            <AppIcon name="split-h" :size="14" />
           </button>
           <button
-            class="layout-action-btn"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
             type="button"
             :class="{ active: splitMode === 'vertical' }"
             :title="t('terminal.splitVertical')"
             @click="emit('toggle-vertical')"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <line x1="12" y1="3" x2="12" y2="21"/>
-            </svg>
+            <AppIcon name="split-v" :size="14" />
           </button>
         </div>
       </template>
@@ -328,39 +323,30 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
       <div class="terminal-layout-actions">
         <span class="layout-action-label">{{ t('terminal.layout') }}</span>
         <button
-          class="layout-action-btn"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
           type="button"
           :title="t('terminal.newTerminal')"
           @click="emit('add-session', activeGroup.connectionId)"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
+          <AppIcon name="plus" :size="14" />
         </button>
         <button
-          class="layout-action-btn"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
           type="button"
           :class="{ active: splitMode === 'horizontal' }"
           :title="t('terminal.splitHorizontal')"
           @click="emit('toggle-horizontal')"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <line x1="3" y1="12" x2="21" y2="12"/>
-          </svg>
+          <AppIcon name="split-h" :size="14" />
         </button>
         <button
-          class="layout-action-btn"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
           type="button"
           :class="{ active: splitMode === 'vertical' }"
           :title="t('terminal.splitVertical')"
           @click="emit('toggle-vertical')"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <line x1="12" y1="3" x2="12" y2="21"/>
-          </svg>
+          <AppIcon name="split-v" :size="14" />
         </button>
       </div>
     </div>
@@ -392,11 +378,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
           }"
         >
           <div class="split-preview-zone-inner">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line v-if="previewMode === 'vertical'" x1="12" y1="3" x2="12" y2="21" />
-              <line v-else x1="3" y1="12" x2="21" y2="12" />
-            </svg>
+            <AppIcon :name="previewMode === 'vertical' ? 'split-v' : 'split-h'" :size="20" />
             <span class="split-preview-zone-text">
               {{
                 previewSide === 'left'
@@ -450,16 +432,13 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
             </span>
           </div>
           <button
-            class="split-pane-close"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close"
             type="button"
             :title="t('terminal.closeSession', { label: getTerminalLabel(session) })"
             :aria-label="t('terminal.closeSession', { label: getTerminalLabel(session) })"
             @click="emit('close-session', session.id)"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
+            <AppIcon name="close" :size="12" />
           </button>
         </div>
         <div class="terminal-pane-body">
@@ -555,33 +534,6 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
   font-size: 10px;
   color: var(--text-secondary);
   margin-right: 2px;
-}
-
-.layout-action-btn {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.layout-action-btn:hover {
-  color: var(--accent);
-  border-color: var(--border-color);
-  background: var(--bg-tertiary);
-}
-
-.layout-action-btn.active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-bg);
 }
 
 .terminal-container {
@@ -733,26 +685,6 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-}
-
-.split-pane-close {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-  flex-shrink: 0;
-}
-
-.split-pane-close:hover {
-  background: var(--hover-bg);
-  color: var(--danger);
 }
 
 .split-divider {

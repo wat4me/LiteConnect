@@ -44,6 +44,10 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\b(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp\d+)\s+[A-Za-z0-9+/=]{20,}/g, '$1 ***'],
   // mysql connection string fragments
   [/\buser\s*=\s*[^;\s]+/gi, 'user=***'],
+  // Oracle Easy Connect / connect descriptors (host:port/service, DESCRIPTION=…)
+  [/\b\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}\/[A-Za-z0-9_$#.]+/g, '***:***/***'],
+  [/\b[A-Za-z0-9._-]+:\d{2,5}\/[A-Za-z0-9_$#.]+/g, '***:***/***'],
+  [/\(CONNECT_DATA\s*=\s*\([^)]*\)\)/gi, '(CONNECT_DATA=(***))'],
 ]
 
 /** Aggressive sanitize for any string that may leave main process. */
@@ -117,20 +121,32 @@ export function classifyDbError(
     }
   }
 
+  // Oracle ORA-xxxxx (errorNum from node-oracledb)
+  const oraMatch = rawMsg.match(/\bORA-(\d{5})\b/i)
+  const oraNum =
+    typeof e?.errorNum === 'number'
+      ? e.errorNum
+      : oraMatch
+        ? Number(oraMatch[1])
+        : undefined
+  const oraCode = oraNum != null && Number.isFinite(oraNum) ? `ORA-${String(oraNum).padStart(5, '0')}` : undefined
+
   // Auth
   if (
     errno === 1045
     || code === 'ER_ACCESS_DENIED_ERROR'
     || code === '28P01'
     || code === '28000'
-    || /access denied|authentication failed|password authentication failed|invalid password|auth.?fail/i.test(rawMsg)
+    || oraNum === 1017
+    || oraNum === 1005
+    || /access denied|authentication failed|password authentication failed|invalid password|auth.?fail|invalid username\/password|logon denied/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'auth',
       summary: 'Authentication failed',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || String(errno ?? ''),
+      code: code || oraCode || String(errno ?? ''),
       retryable: false,
     }
   }
@@ -142,14 +158,16 @@ export function classifyDbError(
     || code === 'ER_TABLEACCESS_DENIED_ERROR'
     || code === 'ER_SPECIFIC_ACCESS_DENIED_ERROR'
     || code === '42501'
-    || /permission denied|access denied for|insufficient privilege|must be owner/i.test(rawMsg)
+    || oraNum === 1031
+    || oraNum === 100
+    || /permission denied|access denied for|insufficient privilege|must be owner|insufficient privileges/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'permission',
       summary: 'Permission denied',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || String(errno ?? ''),
+      code: code || oraCode || String(errno ?? ''),
       retryable: false,
     }
   }
@@ -161,14 +179,17 @@ export function classifyDbError(
     || code === 'ER_SYNTAX_ERROR'
     || code === '42601'
     || code === '42000'
-    || /syntax error|parse error near|you have an error in your sql/i.test(rawMsg)
+    || oraNum === 900
+    || oraNum === 911
+    || oraNum === 933
+    || /syntax error|parse error near|you have an error in your sql|ORA-00900|ORA-00911|ORA-00933/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'syntax',
       summary: 'SQL syntax error',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || String(errno ?? ''),
+      code: code || oraCode || String(errno ?? ''),
       retryable: false,
     }
   }
@@ -178,6 +199,7 @@ export function classifyDbError(
     errno === 1213
     || code === 'ER_LOCK_DEADLOCK'
     || code === '40P01'
+    || oraNum === 60
     || /deadlock/i.test(rawMsg)
   ) {
     return {
@@ -185,37 +207,42 @@ export function classifyDbError(
       category: 'deadlock',
       summary: 'Deadlock detected',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || String(errno ?? ''),
+      code: code || oraCode || String(errno ?? ''),
       retryable: true,
     }
   }
 
   // Serialization failure
-  if (code === '40001' || /could not serialize|serialization failure|concurrent update/i.test(rawMsg)) {
+  if (
+    code === '40001'
+    || oraNum === 8177
+    || /could not serialize|serialization failure|concurrent update|can't serialize/i.test(rawMsg)
+  ) {
     return {
       name: 'DbStructuredError',
       category: 'serialization',
       summary: 'Serialization conflict',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || '40001',
+      code: code || oraCode || '40001',
       retryable: true,
     }
   }
 
-  // Query timeout (statement_timeout / max_execution_time)
+  // Query timeout (statement_timeout / max_execution_time / callTimeout)
   if (
     errno === 3024
     || code === 'ER_QUERY_TIMEOUT'
     || code === 'HYT00'
     || code === '57014'
-    || /statement timeout|query execution was interrupted|canceling statement due to statement timeout|max_execution_time/i.test(rawMsg)
+    || code === 'NJS-040'
+    || /statement timeout|query execution was interrupted|canceling statement due to statement timeout|max_execution_time|DPI-1067|call timeout|NJS-040/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'query_timeout',
       summary: 'Query timed out',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || String(errno ?? ''),
+      code: code || oraCode || String(errno ?? ''),
       retryable: true,
     }
   }
@@ -227,14 +254,18 @@ export function classifyDbError(
     || code === 'EHOSTUNREACH'
     || code === 'ENETUNREACH'
     || errno === 'ECONNREFUSED'
-    || /econnrefused|connection refused|getaddrinfo|no route to host|could not connect to server/i.test(rawMsg)
+    || oraNum === 12541
+    || oraNum === 12514
+    || oraNum === 12505
+    || oraNum === 12545
+    || /econnrefused|connection refused|getaddrinfo|no route to host|could not connect to server|TNS:no listener|TNS:listener does not currently know|could not resolve/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'refused',
       summary: 'Connection refused',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || 'ECONNREFUSED',
+      code: code || oraCode || 'ECONNREFUSED',
       retryable: true,
     }
   }
@@ -244,14 +275,15 @@ export function classifyDbError(
     code === 'ETIMEDOUT'
     || code === 'ESOCKETTIMEDOUT'
     || code === 'PROTOCOL_CONNECTION_LOST'
-    || /connect etimedout|connection timed out|timeout expired|handshake timeout/i.test(rawMsg)
+    || oraNum === 12170
+    || /connect etimedout|connection timed out|timeout expired|handshake timeout|TNS:Connect timeout/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'timeout',
       summary: 'Connection timed out',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || 'ETIMEDOUT',
+      code: code || oraCode || 'ETIMEDOUT',
       retryable: true,
     }
   }
@@ -266,14 +298,17 @@ export function classifyDbError(
     || code === '57P03'
     || code === '08006'
     || code === '08003'
-    || /server has gone away|connection lost|connection terminated|not connected|session not found|database session not found/i.test(rawMsg)
+    || oraNum === 3113
+    || oraNum === 3114
+    || oraNum === 28
+    || /server has gone away|connection lost|connection terminated|not connected|session not found|database session not found|end-of-file on communication|not connected to ORACLE/i.test(rawMsg)
   ) {
     return {
       name: 'DbStructuredError',
       category: 'session',
       summary: 'Database session lost',
       detail: sanitizeDbErrorText(rawMsg),
-      code: code || String(errno ?? ''),
+      code: code || oraCode || String(errno ?? ''),
       retryable: true,
     }
   }

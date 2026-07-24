@@ -2,28 +2,28 @@
 import { computed, nextTick, onBeforeUnmount, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { useDockerProbe } from '../composables/useDockerProbe'
-import { useDockerContainers } from '../composables/useDockerContainers'
-import { useDockerContainerActions } from '../composables/useDockerContainerActions'
-import { useDockerContainerLogs } from '../composables/useDockerContainerLogs'
-import DockerProbeBanner from './docker/DockerProbeBanner.vue'
-import DockerContainerList from './docker/DockerContainerList.vue'
+import { useDockerProbe } from '../../composables/docker/useDockerProbe'
+import { useDockerContainers } from '../../composables/docker/useDockerContainers'
+import { useDockerContainerActions } from '../../composables/docker/useDockerContainerActions'
+import { useDockerContainerLogs } from '../../composables/docker/useDockerContainerLogs'
+import DockerProbeBanner from './DockerProbeBanner.vue'
+import DockerContainerList from './DockerContainerList.vue'
 import DockerContainerDetail, {
   type DockerDetailTab,
-} from './docker/DockerContainerDetail.vue'
-import { canShowContainerActions } from '../composables/dockerContainerActions'
-import type { DockerListStateFilter } from '../composables/dockerContainersFilter'
+} from './DockerContainerDetail.vue'
+import { canShowContainerActions } from '../../composables/docker/dockerContainerActions'
+import type { DockerListStateFilter } from '../../composables/docker/dockerContainersFilter'
 import {
   onDockerAvailabilityKeyChange,
   onDockerSshReconnected,
-} from '../composables/dockerWorkspaceLoadPolicy'
-import { restoreListScrollAfterRefresh } from '../composables/listScrollPreserve'
-import { appConfirm } from '../composables/useAppDialog'
+} from '../../composables/docker/dockerWorkspaceLoadPolicy'
+import { restoreListScrollAfterRefresh } from '../../composables/docker/listScrollPreserve'
+import { appConfirm } from '../../composables/useAppDialog'
 import type {
   DockerAvailability,
   DockerContainerAction,
   DockerContainerSummary,
-} from '../env.d'
+} from '../../env.d'
 
 const props = defineProps<{
   sessionId: string | null

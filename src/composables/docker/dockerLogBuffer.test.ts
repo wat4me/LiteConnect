@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DockerLogEntry } from '../env.d'
+import type { DockerLogEntry } from '../../env.d'
 import {
   appendDockerLogEntries,
   clearDockerLogRingBuffer,

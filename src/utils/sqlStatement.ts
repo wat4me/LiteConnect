@@ -1,6 +1,6 @@
 /** Lexical SQL statement ranges (string/comment/dollar-quote aware, dialect-aware). */
 
-export type SqlStatementDialect = 'mysql' | 'postgres'
+export type SqlStatementDialect = 'mysql' | 'postgres' | 'oracle'
 
 export type SqlStatementRange = {
   /** Inclusive start of statement including leading comments/hints belonging to it */
@@ -50,7 +50,8 @@ export type SplitSqlResult = {
 }
 
 function normalizeDialect(d?: SqlStatementDialect): SqlStatementDialect {
-  return d === 'postgres' ? 'postgres' : 'mysql'
+  if (d === 'postgres' || d === 'oracle') return d
+  return 'mysql'
 }
 
 /**
@@ -90,7 +91,8 @@ export function isLineCommentStart(
   dialect: SqlStatementDialect = 'mysql',
 ): boolean {
   if (sql[i] !== '-' || sql[i + 1] !== '-') return false
-  if (dialect === 'postgres') return true
+  // Postgres / Oracle: -- always starts a line comment
+  if (dialect === 'postgres' || dialect === 'oracle') return true
   // MySQL: require space/control/EOF after `--`
   const after = sql[i + 2]
   if (after === undefined) return true

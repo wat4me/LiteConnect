@@ -1,8 +1,8 @@
 import { ref, computed, type Ref, type ComputedRef } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { Connection } from '../env.d'
-import { t } from '../i18n'
-import type { TerminalPwdTracker } from './useTerminalPwd'
+import type { Connection } from '../../env.d'
+import { t } from '../../i18n'
+import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
 
 export const HOME_ID = '__home__'

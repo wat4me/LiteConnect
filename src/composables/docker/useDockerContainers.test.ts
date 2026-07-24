@@ -5,7 +5,7 @@ import {
   canApplyInspectResult,
   useDockerContainers,
 } from './useDockerContainers'
-import type { DockerContainerInspectResult, DockerContainerSummary } from '../env.d'
+import type { DockerContainerInspectResult, DockerContainerSummary } from '../../env.d'
 
 function sample(id: string, name: string, state = 'running'): DockerContainerSummary {
   return {

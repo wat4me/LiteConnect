@@ -3,7 +3,7 @@ import type {
   DockerContainerAction,
   DockerContainerActionIpcResponse,
   DockerTransportErrorCode,
-} from '../env.d'
+} from '../../env.d'
 import {
   canApplyContainerActionResult,
   mapActionResultToFeedback,

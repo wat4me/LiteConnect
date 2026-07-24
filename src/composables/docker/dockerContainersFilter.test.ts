@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DockerContainerSummary } from '../env.d'
+import type { DockerContainerSummary } from '../../env.d'
 import {
   filterContainers,
   formatContainerPortsSummary,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
 import { canApplyProbeResult, useDockerProbe } from './useDockerProbe'
-import type { DockerAvailability } from '../env.d'
+import type { DockerAvailability } from '../../env.d'
 
 function mockliteConnect(probeImpl: (sessionId: string) => Promise<DockerAvailability>) {
   const g = globalThis as typeof globalThis & {

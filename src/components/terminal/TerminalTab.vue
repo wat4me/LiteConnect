@@ -3,38 +3,38 @@ import { ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nex
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import '@xterm/xterm/css/xterm.css'
-import type { Theme, CustomColors } from '../composables/useTheme'
-import { usePasteDetection } from '../composables/usePasteDetection'
-import { useCommandBuffer } from '../composables/useCommandBuffer'
-import { useRenderBatch } from '../composables/useRenderBatch'
-import { useWriteQueue } from '../composables/useWriteQueue'
-import { useTerminalPwdQuery } from '../composables/useTerminalPwdQuery'
-import { useTerminalSearch } from '../composables/useTerminalSearch'
-import { useTerminalKeyHandler } from '../composables/useTerminalKeyHandler'
-import { useXtermInstance } from '../composables/useXtermInstance'
+import type { Theme, CustomColors } from '../../composables/useTheme'
+import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
+import { useCommandBuffer } from '../../composables/terminal/useCommandBuffer'
+import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
+import { useWriteQueue } from '../../composables/terminal/useWriteQueue'
+import { useTerminalPwdQuery } from '../../composables/terminal/useTerminalPwdQuery'
+import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
+import { useTerminalKeyHandler } from '../../composables/terminal/useTerminalKeyHandler'
+import { useXtermInstance } from '../../composables/terminal/useXtermInstance'
 import {
   buildShellSuggestions,
   extractSuggestPrefix,
   suggestCompletionSuffix,
   type ShellHistoryEntry,
   type ShellSuggestItem,
-} from '../utils/shellCommandSuggest'
-import { looksLikeFailedShellOutput } from '../utils/shellHistoryEligibility'
+} from '../../utils/shellCommandSuggest'
+import { looksLikeFailedShellOutput } from '../../utils/shellHistoryEligibility'
 import TerminalCommandSuggest from './TerminalCommandSuggest.vue'
 import {
   clearAutoReconnectAttempts,
   noteAutoReconnectAttempt,
-} from '../composables/useAutoReconnectBudget'
-import { appConfirm } from '../composables/useAppDialog'
-import AppIcon from './icons/AppIcon.vue'
+} from '../../composables/session/useAutoReconnectBudget'
+import { appConfirm } from '../../composables/useAppDialog'
+import AppIcon from '../icons/AppIcon.vue'
 import {
   buildPastePreview,
   countPasteLines,
   shouldConfirmPaste,
-} from '../utils/terminalPaste'
-import { isNonRetryableSshError } from '../utils/sshErrorRetry'
-import { focusLiveTerminal } from '../utils/workspaceTerminalFocus'
-import { computeEffectiveTerminalActive } from '../utils/terminalResizePolicy'
+} from '../../utils/terminalPaste'
+import { isNonRetryableSshError } from '../../utils/sshErrorRetry'
+import { focusLiveTerminal } from '../../utils/workspaceTerminalFocus'
+import { computeEffectiveTerminalActive } from '../../utils/terminalResizePolicy'
 import TerminalSearchBar from './TerminalSearchBar.vue'
 import TerminalReconnectOverlay from './TerminalReconnectOverlay.vue'
 
@@ -133,7 +133,9 @@ const {
 const { updatePasteState, isPasting } = usePasteDetection()
 
 const shellHistory = ref<ShellHistoryEntry[]>([])
-const suggestActiveIndex = ref(0)
+const commandSuggestEnabled = ref(false)
+/** -1 means the popup is visible but no suggestion has been explicitly chosen. */
+const suggestActiveIndex = ref(-1)
 const suggestDismissed = ref(false)
 const suggestCursorOutOfView = ref(false)
 const suggestLeft = ref(12)
@@ -146,6 +148,7 @@ const {
   commandBuffer,
   commandBufferDirty,
   capturedSubmitLine,
+  submitBufferedCommand,
   scheduleSubmit,
   cancelPendingSubmit,
   resetCommandBuffer,
@@ -155,12 +158,14 @@ const {
   onCdCommand: (cmd) => emit('cdCommand', props.sessionId, cmd),
   onSubmitted: (cmd) => {
     suggestDismissed.value = false
+    if (!commandSuggestEnabled.value) return
     if (!cmd || !cmd.trim()) return
     scheduleHistorySniff(cmd.trim())
   },
 })
 
 const suggestItems = computed(() => {
+  if (!commandSuggestEnabled.value) return []
   if (suggestDismissed.value || commandBufferDirty.value) return []
   if (!isEffectiveActive() || disconnected.value) return []
   const q = commandBuffer.value
@@ -242,6 +247,28 @@ async function loadShellHistory() {
   }
 }
 
+async function loadCommandSuggestSetting() {
+  try {
+    commandSuggestEnabled.value = await window.LiteConnect.getTerminalCommandSuggestEnabled()
+  } catch {
+    commandSuggestEnabled.value = false
+  }
+  if (commandSuggestEnabled.value) void loadShellHistory()
+}
+
+function onTerminalBehaviorSettingsChange(event: Event) {
+  const enabled = (event as CustomEvent).detail?.commandSuggestEnabled
+  if (typeof enabled !== 'boolean') return
+  commandSuggestEnabled.value = enabled
+  if (enabled) {
+    suggestDismissed.value = false
+    void loadShellHistory()
+  } else {
+    cancelHistorySniff()
+    hideSuggest()
+  }
+}
+
 async function pushShellHistory(command: string) {
   try {
     const list = await window.LiteConnect.pushShellCommandHistory(props.connectionId, command)
@@ -297,18 +324,15 @@ function feedHistorySniff(chunk: string) {
 
 function hideSuggest() {
   suggestDismissed.value = true
-  suggestActiveIndex.value = 0
+  suggestActiveIndex.value = -1
 }
 
-function applySuggestItem(item: ShellSuggestItem) {
+function applySuggestItem(item: ShellSuggestItem, execute = false) {
   const segment = extractSuggestPrefix(commandBuffer.value)
   const { clearCount, write } = suggestCompletionSuffix(segment, item.command)
   let payload = ''
   if (clearCount > 0) payload += '\x7f'.repeat(clearCount)
   payload += write
-  if (payload) {
-    window.LiteConnect.sshWrite(props.sessionId, payload)
-  }
   // Local buffer: replace last segment
   const full = commandBuffer.value
   const re = /^(.*(?:&&|\|\||[;|])\s*)?(.*)$/s
@@ -319,6 +343,11 @@ function applySuggestItem(item: ShellSuggestItem) {
   commandBuffer.value = `${prefix}${leadingWs}${item.command}`
   commandBufferDirty.value = false
   hideSuggest()
+  if (execute) {
+    submitBufferedCommand()
+    payload += '\r'
+  }
+  if (payload) window.LiteConnect.sshWrite(props.sessionId, payload)
 }
 
 function onSuggestPick(item: ShellSuggestItem) {
@@ -335,19 +364,22 @@ function handleSuggestKey(event: KeyboardEvent): boolean {
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     const n = suggestItems.value.length
-    if (n > 0) suggestActiveIndex.value = (suggestActiveIndex.value + 1) % n
+    if (n > 0) suggestActiveIndex.value = suggestActiveIndex.value < 0 ? 0 : (suggestActiveIndex.value + 1) % n
     return false
   }
   if (event.key === 'ArrowUp') {
     event.preventDefault()
     const n = suggestItems.value.length
-    if (n > 0) suggestActiveIndex.value = (suggestActiveIndex.value - 1 + n) % n
+    if (n > 0) suggestActiveIndex.value = suggestActiveIndex.value < 0 ? n - 1 : (suggestActiveIndex.value - 1 + n) % n
     return false
   }
-  if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    event.preventDefault()
+  // A plain Enter keeps normal terminal behavior until the user explicitly
+  // chooses a row with ArrowUp/ArrowDown. Tab remains remote shell completion.
+  if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
     const item = suggestItems.value[suggestActiveIndex.value]
-    if (item) applySuggestItem(item)
+    if (!item) return true
+    event.preventDefault()
+    applySuggestItem(item, true)
     return false
   }
   return true
@@ -465,7 +497,7 @@ function handleKey(event: KeyboardEvent): boolean {
 
 watch(suggestItems, (list) => {
   if (suggestActiveIndex.value >= list.length) {
-    suggestActiveIndex.value = Math.max(0, list.length - 1)
+    suggestActiveIndex.value = -1
   }
 })
 
@@ -771,12 +803,32 @@ watch(
   },
 )
 
+function appendIncomingTerminalData(data: string) {
+  if (!getTerminal()) return
+  const visibleData = processPwdQueryData(data)
+  if (visibleData.length > 0) {
+    feedHistorySniff(visibleData)
+    appendRenderBatch(visibleData)
+    scheduleRenderFlush()
+  }
+}
+
+async function flushStartupNotices() {
+  try {
+    const notices = await window.LiteConnect.sshTakeStartupNotices(props.sessionId)
+    for (const notice of notices) appendIncomingTerminalData(notice)
+  } catch {
+    // A notice is diagnostic only; never interrupt the terminal session.
+  }
+}
+
 onMounted(async () => {
   if (!terminalRef.value) return
 
   await loadTerminalSettings()
   attachSettingsListeners()
-  void loadShellHistory()
+  await loadCommandSuggestSetting()
+  window.addEventListener('terminal-behavior-settings-change', onTerminalBehaviorSettingsChange)
 
   const terminal = createTerminal(props.connectionName)
   if (!terminal) return
@@ -822,8 +874,9 @@ onMounted(async () => {
       suggestDismissed.value = false
       commandBuffer.value = commandBuffer.value.replace(/\S+\s*$/, '')
     } else if (isTab) {
-      // Tab may complete suggest via handleKey; mark dirty only if not consumed there
-      if (!suggestVisible.value) commandBufferDirty.value = true
+      // Tab goes to remote shell completion; drop local suggest so they do not fight
+      hideSuggest()
+      commandBufferDirty.value = true
     } else if (isLocallyEchoable(data) && !isPasting()) {
       suggestDismissed.value = false
       commandBuffer.value += data
@@ -857,14 +910,9 @@ onMounted(async () => {
   })
 
   unsubData = window.LiteConnect.onSshData(props.sessionId, (data) => {
-    if (!getTerminal()) return
-    const visibleData = processPwdQueryData(data)
-    if (visibleData.length > 0) {
-      feedHistorySniff(visibleData)
-      appendRenderBatch(visibleData)
-      scheduleRenderFlush()
-    }
+    appendIncomingTerminalData(data)
   })
+  void flushStartupNotices()
 
   unsubClosed = window.LiteConnect.onSshClosed(props.sessionId, () => {
     // 用户主动关标签/关应用时不应自动重连；仅窗口仍在时的意外断线才重试
@@ -873,6 +921,7 @@ onMounted(async () => {
 
   unsubReconnected = window.LiteConnect.onSshReconnected?.(props.sessionId, () => {
     markReconnectedInPlace()
+    void flushStartupNotices()
   }) ?? null
 
   unsubError = window.LiteConnect.onSshError(props.sessionId, (error) => {
@@ -921,6 +970,7 @@ watch([theme, customColors, terminalPalette], () => {
 
 onBeforeUnmount(() => {
   appUnloading = true
+  window.removeEventListener('terminal-behavior-settings-change', onTerminalBehaviorSettingsChange)
   window.removeEventListener('request-terminal-pwd', onRequestTerminalPwd)
   window.removeEventListener('ssh-reconnect-failed', onReconnectFailed)
   window.removeEventListener('click', hideSelectionMenu)
@@ -1040,12 +1090,7 @@ defineExpose({
           <span>{{ t('terminal.insertToAi') }}</span>
         </button>
         <button class="terminal-selection-menu-item" @click="saveSelectionAsSnippet">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="12" y1="18" x2="12" y2="12"/>
-            <line x1="9" y1="15" x2="15" y2="15"/>
-          </svg>
+          <AppIcon name="file-text" :size="13" />
           <span>{{ t('terminal.saveAsSnippet') }}</span>
         </button>
       </template>

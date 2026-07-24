@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppIcon from './icons/AppIcon.vue'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   activeGroupName: string

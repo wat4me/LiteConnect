@@ -1,5 +1,5 @@
 import type { DockerContainerAction } from '../../env.d'
-import { visibleContainerActions } from '../../composables/dockerContainerActions'
+import { visibleContainerActions } from '../../composables/docker/dockerContainerActions'
 
 export function actionsForState(state: string): DockerContainerAction[] {
   return visibleContainerActions(state)

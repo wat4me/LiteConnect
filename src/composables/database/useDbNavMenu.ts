@@ -24,13 +24,13 @@ export type DbNavMenuDeps = {
   openDataTab: (connectionId: string, database: string, table: string) => void
   openStructureTab: (connectionId: string, database: string, table: string) => void
   dialectOf: (connectionId: string | null | undefined) => SqlDialect
-  getLiveSession: (connectionId: string | null | undefined) => { sessionId: string; engine: 'mysql' | 'postgres' } | null
+  getLiveSession: (connectionId: string | null | undefined) => { sessionId: string; engine: import('../../env.d').DbEngine } | null
   getConnectionName: (connectionId: string) => string
 }
 
 export function useDbNavMenu(deps: DbNavMenuDeps) {
   const navMenu = ref<NavMenu | null>(null)
-  const createDbTarget = ref<{ connectionId: string; connectionName: string; engine: 'mysql' | 'postgres' } | null>(null)
+  const createDbTarget = ref<{ connectionId: string; connectionName: string; engine: import('../../env.d').DbEngine } | null>(null)
   const createDbCreating = ref(false)
 
   function closeContextMenu() {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -126,10 +127,8 @@ onBeforeUnmount(() => {
           >
             {{ saving ? t('sftp.saving') : t('common.save') }}
           </button>
-          <button class="editor-close" @click="emit('close')" :title="t('common.close')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('common.close')">
+            <AppIcon name="close" :size="14" />
           </button>
         </div>
       </div>
@@ -249,24 +248,6 @@ onBeforeUnmount(() => {
 .editor-save-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.editor-close {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.editor-close:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 .editor-error {

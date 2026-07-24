@@ -40,6 +40,8 @@ export interface Session {
 
 export interface SSHCallbacks {
   onData: (sessionId: string, data: string) => void
+  /** Connection-status notices that must survive initial terminal mount timing. */
+  onNotice?: (sessionId: string, message: string) => void
   onClose: (sessionId: string) => void
   onError: (sessionId: string, error: string) => void
 }

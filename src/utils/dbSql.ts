@@ -1,9 +1,9 @@
-/** SQL helpers for LiteConnect database UI (MySQL / PostgreSQL dialects). */
+/** SQL helpers for LiteConnect database UI (MySQL / PostgreSQL / Oracle dialects). */
 
-export type SqlDialect = 'mysql' | 'postgres'
+export type SqlDialect = 'mysql' | 'postgres' | 'oracle'
 
 export function quoteIdent(name: string, dialect: SqlDialect = 'mysql'): string {
-  if (dialect === 'postgres') {
+  if (dialect === 'postgres' || dialect === 'oracle') {
     return '"' + String(name).replace(/"/g, '""') + '"'
   }
   return '`' + String(name).replace(/`/g, '``') + '`'
@@ -12,7 +12,7 @@ export function quoteIdent(name: string, dialect: SqlDialect = 'mysql'): string 
 export function sqlLiteral(value: unknown, dialect: SqlDialect = 'mysql'): string {
   if (value === null || value === undefined) return 'NULL'
   if (typeof value === 'boolean') {
-    // MySQL often uses 0/1; Postgres prefers TRUE/FALSE
+    // MySQL often uses 0/1; Postgres TRUE/FALSE; Oracle 1/0
     if (dialect === 'postgres') return value ? 'TRUE' : 'FALSE'
     return value ? '1' : '0'
   }
@@ -33,8 +33,8 @@ export function sqlLiteral(value: unknown, dialect: SqlDialect = 'mysql'): strin
 }
 
 function quoteString(s: string, dialect: SqlDialect): string {
-  if (dialect === 'postgres') {
-    // Standard SQL: double single-quotes; backslash is not special unless standard_conforming_strings=off
+  if (dialect === 'postgres' || dialect === 'oracle') {
+    // Standard SQL: double single-quotes
     return "'" + s.replace(/'/g, "''") + "'"
   }
   return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "''") + "'"
@@ -54,6 +54,15 @@ function qualifiedTable(database: string, table: string, dialect: SqlDialect): s
       return `${quoteIdent(schema, dialect)}.${quoteIdent(name, dialect)}`
     }
     return `${quoteIdent('public', dialect)}.${quoteIdent(table, dialect)}`
+  }
+  if (dialect === 'oracle') {
+    // database maps to schema/owner
+    if (table.includes('.')) {
+      const [schema, name] = table.split('.', 2)
+      return `${quoteIdent(schema, dialect)}.${quoteIdent(name, dialect)}`
+    }
+    if (database) return `${quoteIdent(database, dialect)}.${quoteIdent(table, dialect)}`
+    return quoteIdent(table, dialect)
   }
   return `${quoteIdent(database, dialect)}.${quoteIdent(table, dialect)}`
 }
@@ -86,8 +95,8 @@ export function buildUpdateSql(
     })
     .join(' AND ')
   const fq = qualifiedTable(database, table, dialect)
-  // MySQL supports LIMIT on UPDATE; Postgres does not — PK WHERE is enough for both
-  if (dialect === 'postgres') {
+  // MySQL supports LIMIT on UPDATE; Postgres/Oracle do not — PK WHERE is enough
+  if (dialect === 'postgres' || dialect === 'oracle') {
     return `UPDATE ${fq}\nSET ${sets.join(', ')}\nWHERE ${where};`
   }
   return `UPDATE ${fq}\nSET ${sets.join(', ')}\nWHERE ${where}\nLIMIT 1;`
@@ -109,7 +118,7 @@ export function buildDeleteSql(
     })
     .join(' AND ')
   const fq = qualifiedTable(database, table, dialect)
-  if (dialect === 'postgres') {
+  if (dialect === 'postgres' || dialect === 'oracle') {
     return `DELETE FROM ${fq}\nWHERE ${where};`
   }
   return `DELETE FROM ${fq}\nWHERE ${where}\nLIMIT 1;`

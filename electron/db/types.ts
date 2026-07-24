@@ -1,14 +1,15 @@
-export type DbEngine = 'mysql' | 'postgres'
+export type DbEngine = 'mysql' | 'postgres' | 'oracle'
 
-export const DB_ENGINES: readonly DbEngine[] = ['mysql', 'postgres'] as const
+export const DB_ENGINES: readonly DbEngine[] = ['mysql', 'postgres', 'oracle'] as const
 
 export const DEFAULT_DB_PORT: Record<DbEngine, number> = {
   mysql: 3306,
   postgres: 5432,
+  oracle: 1521,
 }
 
 export function isDbEngine(value: unknown): value is DbEngine {
-  return value === 'mysql' || value === 'postgres'
+  return value === 'mysql' || value === 'postgres' || value === 'oracle'
 }
 
 export function normalizeDbEngine(value: unknown): DbEngine {
@@ -42,6 +43,11 @@ export interface DbConnection {
   /** @deprecated use sslOptions.enabled; kept for backward compatibility */
   ssl?: boolean
   sslOptions?: DbSslOptions
+  /**
+   * Advanced driver options (string map). Applied via whitelist in each driver
+   * (e.g. useSSL, serverTimezone, sslmode). Unknown keys are ignored at connect.
+   */
+  extraOptions?: Record<string, string>
   /** Optional group label for navigation */
   group?: string
   /**
@@ -150,7 +156,15 @@ export type DbCancelResult = {
 
 export type DbTestParams = Pick<
   DbConnection,
-  'host' | 'port' | 'username' | 'password' | 'database' | 'ssl' | 'sslOptions' | 'sshConnectionId'
+  | 'host'
+  | 'port'
+  | 'username'
+  | 'password'
+  | 'database'
+  | 'ssl'
+  | 'sslOptions'
+  | 'extraOptions'
+  | 'sshConnectionId'
 > & {
   engine?: DbEngine
   /** Temporary password fill from store when testing edit form */

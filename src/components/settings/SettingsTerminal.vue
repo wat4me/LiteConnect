@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import TerminalPreview from '../TerminalPreview.vue'
+import TerminalPreview from '../terminal/TerminalPreview.vue'
 import {
   terminalPaletteOrder,
   terminalPaletteLabels,
@@ -86,6 +86,12 @@ function updateFontSize(delta: number) {
           </option>
         </select>
         <div class="settings-hint">{{ t('settingsTerminal.pasteConfirmThresholdHint') }}</div>
+
+        <label class="settings-check" style="margin-top: 14px">
+          <input v-model="draft.terminalCommandSuggestEnabled" type="checkbox" />
+          <span>{{ t('settingsTerminal.commandSuggest') }}</span>
+        </label>
+        <div class="settings-hint">{{ t('settingsTerminal.commandSuggestHint') }}</div>
       </div>
 
       <div class="preview-card">

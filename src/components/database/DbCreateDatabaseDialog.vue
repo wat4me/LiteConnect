@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 
-type Engine = 'mysql' | 'postgres'
+type Engine = 'mysql' | 'postgres' | 'oracle'
 
 const props = defineProps<{
   visible: boolean
@@ -55,7 +55,9 @@ const mysqlCollateOptions = computed(() => {
   return MYSQL_COLLATES_BY_CHARSET[charset.value] || []
 })
 
-const canCreate = computed(() => name.value.trim().length > 0 && !props.creating)
+const canCreate = computed(
+  () => props.engine !== 'oracle' && name.value.trim().length > 0 && !props.creating,
+)
 
 watch(
   () => props.visible,
@@ -89,21 +91,46 @@ function submit() {
     collate: collate.value || undefined,
   })
 }
+
+async function copyOracleSql() {
+  const sql = t('database.msg.createDatabaseOracleSql')
+  try {
+    await navigator.clipboard.writeText(sql)
+  } catch {
+    // ignore
+  }
+}
 </script>
 
 <template>
   <div v-if="visible" class="ui-modal-overlay" @click.self="emit('close')">
     <div class="ui-modal-card cdb-dialog" role="dialog" aria-labelledby="cdb-dialog-title">
       <header class="cdb-head">
-        <h3 id="cdb-dialog-title">{{ t('database.msg.createDatabaseTitle') }}</h3>
+        <h3 id="cdb-dialog-title">
+          {{
+            engine === 'oracle'
+              ? t('database.msg.createDatabaseTitleOracle')
+              : t('database.msg.createDatabaseTitle')
+          }}
+        </h3>
         <button type="button" class="ui-modal-close" :aria-label="t('common.close')" @click="emit('close')">
           <AppIcon name="close" :size="14" />
         </button>
       </header>
 
       <form class="cdb-body" @submit.prevent="submit">
-        <p class="cdb-hint">{{ t('database.msg.createDatabaseHint', { name: connectionName }) }}</p>
+        <p class="cdb-hint">
+          {{
+            engine === 'oracle'
+              ? t('database.msg.createDatabaseHintOracle', { name: connectionName })
+              : t('database.msg.createDatabaseHint', { name: connectionName })
+          }}
+        </p>
 
+        <template v-if="engine === 'oracle'">
+          <pre class="cdb-sql">{{ t('database.msg.createDatabaseOracleSql') }}</pre>
+        </template>
+        <template v-else>
         <label class="cdb-field">
           <span class="cdb-label">{{ t('database.msg.createDatabaseNameLabel') }}</span>
           <input
@@ -141,14 +168,28 @@ function submit() {
             </select>
           </label>
         </template>
+        </template>
 
         <footer class="cdb-foot">
           <button type="button" class="ui-btn" :disabled="creating" @click="emit('close')">
             {{ t('database.connection.cancel') }}
           </button>
-          <button type="submit" class="ui-btn ui-btn-primary" :disabled="!canCreate">
+          <button
+            v-if="engine !== 'oracle'"
+            type="submit"
+            class="ui-btn ui-btn-primary"
+            :disabled="!canCreate"
+          >
             {{ creating ? t('database.msg.createDatabaseCreating') : t('database.connection.ok') }}
           </button>
+          <template v-else>
+            <button type="button" class="ui-btn" @click="copyOracleSql">
+              {{ t('common.copy') }}
+            </button>
+            <button type="button" class="ui-btn ui-btn-primary" @click="emit('close')">
+              {{ t('database.connection.ok') }}
+            </button>
+          </template>
         </footer>
       </form>
     </div>
@@ -189,6 +230,21 @@ function submit() {
   margin: 0 0 4px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.cdb-sql {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary, var(--bg-primary));
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  max-height: 180px;
+  overflow: auto;
 }
 
 .cdb-field {

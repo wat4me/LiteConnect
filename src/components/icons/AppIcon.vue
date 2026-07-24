@@ -49,6 +49,14 @@ export type AppIconName =
   | 'eye-off'
   | 'grip'
   | 'docker'
+  | 'alert-triangle'
+  | 'alert-circle'
+  | 'info'
+  | 'split-h'
+  | 'split-v'
+  | 'lock'
+  | 'database'
+  | 'table'
 
 const props = withDefaults(
   defineProps<{
@@ -324,6 +332,50 @@ const sizePx = () => (typeof props.size === 'number' ? `${props.size}` : String(
       </g>
       <circle cx="5.15" cy="16.3" r="0.7" fill="var(--bg-primary, #fff)" stroke="none" />
       <path d="M18.15 11.2c.25-1.15 1.05-1.95 2.25-2.25" />
+    </template>
+    <!-- alert triangle -->
+    <template v-else-if="name === 'alert-triangle'">
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </template>
+    <!-- alert circle (error) -->
+    <template v-else-if="name === 'alert-circle'">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="15" y1="9" x2="9" y2="15" />
+      <line x1="9" y1="9" x2="15" y2="15" />
+    </template>
+    <!-- info -->
+    <template v-else-if="name === 'info'">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </template>
+    <!-- split horizontal (stacked panes) -->
+    <template v-else-if="name === 'split-h'">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+    </template>
+    <!-- split vertical (side panes) -->
+    <template v-else-if="name === 'split-v'">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="12" y1="3" x2="12" y2="21" />
+    </template>
+    <!-- lock -->
+    <template v-else-if="name === 'lock'">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </template>
+    <!-- database cylinder -->
+    <template v-else-if="name === 'database'">
+      <ellipse cx="12" cy="5" rx="8" ry="3" />
+      <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+      <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+    </template>
+    <!-- table grid -->
+    <template v-else-if="name === 'table'">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M3 15h18M9 3v18" />
     </template>
   </svg>
 </template>

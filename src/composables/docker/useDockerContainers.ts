@@ -2,7 +2,7 @@ import { computed, getCurrentInstance, onBeforeUnmount, ref, watch, type Ref } f
 import type {
   DockerContainerInspectResult,
   DockerContainerSummary,
-} from '../env.d'
+} from '../../env.d'
 import {
   filterContainers,
   resolveSelectionAfterRefresh,

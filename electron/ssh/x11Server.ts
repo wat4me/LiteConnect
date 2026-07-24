@@ -219,13 +219,18 @@ export async function ensureX11ServerReady(
       const child = spawnXServer(exe, display)
       managedProcess = child
       managedDisplay = display
-      child.once('exit', () => {
+      console.info(`[X11] spawned display :${display}, pid=${child.pid ?? 'unknown'}, exe=${exe}`)
+      child.once('exit', (code, signal) => {
+        console.warn(
+          `[X11] display :${display}, pid=${child.pid ?? 'unknown'} exited code=${code ?? 'null'} signal=${signal ?? 'none'}`,
+        )
         if (managedProcess === child) {
           managedProcess = null
           managedDisplay = null
         }
       })
-      child.once('error', () => {
+      child.once('error', (err) => {
+        console.error(`[X11] display :${display}, pid=${child.pid ?? 'unknown'} start error: ${err.message}`)
         if (managedProcess === child) {
           managedProcess = null
           managedDisplay = null

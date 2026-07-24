@@ -115,7 +115,11 @@ const execOpts = computed(() =>
 )
 
 const dialectLabel = computed(() =>
-  props.dialect === 'postgres' ? 'PostgreSQL' : 'MySQL',
+  props.dialect === 'postgres'
+    ? 'PostgreSQL'
+    : props.dialect === 'oracle'
+      ? 'Oracle'
+      : 'MySQL',
 )
 
 /** Run scope indicator for the status bar */

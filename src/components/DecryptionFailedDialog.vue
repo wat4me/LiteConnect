@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { DecryptionFailedData } from '../composables/useSecurityDialogs'
+import AppIcon from './icons/AppIcon.vue'
 
 defineProps<{
   data: DecryptionFailedData | null
@@ -24,10 +25,7 @@ const { t } = useI18n()
   >
     <div class="ui-modal-card decrypt-dialog">
       <div class="dialog-header">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" aria-hidden="true">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
+        <AppIcon name="lock" :size="24" class="dialog-tone-icon danger" />
         <span id="decrypt-fail-title" class="dialog-title">{{ t('dialog.decryptFailedTitle') }}</span>
       </div>
       <div class="dialog-body">
@@ -71,6 +69,10 @@ const { t } = useI18n()
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.dialog-tone-icon.danger {
+  color: var(--danger);
 }
 
 .dialog-body {

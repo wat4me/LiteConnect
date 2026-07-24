@@ -41,38 +41,63 @@ describe('buildShellSuggestions', () => {
     { command: 'rm -rf /tmp/cache', at: 100 },
   ]
 
-  it('puts history before builtins', () => {
+  it('bare exact command: offers matching full history lines', () => {
     const items = buildShellSuggestions({
       query: 'ps',
       history,
       describe: () => 'list processes',
     })
-    expect(items.length).toBeGreaterThan(0)
-    expect(items[0].source).toBe('history')
-    expect(items[0].command).toMatch(/^ps/)
-    const builtin = items.find((x) => x.source === 'builtin' && x.command === 'ps')
-    expect(builtin).toBeTruthy()
-    expect(items.indexOf(items[0])).toBeLessThan(items.indexOf(builtin!))
+    expect(items.some((x) => x.source === 'history' && x.command === 'ps -ef')).toBe(true)
   })
 
-  it('keeps up to 5 history + 3 system (max 8)', () => {
+  it('does not offer static command-name suggestions', () => {
+    const items = buildShellSuggestions({
+      query: 'net',
+      history: [],
+      describe: () => '',
+    })
+    expect(items).toEqual([])
+  })
+
+  it('partial bare name still matches longer history first-token', () => {
+    const items = buildShellSuggestions({
+      query: 'doc',
+      history: [
+        { command: 'docker ps', at: 10 },
+        { command: 'docker compose up', at: 9 },
+      ],
+      describe: () => '',
+    })
+    const hist = items.filter((x) => x.source === 'history')
+    expect(hist.some((x) => x.command.startsWith('docker'))).toBe(true)
+  })
+
+  it('after space, history of full lines is available again', () => {
+    const items = buildShellSuggestions({
+      query: 'docker p',
+      history: [
+        { command: 'docker ps', at: 10 },
+        { command: 'docker compose up', at: 9 },
+      ],
+      describe: () => '',
+    })
+    expect(items.some((x) => x.source === 'history' && x.command === 'docker ps')).toBe(true)
+  })
+
+  it('keeps up to 5 history when completing past bare name', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({
       command: `ls hist-${i}`,
       at: 1000 - i,
     }))
     const items = buildShellSuggestions({
-      query: 'ls',
+      query: 'ls h',
       history: many,
       describe: () => 'list',
     })
     const hist = items.filter((x) => x.source === 'history')
-    const sys = items.filter((x) => x.source === 'builtin' || x.source === 'flag')
     expect(hist.length).toBe(5)
-    expect(sys.length).toBeGreaterThanOrEqual(1)
-    expect(sys.length).toBeLessThanOrEqual(3)
-    expect(items.length).toBe(hist.length + sys.length)
-    expect(items.length).toBeLessThanOrEqual(8)
-    // newest first among history of equal score
+    expect(items.length).toBe(hist.length)
+    expect(items.length).toBeLessThanOrEqual(5)
     expect(hist[0].command).toBe('ls hist-0')
   })
 
@@ -80,14 +105,13 @@ describe('buildShellSuggestions', () => {
     expect(buildShellSuggestions({ query: '  ', history })).toEqual([])
   })
 
-  it('matches rm history and builtin', () => {
+  it('bare exact rm: offers full matching history', () => {
     const items = buildShellSuggestions({
       query: 'rm',
       history,
       describe: (k) => k,
     })
-    expect(items.some((x) => x.source === 'history' && x.command.includes('rm'))).toBe(true)
-    expect(items.some((x) => x.source === 'builtin' && x.command === 'rm')).toBe(true)
+    expect(items.some((x) => x.source === 'history' && x.command === 'rm -rf /tmp/cache')).toBe(true)
   })
 
   it('flag mode: title is flag only, command is full segment', () => {

@@ -1,9 +1,9 @@
 import { ref, nextTick, watch, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { t } from '../i18n'
-import { appConfirm } from './useAppDialog'
-import type { FileEntry } from '../env.d.ts'
-import { canEditSftpFile, isSftpArchiveName } from '../utils/sftpEditable'
+import { t } from '../../i18n'
+import { appConfirm } from '../useAppDialog'
+import type { FileEntry } from '../../env.d.ts'
+import { canEditSftpFile, isSftpArchiveName } from '../../utils/sftpEditable'
 import type { DownloadConflictStrategy } from './useSftpUpload'
 
 /**

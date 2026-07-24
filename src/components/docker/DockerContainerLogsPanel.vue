@@ -7,11 +7,11 @@ import {
   inspectMatchDisplay,
   nextInspectMatchIndex,
   prevInspectMatchIndex,
-} from '../../composables/inspectJsonSearch'
+} from '../../composables/docker/inspectJsonSearch'
 import {
   dockerLogStateI18nKey,
   type DockerLogsUiState,
-} from '../../composables/useDockerContainerLogs'
+} from '../../composables/docker/useDockerContainerLogs'
 import type { DockerLogEntry, DockerLogTail, DockerTransportErrorCode } from '../../env.d'
 
 const props = defineProps<{

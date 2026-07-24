@@ -16,7 +16,8 @@
  *   string and uncertain is set when backslash immediately precedes a closing quote.
  */
 
-export type SqlReadOnlyDialect = 'mysql' | 'postgres'
+/** Oracle uses postgres-like comment rules until full Oracle dialect lands (P2). */
+export type SqlReadOnlyDialect = 'mysql' | 'postgres' | 'oracle'
 
 export type SqlReadOnlyVerdict = {
   allowed: boolean
@@ -173,7 +174,9 @@ export function stripSqlForReadOnlyScan(
   let blockDepth = 0
   let dollarTag: string | null = null
   const isLineComment =
-    dialect === 'postgres' ? isPgLineCommentStart : isMySqlLineCommentStart
+    dialect === 'postgres' || dialect === 'oracle'
+      ? isPgLineCommentStart
+      : isMySqlLineCommentStart
 
   while (i < n) {
     const c = sql[i]
@@ -200,7 +203,7 @@ export function stripSqlForReadOnlyScan(
     }
 
     if (blockDepth > 0) {
-      if (dialect === 'postgres' && c === '/' && next === '*') {
+      if ((dialect === 'postgres' || dialect === 'oracle') && c === '/' && next === '*') {
         blockDepth += 1
         i += 2
         continue
@@ -319,8 +322,8 @@ export function stripSqlForReadOnlyScan(
         out += ' '
         continue
       }
-      // Ordinary block comment
-      if (dialect === 'postgres') {
+      // Ordinary block comment (Oracle treated like PG nesting for safety)
+      if (dialect === 'postgres' || dialect === 'oracle') {
         blockDepth = 1
         i += 2
         continue

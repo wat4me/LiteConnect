@@ -2,9 +2,9 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiProvider, AiSettings } from '../env.d.ts'
-import { DEFAULT_SYSTEM_PROMPT } from '../utils/constants'
-import AppIcon from './icons/AppIcon.vue'
+import type { AiProvider, AiSettings } from '../../env.d.ts'
+import { DEFAULT_SYSTEM_PROMPT } from '../../utils/constants'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -30,6 +30,7 @@ const draftSettings = ref<AiSettings>(
 )
 
 const editingProviderId = ref<string | null>(null)
+const testingProvider = ref(false)
 
 const editingProvider = computed<AiProvider | null>(() => {
   if (!editingProviderId.value) return null
@@ -72,6 +73,29 @@ function addModelToProvider(provider: AiProvider) {
 
 function removeModelFromProvider(provider: AiProvider, index: number) {
   provider.models.splice(index, 1)
+}
+
+async function testProvider() {
+  const provider = editingProvider.value
+  if (!provider || testingProvider.value) return
+  const model = provider.models.find((item) => item.trim())?.trim() || ''
+  if (!model) {
+    ElMessage.warning(t('ai.testProviderNeedModel'))
+    return
+  }
+  testingProvider.value = true
+  try {
+    await window.LiteConnect.testAiProvider({
+      baseUrl: provider.baseUrl.trim(),
+      apiKey: provider.apiKey,
+      model,
+    })
+    ElMessage.success(t('ai.testProviderSuccess'))
+  } catch (err: any) {
+    ElMessage.warning(err?.message || t('ai.testProviderFailed'))
+  } finally {
+    testingProvider.value = false
+  }
 }
 
 async function saveSettings() {
@@ -130,10 +154,8 @@ defineExpose({ applyExternal })
     <template v-if="!editingProvider">
       <div class="provider-list-header">
         <span class="field-label">{{ t('ai.providerList') }}</span>
-        <button class="add-provider-btn" @click="addProvider" :title="t('ai.addProvider')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="addProvider" :title="t('ai.addProvider')">
+          <AppIcon name="plus" :size="14" />
         </button>
       </div>
       <div v-if="draftSettings.providers.length === 0" class="provider-empty">
@@ -155,36 +177,26 @@ defineExpose({ applyExternal })
         <div class="provider-item-actions">
           <button
             v-if="provider.id !== draftSettings.activeProviderId && provider.models.length > 0"
-            class="provider-set-active-btn"
+            type="button"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
             :title="t('ai.setActiveProvider')"
             @click="draftSettings.activeProviderId = provider.id; draftSettings.activeModel = provider.models[0] || ''"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+            <AppIcon name="check" :size="12" />
           </button>
-          <button class="provider-delete-btn" :title="t('common.delete')" @click="deleteProvider(provider.id)">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
-            </svg>
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.delete')" @click="deleteProvider(provider.id)">
+            <AppIcon name="delete" :size="12" />
           </button>
         </div>
       </div>
-
-      <div class="settings-divider"></div>
-
-      <label class="field-label">{{ t('ai.systemPrompt') }}</label>
-      <textarea v-model="draftSettings.systemPrompt" class="ui-textarea ui-input-sm" rows="3" />
 
       <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="saveSettings">{{ t('ai.saveSettings') }}</button>
     </template>
 
     <template v-else>
       <div class="provider-edit-header">
-        <button class="back-btn" @click="editingProviderId = null" :title="t('common.back')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="editingProviderId = null" :title="t('common.back')">
+          <AppIcon name="chevron-left" :size="14" />
         </button>
         <span class="field-label">{{ t('ai.editProvider') }}</span>
       </div>
@@ -200,10 +212,8 @@ defineExpose({ applyExternal })
 
       <div class="provider-models-header">
         <span class="field-label">{{ t('ai.modelList') }}</span>
-        <button class="add-provider-btn" @click="addModelToProvider(editingProvider)" :title="t('ai.addModel')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="addModelToProvider(editingProvider)" :title="t('ai.addModel')">
+          <AppIcon name="plus" :size="14" />
         </button>
       </div>
       <div v-if="editingProvider.models.length === 0" class="provider-empty">
@@ -215,14 +225,17 @@ defineExpose({ applyExternal })
         class="model-input-row"
       >
         <input v-model="editingProvider.models[index]" class="ui-input ui-input-sm model-input" placeholder="gpt-4o-mini" />
-        <button class="provider-delete-btn" :title="t('ai.deleteModel')" @click="removeModelFromProvider(editingProvider, index)">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.deleteModel')" @click="removeModelFromProvider(editingProvider, index)">
+          <AppIcon name="close" :size="12" />
         </button>
       </div>
 
-      <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="editingProviderId = null">{{ t('common.done') }}</button>
+      <div class="provider-edit-actions">
+        <button type="button" class="ui-btn ui-btn-sm" :disabled="testingProvider" @click="testProvider">
+          {{ testingProvider ? t('ai.testingProvider') : t('ai.testProvider') }}
+        </button>
+        <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="editingProviderId = null">{{ t('common.done') }}</button>
+      </div>
     </template>
   </div>
 </template>
@@ -260,25 +273,6 @@ defineExpose({ applyExternal })
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.add-provider-btn {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--border-color);
-  border-radius: 4px;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.add-provider-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
 }
 
 .provider-empty {
@@ -344,60 +338,19 @@ defineExpose({ applyExternal })
   flex-shrink: 0;
 }
 
-.provider-set-active-btn,
-.provider-delete-btn {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.provider-set-active-btn:hover {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-
-.provider-delete-btn:hover {
-  background: rgba(248, 81, 73, 0.15);
-  color: var(--danger);
-}
-
-.settings-divider {
-  height: 1px;
-  background: var(--border-color);
-  margin: 4px 0;
-}
-
 .provider-edit-header {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.back-btn {
-  width: 22px;
-  height: 22px;
+.provider-edit-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
 }
 
-.back-btn:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
 
 .model-input-row {
   display: flex;

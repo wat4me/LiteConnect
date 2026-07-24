@@ -4,7 +4,7 @@ import {
   computeEffectiveTerminalActive,
   planTerminalResize,
   shouldSendSshResize,
-} from '../utils/terminalResizePolicy'
+} from '../../utils/terminalResizePolicy'
 
 /**
  * Pure contracts for Docker↔Terminal restore.

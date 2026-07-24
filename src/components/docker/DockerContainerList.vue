@@ -5,7 +5,7 @@ import {
   formatContainerPortsSummary,
   matchesStateFilter,
   type DockerListStateFilter,
-} from '../../composables/dockerContainersFilter'
+} from '../../composables/docker/dockerContainersFilter'
 import { primaryRowActions, stateTone } from './dockerUiHelpers'
 import type { DockerContainerAction, DockerContainerSummary } from '../../env.d'
 

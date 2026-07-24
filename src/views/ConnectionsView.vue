@@ -3,17 +3,17 @@ import { defineAsyncComponent, ref, toRef, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../components/icons/AppIcon.vue'
-import GroupPanel from '../components/GroupPanel.vue'
-import ConnectionRow from '../components/ConnectionRow.vue'
-import CredentialManagerModal from '../components/CredentialManagerModal.vue'
-import ConnectionsToolbar from '../components/ConnectionsToolbar.vue'
+import GroupPanel from '../components/connections/GroupPanel.vue'
+import ConnectionRow from '../components/connections/ConnectionRow.vue'
+import CredentialManagerModal from '../components/connections/CredentialManagerModal.vue'
+import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue'
 import type { Connection, Group } from '../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '../utils/connectionTags'
 import { appConfirm } from '../composables/useAppDialog'
 import { useConnectionList, UNGROUPED_ID } from '../composables/useConnectionList'
 import { useBatchTest } from '../composables/useBatchTest'
 
-const ConnectionForm = defineAsyncComponent(() => import('../components/ConnectionForm.vue'))
+const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
 
 const { t } = useI18n()
 
@@ -265,11 +265,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
 
         <div v-if="filteredConnections.length === 0" class="ui-empty empty-connections">
           <div class="ui-empty-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2"/>
-              <line x1="8" y1="21" x2="16" y2="21"/>
-              <line x1="12" y1="17" x2="12" y2="21"/>
-            </svg>
+            <AppIcon name="monitor" :size="22" />
           </div>
           <template v-if="searchQuery || colorTagFilter">
             <p class="ui-empty-title">{{ t('connections.emptyFilteredTitle') }}</p>

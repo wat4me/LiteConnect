@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppIcon from './icons/AppIcon.vue'
-import type { Connection, Group } from '../env.d.ts'
-import { getConnectionTagColor } from '../utils/connectionTags'
+import AppIcon from '../icons/AppIcon.vue'
+import type { Connection, Group } from '../../env.d.ts'
+import { getConnectionTagColor } from '../../utils/connectionTags'
 
 const { t } = useI18n()
 

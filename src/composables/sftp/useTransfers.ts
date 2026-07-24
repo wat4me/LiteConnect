@@ -1,7 +1,7 @@
 import { reactive, computed } from 'vue'
-import { t } from '../i18n'
-import type { TransferItem } from '../env.d.ts'
-import { formatSize } from '../utils/format'
+import { t } from '../../i18n'
+import type { TransferItem } from '../../env.d.ts'
+import { formatSize } from '../../utils/format'
 
 /** Shared across FileSidebar instances so badge works when sidebar is closed */
 const transfers = reactive<Map<string, TransferItem>>(new Map())

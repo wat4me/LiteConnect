@@ -17,6 +17,7 @@ import { CredentialStore } from '../store/credentialStore'
 /** Batch SSH output as string chunks to reduce GC vs repeated string concat. */
 const dataBatches: Map<string, string[]> = new Map()
 let dataBatchScheduled = false
+const startupNotices = new Map<string, string[]>()
 
 type MainWindowGetter = () => BrowserWindow | null
 
@@ -40,6 +41,12 @@ function emitSshData(getMainWindow: MainWindowGetter, sessionId: string, data: s
   }
   chunks.push(data)
   scheduleDataBatch(getMainWindow)
+}
+
+function queueStartupNotice(sessionId: string, message: string) {
+  const notices = startupNotices.get(sessionId) || []
+  notices.push(message)
+  startupNotices.set(sessionId, notices)
 }
 
 /** Resolve secrets in main process only — never send them to the renderer. */
@@ -91,6 +98,13 @@ export function registerSshConnectHandlers(
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
   const ensureKnownHostsReady = () => knownHosts.init()
+
+  ipcMain.handle('ssh:takeStartupNotices', async (_event, sessionId: string) => {
+    if (!isValidUUID(sessionId)) return []
+    const notices = startupNotices.get(sessionId) || []
+    startupNotices.delete(sessionId)
+    return notices
+  })
 
   // Host key management
   ipcMain.handle('ssh:removeHostKey', async (_event, host: string, port: number) => {
@@ -281,6 +295,7 @@ export function registerSshConnectHandlers(
         onData: (sid, data) => {
           emitSshData(getMainWindow, sid, data)
         },
+        onNotice: queueStartupNotice,
         onClose: (sid) => {
           safeSend(getMainWindow(), `ssh:closed:${sid}`)
         },
@@ -339,6 +354,7 @@ export function registerSshConnectHandlers(
       clearInterval(timer)
       latencyTimers.delete(sessionId)
     }
+    startupNotices.delete(sessionId)
     sshManager.disconnect(sessionId)
   })
 
@@ -374,6 +390,7 @@ export function registerSshConnectHandlers(
         onData: (sid, data) => {
           emitSshData(getMainWindow, sid, data)
         },
+        onNotice: queueStartupNotice,
         onClose: (sid) => {
           safeSend(getMainWindow(), `ssh:closed:${sid}`)
         },

@@ -1,5 +1,5 @@
 import type { Connection } from '../env.d'
-import type { Session } from '../composables/useSessionManager'
+import type { Session } from '../composables/session/useSessionManager'
 import type { BatchCommandTarget } from '../composables/useBatchCommand'
 
 export function getTerminalLabel(session: Session | null | undefined): string {

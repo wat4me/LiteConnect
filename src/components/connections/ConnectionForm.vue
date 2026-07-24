@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import AppIcon from './icons/AppIcon.vue'
+import AppIcon from '../icons/AppIcon.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { appConfirm, appPrompt } from '../composables/useAppDialog'
-import type { Connection, Group, SavedCredential } from '../env.d.ts'
-import { CONNECTION_COLOR_TAGS } from '../utils/connectionTags'
+import { appConfirm, appPrompt } from '../../composables/useAppDialog'
+import type { Connection, Group, SavedCredential } from '../../env.d.ts'
+import { CONNECTION_COLOR_TAGS } from '../../utils/connectionTags'
 
 const props = defineProps<{
   connection: Connection | null
@@ -462,8 +462,7 @@ async function toggleCredentialAutoFill() {
               <div class="password-row">
                 <input v-model="form.password" :type="showPassword ? 'text' : 'password'" :placeholder="t('connectionForm.passwordPlaceholder')" class="ui-input password-input" />
                 <button type="button" class="btn-toggle-password" @click="showPassword = !showPassword" :title="showPassword ? t('connectionForm.hidePassword') : t('connectionForm.showPassword')">
-                  <svg v-if="!showPassword" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                  <AppIcon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
                 </button>
               </div>
             </div>
@@ -473,7 +472,7 @@ async function toggleCredentialAutoFill() {
               <div class="privatekey-row">
                 <button type="button" class="btn-select-key" @click="selectPrivateKey">{{ privateKeyFileName || t('connectionForm.selectPrivateKey') }}</button>
                 <button v-if="form.privateKey" type="button" class="btn-clear-key" @click="clearPrivateKey" :title="t('connectionForm.clearPrivateKey')">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  <AppIcon name="close" :size="14" />
                 </button>
               </div>
               <div class="hint-text">{{ t('connectionForm.privateKeyHint') }}</div>
@@ -482,8 +481,7 @@ async function toggleCredentialAutoFill() {
                 <div class="password-row">
                   <input v-model="form.password" :type="showPassword ? 'text' : 'password'" :placeholder="t('connectionForm.passphrasePlaceholder')" class="ui-input password-input" />
                   <button type="button" class="btn-toggle-password" @click="showPassword = !showPassword" :title="showPassword ? t('connectionForm.hidePassword') : t('connectionForm.showPassword')">
-                    <svg v-if="!showPassword" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                    <AppIcon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
                   </button>
                 </div>
               </div>

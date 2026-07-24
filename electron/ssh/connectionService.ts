@@ -11,6 +11,7 @@ import {
   getX11Display,
   getX11Host,
   isX11ShellRequestError,
+  probeX11Port,
 } from './x11'
 import { ensureX11ServerReady } from './x11Server'
 import { t } from '../i18n'
@@ -242,7 +243,7 @@ export class ConnectionService {
         let shellX11FallbackTried = false
         let activeX11Notice = x11Notice
 
-        const handleShell = (err: Error | undefined | null, stream: ClientChannel) => {
+        const handleShell = async (err: Error | undefined | null, stream: ClientChannel) => {
           if (shellOpenTimeout) {
             clearTimeout(shellOpenTimeout)
             shellOpenTimeout = null
@@ -263,7 +264,17 @@ export class ConnectionService {
             if (useX11 && !shellX11FallbackTried && isX11ShellRequestError(msg)) {
               shellX11FallbackTried = true
               destroyX11Sockets(x11Sockets)
-              activeX11Notice = `\r\n\x1b[33m[LiteConnect] ${t('x11.shellRejected', { detail: msg })}\x1b[0m\r\n`
+              const x11Host = getX11Host(connection)
+              const x11Port = 6000 + getX11Display(connection)
+              const localXReady = await probeX11Port(x11Host, x11Port)
+              const notice = localXReady
+                ? t('x11.shellRejected', { detail: msg })
+                : t('x11.shellRejectedLocalUnavailable', {
+                    detail: msg,
+                    host: x11Host,
+                    port: x11Port,
+                  })
+              activeX11Notice = `\r\n\x1b[33m[LiteConnect] ${notice}\x1b[0m\r\n`
               shellOpenTimeout = setTimeout(() => {
                 shellOpenTimeout = null
                 if (!this.isLiveEpoch(sessionId, epoch)) {
@@ -339,7 +350,8 @@ export class ConnectionService {
           })
 
           if (activeX11Notice) {
-            callbacks.onData(sessionId, activeX11Notice)
+            if (callbacks.onNotice) callbacks.onNotice(sessionId, activeX11Notice)
+            else callbacks.onData(sessionId, activeX11Notice)
           }
           if (hasJump) {
             callbacks.onData(

@@ -25,7 +25,7 @@ import type { KnownHostsStore } from '../ssh/knownHosts'
 
 /**
  * Facade over engine-specific drivers + optional SSH tunnels for DB sessions.
- * Tunnel open/registry lives in DbTunnelService; drivers (mysql2 / pg) load on first use.
+  * Tunnel open/registry lives in DbTunnelService; drivers (mysql2 / pg / oracledb) load on first use.
  */
 export type DbSessionLostReason = DbTunnelLostReason
 
@@ -69,6 +69,12 @@ export class DatabaseManager {
       const { PostgresDriver } = await import('./drivers/postgres')
       const driver = new PostgresDriver()
       this.drivers.postgres = driver
+      return driver
+    }
+    if (key === 'oracle') {
+      const { OracleDriver } = await import('./drivers/oracle')
+      const driver = new OracleDriver()
+      this.drivers.oracle = driver
       return driver
     }
     const { MySqlDriver } = await import('./drivers/mysql')

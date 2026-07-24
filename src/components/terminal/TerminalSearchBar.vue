@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import AppIcon from '../icons/AppIcon.vue'
 
 defineProps<{
   searchQuery: string
@@ -27,9 +28,7 @@ const { t } = useI18n()
 
 <template>
   <div class="search-bar" role="search">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
+    <AppIcon name="search" :size="14" />
     <input
       :ref="(el) => emit('set-input-ref', el as HTMLInputElement | null)"
       :value="searchQuery"
@@ -59,10 +58,8 @@ const { t } = useI18n()
       .*
     </label>
     <span class="search-hint">{{ t('terminal.searchHint') }}</span>
-    <button class="search-close" :title="t('terminal.searchClose')" @click="emit('close')">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
+    <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('terminal.searchClose')" @click="emit('close')">
+      <AppIcon name="close" :size="14" />
     </button>
   </div>
 </template>
@@ -153,22 +150,4 @@ const { t } = useI18n()
   opacity: 0.6;
 }
 
-.search-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.search-close:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
 </style>

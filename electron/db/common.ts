@@ -54,6 +54,11 @@ export function quoteIdentPostgres(name: string): string {
   return '"' + String(name).replace(/"/g, '""') + '"'
 }
 
+/** Oracle-style double-quote identifiers */
+export function quoteIdentOracle(name: string): string {
+  return '"' + String(name).replace(/"/g, '""') + '"'
+}
+
 export function cancelledError(): Error {
   const err = new Error(t('db.queryCancelled'))
   ;(err as any).code = 'QUERY_CANCELLED'

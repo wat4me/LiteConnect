@@ -1,7 +1,7 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiChatMessage, AiChatResult, AiChatStreamPayload, AiHistoryRecord, AiSettings, AiUsage } from '../env.d'
-import { t } from '../i18n'
+import type { AiChatMessage, AiChatResult, AiChatStreamPayload, AiHistoryRecord, AiSettings, AiUsage } from '../../env.d'
+import { t } from '../../i18n'
 
 export type ChatItem = AiChatMessage & {
   id: string

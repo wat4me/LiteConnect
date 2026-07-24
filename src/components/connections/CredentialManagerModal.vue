@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import AppIcon from './icons/AppIcon.vue'
-import type { SavedCredential } from '../env.d.ts'
-import { appConfirm } from '../composables/useAppDialog'
+import AppIcon from '../icons/AppIcon.vue'
+import type { SavedCredential } from '../../env.d.ts'
+import { appConfirm } from '../../composables/useAppDialog'
 
 const { t } = useI18n()
 
@@ -276,10 +276,7 @@ function formatTime(value: number): string {
 
       <div v-else-if="credentials.length === 0" class="list-area ui-empty empty-state">
         <div class="ui-empty-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <rect x="3" y="11" width="18" height="11" rx="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
+          <AppIcon name="lock" :size="22" />
         </div>
         <p class="ui-empty-title">{{ t('credentials.emptyTitle') }}</p>
         <p class="ui-empty-desc">

@@ -1,6 +1,6 @@
 import { ipcMain, app } from 'electron'
 import { existsSync } from 'fs'
-import { readFile, writeFile, mkdir, appendFile, readdir, stat } from 'fs/promises'
+import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
@@ -33,6 +33,43 @@ function getAiChatCompletionsUrl(baseUrl: string): string {
   const normalized = normalizeAiBaseUrl(baseUrl)
   if (normalized.endsWith('/chat/completions')) return normalized
   return `${normalized}/chat/completions`
+}
+
+async function testAiProviderConfig(provider: any): Promise<void> {
+  if (!provider || typeof provider !== 'object') throw new Error('Invalid AI provider')
+  const baseUrl = normalizeAiBaseUrl(provider.baseUrl)
+  const apiKey = typeof provider.apiKey === 'string' ? provider.apiKey.trim() : ''
+  const model = typeof provider.model === 'string' ? provider.model.trim() : ''
+  if (!apiKey) throw new Error('AI API key is required')
+  if (!model) throw new Error('AI model is required')
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const response = await fetch(getAiChatCompletionsUrl(baseUrl), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        temperature: 0,
+        stream: false,
+      }),
+      signal: controller.signal,
+    })
+    if (response.ok) return
+    const detail = (await response.text()).replace(/\s+/g, ' ').slice(0, 300)
+    throw new Error(`AI provider returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`)
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw new Error('AI provider connection timed out')
+    throw err
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function clampTemperature(raw: unknown): number {
@@ -358,35 +395,13 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
     return await settingsStore.switchAiModel(providerId, model)
   })
 
-  ipcMain.handle('ai:getSessionHistory', async (_event, sessionId: string) => {
-    return await readAiHistoryRecords(sessionId)
+  ipcMain.handle('ai:testProvider', async (_event, provider: any) => {
+    await testAiProviderConfig(provider)
+    return { ok: true }
   })
 
-  ipcMain.handle('ai:listSessionHistories', async () => {
-    const historyDir = getAiHistoryDir()
-    if (!existsSync(historyDir)) return []
-    const files = await readdir(historyDir)
-    const histories = await Promise.all(files
-      .filter((fileName) => fileName.endsWith('.jsonl'))
-      .map(async (fileName) => {
-        const sessionId = decodeURIComponent(fileName.replace(/\.jsonl$/, ''))
-        const historyPath = join(historyDir, fileName)
-        const [records, fileStat] = await Promise.all([
-          readAiHistoryRecords(sessionId),
-          stat(historyPath),
-        ])
-        const firstUser = records.find((record) => record.role === 'user')
-        return {
-          sessionId,
-          title: firstUser?.content.slice(0, 60) || sessionId,
-          messageCount: records.length,
-          updatedAt: fileStat.mtimeMs,
-        }
-      }))
-    return histories
-      .filter((item) => item.messageCount > 0)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 50)
+  ipcMain.handle('ai:getSessionHistory', async (_event, sessionId: string) => {
+    return await readAiHistoryRecords(sessionId)
   })
 
   ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any) => {

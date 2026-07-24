@@ -35,7 +35,13 @@ const emit = defineEmits<{
   <div class="ctx" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
     <template v-if="menu.kind === 'conn'">
       <div class="ctx-title">{{ menu.conn.name }}</div>
-      <button type="button" @click="emit('connCreateDatabase')">{{ t('database.menu.createDatabase') }}</button>
+      <button type="button" @click="emit('connCreateDatabase')">
+        {{
+          menu.conn.engine === 'oracle'
+            ? t('database.menu.createSchemaOracle')
+            : t('database.menu.createDatabase')
+        }}
+      </button>
       <button type="button" @click="emit('connEdit')">{{ t('database.menu.editConnection') }}</button>
       <button type="button" @click="emit('connConnect')">
         {{ isConnActive(menu.conn.id) ? t('database.menu.reconnect') : t('database.menu.connectExpand') }}
