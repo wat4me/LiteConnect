@@ -107,7 +107,7 @@ describe('scheduleAfterTerminalVisible cancel', () => {
   })
 
   it('does not run focus after cancel (rapid Docker toggle)', async () => {
-    const { scheduleAfterTerminalVisible } = await import('../utils/workspaceTerminalFocus')
+    const { scheduleAfterTerminalVisible } = await import('../../utils/workspaceTerminalFocus')
     const focus = vi.fn()
     let rafCb: FrameRequestCallback | null = null
     const prev = globalThis.requestAnimationFrame

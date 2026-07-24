@@ -3,7 +3,7 @@ import {
   clearAutoReconnectAttempts,
   getAutoReconnectAttempt,
   noteAutoReconnectAttempt,
-} from '../session/'
+} from './useAutoReconnectBudget'
 
 describe('useAutoReconnectBudget', () => {
   const id = 'conn-budget-test'
