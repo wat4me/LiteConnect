@@ -197,3 +197,64 @@ describe('empty directory byte total', () => {
     }
   })
 })
+
+describe('single-file transfer cleanup', () => {
+  function runnerFor(sftp: any) {
+    const session: Session = {
+      id: 'sess-1',
+      client: {} as any,
+      stream: {} as any,
+      connectionId: 'c1',
+      connectionName: 't',
+      sftp,
+    }
+    return new TransferRunner(() => session, {
+      initSftp: async () => {},
+      sftpReaddir: async () => [],
+      sftpExists: async () => false,
+      sftpMkdir: async () => {},
+    })
+  }
+
+  it('removes a completed download from the active transfer map', async () => {
+    const read = mockReadable()
+    const sftp = {
+      stat: (_path: string, cb: any) => cb(null, { size: 3 }),
+      createReadStream: vi.fn(() => read),
+    }
+    const output = path.join(os.tmpdir(), `litesh-complete-${Date.now()}.txt`)
+    const runner = runnerFor(sftp)
+    const progress: number[] = []
+
+    try {
+      await runner.sftpDownload('sess-1', '/remote/file', output, 'done-1', (bytes) => progress.push(bytes))
+      expect(runner.map.has('done-1')).toBe(false)
+      expect(sftp.createReadStream).toHaveBeenCalledOnce()
+      expect(progress).toEqual([])
+    } finally {
+      try { fs.unlinkSync(output) } catch {}
+    }
+  })
+
+  it('cleans up an errored download and does not retain its transfer entry', async () => {
+    const read = mockReadable()
+    read.pipe.mockImplementation(() => {
+      setImmediate(() => read.emit('error', new Error('network lost')))
+      return {} as any
+    })
+    const sftp = {
+      stat: (_path: string, cb: any) => cb(null, { size: 3 }),
+      createReadStream: vi.fn(() => read),
+    }
+    const output = path.join(os.tmpdir(), `litesh-failed-${Date.now()}.txt`)
+    const runner = runnerFor(sftp)
+
+    try {
+      await expect(runner.sftpDownload('sess-1', '/remote/file', output, 'fail-1', () => {}, { keepPartial: false }))
+        .rejects.toThrow('Download error: network lost')
+      expect(runner.map.has('fail-1')).toBe(false)
+    } finally {
+      try { fs.unlinkSync(output) } catch {}
+    }
+  })
+})
