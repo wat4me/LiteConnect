@@ -130,7 +130,7 @@ export function useDbTabs(deps: DbTabsDeps) {
         })
       : ''
     const tabDb = tab?.database || s.database
-    return `${s.connectionName} 鐠?${s.username}@${s.host}:${s.port}${tabDb ? '/' + tabDb : ''} 鐠?${s.serverVersion || eng}${tunnel}${extra}${multi}`
+    return `${s.connectionName} ${s.username}@${s.host}:${s.port}${tabDb ? '/' + tabDb : ''} ${s.serverVersion || eng}${tunnel}${extra}${multi}`
   })
 
   async function copyText(text: string, okMsg = t('database.msg.copied')) {
