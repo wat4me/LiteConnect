@@ -4,6 +4,7 @@ import {
   mapMysqlExtraOptions,
   mapOracleExtraOptions,
   mapPostgresExtraOptions,
+  normalizeExtraOptions,
   parseDbConnectionUrl,
 } from './dbConnectionUrl'
 
@@ -50,6 +51,19 @@ describe('parseDbConnectionUrl', () => {
     expect(p.engine).toBe('oracle')
     expect(p.oracleConnectString).toBe(desc)
   })
+
+  it('decodes encoded credentials and database names', () => {
+    const p = parseDbConnectionUrl('mysql://first%20last:p%40ss@db.example.com:3306/app%20data')
+    expect(p.username).toBe('first last')
+    expect(p.password).toBe('p@ss')
+    expect(p.database).toBe('app data')
+  })
+
+  it('parses JDBC Oracle thin connect strings', () => {
+    const p = parseDbConnectionUrl('jdbc:oracle:thin:@db.example.com:1521/ORCL')
+    expect(p.engine).toBe('oracle')
+    expect(p.oracleConnectString).toBe('db.example.com:1521/ORCL')
+  })
 })
 
 describe('buildDbConnectionUrl', () => {
@@ -71,6 +85,19 @@ describe('buildDbConnectionUrl', () => {
     expect(
       buildDbConnectionUrl({ engine: 'oracle', host: 'h', port: 1521, database: 'ORCL' }),
     ).toBe('h:1521/ORCL')
+  })
+
+  it('encodes URL parts and never includes a password option', () => {
+    const url = buildDbConnectionUrl({
+      engine: 'postgres',
+      host: 'db.example.com',
+      port: 5432,
+      username: 'first last',
+      database: 'app data',
+      extraOptions: { password: 'secret', application_name: 'Lite Connect' },
+    })
+    expect(url).toBe('postgresql://first%20last@db.example.com:5432/app%20data?application_name=Lite+Connect')
+    expect(url).not.toContain('secret')
   })
 })
 
@@ -98,5 +125,12 @@ describe('map extra options', () => {
     const m = mapOracleExtraOptions({ connectionString: 'h:1521/x', connectTimeout: '20' })
     expect(m.connectionString).toBe('h:1521/x')
     expect(m.connectTimeout).toBe(20)
+  })
+
+  it('normalizes options by dropping invalid values and limiting key count', () => {
+    expect(normalizeExtraOptions({ keep: ' yes ', empty: ' ', nil: null, '\0bad': 'x' })).toEqual({
+      keep: 'yes',
+    })
+    expect(normalizeExtraOptions({ one: '1', two: '2' }, 1)).toEqual({ one: '1' })
   })
 })
