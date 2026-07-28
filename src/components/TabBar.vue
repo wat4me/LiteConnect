@@ -236,7 +236,7 @@ onBeforeUnmount(() => {
         :aria-pressed="homeActive"
         @click="emit('select-home')"
       >
-        <AppIcon name="home-grid" :size="16" />
+        <AppIcon name="home-grid" size="md" />
       </button>
     </el-tooltip>
     <div class="tab-separator" aria-hidden="true"></div>
@@ -262,7 +262,7 @@ onBeforeUnmount(() => {
           :style="{ color: latencyColor(latencyMap[group.connectionId]) }"
         >{{ formatLatency(latencyMap[group.connectionId]) }}</span>
         <button class="tab-close" @click.stop="emit('close', group.connectionId)">
-          <AppIcon name="close" :size="12" />
+          <AppIcon name="close" size="xs" />
         </button>
       </div>
 
@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
         :aria-label="t('connections.connectAnother')"
         @click.stop="toggleQuickConnect"
       >
-        <AppIcon name="plus" :size="14" />
+        <AppIcon name="plus" size="sm" />
       </button>
     </div>
 
@@ -306,7 +306,7 @@ onBeforeUnmount(() => {
           :aria-label="t('connections.quickConnect')"
           @click.stop="toggleQuickConnect"
         >
-          <AppIcon name="plus" :size="16" />
+          <AppIcon name="plus" size="md" />
         </button>
       </div>
     </div>
@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
         @click.stop
       >
         <div class="quick-connect-search">
-          <AppIcon name="search" :size="14" class="quick-connect-search-icon" />
+          <AppIcon name="search" size="sm" class="quick-connect-search-icon" />
           <input
             ref="quickSearchInputRef"
             v-model="quickSearchQuery"

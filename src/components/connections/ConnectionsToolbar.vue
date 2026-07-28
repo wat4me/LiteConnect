@@ -34,7 +34,7 @@ defineExpose({ searchInputRef })
     </div>
     <div class="page-toolbar">
       <div class="search-box">
-        <AppIcon name="search" :size="14" class="search-icon" />
+        <AppIcon name="search" size="sm" class="search-icon" />
         <input
           ref="searchInputRef"
           :value="props.searchQuery"
@@ -50,7 +50,7 @@ defineExpose({ searchInputRef })
           :title="t('connections.clearSearch')"
           @click="emit('update:searchQuery', '')"
         >
-          <AppIcon name="close" :size="12" />
+          <AppIcon name="close" size="xs" />
         </button>
       </div>
       <div class="toolbar-actions">
@@ -72,7 +72,7 @@ defineExpose({ searchInputRef })
             :aria-label="t('connections.import')"
             @click="emit('import')"
           >
-            <AppIcon name="download" :size="16" />
+            <AppIcon name="download" size="md" />
           </button>
         </el-tooltip>
         <el-tooltip :content="t('connections.export')" placement="bottom">
@@ -82,7 +82,7 @@ defineExpose({ searchInputRef })
             :aria-label="t('connections.export')"
             @click="emit('export')"
           >
-            <AppIcon name="upload" :size="16" />
+            <AppIcon name="upload" size="md" />
           </button>
         </el-tooltip>
         <button
@@ -94,7 +94,7 @@ defineExpose({ searchInputRef })
           {{ t('connections.credentials') }}
         </button>
         <button class="ui-btn ui-btn-primary" type="button" @click="emit('add')">
-          <AppIcon name="plus" :size="14" />
+          <AppIcon name="plus" size="sm" />
           <span>{{ t('connections.new') }}</span>
         </button>
       </div>

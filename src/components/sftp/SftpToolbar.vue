@@ -23,13 +23,13 @@ const { t } = useI18n()
 <template>
   <div class="navigation-actions">
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.syncCwd')" @click="emit('sync-cwd')">
-      <AppIcon name="sync" :size="16" />
+      <AppIcon name="sync" size="md" />
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.refresh')" @click="emit('refresh')">
-      <AppIcon name="refresh" :size="16" />
+      <AppIcon name="refresh" size="md" />
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.searchFiles')" @click="emit('search')">
-      <AppIcon name="search" :size="16" />
+      <AppIcon name="search" size="md" />
     </button>
     <button
       type="button"
@@ -38,11 +38,11 @@ const { t } = useI18n()
       :title="activeTransfers > 0 ? t('sftp.transferListActive', { count: activeTransfers }) : t('sftp.transferList')"
       @click="emit('open-transfers')"
     >
-      <AppIcon name="transfer" :size="16" />
+      <AppIcon name="transfer" size="md" />
       <span v-if="activeTransfers > 0" class="transfer-action-badge">{{ activeTransfers > 99 ? '99+' : activeTransfers }}</span>
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.uploadFolder')" @click="emit('upload-folder')">
-      <AppIcon name="folder-up" :size="16" />
+      <AppIcon name="folder-up" size="md" />
     </button>
     <button
       type="button"
@@ -51,11 +51,11 @@ const { t } = useI18n()
       :title="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
       @click="emit('toggle-follow')"
     >
-      <AppIcon name="link-2" :size="16" />
+      <AppIcon name="link-2" size="md" />
     </button>
     <div class="navigation-actions-spacer"></div>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSidebar')" @click="emit('close')">
-      <AppIcon name="close" :size="14" />
+      <AppIcon name="close" size="sm" />
     </button>
   </div>
 </template>

@@ -1037,8 +1037,33 @@ function focusTerminal(): boolean {
   })
 }
 
+function getTerminalContextText(maxLines = 80) {
+  const term = getTerminal()
+  return {
+    selection: term?.getSelection()?.trim() || '',
+    scrollback: (() => {
+      try {
+        // Lazy import avoided: inline serialize of last N lines
+        if (!term) return ''
+        const buffer = term.buffer.active
+        const total = buffer.length
+        const start = Math.max(0, total - Math.max(1, Math.min(maxLines, 400)))
+        const lines: string[] = []
+        for (let i = start; i < total; i++) {
+          lines.push(buffer.getLine(i)?.translateToString(true) ?? '')
+        }
+        while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+        return lines.join('\n')
+      } catch {
+        return ''
+      }
+    })(),
+  }
+}
+
 defineExpose({
   focusTerminal,
+  getTerminalContextText,
   sessionId: props.sessionId,
 })
 </script>
@@ -1087,37 +1112,45 @@ defineExpose({
           class="terminal-selection-menu-item"
           @click="copySelection"
         >
-          <AppIcon name="copy" :size="14" />
+          <AppIcon name="copy" size="sm" />
           <span>{{ t('terminal.copy') }}</span>
         </button>
         <button class="terminal-selection-menu-item" @click="pasteToTerminal">
-          <AppIcon name="paste" :size="14" />
+          <AppIcon name="paste" size="sm" />
           <span>{{ t('terminal.paste') }}</span>
         </button>
         <button class="terminal-selection-menu-item" @click="selectAllInTerminal">
-          <AppIcon name="select-all" :size="14" />
+          <AppIcon name="select-all" size="sm" />
           <span>{{ t('terminal.selectAll') }}</span>
         </button>
-        <button class="terminal-selection-menu-item" @click="clearScreenKeepScrollback">
-          <AppIcon name="clear" :size="14" />
+        <button
+          class="terminal-selection-menu-item"
+          :title="t('terminal.clearScreenTitle')"
+          @click="clearScreenKeepScrollback"
+        >
+          <AppIcon name="clear" size="sm" />
           <span>{{ t('terminal.clearScreen') }}</span>
         </button>
-        <button class="terminal-selection-menu-item" @click="clearScrollback">
-          <AppIcon name="delete" :size="14" />
+        <button
+          class="terminal-selection-menu-item"
+          :title="t('terminal.clearScrollbackTitle')"
+          @click="clearScrollback"
+        >
+          <AppIcon name="delete" size="sm" />
           <span>{{ t('terminal.clearScrollback') }}</span>
         </button>
         <template v-if="selectedText">
           <div class="terminal-selection-menu-divider"></div>
           <button class="terminal-selection-menu-item" @click="sendSelectionToAi('send')">
-            <AppIcon name="send" :size="14" />
+            <AppIcon name="send" size="sm" />
             <span>{{ t('terminal.sendToAi') }}</span>
           </button>
           <button class="terminal-selection-menu-item" @click="sendSelectionToAi('insert')">
-            <AppIcon name="ai-chat" :size="14" />
+            <AppIcon name="ai-chat" size="sm" />
             <span>{{ t('terminal.insertToAi') }}</span>
           </button>
           <button class="terminal-selection-menu-item" @click="saveSelectionAsSnippet">
-            <AppIcon name="file-text" :size="13" />
+            <AppIcon name="file-text" size="sm" />
             <span>{{ t('terminal.saveAsSnippet') }}</span>
           </button>
         </template>

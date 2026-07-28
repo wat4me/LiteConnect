@@ -239,7 +239,7 @@ defineExpose({
       :title="t('database.query.settingsTitle')"
       @click.stop="toggle"
     >
-      <AppIcon name="settings" :size="14" />
+      <AppIcon name="settings" size="sm" />
     </button>
     <Teleport to="body">
       <div

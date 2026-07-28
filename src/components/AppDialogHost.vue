@@ -68,9 +68,9 @@ function onInput() {
             :class="state.tone"
             aria-hidden="true"
           >
-            <AppIcon v-if="state.tone === 'warning'" name="alert-triangle" :size="20" />
-            <AppIcon v-else-if="state.tone === 'danger'" name="alert-circle" :size="20" />
-            <AppIcon v-else name="info" :size="20" />
+            <AppIcon v-if="state.tone === 'warning'" name="alert-triangle" size="xl" />
+            <AppIcon v-else-if="state.tone === 'danger'" name="alert-circle" size="xl" />
+            <AppIcon v-else name="info" size="xl" />
           </span>
           <h3 id="app-dialog-title" class="app-dialog-title">{{ state.title }}</h3>
         </div>

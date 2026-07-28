@@ -1,8 +1,15 @@
 <script setup lang="ts">
 /**
- * Unified stroke icons (Feather/Lucide style).
- * Prefer this over Element Plus icons / text glyphs for chrome controls.
+ * Unified stroke icons (Feather/Lucide style, viewBox 0 0 24 24).
+ *
+ * Sizing:
+ * - Prefer semantic tokens: xs | sm | md | lg | xl | 2xl | hero
+ * - Tokens map to CSS vars (--icon-*) which scale with --ui-scale
+ * - Number / px string still accepted for one-off sizes
+ * - Omit size to inherit from parent (e.g. .ui-icon-btn)
  */
+import { computed } from 'vue'
+
 export type AppIconName =
   | 'close'
   | 'plus'
@@ -52,36 +59,107 @@ export type AppIconName =
   | 'alert-triangle'
   | 'alert-circle'
   | 'info'
+  | 'help-circle'
   | 'split-h'
   | 'split-v'
   | 'lock'
   | 'database'
   | 'table'
 
+export type AppIconSizeToken = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'hero'
+
+const SIZE_TOKENS = new Set<string>(['xs', 'sm', 'md', 'lg', 'xl', '2xl', 'hero'])
+
+/** Map legacy pixel sizes to tokens for consistent call sites. */
+const PIXEL_TO_TOKEN: Record<number, AppIconSizeToken> = {
+  10: 'xs',
+  11: 'xs',
+  12: 'xs',
+  13: 'sm',
+  14: 'sm',
+  15: 'md',
+  16: 'md',
+  17: 'lg',
+  18: 'lg',
+  19: 'xl',
+  20: 'xl',
+  21: 'xl',
+  22: 'xl',
+  24: '2xl',
+  26: '2xl',
+  28: '2xl',
+  32: '2xl',
+  40: 'hero',
+  48: 'hero',
+}
+
 const props = withDefaults(
   defineProps<{
     name: AppIconName
-    size?: number | string
+    /** Semantic token, number (px), or CSS length. Omit to inherit from parent. */
+    size?: AppIconSizeToken | number | string
+    /** SVG stroke width in viewBox units (scales with icon). Default uses --icon-stroke. */
     strokeWidth?: number | string
   }>(),
   {
-    size: 14,
-    strokeWidth: 1.8,
+    size: undefined,
+    strokeWidth: undefined,
   },
 )
 
-const sizePx = () => (typeof props.size === 'number' ? `${props.size}` : String(props.size).replace(/px$/, ''))
+function parsePixelSize(raw: number | string): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  const s = String(raw).trim()
+  const m = /^(\d+(?:\.\d+)?)px?$/i.exec(s)
+  if (m) return Number(m[1])
+  return null
+}
+
+const resolvedToken = computed<AppIconSizeToken | 'inherit' | null>(() => {
+  if (props.size == null || props.size === '') return 'inherit'
+  if (typeof props.size === 'string' && SIZE_TOKENS.has(props.size)) {
+    return props.size as AppIconSizeToken
+  }
+  const px = parsePixelSize(props.size as number | string)
+  if (px != null && PIXEL_TO_TOKEN[Math.round(px)]) {
+    return PIXEL_TO_TOKEN[Math.round(px)]
+  }
+  return null
+})
+
+const customFontSize = computed(() => {
+  if (resolvedToken.value != null) return undefined
+  if (props.size == null) return undefined
+  if (typeof props.size === 'number') return `${props.size}px`
+  const s = String(props.size).trim()
+  if (!s) return undefined
+  return /^\d+(\.\d+)?$/.test(s) ? `${s}px` : s
+})
+
+const dataSize = computed(() => {
+  if (resolvedToken.value === 'inherit') return undefined
+  return resolvedToken.value || undefined
+})
+
+const iconStyle = computed(() => {
+  const style: Record<string, string> = {}
+  if (customFontSize.value) style.fontSize = customFontSize.value
+  if (props.strokeWidth != null && props.strokeWidth !== '') {
+    style.strokeWidth = String(props.strokeWidth)
+  }
+  return Object.keys(style).length ? style : undefined
+})
 </script>
 
 <template>
   <svg
     class="app-icon"
-    :width="sizePx()"
-    :height="sizePx()"
+    :class="{ 'is-inherit': resolvedToken === 'inherit' }"
+    :data-size="dataSize"
+    :style="iconStyle"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    :stroke-width="strokeWidth"
     stroke-linecap="round"
     stroke-linejoin="round"
     aria-hidden="true"
@@ -351,6 +429,12 @@ const sizePx = () => (typeof props.size === 'number' ? `${props.size}` : String(
       <line x1="12" y1="16" x2="12" y2="12" />
       <line x1="12" y1="8" x2="12.01" y2="8" />
     </template>
+    <!-- help-circle -->
+    <template v-else-if="name === 'help-circle'">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </template>
     <!-- split horizontal (stacked panes) -->
     <template v-else-if="name === 'split-h'">
       <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -384,5 +468,42 @@ const sizePx = () => (typeof props.size === 'number' ? `${props.size}` : String(
 .app-icon {
   display: block;
   flex-shrink: 0;
+  /* 1em box → scales with font-size / CSS tokens / --ui-scale */
+  width: 1em;
+  height: 1em;
+  font-size: var(--icon-md);
+  stroke-width: var(--icon-stroke, 1.8);
+  overflow: visible;
+  shape-rendering: geometricPrecision;
+}
+
+/* size omitted: keep --icon-md unless a parent rule (e.g. .ui-icon-btn) overrides */
+
+.app-icon[data-size='xs'] {
+  font-size: var(--icon-xs);
+}
+
+.app-icon[data-size='sm'] {
+  font-size: var(--icon-sm);
+}
+
+.app-icon[data-size='md'] {
+  font-size: var(--icon-md);
+}
+
+.app-icon[data-size='lg'] {
+  font-size: var(--icon-lg);
+}
+
+.app-icon[data-size='xl'] {
+  font-size: var(--icon-xl);
+}
+
+.app-icon[data-size='2xl'] {
+  font-size: var(--icon-2xl);
+}
+
+.app-icon[data-size='hero'] {
+  font-size: var(--icon-hero);
 }
 </style>

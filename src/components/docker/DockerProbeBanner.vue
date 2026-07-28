@@ -138,7 +138,7 @@ const dockerAvailable = computed(() => props.availability?.status === 'available
 <template>
   <header class="docker-header">
     <div class="docker-header-left">
-      <AppIcon name="docker" :size="18" class="docker-title-icon" />
+      <AppIcon name="docker" size="lg" class="docker-title-icon" />
       <h2 class="docker-title">{{ t('docker.title') }}</h2>
       <span
         class="status-pill"
@@ -184,7 +184,7 @@ const dockerAvailable = computed(() => props.availability?.status === 'available
         @click="emit('refresh')"
       >
         <span class="refresh-icon" :class="{ spinning: busy }">
-          <AppIcon name="refresh" :size="14" />
+          <AppIcon name="refresh" size="sm" />
         </span>
         {{ busy ? t('docker.refreshing') : t('docker.refresh') }}
       </button>

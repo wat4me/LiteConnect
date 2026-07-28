@@ -35,6 +35,12 @@ export interface Connection {
   jumpPrivateKeyEncrypted?: boolean
   useAgent?: boolean
   localForwards?: Array<{ localPort: number; remoteHost: string; remotePort: number }>
+  /** Pin to top of connection list */
+  pinned?: boolean
+  /** Successful connect count (UI stats) */
+  useCount?: number
+  /** Last successful connect timestamp */
+  lastConnectedAt?: number
   createdAt: number
   updatedAt: number
 }
@@ -298,11 +304,43 @@ export class CredentialStore {
     return this.connections
       .map(conn => this.stripPassword(conn))
       .sort((a, b) => {
+        const ap = a.pinned === true ? 1 : 0
+        const bp = b.pinned === true ? 1 : 0
+        if (ap !== bp) return bp - ap
         const ao = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER
         const bo = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER
         if (ao !== bo) return ao - bo
         return (a.createdAt || 0) - (b.createdAt || 0)
       })
+  }
+
+  /** Toggle pin; returns updated connection (password stripped). */
+  async setConnectionPinned(id: string, pinned: boolean): Promise<Connection> {
+    const idx = this.connections.findIndex((c) => c.id === id)
+    if (idx === -1) throw new Error('Connection not found')
+    this.connections[idx] = {
+      ...this.connections[idx],
+      pinned: pinned ? true : undefined,
+      updatedAt: Date.now(),
+    }
+    await this.saveConnections()
+    return this.stripPassword(this.connections[idx])
+  }
+
+  /** Bump useCount + lastConnectedAt after a successful connect. */
+  async recordConnectionUsage(id: string): Promise<Connection | null> {
+    const idx = this.connections.findIndex((c) => c.id === id)
+    if (idx === -1) return null
+    const prev = this.connections[idx]
+    const useCount = (typeof prev.useCount === 'number' && prev.useCount > 0 ? prev.useCount : 0) + 1
+    this.connections[idx] = {
+      ...prev,
+      useCount,
+      lastConnectedAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    await this.saveConnections()
+    return this.stripPassword(this.connections[idx])
   }
 
   getConnectionsForExport(): Connection[] {

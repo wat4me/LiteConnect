@@ -5,8 +5,8 @@ import {
   isValidTransferId,
   isStrictPath,
   isSafeLocalPath,
-  safeSend,
 } from '../utils/validation'
+import { broadcast } from '../window/windowRegistry'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import {
@@ -39,7 +39,7 @@ function normalizeConflict(v: unknown): ConflictStrategy {
 type MainWindowGetter = () => BrowserWindow | null
 
 export function registerSftpTransferHandlers(
-  getMainWindow: MainWindowGetter,
+  _getMainWindow: MainWindowGetter,
   sshManager: SSHManager,
   settingsStore: SettingsStore,
 ): void {
@@ -76,8 +76,8 @@ export function registerSftpTransferHandlers(
           ? path.join(downloadDir, fileName)
           : resolveLocalConflictPath(downloadDir, fileName, conflict)
         if (resolved === null) {
-          safeSend(getMainWindow(), 'sftp:transferStart', sessionId, transferId, fileName, path.join(downloadDir, fileName), 'download')
-          safeSend(getMainWindow(), 'sftp:transferComplete', sessionId, transferId, path.join(downloadDir, fileName), 'skipped')
+          broadcast( 'sftp:transferStart', sessionId, transferId, fileName, path.join(downloadDir, fileName), 'download')
+          broadcast( 'sftp:transferComplete', sessionId, transferId, path.join(downloadDir, fileName), 'skipped')
           return
         }
         localPath = resolved
@@ -89,7 +89,7 @@ export function registerSftpTransferHandlers(
         } catch {}
       }
 
-      safeSend(getMainWindow(), 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'download', remotePath)
+      broadcast( 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'download', remotePath)
 
       sshManager
         .sftpDownload(
@@ -98,15 +98,15 @@ export function registerSftpTransferHandlers(
           localPath,
           transferId,
           (transferred, total) => {
-            safeSend(getMainWindow(), 'sftp:transferProgress', sessionId, transferId, transferred, total)
+            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total)
           },
           { resume, keepPartial: true },
         )
         .then(() => {
-          safeSend(getMainWindow(), 'sftp:transferComplete', sessionId, transferId, localPath)
+          broadcast( 'sftp:transferComplete', sessionId, transferId, localPath)
         })
         .catch((err) => {
-          safeSend(getMainWindow(), 'sftp:transferError', sessionId, transferId, err.message)
+          broadcast( 'sftp:transferError', sessionId, transferId, err.message)
         })
     },
   )
@@ -146,8 +146,8 @@ export function registerSftpTransferHandlers(
           const exists = await sshManager.sftpExists(sessionId, fullRemotePath)
           if (exists) {
             if (conflict === 'skip') {
-              safeSend(getMainWindow(), 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
-              safeSend(getMainWindow(), 'sftp:transferComplete', sessionId, transferId, localPath, 'skipped')
+              broadcast( 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
+              broadcast( 'sftp:transferComplete', sessionId, transferId, localPath, 'skipped')
               return
             }
             if (conflict === 'rename') {
@@ -165,7 +165,7 @@ export function registerSftpTransferHandlers(
         }
       }
 
-      safeSend(getMainWindow(), 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
+      broadcast( 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
 
       sshManager
         .sftpUpload(
@@ -174,15 +174,15 @@ export function registerSftpTransferHandlers(
           fullRemotePath,
           transferId,
           (transferred, total) => {
-            safeSend(getMainWindow(), 'sftp:transferProgress', sessionId, transferId, transferred, total)
+            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total)
           },
           { resume },
         )
         .then(() => {
-          safeSend(getMainWindow(), 'sftp:transferComplete', sessionId, transferId, localPath)
+          broadcast( 'sftp:transferComplete', sessionId, transferId, localPath)
         })
         .catch((err) => {
-          safeSend(getMainWindow(), 'sftp:transferError', sessionId, transferId, err.message)
+          broadcast( 'sftp:transferError', sessionId, transferId, err.message)
         })
     },
   )
@@ -202,7 +202,7 @@ export function registerSftpTransferHandlers(
       await ensureSettingsStoreReady()
       const downloadDir = settingsStore.getDownloadPath()
       const localPath = path.join(downloadDir, dirName || path.basename(remotePath))
-      safeSend(getMainWindow(), 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'download')
+      broadcast( 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'download')
       try {
         const result = await sshManager.sftpDownloadDirectory(
           sessionId,
@@ -210,7 +210,7 @@ export function registerSftpTransferHandlers(
           localPath,
           transferId,
           (transferred, total, stats) => {
-            safeSend(getMainWindow(), 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
+            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
           },
           {
             concurrency: opts?.concurrency ?? settingsStore.getDirTransferConcurrency(),
@@ -221,8 +221,7 @@ export function registerSftpTransferHandlers(
           },
         )
         if (result.status === 'partial') {
-          safeSend(
-            getMainWindow(),
+          broadcast(
             'sftp:transferComplete',
             sessionId,
             transferId,
@@ -231,10 +230,10 @@ export function registerSftpTransferHandlers(
             result.stats,
           )
         } else {
-          safeSend(getMainWindow(), 'sftp:transferComplete', sessionId, transferId, localPath)
+          broadcast('sftp:transferComplete', sessionId, transferId, localPath)
         }
       } catch (err: any) {
-        safeSend(getMainWindow(), 'sftp:transferError', sessionId, transferId, err?.message || String(err))
+        broadcast('sftp:transferError', sessionId, transferId, err?.message || String(err))
       }
     },
   )
@@ -254,7 +253,7 @@ export function registerSftpTransferHandlers(
       if (dirName && (typeof dirName !== 'string' || dirName.includes('\0') || dirName.includes('/') || dirName.includes('\\'))) return
       const conflict = normalizeConflict(opts?.conflict)
       const remotePath = remoteParent === '/' ? `/${dirName}` : `${remoteParent}/${dirName}`
-      safeSend(getMainWindow(), 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'upload', remotePath)
+      broadcast( 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'upload', remotePath)
       try {
         const result = await sshManager.sftpUploadDirectory(
           sessionId,
@@ -262,7 +261,7 @@ export function registerSftpTransferHandlers(
           remotePath,
           transferId,
           (transferred, total, stats) => {
-            safeSend(getMainWindow(), 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
+            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
           },
           {
             conflict,
@@ -274,8 +273,7 @@ export function registerSftpTransferHandlers(
           },
         )
         if (result.status === 'partial') {
-          safeSend(
-            getMainWindow(),
+          broadcast(
             'sftp:transferComplete',
             sessionId,
             transferId,
@@ -284,10 +282,10 @@ export function registerSftpTransferHandlers(
             result.stats,
           )
         } else {
-          safeSend(getMainWindow(), 'sftp:transferComplete', sessionId, transferId, localPath)
+          broadcast('sftp:transferComplete', sessionId, transferId, localPath)
         }
       } catch (err: any) {
-        safeSend(getMainWindow(), 'sftp:transferError', sessionId, transferId, err?.message || String(err))
+        broadcast('sftp:transferError', sessionId, transferId, err?.message || String(err))
       }
     },
   )

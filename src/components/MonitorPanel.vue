@@ -3,6 +3,8 @@ import { ref, watch, computed, toRef, onMounted, onBeforeUnmount, nextTick } fro
 import { useI18n } from 'vue-i18n'
 import { useSharedMonitor } from '../composables/useMonitorData'
 import AppIcon from './icons/AppIcon.vue'
+import FeatureTipBanner from './FeatureTipBanner.vue'
+import { TIP_MONITOR_KEY } from '../utils/featureTips'
 
 const props = withDefaults(
   defineProps<{
@@ -166,7 +168,13 @@ watch(
 <template>
   <div class="monitor-panel" :class="{ 'is-bottom': isBottom, 'is-side': !isBottom }">
     <!-- Bottom compact dock (never expands downward); metrics adapt to width -->
-    <div v-if="isBottom" class="monitor-dock-bar">
+    <div v-if="isBottom" class="monitor-dock-stack">
+      <FeatureTipBanner
+        :tip-key="TIP_MONITOR_KEY"
+        :title="t('monitor.tipTitle')"
+        :body="t('monitor.tipBody')"
+      />
+      <div class="monitor-dock-bar">
       <div ref="dockMetricsRef" class="dock-metrics">
         <template v-if="monitorError">
           <span class="dock-error">{{ t('monitor.unavailable') }}</span>
@@ -249,11 +257,12 @@ watch(
           @click="emit('toggle-details')"
         >
           {{ detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails') }}
-          <AppIcon :name="detailsOpen ? 'chevron-right' : 'chevron-left'" :size="12" />
+          <AppIcon :name="detailsOpen ? 'chevron-right' : 'chevron-left'" size="xs" />
         </button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
+      </div>
       </div>
     </div>
 
@@ -263,7 +272,7 @@ watch(
         <span class="monitor-title">{{ t('monitor.title') }}</span>
         <span class="monitor-name">{{ connectionName }}</span>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close monitor-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
       </div>
 
@@ -294,7 +303,7 @@ watch(
         <div class="monitor-section" v-if="expandedSections.system">
           <div class="section-header" @click="toggleSection('system')">
             <span class="section-title">{{ t('monitor.systemInfo') }}</span>
-            <AppIcon name="chevron-down" :size="12" class="section-toggle" />
+            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
           </div>
           <div class="section-body">
             <div class="info-row">
@@ -317,7 +326,7 @@ watch(
         </div>
         <div v-else class="section-header collapsed" @click="toggleSection('system')">
           <span class="section-title">{{ t('monitor.systemInfo') }}</span>
-          <AppIcon name="chevron-right" :size="12" class="section-toggle" />
+          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
         </div>
 
         <div class="monitor-section" v-if="expandedSections.cpu">
@@ -326,7 +335,7 @@ watch(
             <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
               {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
             </span>
-            <AppIcon name="chevron-down" :size="12" class="section-toggle" />
+            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
           </div>
           <div class="section-body">
             <div class="progress-bar" v-if="cpuPercent >= 0">
@@ -343,14 +352,14 @@ watch(
           <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
             {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
           </span>
-          <AppIcon name="chevron-right" :size="12" class="section-toggle" />
+          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
         </div>
 
         <div class="monitor-section" v-if="expandedSections.memory">
           <div class="section-header" @click="toggleSection('memory')">
             <span class="section-title">{{ t('monitor.memory') }}</span>
             <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
-            <AppIcon name="chevron-down" :size="12" class="section-toggle" />
+            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
           </div>
           <div class="section-body">
             <div class="bar-labels">
@@ -375,13 +384,13 @@ watch(
         <div v-else class="section-header collapsed" @click="toggleSection('memory')">
           <span class="section-title">{{ t('monitor.memory') }}</span>
           <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
-          <AppIcon name="chevron-right" :size="12" class="section-toggle" />
+          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
         </div>
 
         <div class="monitor-section" v-if="expandedSections.disk">
           <div class="section-header" @click="toggleSection('disk')">
             <span class="section-title">{{ t('monitor.disk') }}</span>
-            <AppIcon name="chevron-down" :size="12" class="section-toggle" />
+            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
           </div>
           <div class="section-body">
             <div v-if="data.disk.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
@@ -398,13 +407,13 @@ watch(
         </div>
         <div v-else class="section-header collapsed" @click="toggleSection('disk')">
           <span class="section-title">{{ t('monitor.disk') }}</span>
-          <AppIcon name="chevron-right" :size="12" class="section-toggle" />
+          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
         </div>
 
         <div class="monitor-section" v-if="expandedSections.processes">
           <div class="section-header" @click="toggleSection('processes')">
             <span class="section-title">{{ t('monitor.processes') }}</span>
-            <AppIcon name="chevron-down" :size="12" class="section-toggle" />
+            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
           </div>
           <div class="section-body">
             <div v-if="data.processes.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
@@ -428,7 +437,7 @@ watch(
         </div>
         <div v-else class="section-header collapsed" @click="toggleSection('processes')">
           <span class="section-title">{{ t('monitor.processes') }}</span>
-          <AppIcon name="chevron-right" :size="12" class="section-toggle" />
+          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
         </div>
       </template>
     </template>
@@ -455,6 +464,16 @@ watch(
   padding: 0;
   overflow: hidden;
   gap: 0;
+}
+
+.monitor-dock-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.monitor-dock-stack :deep(.feature-tip) {
+  margin: 6px 10px 0;
 }
 
 .monitor-dock-bar {

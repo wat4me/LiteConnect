@@ -18,10 +18,14 @@ import { registerDockerHandlers } from './ipc/registerDockerHandlers'
 import { registerDbHandlers } from './ipc/registerDbHandlers'
 import { registerAiHandlers } from './ipc/registerAiHandlers'
 import { registerUpdaterHandlers } from './ipc/registerUpdaterHandlers'
-import { safeSend } from './utils/validation'
+import { registerWindowHandlers } from './ipc/registerWindowHandlers'
+import {
+  broadcast,
+  clearOwnersForWebContents,
+  getPrimaryWindow,
+} from './window/windowRegistry'
 
-let mainWindow: BrowserWindow | null = null
-const getMainWindow = () => mainWindow
+const getMainWindow = () => getPrimaryWindow()
 const knownHosts = new KnownHostsStore()
 const credentialStore = new CredentialStore()
 const settingsStore = new SettingsStore()
@@ -33,21 +37,30 @@ const sshManager = new SSHManager(knownHosts)
 const dockerSessionHost = new DockerSshSessionHost(sshManager)
 const dockerService = new DockerService(dockerSessionHost)
 const monitorCollector = new MonitorCollector(sshManager, (sessionId: string, data: any) => {
-  safeSend(mainWindow, `monitor:data:${sessionId}`, data)
+  broadcast(`monitor:data:${sessionId}`, data)
 })
 
 function openMainWindow() {
   const theme = settingsStore.getTheme()
   const customColors = theme === 'custom' ? settingsStore.getCustomColors() : null
-  mainWindow = createWindow(theme, customColors)
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+  createWindow({ theme, customColors, primary: true })
+}
+
+function cleanupSessionsForClosedWindow(webContentsId: number) {
+  const owned = clearOwnersForWebContents(webContentsId)
+  for (const sessionId of owned) {
+    try {
+      sshManager.disconnect(sessionId)
+    } catch (err) {
+      console.warn('[Main] disconnect on window close failed:', sessionId, err)
+    }
+  }
 }
 
 app.whenReady().then(async () => {
   // IPC first so renderer can call handlers as soon as the window loads.
   registerStoreHandlers(getMainWindow, credentialStore, settingsStore)
+  registerWindowHandlers(credentialStore, settingsStore)
   registerShellCommandHistoryHandlers(shellCommandHistoryStore)
   registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts)
   registerDockerHandlers(dockerService)
@@ -78,6 +91,13 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('[Main X11 Config]', err)
   }
+
+  app.on('browser-window-created', (_e, win) => {
+    const webContentsId = win.webContents.id
+    win.on('closed', () => {
+      cleanupSessionsForClosedWindow(webContentsId)
+    })
+  })
 
   openMainWindow()
 

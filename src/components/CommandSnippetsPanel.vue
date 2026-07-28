@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
         <button type="button" class="ui-btn ui-btn-xs" :title="t('snippets.importAppend')" @click="importSnippets('append')">{{ t('snippets.import') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :title="t('snippets.importReplace')" @click="importSnippets('replace')">{{ t('snippets.replace') }}</button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close snippets-close" :aria-label="t('snippets.close')" @click="emit('close')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
       </div>
     </div>
@@ -605,7 +605,7 @@ onBeforeUnmount(() => {
                 :title="item.pinned ? t('snippets.unpin') : t('snippets.pin')"
                 @click.stop="togglePin(item)"
               >
-                <AppIcon :name="item.pinned ? 'star-fill' : 'star'" :size="12" />
+                <AppIcon :name="item.pinned ? 'star-fill' : 'star'" size="xs" />
               </button>
               <span class="snippet-name">{{ item.name }}</span>
               <span v-if="item.sendMode === 'fill'" class="mode-tag">{{ t('snippets.fill') }}</span>
@@ -618,7 +618,7 @@ onBeforeUnmount(() => {
               </button>
               <div class="more-wrap" @click.stop>
                 <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="toggleMenu(item.id)" :title="t('snippets.more')">
-                  <AppIcon name="more" :size="14" />
+                  <AppIcon name="more" size="sm" />
                 </button>
                 <div v-if="menuOpenId === item.id" class="more-menu">
                   <button type="button" class="more-item" @click="sendToBatch(item)">{{ t('snippets.batch') }}</button>

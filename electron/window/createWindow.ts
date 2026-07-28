@@ -1,5 +1,7 @@
 import { BrowserWindow, Menu, session, shell } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
+import { registerWindow } from './windowRegistry'
 
 const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
   dark: { color: '#0d1117', symbolColor: '#8b949e' },
@@ -8,6 +10,19 @@ const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
 }
 
 export { titleBarThemes }
+
+export type CreateWindowOptions = {
+  theme?: string
+  customColors?: { fontColor: string; bgColor: string } | null
+  /** Mark as primary app shell window */
+  primary?: boolean
+  /** Open a focused SSH connection workspace */
+  connectionId?: string
+  title?: string
+  width?: number
+  height?: number
+  parent?: BrowserWindow | null
+}
 
 function isSafeExternalUrl(url: string): boolean {
   try {
@@ -94,22 +109,53 @@ function installContentSecurityPolicy(): void {
   })
 }
 
+function buildLoadTarget(connectionId?: string): { type: 'url'; url: string } | { type: 'file'; file: string; search: string } {
+  const params = new URLSearchParams()
+  if (connectionId) {
+    params.set('detached', '1')
+    params.set('connectionId', connectionId)
+  }
+  const qs = params.toString()
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const u = new URL(process.env.VITE_DEV_SERVER_URL)
+    if (qs) {
+      for (const [k, v] of params) u.searchParams.set(k, v)
+    }
+    return { type: 'url', url: u.toString() }
+  }
+  const file = join(__dirname, '../dist/index.html')
+  if (qs) {
+    // loadFile supports query via loadURL(file://...)
+    return { type: 'url', url: `${pathToFileURL(file).href}?${qs}` }
+  }
+  return { type: 'file', file, search: '' }
+}
+
 export function createWindow(
-  theme: string = 'dark',
-  customColors: { fontColor: string; bgColor: string } | null = null,
+  themeOrOptions: string | CreateWindowOptions = 'dark',
+  customColorsLegacy: { fontColor: string; bgColor: string } | null = null,
 ): BrowserWindow {
+  const opts: CreateWindowOptions =
+    typeof themeOrOptions === 'string'
+      ? { theme: themeOrOptions, customColors: customColorsLegacy, primary: true }
+      : themeOrOptions
+
+  const theme = opts.theme || 'dark'
+  const customColors = opts.customColors ?? null
+
   Menu.setApplicationMenu(null)
   installContentSecurityPolicy()
 
   const titleBarColors = resolveTitleBarColors(theme, customColors)
+  const isDetached = !!opts.connectionId
 
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: opts.width ?? (isDetached ? 1100 : 1200),
+    height: opts.height ?? (isDetached ? 720 : 800),
+    minWidth: isDetached ? 640 : 800,
+    minHeight: isDetached ? 480 : 600,
     show: false,
-    title: 'LiteConnect',
+    title: opts.title || 'LiteConnect',
     backgroundColor: titleBarColors.color,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -127,17 +173,21 @@ export function createWindow(
     },
   })
 
+  registerWindow(mainWindow, { primary: opts.primary !== false && !isDetached })
+
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow.isDestroyed()) mainWindow.show()
   })
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
-    if (process.env.LITECONNECT_OPEN_DEVTOOLS === '1') {
-      mainWindow.webContents.openDevTools({ mode: 'detach' })
-    }
+  const target = buildLoadTarget(opts.connectionId)
+  if (target.type === 'url') {
+    void mainWindow.loadURL(target.url)
   } else {
-    mainWindow.loadFile(join(__dirname, '../dist/index.html'))
+    void mainWindow.loadFile(target.file)
+  }
+
+  if (process.env.VITE_DEV_SERVER_URL && process.env.LITECONNECT_OPEN_DEVTOOLS === '1') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -153,10 +203,6 @@ export function createWindow(
     if (isSafeExternalUrl(url)) {
       void shell.openExternal(url)
     }
-  })
-
-  mainWindow.on('closed', () => {
-    // Handled in main.ts
   })
 
   return mainWindow

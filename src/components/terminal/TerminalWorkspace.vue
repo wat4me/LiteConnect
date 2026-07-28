@@ -98,8 +98,26 @@ function focusActiveTerminal(): boolean {
   )
 }
 
+function getActiveTerminalContext(maxLines = 80): {
+  selection: string
+  scrollback: string
+} {
+  const sid = props.activeSession?.id
+  if (!sid) return { selection: '', scrollback: '' }
+  const tab = terminalTabRefs.get(sid) as
+    | (TerminalTabExpose & {
+        getTerminalContextText?: (n?: number) => { selection: string; scrollback: string }
+      })
+    | undefined
+  if (tab && typeof tab.getTerminalContextText === 'function') {
+    return tab.getTerminalContextText(maxLines)
+  }
+  return { selection: '', scrollback: '' }
+}
+
 defineExpose({
   focusActiveTerminal,
+  getActiveTerminalContext,
 })
 
 const terminalContainerRef = ref<HTMLElement | null>(null)
@@ -300,7 +318,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
             :title="t('terminal.splitHorizontal')"
             @click="emit('toggle-horizontal')"
           >
-            <AppIcon name="split-h" :size="14" />
+            <AppIcon name="split-h" size="sm" />
           </button>
           <button
             class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
@@ -309,7 +327,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
             :title="t('terminal.splitVertical')"
             @click="emit('toggle-vertical')"
           >
-            <AppIcon name="split-v" :size="14" />
+            <AppIcon name="split-v" size="sm" />
           </button>
         </div>
       </template>
@@ -328,7 +346,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
           :title="t('terminal.newTerminal')"
           @click="emit('add-session', activeGroup.connectionId)"
         >
-          <AppIcon name="plus" :size="14" />
+          <AppIcon name="plus" size="sm" />
         </button>
         <button
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
@@ -337,7 +355,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
           :title="t('terminal.splitHorizontal')"
           @click="emit('toggle-horizontal')"
         >
-          <AppIcon name="split-h" :size="14" />
+          <AppIcon name="split-h" size="sm" />
         </button>
         <button
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
@@ -346,7 +364,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
           :title="t('terminal.splitVertical')"
           @click="emit('toggle-vertical')"
         >
-          <AppIcon name="split-v" :size="14" />
+          <AppIcon name="split-v" size="sm" />
         </button>
       </div>
     </div>
@@ -378,7 +396,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
           }"
         >
           <div class="split-preview-zone-inner">
-            <AppIcon :name="previewMode === 'vertical' ? 'split-v' : 'split-h'" :size="20" />
+            <AppIcon :name="previewMode === 'vertical' ? 'split-v' : 'split-h'" size="xl" />
             <span class="split-preview-zone-text">
               {{
                 previewSide === 'left'
@@ -438,7 +456,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
             :aria-label="t('terminal.closeSession', { label: getTerminalLabel(session) })"
             @click="emit('close-session', session.id)"
           >
-            <AppIcon name="close" :size="12" />
+            <AppIcon name="close" size="xs" />
           </button>
         </div>
         <div class="terminal-pane-body">

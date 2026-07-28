@@ -25,7 +25,7 @@ const { t } = useI18n()
   >
     <div class="ui-modal-card decrypt-dialog">
       <div class="dialog-header">
-        <AppIcon name="lock" :size="24" class="dialog-tone-icon danger" />
+        <AppIcon name="lock" size="2xl" class="dialog-tone-icon danger" />
         <span id="decrypt-fail-title" class="dialog-title">{{ t('dialog.decryptFailedTitle') }}</span>
       </div>
       <div class="dialog-body">

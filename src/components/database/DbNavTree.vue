@@ -120,13 +120,13 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
       <span>{{ t('database.nav.title') }}</span>
       <div class="nav-head-actions">
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost nav-head-btn" :title="t('database.nav.import')" @click="emit('import')">
-          <AppIcon name="download" :size="14" />
+          <AppIcon name="download" size="sm" />
         </button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost nav-head-btn" :title="t('database.nav.export')" @click="emit('export')">
-          <AppIcon name="upload" :size="14" />
+          <AppIcon name="upload" size="sm" />
         </button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost nav-head-btn" :title="t('database.nav.create')" @click="emit('create')">
-          <AppIcon name="plus" :size="14" />
+          <AppIcon name="plus" size="sm" />
         </button>
       </div>
     </div>
@@ -139,7 +139,7 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
         :title="showSystemDbs ? '隐藏系统数据库' : '显示系统数据库'"
         @click="showSystemDbs = !showSystemDbs"
       >
-        <AppIcon :name="showSystemDbs ? 'eye' : 'eye-off'" :size="14" />
+        <AppIcon :name="showSystemDbs ? 'eye' : 'eye-off'" size="sm" />
       </button>
     </div>
     <div class="bk-sidebar-scroll">
@@ -173,10 +173,10 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
             class="bk-chevron"
             :class="{ open: isConnExpanded(conn.id) }"
             name="chevron-right"
-            :size="12"
+            size="xs"
           />
           <span class="nav-conn-icon" aria-hidden="true">
-            <AppIcon name="database" :size="14" />
+            <AppIcon name="database" size="sm" />
           </span>
           <span
             class="nav-conn-name"
@@ -195,10 +195,10 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
           </span>
           <div class="nav-conn-actions" @click.stop>
             <button type="button" :title="t('database.nav.edit')" @click="emit('edit', conn)">
-              <AppIcon name="edit" :size="12" />
+              <AppIcon name="edit" size="xs" />
             </button>
             <button type="button" :title="t('database.nav.delete')" class="danger" @click="emit('remove', conn)">
-              <AppIcon name="delete" :size="12" />
+              <AppIcon name="delete" size="xs" />
             </button>
           </div>
         </div>
@@ -221,9 +221,9 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
                 class="bk-chevron"
                 :class="{ open: isDbExpanded(conn.id, db) }"
                 name="chevron-right"
-                :size="12"
+                size="xs"
               />
-              <AppIcon name="database" :size="14" class="bk-ico" />
+              <AppIcon name="database" size="sm" class="bk-ico" />
               <span class="bk-name">{{ db }}</span>
               <span
                 v-if="isTreeLoading(treeDbKey(conn.id, db))"
@@ -246,13 +246,13 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
                 <AppIcon
                   v-if="t.type === 'view'"
                   name="eye"
-                  :size="13"
+                  size="sm"
                   class="bk-ico view"
                 />
                 <AppIcon
                   v-else
                   name="table"
-                  :size="13"
+                  size="sm"
                   class="bk-ico table"
                 />
                 <span class="bk-name">{{ t.name }}</span>

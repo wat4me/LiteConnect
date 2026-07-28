@@ -114,7 +114,7 @@ async function copyOracleSql() {
           }}
         </h3>
         <button type="button" class="ui-modal-close" :aria-label="t('common.close')" @click="emit('close')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
       </header>
 

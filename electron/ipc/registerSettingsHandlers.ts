@@ -31,6 +31,8 @@ export function registerSettingsHandlers(
     }
     if (credentialStore.getConnection(connectionId)) {
       await settingsStore.recordRecentConnection(connectionId)
+      // Bump useCount / lastConnectedAt for list sorting & stats
+      await credentialStore.recordConnectionUsage(connectionId)
     }
   })
 

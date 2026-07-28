@@ -103,7 +103,7 @@ function onBlur() {
       :title="t('sftp.editPath')"
       @click.stop="emit('toggle')"
     >
-      <AppIcon name="edit" :size="12" />
+      <AppIcon name="edit" size="xs" />
     </button>
     <button
       v-else
@@ -113,7 +113,7 @@ function onBlur() {
       @mousedown.prevent
       @click="emit('submit')"
     >
-      <AppIcon name="check" :size="12" />
+      <AppIcon name="check" size="xs" />
     </button>
   </div>
 </template>

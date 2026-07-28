@@ -42,7 +42,7 @@ watch(
     @keydown="emit('keydown', $event)"
   >
     <div class="reconnect-card">
-      <AppIcon name="refresh" :size="24" />
+      <AppIcon name="refresh" size="2xl" />
       <span class="reconnect-text">
         <template v-if="reconnecting">
           {{ t('terminal.reconnecting', { attempt, max: maxRetries }) }}

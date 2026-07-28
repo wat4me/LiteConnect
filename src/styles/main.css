@@ -2,14 +2,37 @@
   --sidebar-width: 280px;
   --tab-height: 38px;
   --titlebar-height: 36px;
-  /* Icon system (stroke SVG) */
-  --icon-xs: 12px;
-  --icon-sm: 14px;
-  --icon-md: 16px;
-  --icon-lg: 18px;
+  /**
+   * Icon system — vector SVGs (viewBox 24×24).
+   * Sizes are semantic tokens; --ui-scale lets density / accessibility scale all icons.
+   */
+  --ui-scale: 1;
+  --icon-xs: calc(12px * var(--ui-scale));
+  --icon-sm: calc(14px * var(--ui-scale));
+  --icon-md: calc(16px * var(--ui-scale));
+  --icon-lg: calc(18px * var(--ui-scale));
+  --icon-xl: calc(22px * var(--ui-scale));
+  --icon-2xl: calc(28px * var(--ui-scale));
+  --icon-hero: calc(40px * var(--ui-scale));
   --icon-stroke: 1.8;
-  --icon-btn-sm: 28px;
-  --icon-btn-md: 32px;
+  --icon-btn-sm: calc(28px * var(--ui-scale));
+  --icon-btn-md: calc(32px * var(--ui-scale));
+}
+
+/* Compact / comfortable density hooks (optional: set on <html data-ui-density>) */
+html[data-ui-density='compact'] {
+  --ui-scale: 0.92;
+}
+
+html[data-ui-density='comfortable'] {
+  --ui-scale: 1.08;
+}
+
+/* Prefer larger controls when OS requests it */
+@media (prefers-contrast: more) {
+  :root {
+    --icon-stroke: 2;
+  }
 }
 
 html:not([data-theme]),
@@ -405,6 +428,15 @@ select:focus:not(:focus-visible) {
 .ui-icon-btn-close:hover:not(:disabled) {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* Icon buttons: default glyph size follows button scale when AppIcon omits size */
+.ui-icon-btn .app-icon:not([data-size]) {
+  font-size: var(--icon-sm);
+}
+
+.ui-icon-btn-sm .app-icon:not([data-size]) {
+  font-size: var(--icon-xs);
 }
 
 .ui-icon-btn svg,

@@ -256,7 +256,7 @@ watch(
         @copy-cell="emit('copyCell', $event)"
       />
       <div v-else class="output-empty-container">
-        <AppIcon name="database" :size="40" class="empty-icon" />
+        <AppIcon name="database" size="hero" class="empty-icon" />
         <span class="empty-title">{{ t('database.query.resultEmpty') }}</span>
         <div class="empty-tips">
           <div class="tip-item">

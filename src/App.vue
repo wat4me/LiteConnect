@@ -13,6 +13,7 @@ const HostKeyMismatchDialog = defineAsyncComponent(() => import('./components/Ho
 const DecryptionFailedDialog = defineAsyncComponent(() => import('./components/DecryptionFailedDialog.vue'))
 const OnboardingTips = defineAsyncComponent(() => import('./components/OnboardingTips.vue'))
 const GlobalJumpPalette = defineAsyncComponent(() => import('./components/GlobalJumpPalette.vue'))
+const ShortcutsHelpOverlay = defineAsyncComponent(() => import('./components/ShortcutsHelpOverlay.vue'))
 import type { AppBootstrapData } from './env.d'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { useTheme } from './composables/useTheme'
@@ -79,6 +80,7 @@ const {
 const connectionsBootstrap = ref<Pick<AppBootstrapData, 'connections' | 'groups'> | null>(null)
 const bootstrapPending = ref(true)
 const jumpPaletteVisible = ref(false)
+const shortcutsHelpVisible = ref(false)
 
 const sidebar = useSidebarState({
   groups,
@@ -369,6 +371,7 @@ const { handleKeydown } = useAppKeyboard({
   toggleSnippetsPanel: guardedToggleSnippetsPanel,
   openSnippetPalette,
   openJumpPalette: () => { jumpPaletteVisible.value = true },
+  openShortcutsHelp: () => { shortcutsHelpVisible.value = true },
   onSnippetHotkey: (e) => tryRunSnippetHotkey(e),
   onCloseGroup,
   onAddSession: createSession,
@@ -523,6 +526,22 @@ function onBatchFinished(e: Event) {
   }
 }
 
+/** Detached multi-window launch: ?detached=1&connectionId=uuid */
+function readLaunchParams() {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return {
+      detached: params.get('detached') === '1',
+      connectionId: params.get('connectionId') || '',
+    }
+  } catch {
+    return { detached: false, connectionId: '' }
+  }
+}
+
+const launchParams = readLaunchParams()
+const isDetachedWindow = launchParams.detached && !!launchParams.connectionId
+
 onMounted(async () => {
   unsubReplyComplete = onReplyComplete((sessionId) => {
     if (sessionId === activeSessionId.value && aiSidebarVisible.value) return
@@ -556,6 +575,16 @@ onMounted(async () => {
     }
 
     bootstrapPending.value = false
+
+    if (isDetachedWindow && launchParams.connectionId) {
+      // Auto-connect target host for detached workspace window
+      const exists = bootstrap.connections.some((c) => c.id === launchParams.connectionId)
+      if (exists) {
+        void onConnect(launchParams.connectionId)
+      } else {
+        ElMessage.error(t('connections.openInNewWindowFailed'))
+      }
+    }
     return
   } catch (err) {
     console.error('[App Bootstrap]', err)
@@ -597,6 +626,7 @@ onBeforeUnmount(() => {
       @enter-ssh="enterSsh"
       @enter-database="enterDatabase"
       @toggle-settings="toggleSettingsPage"
+      @open-shortcuts="shortcutsHelpVisible = true"
     />
 
     <div class="workspace">
@@ -732,6 +762,11 @@ onBeforeUnmount(() => {
     <AppDialogHost />
 
     <OnboardingTips />
+
+    <ShortcutsHelpOverlay
+      :visible="shortcutsHelpVisible"
+      @close="shortcutsHelpVisible = false"
+    />
 
     <GlobalJumpPalette
       :visible="jumpPaletteVisible"

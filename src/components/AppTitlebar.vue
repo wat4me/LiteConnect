@@ -15,6 +15,7 @@ const emit = defineEmits<{
   (e: 'enter-ssh', forceHome?: boolean): void
   (e: 'enter-database'): void
   (e: 'toggle-settings'): void
+  (e: 'open-shortcuts'): void
 }>()
 
 const { t } = useI18n()
@@ -88,7 +89,7 @@ watch(menuOpen, (open) => {
             @click="toggleMenu"
           >
             <span class="titlebar-brand-mod-text">{{ moduleKey }}</span>
-            <AppIcon name="chevron-down" :size="10" class="titlebar-brand-chevron" />
+            <AppIcon name="chevron-down" size="xs" class="titlebar-brand-chevron" />
           </button>
 
           <Teleport to="body">
@@ -133,13 +134,22 @@ watch(menuOpen, (open) => {
         <button
           type="button"
           class="titlebar-icon-btn"
+          :title="t('app.openShortcuts')"
+          :aria-label="t('app.openShortcutsAria')"
+          @click="emit('open-shortcuts')"
+        >
+          <AppIcon name="help-circle" size="sm" />
+        </button>
+        <button
+          type="button"
+          class="titlebar-icon-btn"
           :class="{ active: showSettingsPage }"
           :aria-pressed="showSettingsPage"
           :title="showSettingsPage ? t('app.closeSettings') : t('app.openSettings')"
           :aria-label="showSettingsPage ? t('app.closeSettings') : t('app.openSettings')"
           @click="emit('toggle-settings')"
         >
-          <AppIcon name="settings" :size="14" />
+          <AppIcon name="settings" size="sm" />
         </button>
       </div>
     </div>

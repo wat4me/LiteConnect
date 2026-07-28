@@ -143,7 +143,7 @@ function bitLabel(bit: string): string {
       <div class="props-header">
         <h3 class="props-title">{{ t('sftp.propsTitle') }}</h3>
         <button type="button" class="ui-modal-close" @click="emit('close')" :title="t('common.close')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
       </div>
 

@@ -6,7 +6,11 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   saveConnection: (conn: any) => ipcRenderer.invoke('store:saveConnection', conn),
   deleteConnection: (id: string) => ipcRenderer.invoke('store:deleteConnection', id),
   updateConnectionGroup: (id: string, groupId: string | undefined) => ipcRenderer.invoke('store:updateConnectionGroup', id, groupId),
+  setConnectionPinned: (id: string, pinned: boolean) =>
+    ipcRenderer.invoke('store:setConnectionPinned', id, pinned),
   reorderConnections: (orderedIds: string[]) => ipcRenderer.invoke('store:reorderConnections', orderedIds),
+  openConnectionWindow: (connectionId: string) =>
+    ipcRenderer.invoke('window:openConnection', connectionId),
   isEncryptionAvailable: () => ipcRenderer.invoke('store:isEncryptionAvailable'),
   getConnectionPassword: (id: string) => ipcRenderer.invoke('store:getConnectionPassword', id),
   getSavedCredentials: () => ipcRenderer.invoke('store:getSavedCredentials'),

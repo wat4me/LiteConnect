@@ -371,7 +371,7 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
             :aria-busy="!!tab.cancelling"
             @click="onCancel"
           >
-            <AppIcon name="stop" :size="14" />
+            <AppIcon name="stop" size="sm" />
             <span>{{ tab.cancelling ? t('database.query.cancelling') : t('database.query.cancel') }}</span>
           </button>
           <DbSqlEditor

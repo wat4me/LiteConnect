@@ -122,7 +122,14 @@ const emit = defineEmits<{
   (e: 'back-to-terminal'): void
 }>()
 
-const terminalWorkspaceRef = ref<{ focusActiveTerminal: () => boolean } | null>(null)
+const terminalWorkspaceRef = ref<{
+  focusActiveTerminal: () => boolean
+  getActiveTerminalContext?: (maxLines?: number) => { selection: string; scrollback: string }
+} | null>(null)
+
+function getAiTerminalContext() {
+  return terminalWorkspaceRef.value?.getActiveTerminalContext?.(100) || { selection: '', scrollback: '' }
+}
 /** Bottom dock is default; side panel opens only when user requests details. */
 const monitorDetailsOpen = ref(false)
 /** Declared before onBeforeUnmount so unmount can cancel stale rAF focus. */
@@ -188,6 +195,9 @@ watch(
           v-if="activeSession"
           :key="activeSession.id"
           :session-id="activeSession.id"
+          :connection-id="activeSession.connectionId"
+          :host-label="activeGroup?.connectionName || ''"
+          :get-terminal-context="getAiTerminalContext"
           :selection-request="aiSelectionRequest"
           @close="emit('close-ai')"
           @selection-consumed="emit('ai-selection-consumed', $event)"

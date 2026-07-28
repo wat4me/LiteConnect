@@ -33,9 +33,39 @@ const emit = defineEmits<{
   (e: 'edit', connection: Connection): void
   (e: 'delete', connectionId: string): void
   (e: 'copy', connection: Connection): void
+  (e: 'pin', connectionId: string): void
+  (e: 'open-window', connectionId: string): void
   (e: 'drag-start', connectionId: string, event: DragEvent): void
   (e: 'drag-end'): void
 }>()
+
+/** Compact stats on the same line as user@host (avoid a cramped 3rd text line). */
+const statsInline = computed(() => {
+  const c = props.connection
+  const parts: string[] = []
+  if (c.useCount && c.useCount > 0) {
+    parts.push(
+      c.useCount === 1
+        ? t('connections.useCountOnce')
+        : t('connections.useCount', { count: c.useCount }),
+    )
+  }
+  if (c.lastConnectedAt) {
+    const time = new Date(c.lastConnectedAt).toLocaleString(undefined, {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    parts.push(t('connections.lastConnected', { time }))
+  }
+  return parts.join(' · ')
+})
+
+const metaTitle = computed(() => {
+  const base = `${props.connection.username}@${props.connection.host}:${props.connection.port}`
+  return statsInline.value ? `${base} · ${statsInline.value}` : base
+})
 
 const menuOpen = ref(false)
 const menuRef = ref<HTMLElement | null>(null)
@@ -110,17 +140,24 @@ useOutsideDismiss(
   () => [menuRef.value, moreBtnRef.value],
 )
 
-function onMenuAction(action: 'test' | 'delete') {
+function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
   closeMenu()
   if (action === 'test') emit('test', props.connection.id)
   else if (action === 'delete') emit('delete', props.connection.id)
+  else if (action === 'pin') emit('pin', props.connection.id)
+  else if (action === 'window') emit('open-window', props.connection.id)
 }
 </script>
 
 <template>
   <div
     class="connection-row"
-    :class="{ dragging: isDragging, 'menu-open': menuOpen, 'keyboard-active': keyboardActive }"
+    :class="{
+      dragging: isDragging,
+      'menu-open': menuOpen,
+      'keyboard-active': keyboardActive,
+      pinned: connection.pinned,
+    }"
     @dblclick="onDoubleClick"
   >
     <div
@@ -134,7 +171,7 @@ function onMenuAction(action: 'test' | 'delete') {
       @click.stop
       @dblclick.stop
     >
-      <AppIcon name="grip" :size="12" />
+      <AppIcon name="grip" size="xs" />
     </div>
 
     <div class="row-main">
@@ -146,8 +183,23 @@ function onMenuAction(action: 'test' | 'delete') {
         role="img"
       ></span>
       <div class="row-info">
-        <span class="conn-name">{{ connection.name }}</span>
-        <span class="conn-meta">{{ connection.username }}@{{ connection.host }}:{{ connection.port }}</span>
+        <span class="conn-name">
+          <AppIcon
+            v-if="connection.pinned"
+            name="star-fill"
+            size="xs"
+            class="pin-icon"
+            :title="t('connections.pinned')"
+          />
+          {{ connection.name }}
+        </span>
+        <span class="conn-meta" :title="metaTitle">
+          <span class="conn-addr">{{ connection.username }}@{{ connection.host }}:{{ connection.port }}</span>
+          <template v-if="statsInline">
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span class="conn-stats">{{ statsInline }}</span>
+          </template>
+        </span>
         <span v-if="connection.note" class="conn-note" :title="connection.note">{{ connection.note }}</span>
       </div>
     </div>
@@ -183,7 +235,7 @@ function onMenuAction(action: 'test' | 'delete') {
           :aria-label="t('connections.connect')"
           @click.stop="emit('connect', connection.id)"
         >
-          <AppIcon name="link" :size="14" />
+          <AppIcon name="link" size="sm" />
           <span class="connect-label">{{ t('connections.connect') }}</span>
         </button>
       </el-tooltip>
@@ -195,7 +247,7 @@ function onMenuAction(action: 'test' | 'delete') {
           :aria-label="t('connections.copyConnection')"
           @click.stop="emit('copy', connection)"
         >
-          <AppIcon name="copy" :size="14" />
+          <AppIcon name="copy" size="sm" />
         </button>
       </el-tooltip>
 
@@ -206,7 +258,7 @@ function onMenuAction(action: 'test' | 'delete') {
           :aria-label="t('connections.edit')"
           @click.stop="emit('edit', connection)"
         >
-          <AppIcon name="edit" :size="14" />
+          <AppIcon name="edit" size="sm" />
         </button>
       </el-tooltip>
 
@@ -221,7 +273,7 @@ function onMenuAction(action: 'test' | 'delete') {
             aria-haspopup="menu"
             @click="toggleMenu"
           >
-            <AppIcon name="more" :size="14" />
+            <AppIcon name="more" size="sm" />
           </button>
         </el-tooltip>
         <Teleport to="body">
@@ -242,6 +294,12 @@ function onMenuAction(action: 'test' | 'delete') {
             >
               {{ t('connections.testConnection') }}
             </button>
+            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('window')">
+              {{ t('connections.openInNewWindow') }}
+            </button>
+            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('pin')">
+              {{ connection.pinned ? t('connections.unpin') : t('connections.pin') }}
+            </button>
             <div class="more-divider" role="separator"></div>
             <button type="button" class="more-item danger" role="menuitem" @click="onMenuAction('delete')">
               {{ t('common.delete') }}
@@ -259,7 +317,7 @@ function onMenuAction(action: 'test' | 'delete') {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px 10px 6px;
+  padding: 11px 12px 11px 6px;
   border-radius: 8px;
   cursor: default;
   transition: background 0.12s ease;
@@ -269,9 +327,22 @@ function onMenuAction(action: 'test' | 'delete') {
   user-select: none;
 }
 
+.connection-row.pinned {
+  background: color-mix(in srgb, var(--warning, #e3b341) 6%, transparent);
+}
+
+.pin-icon {
+  color: var(--warning, #e3b341);
+  flex-shrink: 0;
+}
+
 /* 轻量 hover：仅微弱背景，不改边框、不改手型 */
 .connection-row:hover {
   background: var(--hover-bg);
+}
+
+.connection-row.pinned:hover {
+  background: color-mix(in srgb, var(--warning, #e3b341) 10%, var(--hover-bg));
 }
 
 .connection-row.menu-open,
@@ -337,26 +408,56 @@ function onMenuAction(action: 'test' | 'delete') {
 .row-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
 .conn-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .conn-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-secondary);
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.conn-addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+.meta-sep {
+  flex-shrink: 0;
+  opacity: 0.45;
+}
+
+.conn-stats {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.9;
 }
 
 .color-tag {
@@ -371,6 +472,7 @@ function onMenuAction(action: 'test' | 'delete') {
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 0.85;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

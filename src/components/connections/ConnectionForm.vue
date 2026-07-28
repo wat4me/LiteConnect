@@ -384,7 +384,7 @@ async function toggleCredentialAutoFill() {
   <div class="ui-modal-overlay" @click.self="emit('cancel')">
     <div class="ui-modal-card connection-modal">
       <button class="ui-modal-close" @click="emit('cancel')" :title="t('common.close')">
-        <AppIcon name="close" :size="14" />
+        <AppIcon name="close" size="sm" />
       </button>
 
       <header class="modal-header">
@@ -462,7 +462,7 @@ async function toggleCredentialAutoFill() {
               <div class="password-row">
                 <input v-model="form.password" :type="showPassword ? 'text' : 'password'" :placeholder="t('connectionForm.passwordPlaceholder')" class="ui-input password-input" />
                 <button type="button" class="btn-toggle-password" @click="showPassword = !showPassword" :title="showPassword ? t('connectionForm.hidePassword') : t('connectionForm.showPassword')">
-                  <AppIcon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
+                  <AppIcon :name="showPassword ? 'eye-off' : 'eye'" size="md" />
                 </button>
               </div>
             </div>
@@ -472,7 +472,7 @@ async function toggleCredentialAutoFill() {
               <div class="privatekey-row">
                 <button type="button" class="btn-select-key" @click="selectPrivateKey">{{ privateKeyFileName || t('connectionForm.selectPrivateKey') }}</button>
                 <button v-if="form.privateKey" type="button" class="btn-clear-key" @click="clearPrivateKey" :title="t('connectionForm.clearPrivateKey')">
-                  <AppIcon name="close" :size="14" />
+                  <AppIcon name="close" size="sm" />
                 </button>
               </div>
               <div class="hint-text">{{ t('connectionForm.privateKeyHint') }}</div>
@@ -481,7 +481,7 @@ async function toggleCredentialAutoFill() {
                 <div class="password-row">
                   <input v-model="form.password" :type="showPassword ? 'text' : 'password'" :placeholder="t('connectionForm.passphrasePlaceholder')" class="ui-input password-input" />
                   <button type="button" class="btn-toggle-password" @click="showPassword = !showPassword" :title="showPassword ? t('connectionForm.hidePassword') : t('connectionForm.showPassword')">
-                    <AppIcon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
+                    <AppIcon :name="showPassword ? 'eye-off' : 'eye'" size="md" />
                   </button>
                 </div>
               </div>

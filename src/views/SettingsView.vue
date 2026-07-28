@@ -75,7 +75,7 @@ defineExpose({ requestClose: handleClose })
       :disabled="saving"
       @click="handleClose"
     >
-      <AppIcon name="close" :size="14" />
+      <AppIcon name="close" size="sm" />
     </button>
     <aside class="settings-nav">
       <div class="nav-head">

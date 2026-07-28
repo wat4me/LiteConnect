@@ -1,7 +1,6 @@
 import { ipcMain, BrowserWindow, dialog, shell, clipboard, safeStorage } from 'electron'
 import { CredentialStore } from '../store/credentialStore'
 import { SettingsStore } from '../store/settingsStore'
-import { titleBarThemes } from '../window/createWindow'
 import {
   isValidUUID,
   isValidHost,
@@ -50,28 +49,7 @@ export function registerStoreHandlers(
     return connections
   }
 
-  // Title bar theme
-  ipcMain.on('titlebar:theme', async (_event, theme: string, colors?: { color: string; symbolColor: string }) => {
-    let finalColors = titleBarThemes[theme as keyof typeof titleBarThemes] || titleBarThemes.dark
-    if (theme === 'custom' && colors) {
-      finalColors = colors
-    }
-    const mainWindow = getMainWindow()
-    mainWindow?.setTitleBarOverlay({
-      color: finalColors.color,
-      symbolColor: finalColors.symbolColor,
-    })
-    mainWindow?.setBackgroundColor(finalColors.color)
-
-    try {
-      await settingsStore.setTheme(theme)
-      if (theme === 'custom' && colors) {
-        await settingsStore.setCustomColors({ fontColor: colors.symbolColor, bgColor: colors.color })
-      }
-    } catch (err) {
-      console.error('[Theme] Failed to persist theme:', err)
-    }
-  })
+  // Title bar theme is registered in registerWindowHandlers (per-window + multi-window)
 
   ipcMain.handle('app:getBootstrap', async () => {
     await ensureStoresReady()
@@ -155,6 +133,14 @@ export function registerStoreHandlers(
       throw new Error('Invalid connection id')
     }
     return await credentialStore.updateConnectionGroup(id, groupId)
+  })
+
+  ipcMain.handle('store:setConnectionPinned', async (_event, id: string, pinned: boolean) => {
+    await ensureCredentialStoreReady()
+    if (!isValidUUID(id)) {
+      throw new Error('Invalid connection id')
+    }
+    return await credentialStore.setConnectionPinned(id, !!pinned)
   })
 
   ipcMain.handle('store:getConnectionPassword', async (_event, id: string) => {

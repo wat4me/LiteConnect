@@ -177,6 +177,17 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
       sb.sidebarVisible.value = true
       await window.LiteConnect.recordRecentConnection(connectionId)
       await loadRecentConnections()
+      // Reflect useCount / lastConnectedAt in local list without full reload
+      const now = Date.now()
+      connections.value = connections.value.map((item) =>
+        item.id === connectionId
+          ? {
+              ...item,
+              useCount: (item.useCount || 0) + 1,
+              lastConnectedAt: now,
+            }
+          : item,
+      )
     } catch (err: any) {
       console.error('SSH connection failed:', err)
       ElMessage.error(err.message || t('terminal.connectFailed'))

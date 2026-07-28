@@ -13,6 +13,7 @@ export function useAppKeyboard(deps: {
   toggleSnippetsPanel?: () => void
   openSnippetPalette?: () => void
   openJumpPalette?: () => void
+  openShortcutsHelp?: () => void
   onSnippetHotkey?: (e: KeyboardEvent) => boolean
   onCloseGroup: (connectionId: string) => void
   onAddSession?: (connectionId: string) => void
@@ -57,13 +58,27 @@ export function useAppKeyboard(deps: {
       return
     }
 
+    // ? — shortcuts help (when not typing)
+    if (!isTypingTarget(e.target) && (e.key === '?' || (e.key === '/' && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault()
+      deps.openShortcutsHelp?.()
+      return
+    }
+
     const mod = e.ctrlKey || e.metaKey
     if (!mod) return
 
-    // Avoid hijacking shortcuts while typing in form fields (except Esc handled above)
-    if (isTypingTarget(e.target) && !e.shiftKey) return
-
     const key = e.key.toLowerCase()
+
+    // Ctrl+/ — 快捷键一览（输入框内也可用，方便随时查阅）
+    if ((key === '/' || e.code === 'Slash') && !e.shiftKey && !e.altKey) {
+      e.preventDefault()
+      deps.openShortcutsHelp?.()
+      return
+    }
+
+    // Avoid hijacking other shortcuts while typing in form fields
+    if (isTypingTarget(e.target) && !e.shiftKey) return
 
     // Ctrl+K — 命令片段快速运行（palette）
     if (key === 'k' && !e.shiftKey && !e.altKey) {

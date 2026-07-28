@@ -28,7 +28,7 @@ const { t } = useI18n()
 
 <template>
   <div class="search-bar" role="search">
-    <AppIcon name="search" :size="14" />
+    <AppIcon name="search" size="sm" />
     <input
       :ref="(el) => emit('set-input-ref', el as HTMLInputElement | null)"
       :value="searchQuery"
@@ -59,7 +59,7 @@ const { t } = useI18n()
     </label>
     <span class="search-hint">{{ t('terminal.searchHint') }}</span>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('terminal.searchClose')" @click="emit('close')">
-      <AppIcon name="close" :size="14" />
+      <AppIcon name="close" size="sm" />
     </button>
   </div>
 </template>

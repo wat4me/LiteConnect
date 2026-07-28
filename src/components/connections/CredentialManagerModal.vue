@@ -193,7 +193,7 @@ function formatTime(value: number): string {
   >
     <div class="ui-modal-card credential-modal">
       <button class="ui-modal-close" type="button" :aria-label="t('common.close')" @click="close">
-        <AppIcon name="close" :size="14" />
+        <AppIcon name="close" size="sm" />
       </button>
 
       <header class="modal-top">
@@ -210,7 +210,7 @@ function formatTime(value: number): string {
           type="button"
           @click="startCreate"
         >
-          <AppIcon name="plus" :size="14" />
+          <AppIcon name="plus" size="sm" />
           <span>{{ t('credentials.addAccount') }}</span>
         </button>
       </header>
@@ -276,7 +276,7 @@ function formatTime(value: number): string {
 
       <div v-else-if="credentials.length === 0" class="list-area ui-empty empty-state">
         <div class="ui-empty-icon" aria-hidden="true">
-          <AppIcon name="lock" :size="22" />
+          <AppIcon name="lock" size="xl" />
         </div>
         <p class="ui-empty-title">{{ t('credentials.emptyTitle') }}</p>
         <p class="ui-empty-desc">
@@ -284,7 +284,7 @@ function formatTime(value: number): string {
         </p>
         <div class="ui-empty-actions">
           <button type="button" class="ui-btn ui-btn-primary" @click="startCreate">
-            <AppIcon name="plus" :size="14" />
+            <AppIcon name="plus" size="sm" />
             {{ t('credentials.addFirst') }}
           </button>
         </div>

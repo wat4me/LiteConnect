@@ -22,7 +22,7 @@ import {
 export class SettingsStore {
   private settingsPath: string
   private settings: Record<string, any> = {}
-  private readonly recentConnectionsLimit = 5
+  private readonly recentConnectionsLimit = 12
   private initialized = false
   private initPromise: Promise<void> | null = null
 

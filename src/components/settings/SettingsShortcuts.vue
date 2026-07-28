@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import { KEYBOARD_SHORTCUTS } from '../../composables/useTheme'
+import { resetAllFeatureTips } from '../../utils/featureTips'
 
 const { t } = useI18n()
+const resetDone = ref(false)
 
 const shortcuts = computed(() =>
   KEYBOARD_SHORTCUTS.map((item) => ({
@@ -12,6 +15,12 @@ const shortcuts = computed(() =>
     scope: t(item.scopeKey),
   })),
 )
+
+function handleResetTips() {
+  resetAllFeatureTips()
+  resetDone.value = true
+  ElMessage.success(t('settingsShortcuts.tipsResetDone'))
+}
 </script>
 
 <template>
@@ -19,7 +28,17 @@ const shortcuts = computed(() =>
     <header class="content-header">
       <h3>{{ t('settingsShortcuts.title') }}</h3>
       <p>{{ t('settingsShortcuts.intro') }}</p>
+      <p class="content-header-extra">{{ t('settingsShortcuts.overlayIntro') }}</p>
     </header>
+    <div class="settings-card narrow tips-card">
+      <div class="tips-card-text">
+        <div class="shortcut-desc">{{ t('settingsShortcuts.resetTipsTitle') }}</div>
+        <div class="shortcut-scope">{{ t('settingsShortcuts.resetTipsDesc') }}</div>
+      </div>
+      <button type="button" class="ui-btn ui-btn-sm" @click="handleResetTips">
+        {{ resetDone ? t('settingsShortcuts.tipsResetDoneShort') : t('settingsShortcuts.resetTips') }}
+      </button>
+    </div>
     <div class="settings-card narrow">
       <div v-for="item in shortcuts" :key="item.keys + item.desc" class="shortcut-row">
         <kbd class="shortcut-keys">{{ item.keys }}</kbd>
@@ -51,6 +70,10 @@ const shortcuts = computed(() =>
   line-height: 1.5;
 }
 
+.content-header-extra {
+  margin-top: 6px !important;
+}
+
 .settings-card {
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -60,6 +83,18 @@ const shortcuts = computed(() =>
 
 .settings-card.narrow {
   max-width: 520px;
+}
+
+.tips-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.tips-card-text {
+  min-width: 0;
 }
 
 .shortcut-row {

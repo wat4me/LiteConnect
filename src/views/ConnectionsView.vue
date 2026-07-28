@@ -40,6 +40,13 @@ const pageRootRef = ref<HTMLElement | null>(null)
 const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
 
 function onConnectFromRow(connectionId: string) {
+  // Optimistic stats so list shows useCount / lastConnected without reload
+  const now = Date.now()
+  connections.value = connections.value.map((c) =>
+    c.id === connectionId
+      ? { ...c, useCount: (c.useCount || 0) + 1, lastConnectedAt: now }
+      : c,
+  )
   emit('connect', connectionId)
 }
 
@@ -58,6 +65,7 @@ const {
   activeGroupId,
   searchQuery,
   colorTagFilter,
+  sortMode,
   importing,
   listKeyboardIndex,
   dragConnId,
@@ -79,10 +87,19 @@ const {
   onConnRowDragOver,
   onConnListDragLeave,
   onConnRowDrop,
+  togglePin,
   clearFilters,
   handleExport,
   handleImport,
 } = list
+
+async function onOpenInNewWindow(connectionId: string) {
+  try {
+    await window.LiteConnect.openConnectionWindow(connectionId)
+  } catch (err: any) {
+    ElMessage.error(err?.message || t('connections.openInNewWindowFailed'))
+  }
+}
 
 const { batchTesting, onTestConnection, onBatchTestGroup, getTestStatus } = useBatchTest(filteredConnections)
 
@@ -213,6 +230,35 @@ defineExpose({ loadData, editConnection: onEditConnection })
             <span>{{ tag.id ? tag.label : t('connections.all') }}</span>
           </button>
         </div>
+        <div class="sort-bar">
+          <span class="filter-label">{{ t('connections.sortLabel') }}</span>
+          <div class="filter-chips">
+            <button
+              type="button"
+              class="tag-filter-chip"
+              :class="{ active: sortMode === 'manual' }"
+              @click="sortMode = 'manual'"
+            >
+              {{ t('connections.sortManual') }}
+            </button>
+            <button
+              type="button"
+              class="tag-filter-chip"
+              :class="{ active: sortMode === 'recent' }"
+              @click="sortMode = 'recent'"
+            >
+              {{ t('connections.sortRecent') }}
+            </button>
+            <button
+              type="button"
+              class="tag-filter-chip"
+              :class="{ active: sortMode === 'frequent' }"
+              @click="sortMode = 'frequent'"
+            >
+              {{ t('connections.sortFrequent') }}
+            </button>
+          </div>
+        </div>
         <button
           v-if="searchQuery || colorTagFilter"
           type="button"
@@ -251,6 +297,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
             @edit="onEditConnection"
             @delete="onDeleteConnection"
             @copy="onCopyConnection"
+            @pin="togglePin"
+            @open-window="onOpenInNewWindow"
             @drag-start="onConnDragStart"
             @drag-end="onConnDragEnd"
           />
@@ -265,7 +313,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
 
         <div v-if="filteredConnections.length === 0" class="ui-empty empty-connections">
           <div class="ui-empty-icon" aria-hidden="true">
-            <AppIcon name="monitor" :size="22" />
+            <AppIcon name="monitor" size="xl" />
           </div>
           <template v-if="searchQuery || colorTagFilter">
             <p class="ui-empty-title">{{ t('connections.emptyFilteredTitle') }}</p>
@@ -279,7 +327,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
             <p class="ui-empty-desc">{{ t('connections.emptyGroupDesc') }}</p>
             <div class="ui-empty-actions">
               <button type="button" class="ui-btn ui-btn-primary" @click="onAddConnection">
-                <AppIcon name="plus" :size="14" />
+                <AppIcon name="plus" size="sm" />
                 {{ t('connections.newConnection') }}
               </button>
               <button type="button" class="ui-btn" :disabled="importing" @click="handleImport">
@@ -347,6 +395,18 @@ defineExpose({ loadData, editConnection: onEditConnection })
   gap: 6px;
   flex: 1;
   min-width: 0;
+}
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.sort-bar .filter-chips {
+  flex: 0 1 auto;
 }
 
 .tag-filter-chip {

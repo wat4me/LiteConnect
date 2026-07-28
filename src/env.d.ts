@@ -16,6 +16,8 @@ declare global {
       saveConnection: (conn: Partial<Connection> & { name: string; host: string; username: string; password: string }) => Promise<Connection>
       deleteConnection: (id: string) => Promise<boolean>
       updateConnectionGroup: (id: string, groupId: string | undefined) => Promise<boolean>
+      setConnectionPinned: (id: string, pinned: boolean) => Promise<Connection>
+      openConnectionWindow: (connectionId: string) => Promise<{ reused: boolean; connectionId: string }>
       reorderConnections: (orderedIds: string[]) => Promise<void>
       isEncryptionAvailable: () => Promise<boolean>
       getConnectionPassword: (id: string) => Promise<string>
@@ -772,6 +774,12 @@ export interface Connection {
   jumpPrivateKey?: string
   useAgent?: boolean
   localForwards?: LocalForward[]
+  /** Pin to top of connection list */
+  pinned?: boolean
+  /** Successful connect count */
+  useCount?: number
+  /** Last successful connect timestamp */
+  lastConnectedAt?: number
   createdAt: number
   updatedAt: number
 }

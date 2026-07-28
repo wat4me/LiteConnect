@@ -128,7 +128,7 @@ onBeforeUnmount(() => {
             {{ saving ? t('sftp.saving') : t('common.save') }}
           </button>
           <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('common.close')">
-            <AppIcon name="close" :size="14" />
+            <AppIcon name="close" size="sm" />
           </button>
         </div>
       </div>

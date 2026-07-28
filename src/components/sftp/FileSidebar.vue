@@ -598,7 +598,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
     <div v-else-if="activeTab === 'transfers'" class="sidebar-content">
       <div class="transfers-header">
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.backToFiles')" @click="activeTab = 'files'">
-          <AppIcon name="chevron-left" :size="16" />
+          <AppIcon name="chevron-left" size="md" />
         </button>
         <div class="transfers-header-title">
           <span>{{ t('sftp.transfers') }}</span>
@@ -607,7 +607,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
         <div style="flex:1"></div>
         <button type="button" class="ui-btn ui-btn-xs" @click="clearFinishedTransfers(transferDirection)">{{ t('sftp.clearRecords') }}</button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('sftp.closeSidebar')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
       </div>
       <div class="transfers-toolbar">

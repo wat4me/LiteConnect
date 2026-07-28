@@ -229,7 +229,7 @@ onMounted(loadSnippets)
         <span class="batch-title-badge">{{ selectedSessions.size }}/{{ sessions.length }}</span>
       </div>
       <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close batch-close" @click="emit('close')" :title="t('batch.close')">
-        <AppIcon name="close" :size="14" />
+        <AppIcon name="close" size="sm" />
       </button>
     </div>
 
@@ -351,7 +351,7 @@ onMounted(loadSnippets)
         :disabled="!canExecute"
         @click="handleExecute"
       >
-        <AppIcon name="play" :size="14" />
+        <AppIcon name="play" size="sm" />
         <span>{{ t('batch.execute') }}</span>
       </button>
       <button
@@ -360,7 +360,7 @@ onMounted(loadSnippets)
         type="button"
         @click="handleCancel"
       >
-        <AppIcon name="refresh" :size="14" class="spin-icon" />
+        <AppIcon name="refresh" size="sm" class="spin-icon" />
         <span>{{ t('batch.cancel') }}</span>
       </button>
       <button v-if="hasResults && !isRunning" type="button" class="ui-btn ui-btn-sm" @click="handleExport">{{ t('batch.exportResults') }}</button>

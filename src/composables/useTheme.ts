@@ -398,6 +398,7 @@ export function getTerminalColors(
 }
 
 export const KEYBOARD_SHORTCUTS: Array<{ keys: string; descKey: string; scopeKey: string; keysKey?: string }> = [
+  { keys: 'Ctrl+/ 或 ?', descKey: 'settingsShortcuts.items.shortcutsHelp', scopeKey: 'settingsShortcuts.scopes.global' },
   { keys: 'Ctrl+B', descKey: 'settingsShortcuts.items.toggleSftp', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+Shift+A', descKey: 'settingsShortcuts.items.toggleAi', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+Shift+M', descKey: 'settingsShortcuts.items.toggleMonitor', scopeKey: 'settingsShortcuts.scopes.workspace' },

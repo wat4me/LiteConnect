@@ -282,13 +282,13 @@ function onUngroupedDragOverConn(e: DragEvent) {
               @dragend="onDragEnd"
               @click.stop
             >
-              <AppIcon name="grip" :size="12" />
+              <AppIcon name="grip" size="xs" />
             </span>
             <button class="collapse-btn" @click.stop="toggleGroupCollapsed(group.id)">
-              <AppIcon :name="isGroupCollapsed(group.id) ? 'chevron-right' : 'chevron-down'" :size="12" />
+              <AppIcon :name="isGroupCollapsed(group.id) ? 'chevron-right' : 'chevron-down'" size="xs" />
             </button>
             <span v-if="group.isDefault" class="default-star" :title="t('groups.defaultGroup')">
-              <AppIcon name="star-fill" :size="12" />
+              <AppIcon name="star-fill" size="xs" />
             </span>
             <template v-if="editingId === group.id">
               <input
@@ -308,17 +308,17 @@ function onUngroupedDragOverConn(e: DragEvent) {
           <div v-if="editingId !== group.id" class="group-actions">
             <el-tooltip :content="t('groups.rename')" placement="right">
               <button class="icon-btn-tiny" @click.stop="startRename(group)">
-                <AppIcon name="edit" :size="12" />
+                <AppIcon name="edit" size="xs" />
               </button>
             </el-tooltip>
             <el-tooltip :content="group.isDefault ? t('groups.unsetDefault') : t('groups.setDefault')" placement="right">
               <button class="icon-btn-tiny" @click.stop="emit('setDefault', group.isDefault ? null : group.id)">
-                <AppIcon :name="group.isDefault ? 'star-fill' : 'star'" :size="12" />
+                <AppIcon :name="group.isDefault ? 'star-fill' : 'star'" size="xs" />
               </button>
             </el-tooltip>
             <el-tooltip :content="t('groups.delete')" placement="right">
               <button class="icon-btn-tiny danger" @click.stop="emit('delete', group.id)">
-                <AppIcon name="delete" :size="12" />
+                <AppIcon name="delete" size="xs" />
               </button>
             </el-tooltip>
           </div>
@@ -341,7 +341,7 @@ function onUngroupedDragOverConn(e: DragEvent) {
               @click.stop
               @dblclick.stop
             >
-              <AppIcon name="grip" :size="10" />
+              <AppIcon name="grip" size="xs" />
             </span>
             <span
               class="sidebar-conn-dot"
@@ -367,7 +367,7 @@ function onUngroupedDragOverConn(e: DragEvent) {
       >
         <div class="group-item-content">
           <button class="collapse-btn" @click.stop="toggleUngroupedCollapsed">
-            <AppIcon :name="isUngroupedCollapsed() ? 'chevron-right' : 'chevron-down'" :size="12" />
+            <AppIcon :name="isUngroupedCollapsed() ? 'chevron-right' : 'chevron-down'" size="xs" />
           </button>
           <span class="group-name">{{ t('groups.ungrouped') }}</span>
           <span class="group-count">{{ connectionCounts[UNGROUPED_ID] || 0 }}</span>
@@ -390,7 +390,7 @@ function onUngroupedDragOverConn(e: DragEvent) {
             @click.stop
             @dblclick.stop
           >
-            <AppIcon name="grip" :size="10" />
+            <AppIcon name="grip" size="xs" />
           </span>
           <span
             class="sidebar-conn-dot"
@@ -403,7 +403,7 @@ function onUngroupedDragOverConn(e: DragEvent) {
 
     <div class="group-panel-footer">
       <button class="add-group-btn" @click="emit('add')">
-        <AppIcon name="plus" :size="14" />
+        <AppIcon name="plus" size="sm" />
         <span>{{ t('groups.newGroup') }}</span>
       </button>
     </div>

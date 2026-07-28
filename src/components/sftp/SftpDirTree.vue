@@ -379,7 +379,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
     @dragleave="onTreeDragLeave"
   >
     <div v-if="searchVisible" class="file-search-bar">
-      <AppIcon name="search" :size="12" />
+      <AppIcon name="search" size="xs" />
       <input
         :ref="setSearchInputRef"
         v-model="searchQuery"
@@ -388,7 +388,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
         @keydown="onSearchKeydown"
       />
       <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSearch')" @click="toggleSearch">
-        <AppIcon name="close" :size="12" />
+        <AppIcon name="close" size="xs" />
       </button>
     </div>
 
@@ -472,7 +472,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
             :title="isExpanded(row.path) ? t('sftp.collapse') : t('sftp.expand')"
             @click="onChevronClick($event, row.path)"
           >
-            <AppIcon name="chevron-right" :size="10" />
+            <AppIcon name="chevron-right" size="xs" />
           </button>
           <!-- 文件：复选框，无箭头 -->
           <span v-else class="tree-select-slot">
@@ -500,10 +500,10 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
           >{{ formatSize(row.entry.size) }}</span>
           <div v-if="row.kind === 'file'" class="tree-quick-actions">
             <button type="button" class="tree-quick-btn" :title="t('sftp.download')" @click.stop="emit('download', row.entry)">
-              <AppIcon name="download" :size="12" />
+              <AppIcon name="download" size="xs" />
             </button>
             <button v-if="canEdit?.(row.name)" type="button" class="tree-quick-btn" :title="t('sftp.edit')" @click.stop="emit('edit', row.entry)">
-              <AppIcon name="edit" :size="12" />
+              <AppIcon name="edit" size="xs" />
             </button>
           </div>
         </template>

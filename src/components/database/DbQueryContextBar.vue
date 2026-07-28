@@ -309,7 +309,7 @@ defineExpose({
         title="查看收藏的 SQL 脚本"
         @click.stop="toggleSavedPicker"
       >
-        <AppIcon name="folder" :size="12" />
+        <AppIcon name="folder" size="xs" />
         <span>{{ t('database.query.savedScriptsBtn') }}</span>
         <span class="saved-badge-count" v-if="savedQueries.length > 0">{{ savedQueries.length }}</span>
         <span class="db-picker-caret" aria-hidden="true">▾</span>
@@ -358,7 +358,7 @@ defineExpose({
                     title="重命名"
                     @click="beginRenameSavedQuery(row.id, row.title)"
                   >
-                    <AppIcon name="edit" :size="11" />
+                    <AppIcon name="edit" size="xs" />
                   </button>
                   <button
                     type="button"
@@ -366,7 +366,7 @@ defineExpose({
                     title="删除"
                     @click="emit('deleteSavedQuery', row.id)"
                   >
-                    <AppIcon name="delete" :size="11" />
+                    <AppIcon name="delete" size="xs" />
                   </button>
                 </div>
               </div>

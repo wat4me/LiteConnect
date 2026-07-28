@@ -49,7 +49,7 @@ const dockerTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-ai')"
       >
-        <AppIcon name="ai-chat" :size="18" />
+        <AppIcon name="ai-chat" size="lg" />
         <span
           v-if="showAiUnread"
           class="ai-reply-badge"
@@ -72,7 +72,7 @@ const dockerTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-files')"
       >
-        <AppIcon name="folder" :size="18" />
+        <AppIcon name="folder" size="lg" />
         <span
           v-if="!filesActive && activeTransfers && activeTransfers > 0"
           class="transfer-count-badge"
@@ -91,7 +91,7 @@ const dockerTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-monitor')"
       >
-        <AppIcon name="monitor" :size="18" />
+        <AppIcon name="monitor" size="lg" />
       </button>
     </el-tooltip>
 
@@ -105,7 +105,7 @@ const dockerTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-batch')"
       >
-        <AppIcon name="terminal" :size="18" />
+        <AppIcon name="terminal" size="lg" />
       </button>
     </el-tooltip>
 
@@ -119,7 +119,7 @@ const dockerTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-snippets')"
       >
-        <AppIcon name="file-text" :size="18" />
+        <AppIcon name="file-text" size="lg" />
       </button>
     </el-tooltip>
 
@@ -135,7 +135,7 @@ const dockerTooltip = computed(() => {
         :disabled="dockerDisabled"
         @click="emit('toggle-docker')"
       >
-        <AppIcon name="docker" :size="18" />
+        <AppIcon name="docker" size="lg" />
       </button>
     </el-tooltip>
   </div>
@@ -143,8 +143,8 @@ const dockerTooltip = computed(() => {
 
 <style scoped>
 .left-toolbar {
-  width: 40px;
-  min-width: 40px;
+  width: calc(40px * var(--ui-scale, 1));
+  min-width: calc(40px * var(--ui-scale, 1));
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -152,6 +152,10 @@ const dockerTooltip = computed(() => {
   align-items: center;
   padding-top: 8px;
   gap: 4px;
+}
+
+.left-toolbar .app-icon:not([data-size]) {
+  font-size: var(--icon-lg);
 }
 
 .toolbar-divider {

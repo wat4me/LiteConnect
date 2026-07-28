@@ -213,14 +213,14 @@ onMounted(() => {
           {{ editing ? t('database.connection.editTitle') : t('database.connection.createTitle') }}
         </h3>
         <button type="button" class="ui-modal-close" :aria-label="t('database.connection.close')" @click="emit('close')">
-          <AppIcon name="close" :size="14" />
+          <AppIcon name="close" size="sm" />
         </button>
       </header>
 
       <form class="dbeaver-dialog-body" @submit.prevent="emit('save')">
         <div class="dbeaver-driver-bar">
           <div class="dbeaver-driver-badge" :class="engineMeta.badgeClass" :title="engineMeta.label">
-            <AppIcon name="database" :size="28" />
+            <AppIcon name="database" size="2xl" />
             <span>{{ engineMeta.label }}</span>
           </div>
           <div class="dbeaver-driver-fields">

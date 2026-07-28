@@ -148,14 +148,14 @@ defineExpose({ applyExternal })
     <div class="settings-panel-header">
       <span class="settings-panel-title">{{ t('ai.settings') }}</span>
       <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.closeSettings')" @click="emit('close')">
-        <AppIcon name="close" :size="14" />
+        <AppIcon name="close" size="sm" />
       </button>
     </div>
     <template v-if="!editingProvider">
       <div class="provider-list-header">
         <span class="field-label">{{ t('ai.providerList') }}</span>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="addProvider" :title="t('ai.addProvider')">
-          <AppIcon name="plus" :size="14" />
+          <AppIcon name="plus" size="sm" />
         </button>
       </div>
       <div v-if="draftSettings.providers.length === 0" class="provider-empty">
@@ -182,10 +182,10 @@ defineExpose({ applyExternal })
             :title="t('ai.setActiveProvider')"
             @click="draftSettings.activeProviderId = provider.id; draftSettings.activeModel = provider.models[0] || ''"
           >
-            <AppIcon name="check" :size="12" />
+            <AppIcon name="check" size="xs" />
           </button>
           <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.delete')" @click="deleteProvider(provider.id)">
-            <AppIcon name="delete" :size="12" />
+            <AppIcon name="delete" size="xs" />
           </button>
         </div>
       </div>
@@ -196,7 +196,7 @@ defineExpose({ applyExternal })
     <template v-else>
       <div class="provider-edit-header">
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="editingProviderId = null" :title="t('common.back')">
-          <AppIcon name="chevron-left" :size="14" />
+          <AppIcon name="chevron-left" size="sm" />
         </button>
         <span class="field-label">{{ t('ai.editProvider') }}</span>
       </div>
@@ -213,7 +213,7 @@ defineExpose({ applyExternal })
       <div class="provider-models-header">
         <span class="field-label">{{ t('ai.modelList') }}</span>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="addModelToProvider(editingProvider)" :title="t('ai.addModel')">
-          <AppIcon name="plus" :size="14" />
+          <AppIcon name="plus" size="sm" />
         </button>
       </div>
       <div v-if="editingProvider.models.length === 0" class="provider-empty">
@@ -226,7 +226,7 @@ defineExpose({ applyExternal })
       >
         <input v-model="editingProvider.models[index]" class="ui-input ui-input-sm model-input" placeholder="gpt-4o-mini" />
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.deleteModel')" @click="removeModelFromProvider(editingProvider, index)">
-          <AppIcon name="close" :size="12" />
+          <AppIcon name="close" size="xs" />
         </button>
       </div>
 

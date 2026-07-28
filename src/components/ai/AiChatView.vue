@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiUsage } from '../../env.d.ts'
@@ -21,7 +21,14 @@ const emit = defineEmits<{
   (e: 'retry', messageId: string): void
   (e: 'edit-message', messageId: string): void
   (e: 'delete-message', messageId: string): void
+  (e: 'use-example', text: string): void
 }>()
+
+const examplePrompts = computed(() => [
+  t('ai.exampleExplainError'),
+  t('ai.exampleDiskCheck'),
+  t('ai.exampleSafeCommand'),
+])
 
 const { t } = useI18n()
 const { parseMarkdown } = useMarkdownRenderer()
@@ -91,6 +98,17 @@ async function copyText(text: string, key: string) {
         </button>
         <button v-else type="button" class="ui-btn ui-btn-sm" @click="emit('open-settings')">{{ t('ai.manageModels') }}</button>
       </div>
+      <div v-if="hasApiConfigured" class="empty-examples">
+        <button
+          v-for="(example, i) in examplePrompts"
+          :key="i"
+          type="button"
+          class="empty-example-chip"
+          @click="emit('use-example', example)"
+        >
+          {{ example }}
+        </button>
+      </div>
     </div>
     <div
       v-for="message in messages"
@@ -108,7 +126,7 @@ async function copyText(text: string, key: string) {
               :title="t('ai.editMessage')"
               @click="emit('edit-message', message.id)"
             >
-              <AppIcon name="edit" :size="12" />
+              <AppIcon name="edit" size="xs" />
             </button>
             <button
               type="button"
@@ -116,7 +134,7 @@ async function copyText(text: string, key: string) {
               :title="t('ai.deleteMessage')"
               @click="emit('delete-message', message.id)"
             >
-              <AppIcon name="delete" :size="12" />
+              <AppIcon name="delete" size="xs" />
             </button>
           </template>
           <template v-else>
@@ -127,7 +145,7 @@ async function copyText(text: string, key: string) {
               :title="t('ai.retry')"
               @click="emit('retry', message.id)"
             >
-              <AppIcon name="refresh" :size="12" />
+              <AppIcon name="refresh" size="xs" />
             </button>
             <button
               v-else-if="message.content"
@@ -136,7 +154,7 @@ async function copyText(text: string, key: string) {
               :title="t('ai.regenerate')"
               @click="emit('regenerate', message.id)"
             >
-              <AppIcon name="refresh" :size="12" />
+              <AppIcon name="refresh" size="xs" />
             </button>
             <button
               v-if="message.content"
@@ -145,8 +163,8 @@ async function copyText(text: string, key: string) {
               :title="copiedKey === `${message.id}-message` ? t('common.copied') : t('ai.copyReply')"
               @click="copyText(message.content, `${message.id}-message`)"
             >
-              <AppIcon v-if="copiedKey === `${message.id}-message`" name="check" :size="12" />
-              <AppIcon v-else name="copy" :size="12" />
+              <AppIcon v-if="copiedKey === `${message.id}-message`" name="check" size="xs" />
+              <AppIcon v-else name="copy" size="xs" />
             </button>
             <button
               type="button"
@@ -154,7 +172,7 @@ async function copyText(text: string, key: string) {
               :title="t('ai.deleteMessage')"
               @click="emit('delete-message', message.id)"
             >
-              <AppIcon name="delete" :size="12" />
+              <AppIcon name="delete" size="xs" />
             </button>
           </template>
         </div>
@@ -172,8 +190,8 @@ async function copyText(text: string, key: string) {
                   :title="copiedKey === `${message.id}-reasoning-code-${index}` ? t('common.copied') : t('ai.copyCode')"
                   @click="copyText(block.content, `${message.id}-reasoning-code-${index}`)"
                 >
-                  <AppIcon v-if="copiedKey === `${message.id}-reasoning-code-${index}`" name="check" :size="14" />
-                  <AppIcon v-else name="copy" :size="14" />
+                  <AppIcon v-if="copiedKey === `${message.id}-reasoning-code-${index}`" name="check" size="sm" />
+                  <AppIcon v-else name="copy" size="sm" />
                 </button>
               </div>
               <pre class="markdown-code"><code>{{ block.content }}</code></pre>
@@ -197,8 +215,8 @@ async function copyText(text: string, key: string) {
                     :title="copiedKey === `${message.id}-code-${index}` ? t('common.copied') : t('ai.copyCode')"
                     @click="copyText(block.content, `${message.id}-code-${index}`)"
                   >
-                    <AppIcon v-if="copiedKey === `${message.id}-code-${index}`" name="check" :size="14" />
-                    <AppIcon v-else name="copy" :size="14" />
+                    <AppIcon v-if="copiedKey === `${message.id}-code-${index}`" name="check" size="sm" />
+                    <AppIcon v-else name="copy" size="sm" />
                   </button>
                 </div>
               </div>
@@ -251,6 +269,33 @@ async function copyText(text: string, key: string) {
   display: flex;
   justify-content: center;
   gap: 8px;
+}
+
+.empty-examples {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.empty-example-chip {
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  cursor: pointer;
+  text-align: left;
+}
+
+.empty-example-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-bg);
 }
 
 .code-actions {

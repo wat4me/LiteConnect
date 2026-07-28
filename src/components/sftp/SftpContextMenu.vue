@@ -79,7 +79,7 @@ watch(
         class="context-menu-item"
         @click="emit('open', entry)"
       >
-        <AppIcon name="folder" :size="12" />
+        <AppIcon name="folder" size="xs" />
         <span>{{ t('sftp.open') }}</span>
       </button>
       <button
@@ -88,7 +88,7 @@ watch(
         class="context-menu-item"
         @click="emit('download', entry)"
       >
-        <AppIcon name="download" :size="12" />
+        <AppIcon name="download" size="xs" />
         <span>{{ t('sftp.download') }}</span>
       </button>
       <button
@@ -97,7 +97,7 @@ watch(
         class="context-menu-item"
         @click="emit('download-to', entry)"
       >
-        <AppIcon name="folder" :size="12" />
+        <AppIcon name="folder" size="xs" />
         <span>{{ t('sftp.downloadTo') }}</span>
       </button>
       <button
@@ -106,7 +106,7 @@ watch(
         class="context-menu-item"
         @click="emit('extract', entry)"
       >
-        <AppIcon name="folder-up" :size="12" />
+        <AppIcon name="folder-up" size="xs" />
         <span>{{ t('sftp.extractRemote') }}</span>
       </button>
       <button
@@ -115,7 +115,7 @@ watch(
         class="context-menu-item"
         @click="emit('download-dir', entry)"
       >
-        <AppIcon name="download" :size="12" />
+        <AppIcon name="download" size="xs" />
         <span>{{ t('sftp.downloadFolder') }}</span>
       </button>
       <button
@@ -124,19 +124,19 @@ watch(
         class="context-menu-item"
         @click="emit('edit', entry)"
       >
-        <AppIcon name="edit" :size="12" />
+        <AppIcon name="edit" size="xs" />
         <span>{{ t('sftp.edit') }}</span>
       </button>
       <button type="button" class="context-menu-item" @click="emit('rename', entry)">
-        <AppIcon name="edit" :size="12" />
+        <AppIcon name="edit" size="xs" />
         <span>{{ t('sftp.rename') }}</span>
       </button>
       <button type="button" class="context-menu-item" @click="emit('properties', entry)">
-        <AppIcon name="settings" :size="12" />
+        <AppIcon name="settings" size="xs" />
         <span>{{ t('sftp.properties') }}</span>
       </button>
       <button type="button" class="context-menu-item danger" @click="emit('delete', entry)">
-        <AppIcon name="delete" :size="12" />
+        <AppIcon name="delete" size="xs" />
         <span>{{ t('sftp.delete') }}</span>
       </button>
     </div>

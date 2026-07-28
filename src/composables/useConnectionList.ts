@@ -24,6 +24,8 @@ export function useConnectionList(options: {
   const searchQuery = ref('')
   /** Filter by color tag id; empty = all */
   const colorTagFilter = ref('')
+  /** List sort: manual (order field), recent (lastConnectedAt), frequent (useCount) */
+  const sortMode = ref<'manual' | 'recent' | 'frequent'>('manual')
   const importing = ref(false)
   const initialized = ref(false)
   const listKeyboardIndex = ref(-1)
@@ -84,11 +86,46 @@ export function useConnectionList(options: {
       list = list.filter((c) => (c.colorTag || '') === colorTagFilter.value)
     }
 
-    return list
+    // Always keep pinned on top; secondary order by sortMode
+    const sorted = [...list].sort((a, b) => {
+      const ap = a.pinned === true ? 1 : 0
+      const bp = b.pinned === true ? 1 : 0
+      if (ap !== bp) return bp - ap
+      if (sortMode.value === 'recent') {
+        return (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0)
+      }
+      if (sortMode.value === 'frequent') {
+        const bu = b.useCount || 0
+        const au = a.useCount || 0
+        if (bu !== au) return bu - au
+        return (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0)
+      }
+      // manual: preserve store order (already sorted by order field from getConnections)
+      const ao = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER
+      const bo = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER
+      if (ao !== bo) return ao - bo
+      return (a.createdAt || 0) - (b.createdAt || 0)
+    })
+    return sorted
   })
 
-  /** Search is active — reorder only applies to the filtered subset; disable drag to avoid confusion */
-  const isSearching = computed(() => searchQuery.value.trim().length > 0)
+  /** Drag-reorder only when manual sort and no filters that reshuffle the list */
+  const isSearching = computed(
+    () => searchQuery.value.trim().length > 0 || sortMode.value !== 'manual',
+  )
+
+  async function togglePin(connectionId: string) {
+    const conn = connections.value.find((c) => c.id === connectionId)
+    if (!conn) return
+    try {
+      const updated = await window.LiteConnect.setConnectionPinned(connectionId, !conn.pinned)
+      connections.value = connections.value.map((c) =>
+        c.id === connectionId ? { ...c, ...updated } : c,
+      )
+    } catch (err: any) {
+      ElMessage.error(err?.message || t('connections.pin'))
+    }
+  }
 
   watch(
     () => [options.initialData?.value, options.initialDataPending?.value] as const,
@@ -405,6 +442,7 @@ export function useConnectionList(options: {
     activeGroupId,
     searchQuery,
     colorTagFilter,
+    sortMode,
     importing,
     listKeyboardIndex,
     dragConnId,
@@ -427,6 +465,7 @@ export function useConnectionList(options: {
     onConnRowDragOver,
     onConnListDragLeave,
     onConnRowDrop,
+    togglePin,
     clearFilters,
     handleExport,
     handleImport,

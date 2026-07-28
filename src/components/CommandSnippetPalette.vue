@@ -205,7 +205,7 @@ onBeforeUnmount(() => {
             @click="runItem(item)"
           >
             <div class="palette-item-top">
-              <AppIcon v-if="item.pinned" name="star-fill" :size="12" class="pin" />
+              <AppIcon v-if="item.pinned" name="star-fill" size="xs" class="pin" />
               <span class="name">{{ item.name }}</span>
               <span v-if="item.group" class="group">{{ item.group }}</span>
               <span v-if="item.sendMode === 'fill'" class="mode">{{ t('snippets.fill') }}</span>

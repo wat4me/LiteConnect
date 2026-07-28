@@ -1,31 +1,28 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { markTipSeen, ONBOARDING_TIPS_KEY, shouldShowTip } from '../utils/featureTips'
 
-const STORAGE_KEY = 'LiteConnect.onboardingTips.v1'
 const { t } = useI18n()
 
 const tips = computed(() => [
   { title: t('connections.tipQuickConnectTitle'), body: t('connections.tipQuickConnectBody') },
   { title: t('connections.tipSnippetsTitle'), body: t('connections.tipSnippetsBody') },
   { title: t('connections.tipSidebarTitle'), body: t('connections.tipSidebarBody') },
+  { title: t('connections.tipShortcutsTitle'), body: t('connections.tipShortcutsBody') },
 ])
 
 const visible = ref(false)
 const index = ref(0)
 
 onMounted(() => {
-  try {
-    if (localStorage.getItem(STORAGE_KEY) === '1') return
-  } catch {}
+  if (!shouldShowTip(ONBOARDING_TIPS_KEY)) return
   visible.value = true
 })
 
 function dismiss() {
   visible.value = false
-  try {
-    localStorage.setItem(STORAGE_KEY, '1')
-  } catch {}
+  markTipSeen(ONBOARDING_TIPS_KEY)
 }
 
 function next() {

@@ -169,7 +169,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
 <template>
   <div class="file-list-container" @keydown="handleKeydown" tabindex="0">
     <div v-if="searchVisible" class="file-search-bar">
-      <AppIcon name="search" :size="12" />
+      <AppIcon name="search" size="xs" />
       <input
         :ref="setSearchInputRef"
         v-model="searchQuery"
@@ -179,7 +179,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection })
       />
       <span v-if="isSearching" class="search-count">{{ t('sftp.searchResultCount', { count: filteredFiles.length }) }}</span>
       <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="toggleSearch" :title="t('sftp.closeSearch')">
-        <AppIcon name="close" :size="12" />
+        <AppIcon name="close" size="xs" />
       </button>
     </div>
 

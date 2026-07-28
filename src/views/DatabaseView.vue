@@ -254,10 +254,10 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
         </div>
         <div class="bk-topbar-right">
           <button type="button" class="ui-btn ui-btn-sm" :disabled="!session" @click="openQueryTab()">
-            <AppIcon name="plus" :size="14" /> {{ t('database.newQuery') }}
+            <AppIcon name="plus" size="sm" /> {{ t('database.newQuery') }}
           </button>
           <button type="button" class="ui-btn ui-btn-sm" :disabled="!session || !!scriptJobId" @click="importSqlScript">
-            <AppIcon name="upload" :size="14" /> 导入 SQL
+            <AppIcon name="upload" size="sm" /> 导入 SQL
           </button>
           <button v-if="scriptJobId" type="button" class="ui-btn ui-btn-sm ui-btn-danger" @click="cancelSqlScript">取消导入</button>
           <button
@@ -306,7 +306,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
         <div class="bk-editor">
           <template v-if="!session">
             <div class="bk-tab-empty welcome">
-              <AppIcon name="database" :size="40" />
+              <AppIcon name="database" size="hero" />
               <p class="welcome-title">{{ t('database.welcomeTitle') }}</p>
               <p class="welcome-desc">{{ t('database.welcomeDesc') }}</p>
               <button type="button" class="ui-btn ui-btn-primary" @click="openCreate">{{ t('database.newConnection') }}</button>
@@ -373,10 +373,10 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
                   class="bk-tab-x"
                   :aria-label="t('common.close')"
                   @click.stop="closeTab(tab.id)"
-                ><AppIcon name="close" :size="12" /></button>
+                ><AppIcon name="close" size="xs" /></button>
               </div>
               <button type="button" class="bk-tab add" :title="t('database.newQuery')" @click="openQueryTab()">
-                <AppIcon name="plus" :size="14" />
+                <AppIcon name="plus" size="sm" />
               </button>
             </div>
 

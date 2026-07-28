@@ -60,10 +60,10 @@ function onDragStart(e: DragEvent, item: TransferItem) {
       @dragstart="onDragStart($event, item)"
     >
       <div class="transfer-info">
-        <AppIcon v-if="item.status === 'completed'" name="check" :size="12" class="transfer-done-icon" />
-        <AppIcon v-else-if="item.status === 'skipped'" name="clear" :size="12" class="transfer-skip-icon" />
-        <AppIcon v-else-if="item.status === 'uploading'" name="upload" :size="12" class="transfer-direction-icon" />
-        <AppIcon v-else name="download" :size="12" class="transfer-file-icon" />
+        <AppIcon v-if="item.status === 'completed'" name="check" size="xs" class="transfer-done-icon" />
+        <AppIcon v-else-if="item.status === 'skipped'" name="clear" size="xs" class="transfer-skip-icon" />
+        <AppIcon v-else-if="item.status === 'uploading'" name="upload" size="xs" class="transfer-direction-icon" />
+        <AppIcon v-else name="download" size="xs" class="transfer-file-icon" />
         <div class="transfer-text">
           <span class="transfer-name" :title="item.localPath">{{ item.fileName }}</span>
           <span v-if="item.status === 'downloading' || item.status === 'uploading'" class="transfer-detail">
@@ -103,7 +103,7 @@ function onDragStart(e: DragEvent, item: TransferItem) {
         @click.stop="emit('cancel', id)"
         :title="t('sftp.cancel')"
       >
-        <AppIcon name="close" :size="10" />
+        <AppIcon name="close" size="xs" />
       </button>
       <button
         v-if="canResume(item)"
@@ -119,7 +119,7 @@ function onDragStart(e: DragEvent, item: TransferItem) {
         @click.stop="emit('remove', id)"
         :title="t('sftp.remove')"
       >
-        <AppIcon name="close" :size="10" />
+        <AppIcon name="close" size="xs" />
       </button>
     </div>
   </div>

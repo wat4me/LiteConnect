@@ -146,7 +146,7 @@ onBeforeUnmount(() => {
           @click="runDefault"
           @contextmenu="onContextMenu"
         >
-          <AppIcon name="play" :size="16" />
+          <AppIcon name="play" size="md" />
         </button>
         <span
           class="rail-scope-label"
@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
         :data-tooltip="t('database.query.planTitle')"
         @click="emit('explain')"
       >
-        <AppIcon name="query-plan" :size="16" />
+        <AppIcon name="query-plan" size="md" />
       </button>
       <button
         type="button"
@@ -173,7 +173,7 @@ onBeforeUnmount(() => {
         :data-tooltip="t('database.query.saveQueryTitle')"
         @click="emit('saveQuery')"
       >
-        <AppIcon :name="isSaved ? 'star-fill' : 'star'" :size="16" />
+        <AppIcon :name="isSaved ? 'star-fill' : 'star'" size="md" />
       </button>
     <span v-if="readOnly" class="rail-ro" :title="t('database.query.readOnlyOn')">RO</span>
 

@@ -178,11 +178,11 @@ function onTabClick(sessionId: string) {
             class="sub-tab-unread-dot"
           ></span>
           <button class="sub-tab-close" @click.stop="emit('close', session.id)">
-            <AppIcon name="close" :size="12" />
+            <AppIcon name="close" size="xs" />
           </button>
         </div>
         <button class="sub-tab-add" @click="emit('add', connectionId)" :title="t('terminal.newWindow')">
-          <AppIcon name="plus" :size="12" />
+          <AppIcon name="plus" size="xs" />
         </button>
       </div>
       <div v-if="$slots.actions" class="sub-tab-actions">

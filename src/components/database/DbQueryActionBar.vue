@@ -143,7 +143,7 @@ function toggleMenu() {
         :aria-busy="!!cancelling"
         @click="emit('cancel')"
       >
-        <AppIcon name="stop" :size="12" />
+        <AppIcon name="stop" size="xs" />
         {{ cancelling ? t('database.query.cancelling') : t('database.query.cancel') }}
       </button>
     </template>
@@ -164,7 +164,7 @@ function toggleMenu() {
           :disabled="runDisabled"
           @click="runDefault"
         >
-          <AppIcon name="play" :size="12" /> {{ primaryLabel }}
+          <AppIcon name="play" size="xs" /> {{ primaryLabel }}
         </button>
         <button
           ref="runCaretRef"

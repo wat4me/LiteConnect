@@ -4,8 +4,8 @@ import {
   isValidSshWriteData,
   AuthConnectionParams,
   validateConnectionParams,
-  safeSend,
   DecryptionError,
+  safeWebContentsSend,
 } from '../utils/validation'
 import { diagnoseSshConnection } from '../ssh/diagnosis'
 import { testSshConnection } from '../ssh/testConnection'
@@ -13,6 +13,11 @@ import { KnownHostsStore } from '../ssh/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import { CredentialStore } from '../store/credentialStore'
+import {
+  broadcast,
+  clearSessionOwner,
+  setSessionOwner,
+} from '../window/windowRegistry'
 
 /** Batch SSH output as string chunks to reduce GC vs repeated string concat. */
 const dataBatches: Map<string, string[]> = new Map()
@@ -21,26 +26,26 @@ const startupNotices = new Map<string, string[]>()
 
 type MainWindowGetter = () => BrowserWindow | null
 
-function scheduleDataBatch(getMainWindow: MainWindowGetter) {
+function scheduleDataBatch() {
   if (dataBatchScheduled) return
   dataBatchScheduled = true
   setImmediate(() => {
     dataBatchScheduled = false
     for (const [sessionId, chunks] of dataBatches) {
       dataBatches.delete(sessionId)
-      safeSend(getMainWindow(), `ssh:data:${sessionId}`, chunks.join(''))
+      broadcast(`ssh:data:${sessionId}`, chunks.join(''))
     }
   })
 }
 
-function emitSshData(getMainWindow: MainWindowGetter, sessionId: string, data: string) {
+function emitSshData(sessionId: string, data: string) {
   let chunks = dataBatches.get(sessionId)
   if (!chunks) {
     chunks = []
     dataBatches.set(sessionId, chunks)
   }
   chunks.push(data)
-  scheduleDataBatch(getMainWindow)
+  scheduleDataBatch()
 }
 
 function queueStartupNotice(sessionId: string, message: string) {
@@ -89,7 +94,7 @@ export function clearLatencyTimers(): void {
 }
 
 export function registerSshConnectHandlers(
-  getMainWindow: MainWindowGetter,
+  _getMainWindow: MainWindowGetter,
   sshManager: SSHManager,
   settingsStore: SettingsStore,
   credentialStore: CredentialStore,
@@ -265,7 +270,7 @@ export function registerSshConnectHandlers(
     )
   })
 
-  ipcMain.handle('ssh:connect', async (_event, connectionId: string) => {
+  ipcMain.handle('ssh:connect', async (event, connectionId: string) => {
     await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
     if (!isValidUUID(connectionId)) {
       throw new Error('Invalid connection id')
@@ -276,7 +281,7 @@ export function registerSshConnectHandlers(
       connection = credentialStore.getConnectionForAuth(connectionId)
     } catch (err) {
       if (DecryptionError.is(err)) {
-        safeSend(getMainWindow(), 'ssh:decryptionFailed', {
+        safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
           connectionId,
           field: err.field || 'password',
           message: err.message,
@@ -293,21 +298,23 @@ export function registerSshConnectHandlers(
     try {
       const sessionId = await sshManager.connect(connection, {
         onData: (sid, data) => {
-          emitSshData(getMainWindow, sid, data)
+          emitSshData(sid, data)
         },
         onNotice: queueStartupNotice,
         onClose: (sid) => {
-          safeSend(getMainWindow(), `ssh:closed:${sid}`)
+          clearSessionOwner(sid)
+          broadcast(`ssh:closed:${sid}`)
         },
         onError: (sid, err) => {
-          safeSend(getMainWindow(), `ssh:error:${sid}`, err)
+          broadcast(`ssh:error:${sid}`, err)
         },
       })
+      setSessionOwner(sessionId, event.sender.id)
       return sessionId
     } catch (err: any) {
       const pending = sshManager.getPendingHostKey(connectionId)
       if (pending) {
-        safeSend(getMainWindow(), 'ssh:hostKeyMismatch', {
+        safeWebContentsSend(event.sender, 'ssh:hostKeyMismatch', {
           connectionId,
           host: pending.host,
           port: pending.port,
@@ -320,7 +327,7 @@ export function registerSshConnectHandlers(
     }
   })
 
-  ipcMain.handle('ssh:confirmHostKey', async (_event, connectionId: string) => {
+  ipcMain.handle('ssh:confirmHostKey', async (event, connectionId: string) => {
     if (!isValidUUID(connectionId)) {
       throw new Error('Invalid connection id')
     }
@@ -330,13 +337,14 @@ export function registerSshConnectHandlers(
     // After host-key failure the live map is usually empty; still treat a known
     // resumeSessionId as in-place when the renderer already owns that tab.
     const sessionId = await sshManager.confirmHostKey(connectionId)
+    if (sessionId) setSessionOwner(sessionId, event.sender.id)
     // Notify TerminalTab when this was a reconnect-style resume (session id reused)
     if (resumeSessionId && resumeSessionId === sessionId) {
       // Always emit reconnected so an existing tab can clear disconnected state.
       // For first-connect confirm, no listener is bound yet — emit is harmless.
-      safeSend(getMainWindow(), `ssh:reconnected:${sessionId}`)
+      broadcast(`ssh:reconnected:${sessionId}`)
     } else if (hadLiveSession) {
-      safeSend(getMainWindow(), `ssh:reconnected:${sessionId}`)
+      broadcast(`ssh:reconnected:${sessionId}`)
     }
     return sessionId
   })
@@ -355,11 +363,12 @@ export function registerSshConnectHandlers(
       latencyTimers.delete(sessionId)
     }
     startupNotices.delete(sessionId)
+    clearSessionOwner(sessionId)
     sshManager.disconnect(sessionId)
   })
 
   /** In-place reconnect: same sessionId, new SSH+shell (keeps TerminalTab mounted). */
-  ipcMain.handle('ssh:reconnect', async (_event, sessionId: string, connectionId: string) => {
+  ipcMain.handle('ssh:reconnect', async (event, sessionId: string, connectionId: string) => {
     await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
@@ -369,7 +378,7 @@ export function registerSshConnectHandlers(
       connection = credentialStore.getConnectionForAuth(connectionId)
     } catch (err) {
       if (DecryptionError.is(err)) {
-        safeSend(getMainWindow(), 'ssh:decryptionFailed', {
+        safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
           connectionId,
           field: err.field || 'password',
           message: err.message,
@@ -388,22 +397,24 @@ export function registerSshConnectHandlers(
     try {
       const id = await sshManager.reconnect(sessionId, connection, {
         onData: (sid, data) => {
-          emitSshData(getMainWindow, sid, data)
+          emitSshData(sid, data)
         },
         onNotice: queueStartupNotice,
         onClose: (sid) => {
-          safeSend(getMainWindow(), `ssh:closed:${sid}`)
+          clearSessionOwner(sid)
+          broadcast(`ssh:closed:${sid}`)
         },
         onError: (sid, err) => {
-          safeSend(getMainWindow(), `ssh:error:${sid}`, err)
+          broadcast(`ssh:error:${sid}`, err)
         },
       })
-      safeSend(getMainWindow(), `ssh:reconnected:${id}`)
+      setSessionOwner(id, event.sender.id)
+      broadcast(`ssh:reconnected:${id}`)
       return id
     } catch (err: any) {
       const pending = sshManager.getPendingHostKey(connectionId)
       if (pending) {
-        safeSend(getMainWindow(), 'ssh:hostKeyMismatch', {
+        safeWebContentsSend(event.sender, 'ssh:hostKeyMismatch', {
           connectionId,
           host: pending.host,
           port: pending.port,
@@ -450,9 +461,9 @@ export function registerSshConnectHandlers(
       }
       try {
         const latency = await sshManager.measureLatency(sessionId)
-        safeSend(getMainWindow(), `ssh:latency:${sessionId}`, latency)
+        broadcast(`ssh:latency:${sessionId}`, latency)
       } catch {
-        safeSend(getMainWindow(), `ssh:latency:${sessionId}`, -1)
+        broadcast(`ssh:latency:${sessionId}`, -1)
       }
     }
 
