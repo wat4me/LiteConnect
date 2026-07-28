@@ -124,10 +124,6 @@ export function useDbWorkspace() {
     getConnectionName: tabsApi.connectionNameOf,
   })
 
-  function onDocumentClick() {
-    menu.closeContextMenu()
-  }
-
   watch(
     connectionsApi.session,
     (s) => {
@@ -148,12 +144,10 @@ export function useDbWorkspace() {
       await tabsApi.migrateLegacyQueryHistory()
       await tabsApi.refreshQueryHistory()
     })()
-    document.addEventListener('click', onDocumentClick)
     window.addEventListener('beforeunload', tabsApi.flushDraftsNow)
   })
 
   onBeforeUnmount(() => {
-    document.removeEventListener('click', onDocumentClick)
     window.removeEventListener('beforeunload', tabsApi.flushDraftsNow)
     tabsApi.disposeQueryDrafts()
     setDbConnectionLabel('')
@@ -260,6 +254,7 @@ export function useDbWorkspace() {
     loadStructure: tabsApi.loadStructure,
     footerStatus: tabsApi.footerStatus,
     navMenu: menu.navMenu,
+    closeContextMenu: menu.closeContextMenu,
     menuConnConnect: menu.menuConnConnect,
     menuConnDisconnect: menu.menuConnDisconnect,
     menuConnRefresh: menu.menuConnRefresh,

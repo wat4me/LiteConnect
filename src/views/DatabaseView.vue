@@ -57,6 +57,9 @@ const {
   renameQueryTab,
   setQueryReadOnly,
   setQueryExecOptions,
+  displayedHistory,
+  historyOnlyCurrent,
+  historyStatusFilter,
   savedQueries,
   saveQuery,
   deleteSavedQuery,
@@ -102,6 +105,7 @@ const {
   loadStructure,
   footerStatus,
   navMenu,
+  closeContextMenu,
   menuConnConnect,
   menuConnDisconnect,
   menuConnRefresh,
@@ -384,9 +388,13 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
               v-else-if="activeQueryTab"
               :tab="activeQueryTab"
               :connection-name="connectionNameOf(activeQueryTab.connectionId)"
+              :connection-name-of="connectionNameOf"
               :connection-meta="connectionMetaOf(activeQueryTab.connectionId)"
               :databases="databasesOf(activeQueryTab.connectionId)"
               :saved-queries="savedQueries"
+              :history="displayedHistory"
+              :history-only-current="historyOnlyCurrent"
+              :history-status-filter="historyStatusFilter"
               :session-alive="!!getLiveSession(activeQueryTab.connectionId)"
               :dialect="dialectOf(activeQueryTab.connectionId)"
               :get-tables="queryGetTables"
@@ -407,6 +415,10 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
               @sql-changed="onQuerySqlChanged(activeQueryTab.id)"
               @update:read-only="setQueryReadOnly(activeQueryTab.id, $event)"
               @update:exec-options="setQueryExecOptions(activeQueryTab.id, $event)"
+              @update:history-only-current="historyOnlyCurrent = $event"
+              @update:history-status-filter="historyStatusFilter = $event"
+              @clear-history="clearQueryHistory"
+              @apply-history="applyHistoryItem"
               @save-query="saveQuery"
               @delete-saved-query="deleteSavedQuery"
               @rename-saved-query="renameSavedQuery"
@@ -453,6 +465,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
       v-if="navMenu"
       :menu="navMenu"
       :is-conn-active="isConnActive"
+      @dismiss="closeContextMenu"
       @conn-connect="menuConnConnect"
       @conn-disconnect="menuConnDisconnect"
       @conn-refresh="menuConnRefresh"

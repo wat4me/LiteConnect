@@ -38,13 +38,8 @@ export function useDbNavMenu(deps: DbNavMenuDeps) {
   }
 
   function placeMenu(clientX: number, clientY: number) {
-    const pad = 8
-    const mw = 220
-    const mh = 320
-    return {
-      x: Math.max(pad, Math.min(clientX, window.innerWidth - mw - pad)),
-      y: Math.max(pad, Math.min(clientY, window.innerHeight - mh - pad)),
-    }
+    // Provisional only — DbNavContextMenu remeasures real size after mount
+    return { x: clientX, y: clientY }
   }
 
   async function copyText(text: string, okMsg = t('database.msg.copied')) {

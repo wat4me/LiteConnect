@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { createTxDurationTimer } from '../../utils/txDurationTimer'
 import AppIcon from '../icons/AppIcon.vue'
 import type { SavedQuery } from './types'
 import { truncateHistorySql } from '../../utils/queryHistoryLog'
+import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
 
 const { t } = useI18n()
 
@@ -35,6 +36,8 @@ const emit = defineEmits<{
 const showDbPicker = ref(false)
 const dbPickerFilter = ref('')
 const dbPickerSearchRef = ref<HTMLInputElement | null>(null)
+const dbPickerWrapRef = ref<HTMLElement | null>(null)
+const savedPickerWrapRef = ref<HTMLElement | null>(null)
 const durationText = ref('0:00')
 const timer = createTxDurationTimer({
   onTick: (ms) => {
@@ -61,17 +64,25 @@ const commitModeLabel = computed(() =>
   props.inTransaction ? t('database.tx.inTransaction') : t('database.tx.autocommit'),
 )
 
-function onDocumentClick(e: MouseEvent) {
-  const el = e.target as HTMLElement | null
-  if (el) {
-    if (!el.closest('.db-picker-wrap')) showDbPicker.value = false
-    if (!el.closest('.saved-picker-wrap')) showSavedPicker.value = false
-  }
-}
+const showSavedPicker = ref(false)
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
+useOutsideDismiss(
+  showDbPicker,
+  () => {
+    showDbPicker.value = false
+  },
+  () => [dbPickerWrapRef.value],
+)
+
+useOutsideDismiss(
+  showSavedPicker,
+  () => {
+    showSavedPicker.value = false
+  },
+  () => [savedPickerWrapRef.value],
+)
+
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick)
   timer.stop()
 })
 
@@ -131,7 +142,6 @@ function toggleReadOnly() {
   emit('update:readOnly', !props.readOnly)
 }
 
-const showSavedPicker = ref(false)
 const renamingQueryId = ref<string | null>(null)
 const renameDraft = ref('')
 
@@ -241,7 +251,7 @@ defineExpose({
 
     <span class="query-ctx-sep" aria-hidden="true">/</span>
 
-    <div class="db-picker-wrap">
+    <div ref="dbPickerWrapRef" class="db-picker-wrap">
       <button
         type="button"
         class="db-picker-btn"
@@ -291,7 +301,7 @@ defineExpose({
     </div>
 
     <!-- Saved queries (scripts) dropdown aligned to the top-right -->
-    <div class="saved-picker-wrap">
+    <div ref="savedPickerWrapRef" class="saved-picker-wrap">
       <button
         type="button"
         class="saved-picker-btn"

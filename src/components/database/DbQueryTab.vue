@@ -27,12 +27,18 @@ import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
+type HistoryStatusFilter = 'all' | 'success' | 'failed' | 'cancelled' | 'slow'
+
 const props = defineProps<{
   tab: QueryTab
   connectionName: string
+  connectionNameOf: (connectionId: string) => string
   connectionMeta: string
   databases: string[]
   savedQueries: SavedQuery[]
+  history: QueryHistoryItem[]
+  historyOnlyCurrent: boolean
+  historyStatusFilter: HistoryStatusFilter
   sessionAlive: boolean
   dialect: SqlDialect
   getTables: (database: string) => DbTableInfo[]
@@ -62,6 +68,10 @@ const emit = defineEmits<{
   deleteSavedQuery: [id: string]
   renameSavedQuery: [id: string, newTitle: string]
   applySavedQuery: [item: SavedQuery]
+  'update:historyOnlyCurrent': [value: boolean]
+  'update:historyStatusFilter': [value: HistoryStatusFilter]
+  clearHistory: []
+  applyHistory: [item: QueryHistoryItem]
 }>()
 
 const querySplitRatio = ref(0.38)
@@ -431,6 +441,10 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
       <DbQueryOutput
         :tab="tab"
         :active-panel="activeOutputPanel"
+        :history="history"
+        :history-only-current="historyOnlyCurrent"
+        :history-status-filter="historyStatusFilter"
+        :connection-name-of="connectionNameOf"
         @update:active-panel="activeOutputPanel = $event"
         @copy-result="emit('copyResult')"
         @export-csv="emit('exportCsv')"
@@ -438,6 +452,10 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
         @copy-cell="emit('copyCell', $event)"
         @retry="emit('retry')"
         @sort="toggleQuerySort"
+        @update:history-only-current="emit('update:historyOnlyCurrent', $event)"
+        @update:history-status-filter="emit('update:historyStatusFilter', $event)"
+        @clear-history="emit('clearHistory')"
+        @apply-history="emit('applyHistory', $event)"
       />
     </div>
   </div>

@@ -180,6 +180,20 @@ type AiHistoryRecord = {
   createdAt: number
 }
 
+type AiConversationThread = {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: AiHistoryRecord[]
+}
+
+type AiSessionStore = {
+  version: 1
+  activeThreadId: string
+  threads: AiConversationThread[]
+}
+
 function getAiHistoryPath(sessionId: string): string {
   if (!sessionId || typeof sessionId !== 'string') {
     throw new Error('Invalid AI session id')
@@ -190,6 +204,35 @@ function getAiHistoryPath(sessionId: string): string {
 
 function getAiHistoryDir(): string {
   return join(app.getPath('userData'), 'ai-history')
+}
+
+function createThreadId(): string {
+  return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function titleFromMessages(messages: AiHistoryRecord[]): string {
+  const firstUser = messages.find((m) => m.role === 'user' && m.content.trim())
+  if (!firstUser) return ''
+  return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
+function createEmptyThread(now = Date.now()): AiConversationThread {
+  return {
+    id: createThreadId(),
+    title: '',
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+  }
+}
+
+function createEmptyStore(): AiSessionStore {
+  const thread = createEmptyThread()
+  return {
+    version: 1,
+    activeThreadId: thread.id,
+    threads: [thread],
+  }
 }
 
 function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
@@ -215,6 +258,57 @@ function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     }),
     error: record.error === true,
     createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
+  }
+}
+
+function normalizeThread(raw: any): AiConversationThread | null {
+  if (!raw || typeof raw !== 'object') return null
+  const messages = Array.isArray(raw.messages)
+    ? raw.messages
+        .map((item: any) => {
+          try {
+            return normalizeAiHistoryRecord(item)
+          } catch {
+            return null
+          }
+        })
+        .filter((item: AiHistoryRecord | null): item is AiHistoryRecord => Boolean(item))
+        .sort((a: AiHistoryRecord, b: AiHistoryRecord) => a.createdAt - b.createdAt)
+    : []
+  const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : messages[0]?.createdAt || Date.now()
+  const updatedAt =
+    typeof raw.updatedAt === 'number'
+      ? raw.updatedAt
+      : messages[messages.length - 1]?.createdAt || createdAt
+  const title =
+    typeof raw.title === 'string' && raw.title.trim()
+      ? raw.title.trim().slice(0, 80)
+      : titleFromMessages(messages)
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : createThreadId(),
+    title,
+    createdAt,
+    updatedAt,
+    messages,
+  }
+}
+
+function normalizeSessionStore(raw: any): AiSessionStore {
+  if (!raw || typeof raw !== 'object' || raw.version !== 1 || !Array.isArray(raw.threads)) {
+    return createEmptyStore()
+  }
+  const threads = raw.threads
+    .map((thread: any) => normalizeThread(thread))
+    .filter((thread: AiConversationThread | null): thread is AiConversationThread => Boolean(thread))
+  if (threads.length === 0) return createEmptyStore()
+  const activeThreadId =
+    typeof raw.activeThreadId === 'string' && threads.some((t: AiConversationThread) => t.id === raw.activeThreadId)
+      ? raw.activeThreadId
+      : threads[0].id
+  return {
+    version: 1,
+    activeThreadId,
+    threads,
   }
 }
 
@@ -267,11 +361,7 @@ function parseJsonlObjects(text: string): any[] {
   return records
 }
 
-async function readAiHistoryRecords(sessionId: string): Promise<AiHistoryRecord[]> {
-  const historyPath = getAiHistoryPath(sessionId)
-  if (!existsSync(historyPath)) return []
-  const data = await readFile(historyPath, 'utf-8')
-  // Prefer line-based JSONL; fall back to brace scan for corrupted multi-line rows
+function parseLegacyMessageRecords(data: string): AiHistoryRecord[] {
   const lineRecords = data
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -286,7 +376,6 @@ async function readAiHistoryRecords(sessionId: string): Promise<AiHistoryRecord[
     .filter((record): record is AiHistoryRecord => Boolean(record))
 
   if (lineRecords.length > 0) {
-    // Deduplicate by id (keep last) for streaming upserts
     const byId = new Map<string, AiHistoryRecord>()
     for (const r of lineRecords) byId.set(r.id, r)
     return Array.from(byId.values()).sort((a, b) => a.createdAt - b.createdAt)
@@ -306,24 +395,82 @@ async function readAiHistoryRecords(sessionId: string): Promise<AiHistoryRecord[
   return Array.from(byId.values()).sort((a, b) => a.createdAt - b.createdAt)
 }
 
-async function writeAiHistoryRecords(sessionId: string, records: AiHistoryRecord[]): Promise<void> {
+function storeFromLegacyMessages(messages: AiHistoryRecord[]): AiSessionStore {
+  if (messages.length === 0) return createEmptyStore()
+  const now = Date.now()
+  const thread: AiConversationThread = {
+    id: createThreadId(),
+    title: titleFromMessages(messages),
+    createdAt: messages[0]?.createdAt || now,
+    updatedAt: messages[messages.length - 1]?.createdAt || now,
+    messages,
+  }
+  return {
+    version: 1,
+    activeThreadId: thread.id,
+    threads: [thread],
+  }
+}
+
+async function readAiSessionStore(sessionId: string): Promise<AiSessionStore> {
+  const historyPath = getAiHistoryPath(sessionId)
+  if (!existsSync(historyPath)) return createEmptyStore()
+  const data = await readFile(historyPath, 'utf-8')
+  const trimmed = data.trim()
+  if (!trimmed) return createEmptyStore()
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object' && parsed.version === 1 && Array.isArray(parsed.threads)) {
+      return normalizeSessionStore(parsed)
+    }
+    // Single legacy message object
+    if (parsed && typeof parsed === 'object' && (parsed.role === 'user' || parsed.role === 'assistant')) {
+      return storeFromLegacyMessages([normalizeAiHistoryRecord(parsed)])
+    }
+  } catch {
+    // fall through to JSONL migration
+  }
+
+  return storeFromLegacyMessages(parseLegacyMessageRecords(data))
+}
+
+async function writeAiSessionStore(sessionId: string, store: AiSessionStore): Promise<void> {
   const historyPath = getAiHistoryPath(sessionId)
   await mkdir(getAiHistoryDir(), { recursive: true })
-  const body =
-    records.length === 0
-      ? ''
-      : records.map((r) => JSON.stringify(normalizeAiHistoryRecord(r))).join('\n') + '\n'
-  await writeFile(historyPath, body, 'utf-8')
+  const normalized = normalizeSessionStore(store)
+  await writeFile(historyPath, JSON.stringify(normalized, null, 0), 'utf-8')
+}
+
+function getActiveThread(store: AiSessionStore): AiConversationThread {
+  return store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
+}
+
+async function readAiHistoryRecords(sessionId: string): Promise<AiHistoryRecord[]> {
+  const store = await readAiSessionStore(sessionId)
+  return getActiveThread(store).messages.slice()
+}
+
+async function writeAiHistoryRecords(sessionId: string, records: AiHistoryRecord[]): Promise<void> {
+  const store = await readAiSessionStore(sessionId)
+  const active = getActiveThread(store)
+  active.messages = records.map((r) => normalizeAiHistoryRecord(r)).sort((a, b) => a.createdAt - b.createdAt)
+  active.title = titleFromMessages(active.messages) || active.title
+  active.updatedAt = Date.now()
+  await writeAiSessionStore(sessionId, store)
 }
 
 async function upsertAiHistoryRecord(sessionId: string, record: any): Promise<void> {
   const next = normalizeAiHistoryRecord(record)
-  const existing = await readAiHistoryRecords(sessionId)
-  const idx = existing.findIndex((r) => r.id === next.id)
-  if (idx >= 0) existing[idx] = next
-  else existing.push(next)
-  existing.sort((a, b) => a.createdAt - b.createdAt)
-  await writeAiHistoryRecords(sessionId, existing)
+  const store = await readAiSessionStore(sessionId)
+  const active = getActiveThread(store)
+  const idx = active.messages.findIndex((r) => r.id === next.id)
+  if (idx >= 0) active.messages[idx] = next
+  else active.messages.push(next)
+  active.messages.sort((a, b) => a.createdAt - b.createdAt)
+  active.title = titleFromMessages(active.messages) || active.title
+  active.updatedAt = Date.now()
+  await writeAiSessionStore(sessionId, store)
 }
 
 function extractAiReasoningFromMessage(message: any): string {
@@ -402,6 +549,17 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
 
   ipcMain.handle('ai:getSessionHistory', async (_event, sessionId: string) => {
     return await readAiHistoryRecords(sessionId)
+  })
+
+  ipcMain.handle('ai:getSessionStore', async (_event, sessionId: string) => {
+    return await readAiSessionStore(sessionId)
+  })
+
+  ipcMain.handle('ai:setSessionStore', async (_event, sessionId: string, store: any) => {
+    if (!sessionId || typeof sessionId !== 'string') {
+      throw new Error('Invalid AI session id')
+    }
+    await writeAiSessionStore(sessionId, normalizeSessionStore(store))
   })
 
   ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any) => {

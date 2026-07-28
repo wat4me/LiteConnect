@@ -498,7 +498,6 @@ onMounted(async () => {
   bindConflictSettingsListener()
   window.addEventListener('sftp-upload-complete', onUploadCompleteEvent)
 
-  globalThis.addEventListener('click', hideContextMenu)
   if (!loadSavedState(props.sessionId)) {
     await initSftp()
     await initPwdTrackerAndSync()
@@ -517,7 +516,6 @@ onBeforeUnmount(() => {
   resetDragState()
   unbindConflictSettingsListener()
   window.removeEventListener('sftp-upload-complete', onUploadCompleteEvent)
-  globalThis.removeEventListener('click', hideContextMenu)
 })
 
 defineExpose({ handleTerminalCd, clearSessionState })
@@ -652,6 +650,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
       :entry="contextMenuEntry"
       :can-edit="canEditFile"
       :is-archive="isArchiveName"
+      @dismiss="hideContextMenu"
       @open="onContextMenuOpen"
       @download="onContextMenuDownload"
       @download-to="onContextMenuDownloadTo"

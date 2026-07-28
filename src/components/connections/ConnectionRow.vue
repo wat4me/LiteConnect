@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection } from '../../env.d.ts'
 import { getConnectionTagColor } from '../../utils/connectionTags'
+import { placePopupNearAnchor } from '../../utils/popupPosition'
+import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
 
 const { t } = useI18n()
 
@@ -39,6 +41,10 @@ const menuOpen = ref(false)
 const menuRef = ref<HTMLElement | null>(null)
 const moreBtnRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+const menuStyle = ref<Record<string, string>>({
+  left: '0px',
+  top: '0px',
+})
 
 const tagColor = computed(() => getConnectionTagColor(props.connection.colorTag))
 const tagTitle = computed(() => props.connection.note || (props.connection.colorTag ? t('connections.colorTagLabel') : t('connections.colorTagDefault')))
@@ -67,6 +73,24 @@ function onDragEnd() {
   emit('drag-end')
 }
 
+async function positionMoreMenu() {
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+  const btn = moreBtnRef.value
+  const menu = menuRef.value
+  if (!btn || !menu) return
+  const anchor = btn.getBoundingClientRect()
+  const size = { width: menu.offsetWidth || 140, height: menu.offsetHeight || 80 }
+  const pos = placePopupNearAnchor(anchor, size, { align: 'end', gap: 4 })
+  menuStyle.value = {
+    left: `${pos.left}px`,
+    top: `${pos.top}px`,
+    maxHeight: pos.maxHeight > 0 ? `${pos.maxHeight}px` : 'none',
+  }
+}
+
 function toggleMenu(e: MouseEvent) {
   e.stopPropagation()
   menuOpen.value = !menuOpen.value
@@ -76,34 +100,21 @@ function closeMenu() {
   menuOpen.value = false
 }
 
+watch(menuOpen, (open) => {
+  if (open) void positionMoreMenu()
+})
+
+useOutsideDismiss(
+  menuOpen,
+  closeMenu,
+  () => [menuRef.value, moreBtnRef.value],
+)
+
 function onMenuAction(action: 'test' | 'delete') {
   closeMenu()
   if (action === 'test') emit('test', props.connection.id)
   else if (action === 'delete') emit('delete', props.connection.id)
 }
-
-function onDocumentClick(e: MouseEvent) {
-  if (!menuOpen.value) return
-  const target = e.target as Node
-  if (menuRef.value?.contains(target) || moreBtnRef.value?.contains(target)) return
-  closeMenu()
-}
-
-function onDocumentKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && menuOpen.value) {
-    closeMenu()
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('click', onDocumentClick)
-  document.addEventListener('keydown', onDocumentKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick)
-  document.removeEventListener('keydown', onDocumentKeydown)
-})
 </script>
 
 <template>
@@ -213,27 +224,30 @@ onBeforeUnmount(() => {
             <AppIcon name="more" :size="14" />
           </button>
         </el-tooltip>
-        <div
-          v-if="menuOpen"
-          ref="menuRef"
-          class="more-menu"
-          role="menu"
-          @click.stop
-        >
-          <button
-            type="button"
-            class="more-item"
-            role="menuitem"
-            :disabled="testStatus.state === 'testing'"
-            @click="onMenuAction('test')"
+        <Teleport to="body">
+          <div
+            v-if="menuOpen"
+            ref="menuRef"
+            class="more-menu"
+            role="menu"
+            :style="menuStyle"
+            @click.stop
           >
-            {{ t('connections.testConnection') }}
-          </button>
-          <div class="more-divider" role="separator"></div>
-          <button type="button" class="more-item danger" role="menuitem" @click="onMenuAction('delete')">
-            {{ t('common.delete') }}
-          </button>
-        </div>
+            <button
+              type="button"
+              class="more-item"
+              role="menuitem"
+              :disabled="testStatus.state === 'testing'"
+              @click="onMenuAction('test')"
+            >
+              {{ t('connections.testConnection') }}
+            </button>
+            <div class="more-divider" role="separator"></div>
+            <button type="button" class="more-item danger" role="menuitem" @click="onMenuAction('delete')">
+              {{ t('common.delete') }}
+            </button>
+          </div>
+        </Teleport>
       </div>
     </div>
   </div>
@@ -460,10 +474,8 @@ onBeforeUnmount(() => {
 }
 
 .more-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
+  position: fixed;
+  z-index: 10000;
   min-width: 140px;
   padding: 4px;
   background: var(--bg-secondary);
@@ -473,6 +485,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
 }
 
 .more-item {

@@ -37,6 +37,8 @@ import { focusLiveTerminal } from '../../utils/workspaceTerminalFocus'
 import { computeEffectiveTerminalActive } from '../../utils/terminalResizePolicy'
 import TerminalSearchBar from './TerminalSearchBar.vue'
 import TerminalReconnectOverlay from './TerminalReconnectOverlay.vue'
+import { fitFixedElement } from '../../utils/popupPosition'
+import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
 
 const props = withDefaults(
   defineProps<{
@@ -83,7 +85,9 @@ let appUnloading = false
 const selectionMenuVisible = ref(false)
 const selectionMenuX = ref(0)
 const selectionMenuY = ref(0)
+const selectionMenuRef = ref<HTMLElement | null>(null)
 const selectedText = ref('')
+let selectionMenuPreferred = { x: 0, y: 0 }
 let unsubData: (() => void) | null = null
 let unsubClosed: (() => void) | null = null
 let unsubReconnected: (() => void) | null = null
@@ -540,6 +544,26 @@ function hideSelectionMenu() {
   selectionMenuVisible.value = false
 }
 
+useOutsideDismiss(
+  () => selectionMenuVisible.value,
+  hideSelectionMenu,
+  () => [selectionMenuRef.value],
+)
+
+async function repositionSelectionMenu() {
+  await nextTick()
+  const el = selectionMenuRef.value
+  if (!el || !selectionMenuVisible.value) return
+  // Two rAFs: wait for teleported DOM + layout of conditional items (selection extras)
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+  if (!selectionMenuRef.value || !selectionMenuVisible.value) return
+  const pos = fitFixedElement(selectionMenuRef.value, selectionMenuPreferred)
+  selectionMenuX.value = pos.left
+  selectionMenuY.value = pos.top
+}
+
 function openSelectionMenu(event: MouseEvent) {
   const terminal = getTerminal()
   if (!terminal) return
@@ -547,9 +571,12 @@ function openSelectionMenu(event: MouseEvent) {
   event.stopPropagation()
   const text = terminal.hasSelection() ? terminal.getSelection().trim() : ''
   selectedText.value = text
+  selectionMenuPreferred = { x: event.clientX, y: event.clientY }
+  // Provisional position; refined after measure so tall menus near edges stay in view
   selectionMenuX.value = event.clientX
   selectionMenuY.value = event.clientY
   selectionMenuVisible.value = true
+  void repositionSelectionMenu()
 }
 
 function copySelection() {
@@ -944,7 +971,6 @@ onMounted(async () => {
 
   window.addEventListener('request-terminal-pwd', onRequestTerminalPwd)
   window.addEventListener('ssh-reconnect-failed', onReconnectFailed)
-  window.addEventListener('click', hideSelectionMenu)
   window.addEventListener('beforeunload', onAppUnloading)
   window.addEventListener('pagehide', onAppUnloading)
 
@@ -973,7 +999,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('terminal-behavior-settings-change', onTerminalBehaviorSettingsChange)
   window.removeEventListener('request-terminal-pwd', onRequestTerminalPwd)
   window.removeEventListener('ssh-reconnect-failed', onReconnectFailed)
-  window.removeEventListener('click', hideSelectionMenu)
   window.removeEventListener('beforeunload', onAppUnloading)
   window.removeEventListener('pagehide', onAppUnloading)
   clearAutoReconnectTimer()
@@ -1049,52 +1074,55 @@ defineExpose({
       @update:active-index="suggestActiveIndex = $event"
       @pick="onSuggestPick"
     />
-    <div
-      v-if="selectionMenuVisible"
-      class="terminal-selection-menu"
-      :style="{ left: selectionMenuX + 'px', top: selectionMenuY + 'px' }"
-      @click.stop
-    >
-      <button
-        v-if="selectedText"
-        class="terminal-selection-menu-item"
-        @click="copySelection"
+    <Teleport to="body">
+      <div
+        v-if="selectionMenuVisible"
+        ref="selectionMenuRef"
+        class="terminal-selection-menu"
+        :style="{ left: selectionMenuX + 'px', top: selectionMenuY + 'px' }"
+        @click.stop
       >
-        <AppIcon name="copy" :size="14" />
-        <span>{{ t('terminal.copy') }}</span>
-      </button>
-      <button class="terminal-selection-menu-item" @click="pasteToTerminal">
-        <AppIcon name="paste" :size="14" />
-        <span>{{ t('terminal.paste') }}</span>
-      </button>
-      <button class="terminal-selection-menu-item" @click="selectAllInTerminal">
-        <AppIcon name="select-all" :size="14" />
-        <span>{{ t('terminal.selectAll') }}</span>
-      </button>
-      <button class="terminal-selection-menu-item" @click="clearScreenKeepScrollback">
-        <AppIcon name="clear" :size="14" />
-        <span>{{ t('terminal.clearScreen') }}</span>
-      </button>
-      <button class="terminal-selection-menu-item" @click="clearScrollback">
-        <AppIcon name="delete" :size="14" />
-        <span>{{ t('terminal.clearScrollback') }}</span>
-      </button>
-      <template v-if="selectedText">
-        <div class="terminal-selection-menu-divider"></div>
-        <button class="terminal-selection-menu-item" @click="sendSelectionToAi('send')">
-          <AppIcon name="send" :size="14" />
-          <span>{{ t('terminal.sendToAi') }}</span>
+        <button
+          v-if="selectedText"
+          class="terminal-selection-menu-item"
+          @click="copySelection"
+        >
+          <AppIcon name="copy" :size="14" />
+          <span>{{ t('terminal.copy') }}</span>
         </button>
-        <button class="terminal-selection-menu-item" @click="sendSelectionToAi('insert')">
-          <AppIcon name="ai-chat" :size="14" />
-          <span>{{ t('terminal.insertToAi') }}</span>
+        <button class="terminal-selection-menu-item" @click="pasteToTerminal">
+          <AppIcon name="paste" :size="14" />
+          <span>{{ t('terminal.paste') }}</span>
         </button>
-        <button class="terminal-selection-menu-item" @click="saveSelectionAsSnippet">
-          <AppIcon name="file-text" :size="13" />
-          <span>{{ t('terminal.saveAsSnippet') }}</span>
+        <button class="terminal-selection-menu-item" @click="selectAllInTerminal">
+          <AppIcon name="select-all" :size="14" />
+          <span>{{ t('terminal.selectAll') }}</span>
         </button>
-      </template>
-    </div>
+        <button class="terminal-selection-menu-item" @click="clearScreenKeepScrollback">
+          <AppIcon name="clear" :size="14" />
+          <span>{{ t('terminal.clearScreen') }}</span>
+        </button>
+        <button class="terminal-selection-menu-item" @click="clearScrollback">
+          <AppIcon name="delete" :size="14" />
+          <span>{{ t('terminal.clearScrollback') }}</span>
+        </button>
+        <template v-if="selectedText">
+          <div class="terminal-selection-menu-divider"></div>
+          <button class="terminal-selection-menu-item" @click="sendSelectionToAi('send')">
+            <AppIcon name="send" :size="14" />
+            <span>{{ t('terminal.sendToAi') }}</span>
+          </button>
+          <button class="terminal-selection-menu-item" @click="sendSelectionToAi('insert')">
+            <AppIcon name="ai-chat" :size="14" />
+            <span>{{ t('terminal.insertToAi') }}</span>
+          </button>
+          <button class="terminal-selection-menu-item" @click="saveSelectionAsSnippet">
+            <AppIcon name="file-text" :size="13" />
+            <span>{{ t('terminal.saveAsSnippet') }}</span>
+          </button>
+        </template>
+      </div>
+    </Teleport>
     <TerminalReconnectOverlay
       :disconnected="disconnected"
       :reconnecting="reconnecting"
@@ -1135,6 +1163,8 @@ defineExpose({
   position: fixed;
   z-index: 10000;
   min-width: 150px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);

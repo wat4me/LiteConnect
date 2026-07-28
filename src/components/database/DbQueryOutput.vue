@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { QueryTab } from './types'
+import type { QueryHistoryItem, QueryTab } from './types'
 import DbResultGrid from './DbResultGrid.vue'
+import DbQueryHistoryPanel from './DbQueryHistoryPanel.vue'
 import {
   displayRowsForOutput,
   resolveOutputPanel,
@@ -14,9 +15,15 @@ import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
+type HistoryStatusFilter = 'all' | 'success' | 'failed' | 'cancelled' | 'slow'
+
 const props = defineProps<{
   tab: QueryTab
   activePanel: QueryOutputPanel
+  history: QueryHistoryItem[]
+  historyOnlyCurrent: boolean
+  historyStatusFilter: HistoryStatusFilter
+  connectionNameOf: (connectionId: string) => string
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +34,10 @@ const emit = defineEmits<{
   copyCell: [value: unknown]
   retry: []
   sort: [col: string]
+  'update:historyOnlyCurrent': [value: boolean]
+  'update:historyStatusFilter': [value: HistoryStatusFilter]
+  clearHistory: []
+  applyHistory: [item: QueryHistoryItem]
 }>()
 
 const isPlan = computed(() => props.tab.outputKind === 'plan')
@@ -76,7 +87,7 @@ function setPanel(panel: QueryOutputPanel) {
 function onTablistKeydown(e: KeyboardEvent) {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return
   e.preventDefault()
-  const order: QueryOutputPanel[] = ['result', 'messages', 'plan']
+  const order: QueryOutputPanel[] = ['result', 'messages', 'plan', 'history']
   let next: QueryOutputPanel = props.activePanel
   if (e.key === 'Home') next = order[0]
   else if (e.key === 'End') next = order[order.length - 1]
@@ -179,6 +190,19 @@ watch(
       >
         {{ t('database.query.panelPlan') }}
         <span v-if="truncated && isPlan" class="badge trunc">{{ t('database.query.truncatedBadge') }}</span>
+      </button>
+      <button
+        :id="panelIds.tabs.history"
+        type="button"
+        class="output-tab"
+        :class="{ active: activePanel === 'history' }"
+        role="tab"
+        :aria-selected="activePanel === 'history'"
+        :aria-controls="panelIds.panels.history"
+        :tabindex="activePanel === 'history' ? 0 : -1"
+        @click="setPanel('history')"
+      >
+        {{ t('database.query.panelHistory') }}
       </button>
     </div>
 
@@ -322,6 +346,26 @@ watch(
         @copy-cell="emit('copyCell', $event)"
       />
       <div v-else class="grid-empty dim">{{ t('database.query.planEmpty') }}</div>
+    </div>
+
+    <!-- Query history panel -->
+    <div
+      v-show="activePanel === 'history'"
+      :id="panelIds.panels.history"
+      class="output-body"
+      role="tabpanel"
+      :aria-labelledby="panelIds.tabs.history"
+    >
+      <DbQueryHistoryPanel
+        :history="history"
+        :history-only-current="historyOnlyCurrent"
+        :history-status-filter="historyStatusFilter"
+        :connection-name-of="connectionNameOf"
+        @update:history-only-current="emit('update:historyOnlyCurrent', $event)"
+        @update:history-status-filter="emit('update:historyStatusFilter', $event)"
+        @clear-history="emit('clearHistory')"
+        @apply-history="emit('applyHistory', $event)"
+      />
     </div>
   </div>
 </template>

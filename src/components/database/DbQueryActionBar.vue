@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { RunScope } from '../../utils/sqlStatement'
 import { isRunMenuItemEnabled } from '../../utils/queryUiController'
+import { placePopupNearAnchor } from '../../utils/popupPosition'
+import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
 /** Shared teleported menu styles (same module as active rail; no local copy). */
 import './dbRunMenuPortal.css'
 
@@ -58,21 +60,17 @@ function positionMenu() {
   const rect = btn.getBoundingClientRect()
   const primaryW = (btn.previousElementSibling as HTMLElement | null)?.offsetWidth ?? 0
   const minWidth = Math.max(180, rect.width + primaryW)
-  // Prefer below the split button; flip above if near viewport bottom
-  const menuHeight = 140
-  const spaceBelow = window.innerHeight - rect.bottom
-  const top =
-    spaceBelow < menuHeight && rect.top > menuHeight
-      ? Math.max(8, rect.top - menuHeight - 4)
-      : rect.bottom + 4
-  // Align menu right edge with caret right edge
-  const width = minWidth
-  let left = rect.right - width
-  left = Math.max(8, Math.min(left, window.innerWidth - width - 8))
+  const menuEl = runMenuRef.value
+  const menuHeight = menuEl?.offsetHeight || 140
+  const menuWidth = Math.max(minWidth, menuEl?.offsetWidth || minWidth)
+  const pos = placePopupNearAnchor(rect, { width: menuWidth, height: menuHeight }, {
+    align: 'end',
+    gap: 4,
+  })
   menuStyle.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(left)}px`,
-    minWidth: `${Math.round(width)}px`,
+    top: `${pos.top}px`,
+    left: `${pos.left}px`,
+    minWidth: `${Math.round(minWidth)}px`,
   }
 }
 
@@ -84,35 +82,21 @@ function closeMenu(refocus = false) {
   }
 }
 
-function onDocumentClick(e: MouseEvent) {
-  if (!showRunMenu.value) return
-  const t = e.target as Node | null
-  if (!t) return
-  if (runCaretRef.value?.contains(t)) return
-  if (runMenuRef.value?.contains(t)) return
-  closeMenu(false)
-}
-
-function onDocumentKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && showRunMenu.value) {
-    e.preventDefault()
-    closeMenu(true)
-  }
-}
-
 function onViewportChange() {
   if (showRunMenu.value) positionMenu()
 }
 
+useOutsideDismiss(
+  showRunMenu,
+  () => closeMenu(false),
+  () => [runCaretRef.value, runMenuRef.value],
+)
+
 onMounted(() => {
-  document.addEventListener('click', onDocumentClick, true)
-  document.addEventListener('keydown', onDocumentKeydown)
   window.addEventListener('resize', onViewportChange)
   window.addEventListener('scroll', onViewportChange, true)
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick, true)
-  document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('resize', onViewportChange)
   window.removeEventListener('scroll', onViewportChange, true)
 })

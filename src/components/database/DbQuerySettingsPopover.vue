@@ -19,6 +19,8 @@ import {
   initialGlobalDangerousSqlUi,
 } from '../../utils/globalDangerousSqlSetting'
 import { dispatchDbSettingsChange, getCachedDbSettings } from '../../composables/useDbSettings'
+import { placePopupNearAnchor } from '../../utils/popupPosition'
+import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
@@ -81,17 +83,12 @@ function positionPanel() {
   if (!btn) return
   const rect = btn.getBoundingClientRect()
   const width = Math.min(320, Math.max(260, window.innerWidth - 16))
-  const panelH = 360
-  const spaceBelow = window.innerHeight - rect.bottom
-  const top =
-    spaceBelow < panelH && rect.top > panelH
-      ? Math.max(8, rect.top - panelH - 4)
-      : rect.bottom + 4
-  let left = rect.right - width
-  left = Math.max(8, Math.min(left, window.innerWidth - width - 8))
+  const panelEl = panelRef.value
+  const panelH = panelEl?.offsetHeight || 360
+  const pos = placePopupNearAnchor(rect, { width, height: panelH }, { align: 'end', gap: 4 })
   panelStyle.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(left)}px`,
+    top: `${pos.top}px`,
+    left: `${pos.left}px`,
     width: `${width}px`,
   }
 }
@@ -194,29 +191,17 @@ function commit() {
   close(true)
 }
 
-function onDocumentClick(e: MouseEvent) {
-  if (!open.value) return
-  const n = e.target as Node | null
-  if (!n) return
-  if (anchorRef.value?.contains(n)) return
-  if (panelRef.value?.contains(n)) return
-  close(false)
-}
-
-function onDocumentKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && open.value) {
-    e.preventDefault()
-    close(true)
-  }
-}
-
 function onViewportChange() {
   if (open.value) positionPanel()
 }
 
+useOutsideDismiss(
+  open,
+  () => close(false),
+  () => [anchorRef.value, panelRef.value],
+)
+
 onMounted(() => {
-  document.addEventListener('click', onDocumentClick, true)
-  document.addEventListener('keydown', onDocumentKeydown)
   window.addEventListener('resize', onViewportChange)
   window.addEventListener('scroll', onViewportChange, true)
 })
@@ -224,8 +209,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   dangerLoadGen += 1
   dangerSaveGen += 1
-  document.removeEventListener('click', onDocumentClick, true)
-  document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('resize', onViewportChange)
   window.removeEventListener('scroll', onViewportChange, true)
 })

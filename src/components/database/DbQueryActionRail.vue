@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { RunScope } from '../../utils/sqlStatement'
 import { isRunMenuItemEnabled } from '../../utils/queryUiController'
+import { clampPopupToViewport } from '../../utils/popupPosition'
+import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
 import './dbRunMenuPortal.css'
 
 const { t } = useI18n()
@@ -74,22 +76,22 @@ function positionMenu() {
   const btn = mainBtnRef.value
   if (!btn) return
   const rect = btn.getBoundingClientRect()
-  const menuW = 200
-  const menuH = 160
-  // Place to the right of the rail button
+  const menuEl = menuRef.value
+  const menuW = Math.max(200, menuEl?.offsetWidth || 200)
+  const menuH = menuEl?.offsetHeight || 160
+  // Prefer right of rail; flip left near right edge
   let left = rect.right + 6
-  let top = rect.top
-  // Flip to left if would overflow viewport
   if (left + menuW > window.innerWidth - 8) {
     left = Math.max(8, rect.left - menuW - 6)
   }
-  // Keep within viewport vertically
-  if (top + menuH > window.innerHeight - 8) {
-    top = Math.max(8, window.innerHeight - menuH - 8)
-  }
+  const pos = clampPopupToViewport(
+    { x: left, y: rect.top },
+    { width: menuW, height: menuH },
+    { flip: true },
+  )
   menuStyle.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(left)}px`,
+    top: `${pos.top}px`,
+    left: `${pos.left}px`,
     minWidth: `${menuW}px`,
   }
 }
@@ -109,36 +111,22 @@ function onContextMenu(e: MouseEvent) {
   }
 }
 
-function onDocumentClick(e: MouseEvent) {
-  if (!showScopeMenu.value) return
-  const n = e.target as Node | null
-  if (!n) return
-  if (mainBtnRef.value?.contains(n)) return
-  if (menuRef.value?.contains(n)) return
-  closeScopeMenu(false)
-}
-
-function onDocumentKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && showScopeMenu.value) {
-    e.preventDefault()
-    closeScopeMenu(true)
-  }
-}
-
 function onViewportChange() {
   if (showScopeMenu.value) positionMenu()
 }
 
+useOutsideDismiss(
+  showScopeMenu,
+  () => closeScopeMenu(false),
+  () => [mainBtnRef.value, menuRef.value],
+)
+
 onMounted(() => {
-  document.addEventListener('click', onDocumentClick, true)
-  document.addEventListener('keydown', onDocumentKeydown)
   window.addEventListener('resize', onViewportChange)
   window.addEventListener('scroll', onViewportChange, true)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick, true)
-  document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('resize', onViewportChange)
   window.removeEventListener('scroll', onViewportChange, true)
 })

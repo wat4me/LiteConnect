@@ -9,6 +9,7 @@ import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
 } from '../../utils/terminalPaste'
+import { placePopupNearAnchor } from '../../utils/popupPosition'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'
@@ -40,6 +41,14 @@ const {
   loadHistory,
   getSessionState,
   saveSessionInput,
+  startNewConversation,
+  switchConversation,
+  deleteConversation,
+  clearAllConversations,
+  regenerateMessage,
+  retryMessage,
+  prepareEditUserMessage,
+  deleteMessage,
 } = useAiChat()
 
 const messages = ref<ChatItem[]>([])
@@ -48,10 +57,14 @@ const loading = ref(false)
 const showSettings = ref(false)
 const showHistory = ref(false)
 const showModelSwitcher = ref(false)
+const threadSummaries = ref(getSessionState(props.sessionId).threads)
 const consumedSelectionIds = new Set<number>()
 const settingsPanelRef = ref<InstanceType<typeof AiSettingsPanel> | null>(null)
 const historyButtonRef = ref<HTMLButtonElement | null>(null)
 const settingsButtonRef = ref<HTMLButtonElement | null>(null)
+const modelSwitcherButtonRef = ref<HTMLButtonElement | null>(null)
+const modelSwitcherDropdownRef = ref<HTMLElement | null>(null)
+const modelSwitcherStyle = ref<Record<string, string>>({})
 const popoverRef = ref<HTMLElement | null>(null)
 const popoverStyle = ref<Record<string, string>>({})
 
@@ -64,14 +77,15 @@ let initialLoadPromise: Promise<void> | null = null
 const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
 
 const historyItems = computed(() =>
-  messages.value
-    .filter((message) => message.role === 'user')
+  threadSummaries.value
     .slice()
-    .reverse()
-    .map((message) => ({
-      id: message.id,
-      title: message.content.replace(/\s+/g, ' ').trim(),
-      createdAt: message.createdAt,
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((thread) => ({
+      id: thread.id,
+      title: thread.title || t('ai.newConversationTitle'),
+      createdAt: thread.updatedAt || thread.createdAt,
+      messageCount: thread.messageCount,
+      active: thread.active || thread.id === getSessionState(props.sessionId).activeThreadId,
     })),
 )
 
@@ -93,13 +107,19 @@ const modelSwitcherGroups = computed(() => {
 
 function syncMessages(msgs: ChatItem[]) {
   messages.value = msgs
+  threadSummaries.value = getSessionState(props.sessionId).threads.slice()
 }
 
-onMounted(() => {
+function syncFromState() {
   const state = getSessionState(props.sessionId)
   messages.value = state.messages
   input.value = state.input
   loading.value = state.loading
+  threadSummaries.value = state.threads.slice()
+}
+
+onMounted(() => {
+  syncFromState()
   ensureInitialLoad().catch(() => {})
   document.addEventListener('pointerdown', closePopoverOnOutsideClick)
   document.addEventListener('keydown', closePopoverOnEscape)
@@ -117,10 +137,7 @@ watch(
   () => props.sessionId,
   async (newId, oldId) => {
     if (oldId) saveSessionInput(oldId, input.value)
-    const state = getSessionState(newId)
-    messages.value = state.messages
-    input.value = state.input
-    loading.value = state.loading
+    syncFromState()
     initialLoadPromise = null
     await ensureInitialLoad()
   }
@@ -170,6 +187,97 @@ async function ensureInitialLoad() {
   await initialLoadPromise
 }
 
+async function handleNewConversation() {
+  if (loading.value) return
+  await startNewConversation(props.sessionId, syncMessages)
+  syncFromState()
+}
+
+async function handleSwitchConversation(threadId: string) {
+  if (loading.value) return
+  await switchConversation(props.sessionId, threadId, syncMessages)
+  syncFromState()
+  closeHistoryPanel()
+}
+
+async function handleDeleteConversation(threadId: string, event?: Event) {
+  event?.stopPropagation()
+  try {
+    await appConfirm({
+      title: t('ai.deleteHistoryTitle'),
+      message: t('ai.deleteHistoryMessage'),
+      detail: t('ai.deleteHistoryDetail'),
+      confirmText: t('ai.clear'),
+      cancelText: t('common.cancel'),
+      danger: true,
+      tone: 'danger',
+    })
+  } catch {
+    return
+  }
+  const ok = await deleteConversation(props.sessionId, threadId, syncMessages)
+  if (ok) ElMessage.success(t('ai.historyDeleted'))
+}
+
+async function handleClearAllHistory() {
+  const count = historyItems.value.length
+  if (count === 0) return
+  try {
+    await appConfirm({
+      title: t('ai.clearAllHistoryTitle'),
+      message: t('ai.clearAllHistoryMessage', { count }),
+      confirmText: t('ai.clear'),
+      cancelText: t('common.cancel'),
+      danger: true,
+      tone: 'danger',
+    })
+  } catch {
+    return
+  }
+  const ok = await clearAllConversations(props.sessionId, syncMessages)
+  if (ok) ElMessage.success(t('ai.allHistoryCleared'))
+}
+
+async function handleRegenerate(messageId: string) {
+  loading.value = true
+  try {
+    await regenerateMessage(props.sessionId, messageId, syncMessages)
+  } finally {
+    loading.value = getSessionState(props.sessionId).loading
+  }
+}
+
+async function handleRetry(messageId: string) {
+  loading.value = true
+  try {
+    await retryMessage(props.sessionId, messageId, syncMessages)
+  } finally {
+    loading.value = getSessionState(props.sessionId).loading
+  }
+}
+
+async function handleEditMessage(messageId: string) {
+  const text = await prepareEditUserMessage(props.sessionId, messageId, syncMessages)
+  if (text == null) return
+  input.value = text
+}
+
+async function handleDeleteMessage(messageId: string) {
+  try {
+    await appConfirm({
+      title: t('ai.deleteMessageTitle'),
+      message: t('ai.deleteMessageConfirm'),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      danger: true,
+      tone: 'danger',
+    })
+  } catch {
+    return
+  }
+  await deleteMessage(props.sessionId, messageId, syncMessages)
+}
+
 function onSettingsSaved(next: AiSettings) {
   settings.value = next
 }
@@ -185,6 +293,32 @@ async function switchModel(providerId: string, model: string) {
     ElMessage.warning(err?.message || t('ai.switchModelFailed'))
   }
 }
+
+async function positionModelSwitcher() {
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+  const btn = modelSwitcherButtonRef.value
+  const dropdown = modelSwitcherDropdownRef.value
+  if (!btn || !dropdown) return
+  const rect = btn.getBoundingClientRect()
+  const size = {
+    width: dropdown.offsetWidth || 200,
+    height: dropdown.offsetHeight || 120,
+  }
+  const pos = placePopupNearAnchor(rect, size, { align: 'end', gap: 6, prefer: 'above' })
+  const next: Record<string, string> = {
+    left: `${pos.left}px`,
+    top: `${pos.top}px`,
+  }
+  if (pos.maxHeight > 0) next.maxHeight = `${pos.maxHeight}px`
+  modelSwitcherStyle.value = next
+}
+
+watch(showModelSwitcher, (open) => {
+  if (open) void positionModelSwitcher()
+})
 
 async function handleSendText(text: string): Promise<boolean> {
   const content = text.trim()
@@ -211,14 +345,14 @@ async function openSettingsCta() {
   showSettings.value = true
   showHistory.value = false
   await nextTick()
-  positionPopover(settingsButtonRef.value, 330)
+  await positionPopover(settingsButtonRef.value, 330)
 }
 
 async function openSettingsPanel() {
   showSettings.value = true
   showHistory.value = false
   await nextTick()
-  positionPopover(settingsButtonRef.value, 330)
+  await positionPopover(settingsButtonRef.value, 330)
 }
 
 function closeSettingsPanel() {
@@ -229,16 +363,11 @@ async function openHistoryPanel() {
   showHistory.value = true
   showSettings.value = false
   await nextTick()
-  positionPopover(historyButtonRef.value, 330)
+  await positionPopover(historyButtonRef.value, 330)
 }
 
 function closeHistoryPanel() {
   showHistory.value = false
-}
-
-function reuseHistoryItem(content: string) {
-  input.value = content
-  closeHistoryPanel()
 }
 
 function formatHistoryTime(timestamp: number) {
@@ -250,20 +379,37 @@ function formatHistoryTime(timestamp: number) {
   })
 }
 
-function positionPopover(trigger: HTMLElement | null, preferredWidth: number) {
+async function positionPopover(trigger: HTMLElement | null, preferredWidth: number) {
   if (!trigger) return
   const rect = trigger.getBoundingClientRect()
   const width = Math.min(preferredWidth, window.innerWidth - 16)
-  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+  // Provisional placement below trigger; refined after popover mounts
+  const provisionalLeft = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
   popoverStyle.value = {
-    top: `${Math.min(rect.bottom + 8, window.innerHeight - 160)}px`,
-    left: `${left}px`,
+    top: `${rect.bottom + 8}px`,
+    left: `${provisionalLeft}px`,
+    width: `${width}px`,
   }
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+  const el = popoverRef.value
+  if (!el) return
+  const size = { width: el.offsetWidth || width, height: el.offsetHeight || 200 }
+  const pos = placePopupNearAnchor(rect, size, { align: 'end', gap: 8 })
+  const next: Record<string, string> = {
+    top: `${pos.top}px`,
+    left: `${pos.left}px`,
+    width: `${width}px`,
+  }
+  if (pos.maxHeight > 0) next.maxHeight = `${pos.maxHeight}px`
+  popoverStyle.value = next
 }
 
 function repositionPopover() {
-  if (showSettings.value) positionPopover(settingsButtonRef.value, 330)
-  else if (showHistory.value) positionPopover(historyButtonRef.value, 330)
+  if (showSettings.value) void positionPopover(settingsButtonRef.value, 330)
+  else if (showHistory.value) void positionPopover(historyButtonRef.value, 330)
 }
 
 function closePopoverOnOutsideClick(event: PointerEvent) {
@@ -354,6 +500,15 @@ function handleClearMessages() {
         <div class="ai-title">{{ t('ai.title') }}</div>
       </div>
       <div class="ai-header-actions">
+        <button
+          type="button"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+          :disabled="loading"
+          :title="t('ai.newConversation')"
+          @click="handleNewConversation"
+        >
+          <AppIcon name="plus" :size="14" />
+        </button>
         <button ref="historyButtonRef" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
           <AppIcon name="history" :size="14" />
         </button>
@@ -369,9 +524,14 @@ function handleClearMessages() {
     <AiChatView
       :messages="messages"
       :has-api-configured="hasApiConfigured"
+      :loading="loading"
       @open-settings="openSettingsCta"
       @fill-code="fillCodeToTerminal"
       @run-code="runCodeToTerminal"
+      @regenerate="handleRegenerate"
+      @retry="handleRetry"
+      @edit-message="handleEditMessage"
+      @delete-message="handleDeleteMessage"
     />
 
     <form class="composer" @submit.prevent="sendMessage">
@@ -393,6 +553,7 @@ function handleClearMessages() {
           <div class="model-switcher-wrap">
             <button
               v-if="displayModelName"
+              ref="modelSwitcherButtonRef"
               type="button"
               class="ai-model-switcher"
               :class="{ active: showModelSwitcher }"
@@ -402,34 +563,38 @@ function handleClearMessages() {
               <span class="ai-model-switcher-name">{{ displayModelName }}</span>
               <AppIcon name="chevron-down" :size="12" />
             </button>
-            <div
-              v-if="showModelSwitcher && modelSwitcherGroups.length > 0"
-              class="model-switcher-dropdown"
-            >
+            <Teleport to="body">
               <div
-                v-for="group in modelSwitcherGroups"
-                :key="group.providerId"
-                class="model-switcher-group"
+                v-if="showModelSwitcher && modelSwitcherGroups.length > 0"
+                ref="modelSwitcherDropdownRef"
+                class="model-switcher-dropdown"
+                :style="modelSwitcherStyle"
               >
-                <div class="model-switcher-group-title">{{ group.providerName }}</div>
-                <button
-                  v-for="item in group.models"
-                  :key="item.providerId + item.model"
-                  type="button"
-                  class="model-switcher-item"
-                  :class="{ active: item.active }"
-                  @click="switchModel(item.providerId, item.model)"
+                <div
+                  v-for="group in modelSwitcherGroups"
+                  :key="group.providerId"
+                  class="model-switcher-group"
                 >
-                  <span>{{ item.label }}</span>
-                  <AppIcon v-if="item.active" name="check" :size="14" />
-                </button>
+                  <div class="model-switcher-group-title">{{ group.providerName }}</div>
+                  <button
+                    v-for="item in group.models"
+                    :key="item.providerId + item.model"
+                    type="button"
+                    class="model-switcher-item"
+                    :class="{ active: item.active }"
+                    @click="switchModel(item.providerId, item.model)"
+                  >
+                    <span>{{ item.label }}</span>
+                    <AppIcon v-if="item.active" name="check" :size="14" />
+                  </button>
+                </div>
               </div>
-            </div>
-            <div
-              v-if="showModelSwitcher"
-              class="model-switcher-overlay"
-              @click="showModelSwitcher = false"
-            ></div>
+              <div
+                v-if="showModelSwitcher"
+                class="model-switcher-overlay"
+                @click="showModelSwitcher = false"
+              ></div>
+            </Teleport>
           </div>
           <button
             v-if="loading"
@@ -483,10 +648,10 @@ function handleClearMessages() {
           <button
             type="button"
             class="ui-btn ui-btn-xs ui-btn-ghost"
-            :disabled="messages.length === 0"
-            @click="clearCurrentHistory"
+            :disabled="historyItems.length === 0"
+            @click="handleClearAllHistory"
           >
-            {{ t('ai.clear') }}
+            {{ t('ai.clearAllHistory') }}
           </button>
           <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.closeHistory')" @click="closeHistoryPanel">
             <AppIcon name="close" :size="14" />
@@ -495,17 +660,32 @@ function handleClearMessages() {
       </div>
       <div v-if="historyItems.length === 0" class="ai-history-empty">{{ t('ai.emptyHistory') }}</div>
       <div v-else class="ai-history-list">
-        <button
+        <div
           v-for="item in historyItems"
           :key="item.id"
-          type="button"
           class="ai-history-item"
-          :title="item.title"
-          @click="reuseHistoryItem(item.title)"
+          :class="{ active: item.active }"
         >
-          <span class="ai-history-item-title">{{ item.title }}</span>
-          <span class="ai-history-item-meta">{{ formatHistoryTime(item.createdAt) }}</span>
-        </button>
+          <button
+            type="button"
+            class="ai-history-item-main"
+            :title="item.title"
+            @click="handleSwitchConversation(item.id)"
+          >
+            <span class="ai-history-item-title">{{ item.title }}</span>
+            <span class="ai-history-item-meta">
+              {{ t('ai.messageCount', { count: item.messageCount, time: formatHistoryTime(item.createdAt) }) }}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="ai-history-item-delete"
+            :title="t('ai.deleteHistoryItem')"
+            @click="handleDeleteConversation(item.id, $event)"
+          >
+            <AppIcon name="delete" :size="12" />
+          </button>
+        </div>
       </div>
     </section>
   </Teleport>
@@ -533,6 +713,7 @@ function handleClearMessages() {
   border: 1px solid var(--border-color);
   border-radius: 10px;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  max-height: calc(100vh - 16px);
 }
 
 .ai-settings-popover {
@@ -603,19 +784,58 @@ function handleClearMessages() {
 .ai-history-item {
   width: 100%;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px;
-  border: none;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
   border-radius: 6px;
-  background: transparent;
   color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
 }
 
 .ai-history-item:hover {
   background: var(--hover-bg);
+}
+
+.ai-history-item.active {
+  background: var(--accent-bg);
+}
+
+.ai-history-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-history-item-delete {
+  flex-shrink: 0;
+  width: 28px;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ai-history-item:hover .ai-history-item-delete {
+  opacity: 1;
+}
+
+.ai-history-item-delete:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .ai-history-item-title {
@@ -703,9 +923,7 @@ function handleClearMessages() {
 }
 
 .model-switcher-dropdown {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
+  position: fixed;
   z-index: 9999;
   min-width: 200px;
   max-width: 280px;
@@ -714,7 +932,7 @@ function handleClearMessages() {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  max-height: 280px;
+  max-height: min(280px, calc(100vh - 16px));
   overflow-y: auto;
 }
 

@@ -11,16 +11,18 @@ import {
 
 const { t } = useI18n()
 
+type HistoryStatusFilter = 'all' | 'success' | 'failed' | 'cancelled' | 'slow'
+
 const props = defineProps<{
   history: QueryHistoryItem[]
   historyOnlyCurrent: boolean
-  historyStatusFilter: string
+  historyStatusFilter: HistoryStatusFilter
   connectionNameOf: (connectionId: string) => string
 }>()
 
 const emit = defineEmits<{
   'update:historyOnlyCurrent': [value: boolean]
-  'update:historyStatusFilter': [value: string]
+  'update:historyStatusFilter': [value: HistoryStatusFilter]
   clearHistory: []
   applyHistory: [item: QueryHistoryItem]
 }>()
@@ -80,7 +82,7 @@ const rows = computed((): RowView[] =>
       <select
         class="ui-input ui-input-sm history-status-select"
         :value="historyStatusFilter"
-        @change="emit('update:historyStatusFilter', ($event.target as HTMLSelectElement).value)"
+        @change="emit('update:historyStatusFilter', ($event.target as HTMLSelectElement).value as HistoryStatusFilter)"
       >
         <option value="all">{{ t('database.query.historyFilterAll') }}</option>
         <option value="success">{{ t('database.query.historyFilterSuccess') }}</option>

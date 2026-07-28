@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from './icons/AppIcon.vue'
 import type { Connection } from '../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '../utils/connectionTags'
+import { useOutsideDismiss } from '../composables/useOutsideDismiss'
 
 const { t } = useI18n()
 
@@ -29,11 +30,20 @@ const emit = defineEmits<{
 
 const showQuickConnect = ref(false)
 const quickConnectWrapperRef = ref<HTMLElement | null>(null)
+const quickConnectButtonRef = ref<HTMLButtonElement | null>(null)
 const quickConnectDropdownRef = ref<HTMLElement | null>(null)
 const quickConnectDropdownStyle = ref<Record<string, string>>({})
 const quickSearchQuery = ref('')
 const quickSearchInputRef = ref<HTMLInputElement | null>(null)
 const quickActiveIndex = ref(0)
+
+useOutsideDismiss(
+  showQuickConnect,
+  () => {
+    showQuickConnect.value = false
+  },
+  () => [quickConnectButtonRef.value, quickConnectDropdownRef.value, quickConnectWrapperRef.value],
+)
 
 function formatLatency(ms: number): string {
   if (ms < 0) return '✕'
@@ -123,8 +133,11 @@ async function updateQuickConnectDropdownPosition() {
   if (!showQuickConnect.value) return
 
   await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
 
-  const anchor = quickConnectWrapperRef.value
+  const anchor = quickConnectButtonRef.value || quickConnectWrapperRef.value
   const dropdown = quickConnectDropdownRef.value
   if (!anchor || !dropdown) return
 
@@ -134,22 +147,26 @@ async function updateQuickConnectDropdownPosition() {
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
   const margin = 8
-  const gap = 2
+  const gap = 4
 
-  const minLeftOffset = margin - anchorRect.left
-  const maxLeftOffset = viewportWidth - margin - anchorRect.left - dropdownWidth
-  const leftOffset = Math.min(Math.max(0, minLeftOffset), maxLeftOffset)
+  // Prefer align-start under the + button; clamp into viewport
+  let left = anchorRect.left
+  if (left + dropdownWidth > viewportWidth - margin) {
+    left = Math.max(margin, anchorRect.right - dropdownWidth)
+  }
+  if (left < margin) left = margin
 
   const spaceAbove = anchorRect.top - margin
   const spaceBelow = viewportHeight - anchorRect.bottom - margin
   const openUpwards = dropdownHeight > spaceBelow && spaceAbove > spaceBelow
   const availableHeight = Math.max(0, Math.floor(openUpwards ? spaceAbove : spaceBelow))
+  const top = openUpwards
+    ? Math.max(margin, anchorRect.top - gap - Math.min(dropdownHeight || availableHeight, availableHeight))
+    : anchorRect.bottom + gap
 
   quickConnectDropdownStyle.value = {
-    left: `${leftOffset}px`,
-    right: 'auto',
-    top: openUpwards ? 'auto' : `${anchorRect.height + gap}px`,
-    bottom: openUpwards ? `${anchorRect.height + gap}px` : 'auto',
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
     maxHeight: `${availableHeight}px`,
   }
 }
@@ -205,9 +222,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="tab-bar">
-    <!-- 已连接时：固定入口回到连接管理，避免用户不知道点顶栏 SSH -->
+    <!-- 连接管理入口常驻：连接管理页高亮，有会话时可一键返回列表 -->
     <el-tooltip
-      v-if="groups.length > 0"
       :content="t('connections.connectionManage')"
       placement="bottom"
       :show-after="300"
@@ -223,7 +239,7 @@ onBeforeUnmount(() => {
         <AppIcon name="home-grid" :size="16" />
       </button>
     </el-tooltip>
-    <div v-if="groups.length > 0" class="tab-separator" aria-hidden="true"></div>
+    <div class="tab-separator" aria-hidden="true"></div>
 
     <div class="tabs-scroll">
       <div
@@ -260,6 +276,7 @@ onBeforeUnmount(() => {
       class="quick-connect-wrapper"
     >
       <button
+        ref="quickConnectButtonRef"
         class="tab-add-btn"
         type="button"
         :class="{ active: showQuickConnect }"
@@ -269,11 +286,37 @@ onBeforeUnmount(() => {
       >
         <AppIcon name="plus" :size="14" />
       </button>
-      <div v-if="showQuickConnect" class="settings-overlay" @click="showQuickConnect = false"></div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="tab-right-actions">
+      <!-- 无会话时：+ 放右侧，避免顶栏左侧空荡荡只剩一个加号 -->
+      <div
+        v-if="groups.length === 0"
+        ref="quickConnectWrapperRef"
+        class="quick-connect-wrapper trailing"
+      >
+        <button
+          ref="quickConnectButtonRef"
+          class="toolbar-btn"
+          type="button"
+          :class="{ active: showQuickConnect }"
+          :title="t('connections.quickConnect')"
+          :aria-label="t('connections.quickConnect')"
+          @click.stop="toggleQuickConnect"
+        >
+          <AppIcon name="plus" :size="16" />
+        </button>
+      </div>
+    </div>
+
+    <Teleport to="body">
       <div
         v-if="showQuickConnect"
         ref="quickConnectDropdownRef"
         class="quick-connect-dropdown"
+        :class="{ 'dropdown-end': groups.length === 0 }"
         :style="quickConnectDropdownStyle"
         @click.stop
       >
@@ -313,73 +356,7 @@ onBeforeUnmount(() => {
           {{ t('connections.openConnectionList') }}
         </button>
       </div>
-    </div>
-
-    <div class="spacer"></div>
-
-    <div class="tab-right-actions">
-      <!-- 无会话时：+ 放右侧，避免顶栏左侧空荡荡只剩一个加号 -->
-      <div
-        v-if="groups.length === 0"
-        ref="quickConnectWrapperRef"
-        class="quick-connect-wrapper trailing"
-      >
-        <button
-          class="toolbar-btn"
-          type="button"
-          :class="{ active: showQuickConnect }"
-          :title="t('connections.quickConnect')"
-          :aria-label="t('connections.quickConnect')"
-          @click.stop="toggleQuickConnect"
-        >
-          <AppIcon name="plus" :size="16" />
-        </button>
-        <div v-if="showQuickConnect" class="settings-overlay" @click="showQuickConnect = false"></div>
-        <div
-          v-if="showQuickConnect"
-          ref="quickConnectDropdownRef"
-          class="quick-connect-dropdown dropdown-end"
-          :style="quickConnectDropdownStyle"
-          @click.stop
-        >
-          <div class="quick-connect-search">
-            <AppIcon name="search" :size="14" class="quick-connect-search-icon" />
-            <input
-              ref="quickSearchInputRef"
-              v-model="quickSearchQuery"
-              type="text"
-              class="quick-connect-search-input"
-              :placeholder="t('connections.searchNameHostTag')"
-              :aria-label="t('connections.searchAria')"
-              @keydown="onQuickSearchKeydown"
-            />
-          </div>
-          <div class="quick-connect-title">{{ quickConnectTitle }}</div>
-          <button
-            v-for="(connection, index) in quickConnectList"
-            :key="connection.id"
-            type="button"
-            class="recent-connection-item"
-            :class="{ active: index === quickActiveIndex }"
-            @mouseenter="quickActiveIndex = index"
-            @click="pickQuickConnect(connection.id)"
-          >
-            <span class="recent-connection-name">{{ connection.name }}</span>
-            <span class="recent-connection-meta">{{ connection.username }}@{{ connection.host }}:{{ connection.port }}</span>
-          </button>
-          <div v-if="quickConnectList.length === 0" class="quick-connect-empty">
-            {{ quickSearchQuery.trim() ? t('connections.noMatch') : t('connections.noRecentHint') }}
-          </div>
-          <button
-            type="button"
-            class="quick-connect-manage"
-            @click="showQuickConnect = false; emit('select-home')"
-          >
-            {{ t('connections.openConnectionList') }}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -682,9 +659,7 @@ onBeforeUnmount(() => {
 }
 
 .quick-connect-dropdown {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
+  position: fixed;
   z-index: 10000;
   width: 320px;
   max-width: calc(100vw - 16px);
@@ -695,11 +670,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.quick-connect-dropdown.dropdown-end {
-  left: auto;
-  right: 0;
 }
 
 .quick-connect-search {

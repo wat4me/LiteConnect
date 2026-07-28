@@ -10,12 +10,17 @@ import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{
   messages: ChatItem[]
   hasApiConfigured: boolean
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'open-settings'): void
   (e: 'fill-code', code: string): void
   (e: 'run-code', code: string): void
+  (e: 'regenerate', messageId: string): void
+  (e: 'retry', messageId: string): void
+  (e: 'edit-message', messageId: string): void
+  (e: 'delete-message', messageId: string): void
 }>()
 
 const { t } = useI18n()
@@ -93,7 +98,67 @@ async function copyText(text: string, key: string) {
       class="chat-message"
       :class="[message.role, { error: message.error }]"
     >
-      <div class="message-role">{{ message.role === 'user' ? t('ai.roleYou') : t('ai.roleAi') }}</div>
+      <div class="message-role-row">
+        <div class="message-role">{{ message.role === 'user' ? t('ai.roleYou') : t('ai.roleAi') }}</div>
+        <div v-if="!message.streaming && !loading" class="message-actions">
+          <template v-if="message.role === 'user'">
+            <button
+              type="button"
+              class="msg-action-btn"
+              :title="t('ai.editMessage')"
+              @click="emit('edit-message', message.id)"
+            >
+              <AppIcon name="edit" :size="12" />
+            </button>
+            <button
+              type="button"
+              class="msg-action-btn"
+              :title="t('ai.deleteMessage')"
+              @click="emit('delete-message', message.id)"
+            >
+              <AppIcon name="delete" :size="12" />
+            </button>
+          </template>
+          <template v-else>
+            <button
+              v-if="message.error"
+              type="button"
+              class="msg-action-btn"
+              :title="t('ai.retry')"
+              @click="emit('retry', message.id)"
+            >
+              <AppIcon name="refresh" :size="12" />
+            </button>
+            <button
+              v-else-if="message.content"
+              type="button"
+              class="msg-action-btn"
+              :title="t('ai.regenerate')"
+              @click="emit('regenerate', message.id)"
+            >
+              <AppIcon name="refresh" :size="12" />
+            </button>
+            <button
+              v-if="message.content"
+              type="button"
+              class="msg-action-btn"
+              :title="copiedKey === `${message.id}-message` ? t('common.copied') : t('ai.copyReply')"
+              @click="copyText(message.content, `${message.id}-message`)"
+            >
+              <AppIcon v-if="copiedKey === `${message.id}-message`" name="check" :size="12" />
+              <AppIcon v-else name="copy" :size="12" />
+            </button>
+            <button
+              type="button"
+              class="msg-action-btn"
+              :title="t('ai.deleteMessage')"
+              @click="emit('delete-message', message.id)"
+            >
+              <AppIcon name="delete" :size="12" />
+            </button>
+          </template>
+        </div>
+      </div>
       <details v-if="message.reasoningContent" class="reasoning-box">
         <summary>{{ t('ai.reasoning') }}</summary>
         <div class="reasoning-content">
@@ -118,16 +183,6 @@ async function copyText(text: string, key: string) {
         </div>
       </details>
       <div v-if="message.content || (!message.reasoningContent && message.streaming)" class="message-content">
-        <button
-          v-if="message.content && message.role === 'assistant'"
-          type="button"
-          class="message-copy-btn"
-          :title="copiedKey === `${message.id}-message` ? t('common.copied') : t('ai.copyReply')"
-          @click="copyText(message.content, `${message.id}-message`)"
-        >
-          <AppIcon v-if="copiedKey === `${message.id}-message`" name="check" :size="14" />
-          <AppIcon v-else name="copy" :size="14" />
-        </button>
         <template v-if="message.content">
           <template v-for="(block, index) in parseMarkdownCached(message, 'content')" :key="index">
             <div v-if="block.type === 'code'" class="code-block">
@@ -233,9 +288,53 @@ async function copyText(text: string, key: string) {
   align-items: flex-end;
 }
 
+.message-role-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 18px;
+}
+
+.chat-message.user .message-role-row {
+  flex-direction: row-reverse;
+}
+
 .message-role {
   font-size: 10px;
   color: var(--text-secondary);
+}
+
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.chat-message:hover .message-actions,
+.chat-message:focus-within .message-actions {
+  opacity: 1;
+}
+
+.msg-action-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.msg-action-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .message-content {
@@ -249,10 +348,6 @@ async function copyText(text: string, key: string) {
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.5;
-}
-
-.chat-message.assistant .message-content {
-  padding-right: 38px;
 }
 
 .chat-message.user .message-content {

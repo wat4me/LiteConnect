@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from './icons/AppIcon.vue'
+import { placePopupNearAnchor } from '../utils/popupPosition'
+import { useOutsideDismiss } from '../composables/useOutsideDismiss'
 
 const props = defineProps<{
   appMode: 'ssh' | 'database'
@@ -17,12 +19,28 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const menuOpen = ref(false)
-const brandRootRef = ref<HTMLElement | null>(null)
+const brandButtonRef = ref<HTMLButtonElement | null>(null)
+const modeMenuRef = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
 
 const moduleKey = computed(() => (props.appMode === 'database' ? 'DB' : 'SSH'))
 const brandAria = computed(() =>
   props.appMode === 'database' ? t('app.brandDbAria') : t('app.brandSshAria'),
 )
+
+async function positionModeMenu() {
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+  const btn = brandButtonRef.value
+  const menu = modeMenuRef.value
+  if (!btn || !menu) return
+  const rect = btn.getBoundingClientRect()
+  const size = { width: menu.offsetWidth || 108, height: menu.offsetHeight || 72 }
+  const pos = placePopupNearAnchor(rect, size, { align: 'start', gap: 4 })
+  menuStyle.value = { left: `${pos.left}px`, top: `${pos.top}px` }
+}
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
@@ -34,27 +52,18 @@ function selectMode(mode: 'ssh' | 'database') {
   else emit('enter-database')
 }
 
-function onDocPointerDown(e: PointerEvent) {
-  if (!menuOpen.value) return
-  const root = brandRootRef.value
-  if (root && e.target instanceof Node && root.contains(e.target)) return
+function closeMenu() {
   menuOpen.value = false
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && menuOpen.value) {
-    menuOpen.value = false
-  }
-}
+useOutsideDismiss(
+  menuOpen,
+  closeMenu,
+  () => [brandButtonRef.value, modeMenuRef.value],
+)
 
-onMounted(() => {
-  document.addEventListener('pointerdown', onDocPointerDown, true)
-  document.addEventListener('keydown', onKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onDocPointerDown, true)
-  document.removeEventListener('keydown', onKeydown)
+watch(menuOpen, (open) => {
+  if (open) void positionModeMenu()
 })
 </script>
 
@@ -66,9 +75,10 @@ onBeforeUnmount(() => {
   <header class="app-titlebar">
     <div class="titlebar-safe">
       <div class="titlebar-left">
-        <div ref="brandRootRef" class="titlebar-brand">
+        <div class="titlebar-brand">
           <span class="titlebar-brand-lite">Lite</span>
           <button
+            ref="brandButtonRef"
             type="button"
             class="titlebar-brand-module"
             :class="{ open: menuOpen }"
@@ -81,33 +91,37 @@ onBeforeUnmount(() => {
             <AppIcon name="chevron-down" :size="10" class="titlebar-brand-chevron" />
           </button>
 
-          <div
-            v-if="menuOpen"
-            class="titlebar-mode-menu"
-            role="menu"
-            :aria-label="t('app.modulesAria')"
-          >
-            <button
-              type="button"
-              class="titlebar-mode-item"
-              role="menuitemradio"
-              :aria-checked="appMode === 'ssh'"
-              @click="selectMode('ssh')"
+          <Teleport to="body">
+            <div
+              v-if="menuOpen"
+              ref="modeMenuRef"
+              class="titlebar-mode-menu"
+              role="menu"
+              :aria-label="t('app.modulesAria')"
+              :style="menuStyle"
             >
-              <span class="titlebar-mode-check" aria-hidden="true">{{ appMode === 'ssh' ? '✓' : '' }}</span>
-              <span>SSH</span>
-            </button>
-            <button
-              type="button"
-              class="titlebar-mode-item"
-              role="menuitemradio"
-              :aria-checked="appMode === 'database'"
-              @click="selectMode('database')"
-            >
-              <span class="titlebar-mode-check" aria-hidden="true">{{ appMode === 'database' ? '✓' : '' }}</span>
-              <span>DB</span>
-            </button>
-          </div>
+              <button
+                type="button"
+                class="titlebar-mode-item"
+                role="menuitemradio"
+                :aria-checked="appMode === 'ssh'"
+                @click="selectMode('ssh')"
+              >
+                <span class="titlebar-mode-check" aria-hidden="true">{{ appMode === 'ssh' ? '✓' : '' }}</span>
+                <span>SSH</span>
+              </button>
+              <button
+                type="button"
+                class="titlebar-mode-item"
+                role="menuitemradio"
+                :aria-checked="appMode === 'database'"
+                @click="selectMode('database')"
+              >
+                <span class="titlebar-mode-check" aria-hidden="true">{{ appMode === 'database' ? '✓' : '' }}</span>
+                <span>DB</span>
+              </button>
+            </div>
+          </Teleport>
         </div>
       </div>
 
@@ -263,16 +277,14 @@ onBeforeUnmount(() => {
 }
 
 .titlebar-mode-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  position: fixed;
   min-width: 108px;
   padding: 4px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  z-index: 50;
+  z-index: 12000;
   -webkit-app-region: no-drag;
 }
 
@@ -319,7 +331,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -328,13 +340,13 @@ onBeforeUnmount(() => {
 }
 
 .titlebar-icon-btn:hover {
-  background: var(--bg-tertiary);
+  background: var(--hover-bg);
   color: var(--text-primary);
 }
 
 .titlebar-icon-btn.active {
   color: var(--accent);
-  background: var(--accent-bg, color-mix(in srgb, var(--accent) 16%, transparent));
+  background: var(--accent-bg);
 }
 
 .titlebar-icon-btn:focus-visible {

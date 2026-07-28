@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, toRef } from 'vue'
+import { ref, watch, computed, toRef, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSharedMonitor } from '../composables/useMonitorData'
 import AppIcon from './icons/AppIcon.vue'
@@ -28,6 +28,11 @@ const sessionIdRef = toRef(props, 'sessionId')
 const { data, error: monitorError, starting, retry: retryMonitor } = useSharedMonitor(sessionIdRef)
 
 const isBottom = computed(() => props.layout === 'bottom')
+
+/** Available width for metric chips (excludes action buttons). */
+const dockMetricsRef = ref<HTMLElement | null>(null)
+const dockMetricsWidth = ref(0)
+let dockResizeObserver: ResizeObserver | null = null
 
 const expandedSections = ref({
   system: true,
@@ -69,6 +74,80 @@ const swapPercent = computed(() => {
   return usagePercent(data.value.memory.swapUsed, data.value.memory.swapTotal)
 })
 
+/** Busiest mount for dock disk chip */
+const topDisk = computed(() => {
+  const disks = data.value?.disk || []
+  if (disks.length === 0) return null
+  let best = disks[0]
+  let bestPct = usagePercent(best.used, best.total)
+  for (let i = 1; i < disks.length; i++) {
+    const d = disks[i]
+    const p = usagePercent(d.used, d.total)
+    if (p > bestPct) {
+      best = d
+      bestPct = p
+    }
+  }
+  return { mount: best.mountPoint, percent: bestPct, used: best.used, total: best.total }
+})
+
+const load1 = computed(() => {
+  const v = data.value?.cpu.loadAvg?.[0]
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+})
+
+const topProcess = computed(() => {
+  const list = data.value?.processes || []
+  if (list.length === 0) return null
+  return list[0]
+})
+
+/**
+ * Progressive disclosure by available chip row width:
+ * always CPU+MEM → disk → load → host → top process
+ */
+const showDockDisk = computed(() => dockMetricsWidth.value >= 300)
+const showDockLoad = computed(() => dockMetricsWidth.value >= 420)
+const showDockHost = computed(() => dockMetricsWidth.value >= 540)
+const showDockProcess = computed(() => dockMetricsWidth.value >= 700)
+
+function bindDockObserver() {
+  unbindDockObserver()
+  const el = dockMetricsRef.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  dockResizeObserver = new ResizeObserver((entries) => {
+    const w = entries[0]?.contentRect?.width
+    if (typeof w === 'number') dockMetricsWidth.value = w
+  })
+  dockResizeObserver.observe(el)
+  dockMetricsWidth.value = el.clientWidth
+}
+
+function unbindDockObserver() {
+  dockResizeObserver?.disconnect()
+  dockResizeObserver = null
+}
+
+watch(isBottom, async (bottom) => {
+  if (bottom) {
+    await nextTick()
+    bindDockObserver()
+  } else {
+    unbindDockObserver()
+  }
+})
+
+onMounted(async () => {
+  if (isBottom.value) {
+    await nextTick()
+    bindDockObserver()
+  }
+})
+
+onBeforeUnmount(() => {
+  unbindDockObserver()
+})
+
 // Host change: clear expanded state only (data handled by shared collector)
 watch(
   () => props.connectionId,
@@ -86,50 +165,96 @@ watch(
 
 <template>
   <div class="monitor-panel" :class="{ 'is-bottom': isBottom, 'is-side': !isBottom }">
-    <!-- Bottom compact dock (never expands downward) -->
+    <!-- Bottom compact dock (never expands downward); metrics adapt to width -->
     <div v-if="isBottom" class="monitor-dock-bar">
-      <template v-if="monitorError">
-        <span class="dock-error">{{ t('monitor.unavailable') }}</span>
-        <button type="button" class="ui-btn ui-btn-xs" :disabled="starting" @click="retryMonitor">{{ t('monitor.retry') }}</button>
-      </template>
-      <template v-else-if="!data">
-        <span class="dock-loading">{{ t('common.loading') }}</span>
-      </template>
-      <template v-else>
-        <div class="dock-metric" :title="cpuPercent >= 0 ? `CPU ${cpuPercent}%` : 'CPU'">
-          <span class="dock-metric-label">CPU</span>
-          <div class="dock-bar">
-            <div
-              class="dock-bar-fill"
-              :style="{ width: `${Math.max(0, cpuPercent)}%`, backgroundColor: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }"
-            ></div>
+      <div ref="dockMetricsRef" class="dock-metrics">
+        <template v-if="monitorError">
+          <span class="dock-error">{{ t('monitor.unavailable') }}</span>
+          <button type="button" class="ui-btn ui-btn-xs" :disabled="starting" @click="retryMonitor">{{ t('monitor.retry') }}</button>
+        </template>
+        <template v-else-if="!data">
+          <span class="dock-loading">{{ t('common.loading') }}</span>
+        </template>
+        <template v-else>
+          <div
+            v-if="showDockHost && data.hostname"
+            class="dock-chip dock-host"
+            :title="`${t('monitor.hostname')}: ${data.hostname}`"
+          >
+            <span class="dock-chip-text">{{ data.hostname }}</span>
           </div>
-          <span class="dock-metric-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
-            {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
-          </span>
-        </div>
-        <div class="dock-metric" :title="`${t('monitor.memory')} ${memPercent}% · ${formatBytes(data.memory.used)} / ${formatBytes(data.memory.total)}`">
-          <span class="dock-metric-label">{{ t('monitor.memory') }}</span>
-          <div class="dock-bar">
-            <div class="dock-bar-fill" :style="{ width: `${memPercent}%`, backgroundColor: barColor(memPercent) }"></div>
-          </div>
-          <span class="dock-metric-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
-        </div>
-      </template>
 
-      <button
-        type="button"
-        class="ui-btn ui-btn-xs ui-btn-ghost dock-details-btn"
-        :class="{ active: detailsOpen }"
-        :title="detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails')"
-        @click="emit('toggle-details')"
-      >
-        {{ detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails') }}
-        <AppIcon :name="detailsOpen ? 'chevron-right' : 'chevron-left'" :size="12" />
-      </button>
-      <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
-        <AppIcon name="close" :size="14" />
-      </button>
+          <div class="dock-metric" :title="cpuPercent >= 0 ? `CPU ${cpuPercent}%` : 'CPU'">
+            <span class="dock-metric-label">CPU</span>
+            <div class="dock-bar">
+              <div
+                class="dock-bar-fill"
+                :style="{ width: `${Math.max(0, cpuPercent)}%`, backgroundColor: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }"
+              ></div>
+            </div>
+            <span class="dock-metric-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
+              {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
+            </span>
+          </div>
+
+          <div class="dock-metric" :title="`${t('monitor.memory')} ${memPercent}% · ${formatBytes(data.memory.used)} / ${formatBytes(data.memory.total)}`">
+            <span class="dock-metric-label">{{ t('monitor.memory') }}</span>
+            <div class="dock-bar">
+              <div class="dock-bar-fill" :style="{ width: `${memPercent}%`, backgroundColor: barColor(memPercent) }"></div>
+            </div>
+            <span class="dock-metric-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
+          </div>
+
+          <div
+            v-if="showDockDisk && topDisk"
+            class="dock-metric"
+            :title="`${t('monitor.disk')} ${topDisk.mount} · ${topDisk.percent}% · ${formatBytes(topDisk.used)} / ${formatBytes(topDisk.total)}`"
+          >
+            <span class="dock-metric-label">{{ t('monitor.disk') }}</span>
+            <div class="dock-bar">
+              <div class="dock-bar-fill" :style="{ width: `${topDisk.percent}%`, backgroundColor: barColor(topDisk.percent) }"></div>
+            </div>
+            <span class="dock-metric-value" :style="{ color: barColor(topDisk.percent) }">{{ topDisk.percent }}%</span>
+          </div>
+
+          <div
+            v-if="showDockLoad && load1 != null"
+            class="dock-chip"
+            :title="`${t('monitor.load')} ${data.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ')}`"
+          >
+            <span class="dock-metric-label">{{ t('monitor.load') }}</span>
+            <span class="dock-metric-value dock-load-value">{{ load1.toFixed(2) }}</span>
+          </div>
+
+          <div
+            v-if="showDockProcess && topProcess"
+            class="dock-chip dock-proc"
+            :title="`PID ${topProcess.pid} · CPU ${topProcess.cpu}% · ${topProcess.command}`"
+          >
+            <span class="dock-metric-label">{{ t('monitor.topProc') }}</span>
+            <span class="dock-chip-text">{{ topProcess.command }}</span>
+            <span class="dock-metric-value" :style="{ color: topProcess.cpu > 50 ? 'var(--danger)' : undefined }">
+              {{ topProcess.cpu }}%
+            </span>
+          </div>
+        </template>
+      </div>
+
+      <div class="dock-actions">
+        <button
+          type="button"
+          class="ui-btn ui-btn-xs ui-btn-ghost dock-details-btn"
+          :class="{ active: detailsOpen }"
+          :title="detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails')"
+          @click="emit('toggle-details')"
+        >
+          {{ detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails') }}
+          <AppIcon :name="detailsOpen ? 'chevron-right' : 'chevron-left'" :size="12" />
+        </button>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
+          <AppIcon name="close" :size="14" />
+        </button>
+      </div>
     </div>
 
     <!-- Side full details -->
@@ -335,10 +460,27 @@ watch(
 .monitor-dock-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 6px 10px;
   min-height: 36px;
   flex-shrink: 0;
+}
+
+.dock-metrics {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.dock-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .dock-metric {
@@ -346,6 +488,39 @@ watch(
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex-shrink: 0;
+}
+
+.dock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 1;
+  max-width: 180px;
+  padding: 2px 0;
+}
+
+.dock-host {
+  max-width: 120px;
+}
+
+.dock-proc {
+  max-width: 200px;
+}
+
+.dock-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dock-load-value {
+  min-width: 2.8em;
 }
 
 .dock-metric-label {
@@ -390,7 +565,6 @@ watch(
 }
 
 .dock-details-btn {
-  margin-left: auto;
   gap: 4px;
 }
 

@@ -113,6 +113,8 @@ declare global {
       aiChatStream: (requestId: string, messages: AiChatMessage[]) => Promise<AiChatResult>
       aiAbortChatStream: (requestId: string) => Promise<boolean>
       getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
+      getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
+      setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
       appendAiSessionHistory: (sessionId: string, record: AiHistoryRecord) => Promise<void>
       clearAiSessionHistory: (sessionId: string) => Promise<void>
       onAiChatStream: (requestId: string, callback: (payload: AiChatStreamPayload) => void) => () => void
@@ -907,6 +909,29 @@ export interface AiHistoryRecord {
   usage?: AiUsage
   error?: boolean
   createdAt: number
+}
+
+export interface AiConversationThread {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messages: AiHistoryRecord[]
+}
+
+export interface AiSessionStore {
+  version: 1
+  activeThreadId: string
+  threads: AiConversationThread[]
+}
+
+export interface AiThreadSummary {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messageCount: number
+  active: boolean
 }
 
 export type AiChatStreamPayload =
