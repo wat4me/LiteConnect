@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { NavMenu } from './types'
-import { fitFixedElement } from '../../utils/popupPosition'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+import type { NavMenu } from '@/domain/database/types'
+import { fitFixedElement } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const { t } = useI18n()
 

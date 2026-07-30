@@ -2,32 +2,32 @@
 import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ConnectionsView from './views/ConnectionsView.vue'
-import TabBar from './components/TabBar.vue'
-import AppTitlebar from './components/AppTitlebar.vue'
-import AppDialogHost from './components/AppDialogHost.vue'
+import TabBar from '@/components/app/TabBar.vue'
+import AppTitlebar from '@/components/app/AppTitlebar.vue'
+import AppDialogHost from '@/components/app/AppDialogHost.vue'
 
 const SettingsView = defineAsyncComponent(() => import('./views/SettingsView.vue'))
 const DatabaseView = defineAsyncComponent(() => import('./views/DatabaseView.vue'))
-const SshWorkspace = defineAsyncComponent(() => import('./components/SshWorkspace.vue'))
-const HostKeyMismatchDialog = defineAsyncComponent(() => import('./components/HostKeyMismatchDialog.vue'))
-const DecryptionFailedDialog = defineAsyncComponent(() => import('./components/DecryptionFailedDialog.vue'))
-const OnboardingTips = defineAsyncComponent(() => import('./components/OnboardingTips.vue'))
-const GlobalJumpPalette = defineAsyncComponent(() => import('./components/GlobalJumpPalette.vue'))
-const ShortcutsHelpOverlay = defineAsyncComponent(() => import('./components/ShortcutsHelpOverlay.vue'))
+const SshWorkspace = defineAsyncComponent(() => import('@/components/workspace/SshWorkspace.vue'))
+const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
+const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
+const OnboardingTips = defineAsyncComponent(() => import('@/components/app/OnboardingTips.vue'))
+const GlobalJumpPalette = defineAsyncComponent(() => import('@/components/app/GlobalJumpPalette.vue'))
+const ShortcutsHelpOverlay = defineAsyncComponent(() => import('@/components/app/ShortcutsHelpOverlay.vue'))
 import type { AppBootstrapData } from './env.d'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { useTheme } from './composables/useTheme'
+import { useTheme } from '@/composables/app/useTheme'
 import { useTerminalPwd } from './composables/terminal/useTerminalPwd'
 import { useSessionManager, HOME_ID } from './composables/session/useSessionManager'
-import { useSidebarState } from './composables/useSidebarState'
+import { useSidebarState } from '@/composables/workspace/useSidebarState'
 import { useLatencyState } from './composables/session/useLatencyState'
-import { useAppKeyboard } from './composables/useAppKeyboard'
+import { useAppKeyboard } from '@/composables/app/useAppKeyboard'
 import { useSplitTerminal } from './composables/terminal/useSplitTerminal'
 import { useAiReplyBadge } from './composables/ai/useAiReplyBadge'
 import { useAiChat } from './composables/ai/useAiChat'
-import { useSecurityDialogs } from './composables/useSecurityDialogs'
-import { useAppNavigation } from './composables/useAppNavigation'
-import { useWorkspacePanels } from './composables/useWorkspacePanels'
+import { useSecurityDialogs } from '@/composables/app/useSecurityDialogs'
+import { useAppNavigation } from '@/composables/app/useAppNavigation'
+import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
 import {
@@ -36,9 +36,9 @@ import {
   pendingSnippetVars,
   resolveDynamicBuiltins,
   resolveSnippetCommand,
-} from './utils/commandSnippets'
-import { getSnippetContext } from './utils/sessionDisplay'
-import { useTitlebarConnection } from './composables/useTitlebarConnection'
+} from '@/utils/snippets/commandSnippets'
+import { getSnippetContext } from '@/utils/session/sessionDisplay'
+import { useTitlebarConnection } from '@/composables/app/useTitlebarConnection'
 
 const { t } = useI18n()
 const { theme, customColors } = useTheme()
@@ -489,6 +489,7 @@ function onTransferFinished(e: Event) {
     error?: string
   } | undefined
   if (!d) return
+  // Per-file toast (single downloads / uploads). Batch multi-file uses onBatchTransferFinished.
   const name = d.fileName || t('common.file')
   const dirLabel = d.direction === 'upload' ? t('common.upload') : t('common.download')
   if (d.status === 'completed') {
@@ -499,6 +500,40 @@ function onTransferFinished(e: Event) {
         ? t('app.transferFailedWithError', { direction: dirLabel, name, error: d.error })
         : t('app.transferFailed', { direction: dirLabel, name }),
     )
+  }
+}
+
+function onBatchTransferFinished(e: Event) {
+  const d = (e as CustomEvent).detail as {
+    direction?: string
+    success?: number
+    error?: number
+    skipped?: number
+    partial?: number
+    total?: number
+  } | undefined
+  if (!d) return
+  const success = d.success || 0
+  const error = d.error || 0
+  const skipped = d.skipped || 0
+  const total = d.total || 0
+  if (d.direction === 'download') {
+    if (error > 0) {
+      ElMessage.warning(
+        t('app.batchDownloadDoneWithError', { success, error, total }),
+      )
+    } else if (skipped > 0 && success === 0) {
+      ElMessage.info(t('app.batchDownloadSkipped', { skipped, total }))
+    } else {
+      ElMessage.success(t('app.batchDownloadComplete', { count: success || total }))
+    }
+    return
+  }
+  // Future multi-file upload batch
+  if (error > 0) {
+    ElMessage.warning(t('app.batchUploadDoneWithError', { success, error, total }))
+  } else {
+    ElMessage.success(t('app.batchUploadComplete', { count: success || total }))
   }
 }
 
@@ -553,6 +588,7 @@ onMounted(async () => {
   window.addEventListener('latency-settings-change', handleLatencySettingsChange)
   window.addEventListener('monitor-settings-change', handleMonitorSettingsChange)
   window.addEventListener('sftp-transfer-finished', onTransferFinished)
+  window.addEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
   window.addEventListener('batch-command-finished', onBatchFinished)
   void refreshSnippetHotkeyCache()
   try {
@@ -612,6 +648,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('latency-settings-change', handleLatencySettingsChange)
   window.removeEventListener('monitor-settings-change', handleMonitorSettingsChange)
   window.removeEventListener('sftp-transfer-finished', onTransferFinished)
+  window.removeEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
   window.removeEventListener('batch-command-finished', onBatchFinished)
   for (const id of [...dockerSshUnsubs.keys()]) {
     detachDockerSshListeners(id)

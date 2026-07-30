@@ -1,8 +1,8 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbConnection, DbTableInfo } from '../../env.d'
-import type { NavMenu } from '../../components/database/types'
-import type { SqlDialect } from '../../utils/dbSql'
+import type { NavMenu } from '@/domain/database/types'
+import type { SqlDialect } from '@/utils/database/dbSql'
 import { t } from '../../i18n'
 import {
   countSql,

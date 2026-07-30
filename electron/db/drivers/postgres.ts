@@ -10,14 +10,14 @@ import {
   serializeCell,
   validateSqlInput,
 } from '../common'
-import { isPostgresCursorSafe, planSqlRowLimit } from '../sqlLimit'
-import { buildWhereClausePg } from '../browseFilter'
+import { isPostgresCursorSafe, planSqlRowLimit } from '../sql/sqlLimit'
+import { buildWhereClausePg } from '../browse/browseFilter'
 import {
   BrowseCountCache,
   browseCountCacheKey,
   browseHasFilter,
   finalizeBrowsePage,
-} from '../browsePagination'
+} from '../browse/browsePagination'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
 import type {
   DbBrowseOptions,

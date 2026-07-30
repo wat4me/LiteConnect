@@ -10,7 +10,7 @@ import 'element-plus/es/components/tooltip/style/css'
 import App from './App.vue'
 import './styles/main.css'
 import i18n, { initLocaleFromStorage } from './i18n'
-import { migrateLegacyLocalStorage } from './utils/legacyStorageMigrate'
+import { migrateLegacyLocalStorage } from '@/utils/shared/legacyStorageMigrate'
 
 migrateLegacyLocalStorage()
 initLocaleFromStorage()

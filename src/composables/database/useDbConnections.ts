@@ -1,9 +1,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbConnection, DbEngine, DbSessionInfo, DbSslOptions } from '../../env.d'
-import { appConfirm } from '../useAppDialog'
-import type { ConnectionFormModel } from '../../components/database/types'
-import type { SqlDialect } from '../../utils/dbSql'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import type { ConnectionFormModel } from '@/domain/database/types'
+import type { SqlDialect } from '@/utils/database/dbSql'
 import { t } from '../../i18n'
 import { defaultPort, dialectOfEngine, engineLabel } from './dbEngine'
 

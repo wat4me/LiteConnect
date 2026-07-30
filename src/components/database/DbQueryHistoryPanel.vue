@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { QueryHistoryItem } from './types'
-import { formatHistoryTime } from './dbFormat'
+import type { QueryHistoryItem } from '@/domain/database/types'
+import { formatHistoryTime } from '@/domain/database/dbFormat'
 import {
   historyLogMeta,
   truncateHistorySql,
   type HistoryLogMeta,
-} from '../../utils/queryHistoryLog'
+} from '@/utils/database/queryHistoryLog'
 
 const { t } = useI18n()
 

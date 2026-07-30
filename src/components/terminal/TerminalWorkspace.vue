@@ -8,15 +8,15 @@ import {
   getSessionSshAddress,
   getSshAddress,
   getTerminalLabel,
-} from '../../utils/sessionDisplay'
+} from '@/utils/session/sessionDisplay'
 import {
   focusPrimaryTerminalTab,
   type FocusableTerminalTab,
-} from '../../utils/workspaceTerminalFocus'
+} from '@/utils/terminal/workspaceTerminalFocus'
 import AppIcon from '../icons/AppIcon.vue'
 
 const TerminalTab = defineAsyncComponent(() => import('./TerminalTab.vue'))
-const SubTabBar = defineAsyncComponent(() => import('../SubTabBar.vue'))
+const SubTabBar = defineAsyncComponent(() => import('@/components/workspace/SubTabBar.vue'))
 
 const { t } = useI18n()
 

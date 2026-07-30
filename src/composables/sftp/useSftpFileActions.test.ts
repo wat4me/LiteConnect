@@ -5,9 +5,9 @@ vi.mock('element-plus/es/components/message/index', () => ({
   ElMessage: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
-vi.mock('../useAppDialog', () => ({ appConfirm: vi.fn() }))
+vi.mock('@/composables/app/useAppDialog', () => ({ appConfirm: vi.fn() }))
 
-import { appConfirm } from '../useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import { useSftpFileActions } from './useSftpFileActions'
 
 const file = {

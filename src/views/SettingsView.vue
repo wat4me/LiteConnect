@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { appConfirm } from '../composables/useAppDialog'
-import type { SettingsTabId } from '../composables/useAppNavigation'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import type { SettingsTabId } from '@/composables/app/useAppNavigation'
 import AppIcon from '../components/icons/AppIcon.vue'
-import { useSettingsDraft } from '../composables/useSettingsDraft'
+import { useSettingsDraft } from '@/composables/settings/useSettingsDraft'
 import SettingsAppearance from '../components/settings/SettingsAppearance.vue'
 import SettingsTerminal from '../components/settings/SettingsTerminal.vue'
+import SettingsFiles from '../components/settings/SettingsFiles.vue'
 import SettingsDatabase from '../components/settings/SettingsDatabase.vue'
 import SettingsNetwork from '../components/settings/SettingsNetwork.vue'
 import SettingsShortcuts from '../components/settings/SettingsShortcuts.vue'
@@ -49,6 +50,7 @@ watch(
 const tabs = computed(() => [
   { id: 'appearance' as const, label: t('settings.tabs.appearance'), desc: t('settings.tabs.appearanceDesc') },
   { id: 'terminal' as const, label: t('settings.tabs.terminal'), desc: t('settings.tabs.terminalDesc') },
+  { id: 'files' as const, label: t('settings.tabs.files'), desc: t('settings.tabs.filesDesc') },
   { id: 'database' as const, label: t('settings.tabs.database'), desc: t('settings.tabs.databaseDesc') },
   { id: 'network' as const, label: t('settings.tabs.network'), desc: t('settings.tabs.networkDesc') },
   { id: 'shortcuts' as const, label: t('settings.tabs.shortcuts'), desc: t('settings.tabs.shortcutsDesc') },
@@ -141,13 +143,17 @@ defineExpose({ requestClose: handleClose })
           v-if="activeTab === 'appearance'"
           :draft="draft"
           :is-dirty="isDirty"
-          :recent-download-paths="recentDownloadPaths"
-          :system-default-download-path="systemDefaultDownloadPath"
         />
         <SettingsTerminal
           v-else-if="activeTab === 'terminal'"
           :draft="draft"
           :is-dirty="isDirty"
+        />
+        <SettingsFiles
+          v-else-if="activeTab === 'files'"
+          :draft="draft"
+          :recent-download-paths="recentDownloadPaths"
+          :system-default-download-path="systemDefaultDownloadPath"
         />
         <SettingsDatabase
           v-else-if="activeTab === 'database'"

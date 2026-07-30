@@ -11,12 +11,12 @@ vi.mock('../i18n', () => ({
   t: (key: string) => key,
 }))
 
-vi.mock('./x11Server', () => ({
+vi.mock('./x11/x11Server', () => ({
   ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
 }))
 
 import { SSHManager } from './manager'
-import { KnownHostsStore } from './knownHosts'
+import { KnownHostsStore } from './trust/knownHosts'
 
 function fakeConnection(id = '550e8400-e29b-41d4-a716-446655440000'): Connection {
   return {

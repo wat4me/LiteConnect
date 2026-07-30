@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { DataTab } from './types'
+import type { DataTab } from '@/domain/database/types'
 import {
   formatCell,
   isBlobPlaceholder,
   sortIndicator,
-} from './dbFormat'
+} from '@/domain/database/dbFormat'
 
 const { t } = useI18n()
 

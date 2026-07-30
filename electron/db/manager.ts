@@ -1,6 +1,6 @@
 import type { DbDriver } from './driver'
-import { DbTunnelService, type DbTunnelLostReason } from './dbTunnelService'
-import type { DbTunnelHandle } from './sshTunnel'
+import { DbTunnelService, type DbTunnelLostReason } from './tunnel/dbTunnelService'
+import type { DbTunnelHandle } from './tunnel/sshTunnel'
 import type {
   DbBrowseOptions,
   DbColumnInfo,
@@ -21,7 +21,7 @@ import { toIpcDbError } from './dbError'
 import type { DbExportStreamHandlers } from './driver'
 import { normalizeDbEngine } from './types'
 import type { CredentialStore } from '../store/credentialStore'
-import type { KnownHostsStore } from '../ssh/knownHosts'
+import type { KnownHostsStore } from '../ssh/trust/knownHosts'
 
 /**
  * Facade over engine-specific drivers + optional SSH tunnels for DB sessions.

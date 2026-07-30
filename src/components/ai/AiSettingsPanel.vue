@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiProvider, AiSettings } from '../../env.d.ts'
-import { DEFAULT_SYSTEM_PROMPT } from '../../utils/constants'
+import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()

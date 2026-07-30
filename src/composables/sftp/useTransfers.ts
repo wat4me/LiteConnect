@@ -1,7 +1,7 @@
 import { reactive, computed } from 'vue'
 import { t } from '../../i18n'
 import type { TransferItem } from '../../env.d.ts'
-import { formatSize } from '../../utils/format'
+import { formatSize } from '@/utils/shared/format'
 
 /** Shared across FileSidebar instances so badge works when sidebar is closed */
 const transfers = reactive<Map<string, TransferItem>>(new Map())
@@ -9,6 +9,51 @@ const speedMap = reactive<Map<string, number>>(new Map())
 let lastProgress = new Map<string, { transferred: number; time: number }>()
 let listenersBound = false
 let unsubFns: Array<() => void> = []
+
+/** transferId → batchId (registered before IPC start so toasts can coalesce) */
+const transferBatchIds = new Map<string, string>()
+
+interface TransferBatch {
+  id: string
+  sessionId: string
+  direction: 'download' | 'upload'
+  transferIds: Set<string>
+  finishedIds: Set<string>
+  success: number
+  error: number
+  skipped: number
+  partial: number
+}
+
+const transferBatches = new Map<string, TransferBatch>()
+
+/**
+ * Register a multi-file transfer batch so finish toasts are merged into one.
+ * Call before starting the individual IPC downloads/uploads.
+ */
+export function beginTransferBatch(opts: {
+  batchId: string
+  sessionId: string
+  direction: 'download' | 'upload'
+  transferIds: string[]
+}): void {
+  if (opts.transferIds.length < 2) return
+  const transferIds = new Set(opts.transferIds)
+  transferBatches.set(opts.batchId, {
+    id: opts.batchId,
+    sessionId: opts.sessionId,
+    direction: opts.direction,
+    transferIds,
+    finishedIds: new Set(),
+    success: 0,
+    error: 0,
+    skipped: 0,
+    partial: 0,
+  })
+  for (const id of transferIds) {
+    transferBatchIds.set(id, opts.batchId)
+  }
+}
 
 function getTransfer(sessionId: string, transferId: string): TransferItem | undefined {
   const item = transfers.get(transferId)
@@ -23,6 +68,7 @@ function addTransfer(
   direction: 'download' | 'upload',
   remotePath?: string,
 ) {
+  const batchId = transferBatchIds.get(transferId)
   if (transfers.has(transferId)) {
     const existing = transfers.get(transferId)!
     existing.fileName = fileName
@@ -30,6 +76,7 @@ function addTransfer(
     if (remotePath) existing.remotePath = remotePath
     existing.status = direction === 'download' ? 'downloading' : 'uploading'
     existing.error = undefined
+    if (batchId) existing.batchId = batchId
     return
   }
   transfers.set(transferId, {
@@ -42,9 +89,102 @@ function addTransfer(
     total: 0,
     status: direction === 'download' ? 'downloading' : 'uploading',
     direction,
+    batchId,
   })
   lastProgress.set(transferId, { transferred: 0, time: Date.now() })
   speedMap.set(transferId, 0)
+}
+
+function dispatchSingleTransferFinished(detail: {
+  sessionId: string
+  transferId: string
+  fileName: string
+  direction: 'download' | 'upload'
+  status: string
+  error?: string
+  completedFiles?: number
+  failedFiles?: number
+  totalFiles?: number
+}) {
+  window.dispatchEvent(new CustomEvent('sftp-transfer-finished', { detail }))
+}
+
+/** Record one finish; suppress per-file toast until the whole batch is done. */
+function noteTransferFinished(
+  sessionId: string,
+  transferId: string,
+  status: 'completed' | 'error' | 'skipped' | 'partial',
+  extra?: {
+    fileName?: string
+    direction?: 'download' | 'upload'
+    error?: string
+    completedFiles?: number
+    failedFiles?: number
+    totalFiles?: number
+  },
+) {
+  const item = transfers.get(transferId)
+  const batchId = item?.batchId || transferBatchIds.get(transferId)
+  const fileName = extra?.fileName || item?.fileName || ''
+  const direction = extra?.direction || item?.direction || 'download'
+
+  if (!batchId) {
+    dispatchSingleTransferFinished({
+      sessionId,
+      transferId,
+      fileName,
+      direction,
+      status,
+      error: extra?.error,
+      completedFiles: extra?.completedFiles,
+      failedFiles: extra?.failedFiles,
+      totalFiles: extra?.totalFiles,
+    })
+    return
+  }
+
+  const batch = transferBatches.get(batchId)
+  if (!batch) {
+    dispatchSingleTransferFinished({
+      sessionId,
+      transferId,
+      fileName,
+      direction,
+      status,
+      error: extra?.error,
+      completedFiles: extra?.completedFiles,
+      failedFiles: extra?.failedFiles,
+      totalFiles: extra?.totalFiles,
+    })
+    return
+  }
+
+  if (batch.finishedIds.has(transferId)) return
+  batch.finishedIds.add(transferId)
+  if (status === 'completed') batch.success++
+  else if (status === 'error') batch.error++
+  else if (status === 'skipped') batch.skipped++
+  else if (status === 'partial') batch.partial++
+
+  if (batch.finishedIds.size < batch.transferIds.size) return
+
+  // Entire batch finished → one toast
+  window.dispatchEvent(
+    new CustomEvent('sftp-batch-transfer-finished', {
+      detail: {
+        batchId,
+        sessionId: batch.sessionId,
+        direction: batch.direction,
+        success: batch.success,
+        error: batch.error,
+        skipped: batch.skipped,
+        partial: batch.partial,
+        total: batch.transferIds.size,
+      },
+    }),
+  )
+  for (const id of batch.transferIds) transferBatchIds.delete(id)
+  transferBatches.delete(batchId)
 }
 
 function updateProgress(
@@ -139,34 +279,24 @@ export function ensureTransferListeners() {
       if (item?.direction === 'upload' && status !== 'skipped') {
         window.dispatchEvent(new CustomEvent('sftp-upload-complete', { detail: { sessionId } }))
       }
-      const finishedStatus =
+      const finishedStatus: 'completed' | 'skipped' | 'partial' =
         status === 'skipped' ? 'skipped' : status === 'partial' ? 'partial' : 'completed'
-      window.dispatchEvent(new CustomEvent('sftp-transfer-finished', {
-        detail: {
-          sessionId,
-          transferId,
-          fileName: item?.fileName || '',
-          direction: item?.direction || 'download',
-          status: finishedStatus,
-          completedFiles: stats?.completedFiles ?? item?.completedFiles,
-          failedFiles: stats?.failedFiles ?? item?.failedFiles,
-          totalFiles: stats?.totalFiles ?? item?.totalFiles,
-        },
-      }))
+      noteTransferFinished(sessionId, transferId, finishedStatus, {
+        fileName: item?.fileName || '',
+        direction: item?.direction || 'download',
+        completedFiles: stats?.completedFiles ?? item?.completedFiles,
+        failedFiles: stats?.failedFiles ?? item?.failedFiles,
+        totalFiles: stats?.totalFiles ?? item?.totalFiles,
+      })
     }),
     window.LiteConnect.onTransferError((sessionId, transferId, errorMsg) => {
       const item = transfers.get(transferId)
       markError(sessionId, transferId, errorMsg)
-      window.dispatchEvent(new CustomEvent('sftp-transfer-finished', {
-        detail: {
-          sessionId,
-          transferId,
-          fileName: item?.fileName || '',
-          direction: item?.direction || 'download',
-          status: 'error',
-          error: errorMsg,
-        },
-      }))
+      noteTransferFinished(sessionId, transferId, 'error', {
+        fileName: item?.fileName || '',
+        direction: item?.direction || 'download',
+        error: errorMsg,
+      })
     }),
   ]
 }

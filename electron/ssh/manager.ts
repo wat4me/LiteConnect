@@ -1,9 +1,9 @@
-import { KnownHostsStore } from './knownHosts'
+import { KnownHostsStore } from './trust/knownHosts'
 import { ConnectionService } from './connectionService'
-import { SftpSession } from './sftpSession'
-import { TransferRunner } from './transferRunner'
+import { SftpSession } from './sftp/sftpSession'
+import { TransferRunner } from './transfer/transferRunner'
 import { closeLocalForwardServers } from './localForwards'
-import { destroyX11Sockets } from './x11'
+import { destroyX11Sockets } from './x11/x11'
 import { t } from '../i18n'
 import type {
   Connection,

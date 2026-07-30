@@ -17,7 +17,7 @@ export default {
       '本机显示服务未就绪，且已关闭自动启动。请手动启动 VcXsrv/Xming，或在设置中开启「连接时自动启动本机显示服务」。',
     platformUnsupported: '当前系统不支持自动启动显示服务，请自行安装并启动（如 macOS 上的 XQuartz）。',
     notFound:
-      '未找到 VcXsrv/Xming。请安装 VcXsrv（推荐），或在「设置 → 网络 → 图形界面」中指定 vcxsrv.exe 路径。',
+      '未找到 VcXsrv/Xming。请安装 VcXsrv（推荐），或在「设置 → 连接 → 图形界面」中指定 vcxsrv.exe 路径。',
     stillNotReady:
       '已尝试连接显示服务，但 {host}:{port} 未通过 X11 握手（端口可连不等于是显示服务）。',
     startedButTimeout:

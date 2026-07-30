@@ -10,14 +10,14 @@ import {
   serializeCell,
   validateSqlInput,
 } from '../common'
-import { buildWhereClauseOracle } from '../browseFilter'
+import { buildWhereClauseOracle } from '../browse/browseFilter'
 import {
   BrowseCountCache,
   browseCountCacheKey,
   browseHasFilter,
   finalizeBrowsePage,
-} from '../browsePagination'
-import { planSqlRowLimit } from '../sqlLimit'
+} from '../browse/browsePagination'
+import { planSqlRowLimit } from '../sql/sqlLimit'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
 import type {
   DbBrowseOptions,

@@ -9,7 +9,7 @@ import {
   sanitizeQueryTabExecOptions,
   type QueryDefaultRunScopePref,
   type QueryTabExecOptions,
-} from '../../utils/queryTabOptions'
+} from '@/utils/database/queryTabOptions'
 import {
   applyLoadGlobalDangerousSql,
   applySaveGlobalDangerousSql,
@@ -17,10 +17,10 @@ import {
   beginSaveGlobalDangerousSql,
   canToggleGlobalDangerousSql,
   initialGlobalDangerousSqlUi,
-} from '../../utils/globalDangerousSqlSetting'
-import { dispatchDbSettingsChange, getCachedDbSettings } from '../../composables/useDbSettings'
-import { placePopupNearAnchor } from '../../utils/popupPosition'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+} from '@/utils/database/globalDangerousSqlSetting'
+import { dispatchDbSettingsChange, getCachedDbSettings } from '@/composables/database/useDbSettings'
+import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()

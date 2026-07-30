@@ -2,9 +2,14 @@
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 
-defineProps<{
+const props = defineProps<{
   activeTransfers: number
   followTerminalPath: boolean
+  /**
+   * Ignore re-clicks while an SFTP action is in flight.
+   * Must not toggle opacity/disabled styling — that made the whole toolbar flash.
+   */
+  locked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,6 +23,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+function onGuarded(action: () => void) {
+  if (props.locked) return
+  action()
+}
 </script>
 
 <template>
@@ -26,11 +36,16 @@ const { t } = useI18n()
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :title="t('sftp.locateTerminalCwd')"
-      @click="emit('sync-cwd')"
+      @click="onGuarded(() => emit('sync-cwd'))"
     >
-      <AppIcon name="terminal" size="md" />
+      <AppIcon name="crosshair" size="md" />
     </button>
-    <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.refresh')" @click="emit('refresh')">
+    <button
+      type="button"
+      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+      :title="t('sftp.refresh')"
+      @click="onGuarded(() => emit('refresh'))"
+    >
       <AppIcon name="refresh" size="md" />
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.searchFiles')" @click="emit('search')">
@@ -46,19 +61,24 @@ const { t } = useI18n()
       <AppIcon name="transfer" size="md" />
       <span v-if="activeTransfers > 0" class="transfer-action-badge">{{ activeTransfers > 99 ? '99+' : activeTransfers }}</span>
     </button>
-    <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.uploadFolder')" @click="emit('upload-folder')">
+    <button
+      type="button"
+      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+      :title="t('sftp.uploadFolder')"
+      @click="onGuarded(() => emit('upload-folder'))"
+    >
       <AppIcon name="folder-up" size="md" />
     </button>
+    <div class="navigation-actions-spacer"></div>
     <button
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :class="{ active: followTerminalPath }"
       :title="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
-      @click="emit('toggle-follow')"
+      @click="onGuarded(() => emit('toggle-follow'))"
     >
       <AppIcon name="link-2" size="md" />
     </button>
-    <div class="navigation-actions-spacer"></div>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSidebar')" @click="emit('close')">
       <AppIcon name="close" size="sm" />
     </button>
@@ -95,7 +115,7 @@ const { t } = useI18n()
   font-size: 9px;
   font-weight: 700;
   line-height: 14px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 0 0 1.5px var(--bg-secondary);

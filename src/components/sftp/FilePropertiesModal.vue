@@ -2,7 +2,7 @@
 import AppIcon from '../icons/AppIcon.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatSize } from '../../utils/format'
+import { formatSize } from '@/utils/shared/format'
 
 const { t } = useI18n()
 

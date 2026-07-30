@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { QueryHistoryItem, QueryTab } from './types'
+import type { QueryHistoryItem, QueryTab } from '@/domain/database/types'
 import DbResultGrid from './DbResultGrid.vue'
 import DbQueryHistoryPanel from './DbQueryHistoryPanel.vue'
 import {
   displayRowsForOutput,
   resolveOutputPanel,
   type QueryOutputPanel,
-} from '../../utils/queryOutputPanel'
-import { nextOutputPanel, outputPanelDomIds } from '../../utils/queryUiController'
-import { filterRows, sortRows } from '../../utils/dbSql'
+} from '@/utils/database/queryOutputPanel'
+import { nextOutputPanel, outputPanelDomIds } from '@/utils/database/queryUiController'
+import { filterRows, sortRows } from '@/utils/database/dbSql'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()

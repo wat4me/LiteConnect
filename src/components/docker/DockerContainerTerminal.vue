@@ -16,16 +16,16 @@ import {
   shouldResetForTarget,
   type ReconcileController,
 } from '../../composables/docker/dockerContainerTerminalReconcile'
-import { useTheme, getTerminalColors, type TerminalPaletteId } from '../../composables/useTheme'
+import { useTheme, getTerminalColors, type TerminalPaletteId } from '@/composables/app/useTheme'
 import {
   PASTE_CONFIRM_MAX_CHARS,
   normalizePasteConfirmMaxChars,
   shouldConfirmPaste,
   countPasteLines,
   buildPastePreview,
-} from '../../utils/terminalPaste'
-import { canMeasureTerminal } from '../../utils/terminalResizePolicy'
-import { appConfirm } from '../../composables/useAppDialog'
+} from '@/utils/terminal/terminalPaste'
+import { canMeasureTerminal } from '@/utils/terminal/terminalResizePolicy'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import type { DockerExecShell } from '../../env.d'
 
 const props = defineProps<{

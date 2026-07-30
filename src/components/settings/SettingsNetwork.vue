@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { SettingsDraft } from '../../composables/useSettingsDraft'
+import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 
 const props = defineProps<{
   draft: SettingsDraft

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { GridSort } from './types'
+import type { GridSort } from '@/domain/database/types'
 import {
   cellValue,
   formatCell,
   isBlobPlaceholder,
   isNullCell,
   sortIndicator,
-} from './dbFormat'
+} from '@/domain/database/dbFormat'
 
 const { t } = useI18n()
 

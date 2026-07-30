@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { TransferItem } from '../../env.d.ts'
-import { formatSize } from '../../utils/format'
+import { formatSize } from '@/utils/shared/format'
 import { formatSpeed } from '../../composables/sftp/useTransfers'
 import AppIcon from '../icons/AppIcon.vue'
 
@@ -28,16 +28,6 @@ function getProgress(item: TransferItem): number {
 function canResume(item: TransferItem): boolean {
   return item.status === 'error' && !!item.localPath && (item.direction === 'download' ? !!item.remotePath : !!item.remotePath)
 }
-
-function onDragStart(e: DragEvent, item: TransferItem) {
-  if (item.status !== 'completed' || item.direction !== 'download' || !item.localPath) {
-    e.preventDefault()
-    return
-  }
-  // Prefer native Electron drag for OS explorer drop
-  e.preventDefault()
-  window.LiteConnect.sftpStartDrag(item.localPath)
-}
 </script>
 
 <template>
@@ -55,9 +45,7 @@ function onDragStart(e: DragEvent, item: TransferItem) {
         'transfer-skipped': item.status === 'skipped',
         'transfer-partial': item.status === 'partial',
       }"
-      :draggable="item.status === 'completed' && direction === 'download'"
       @click="item.status === 'completed' && direction === 'download' ? emit('openFolder', item.localPath) : undefined"
-      @dragstart="onDragStart($event, item)"
     >
       <div class="transfer-info">
         <AppIcon v-if="item.status === 'completed'" name="check" size="xs" class="transfer-done-icon" />
@@ -152,7 +140,7 @@ function onDragStart(e: DragEvent, item: TransferItem) {
 }
 
 .transfer-completed {
-  cursor: grab;
+  cursor: pointer;
 }
 
 .transfer-info {

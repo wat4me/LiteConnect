@@ -93,7 +93,12 @@ defineExpose({ searchInputRef })
         >
           {{ t('connections.credentials') }}
         </button>
-        <button class="ui-btn ui-btn-primary" type="button" @click="emit('add')">
+        <button
+          class="ui-btn ui-btn-primary"
+          type="button"
+          data-onboarding="add-connection"
+          @click="emit('add')"
+        >
           <AppIcon name="plus" size="sm" />
           <span>{{ t('connections.new') }}</span>
         </button>

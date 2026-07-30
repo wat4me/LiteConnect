@@ -1,12 +1,12 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useDbSettings } from '../useDbSettings'
+import { useDbSettings } from '@/composables/database/useDbSettings'
 import type { DbConnection, DbSessionInfo } from '../../env.d'
 import { useDbConnections } from './useDbConnections'
 import { useDbNavTree } from './useDbNavTree'
 import { useDbTabs } from './useDbTabs'
 import { useDbDataEdit } from './useDbDataEdit'
 import { useDbNavMenu } from './useDbNavMenu'
-import { useTitlebarConnection } from '../useTitlebarConnection'
+import { useTitlebarConnection } from '@/composables/app/useTitlebarConnection'
 
 export function useDbWorkspace() {
   const dbRootRef = ref<HTMLElement | null>(null)

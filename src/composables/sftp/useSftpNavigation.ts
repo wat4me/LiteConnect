@@ -209,17 +209,33 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     return syncTrackedPath(false)
   }
 
+  /**
+   * Toolbar "locate": jump SFTP to the terminal cwd and re-read the tree.
+   *
+   * Important: do **not** inject a live `pwd` into the interactive shell when we
+   * already know the path. That always makes the shell print a fresh prompt
+   * line (and can flash the probe command), which looks like "extra # lines".
+   *
+   * Live interactive pwd is only a last resort when tracking has no path yet.
+   */
   async function syncCwdForce(): Promise<boolean> {
+    if (!terminalPath.value && pwdTracker) {
+      const fromTracker = pwdTracker.getPwd(sessionId())
+      if (fromTracker) terminalPath.value = cleanRemotePath(fromTracker)
+    }
+    if (terminalPath.value) {
+      return syncTrackedPath(false)
+    }
     return syncTrackedPath(true)
   }
 
-  async function syncTrackedPath(useSftpFallback: boolean): Promise<boolean> {
+  async function syncTrackedPath(useLiveShellPwd: boolean): Promise<boolean> {
     const tracked = terminalPath.value
     let livePwd = ''
 
-    // Prefer a live `pwd` from the shell when forcing (toolbar "locate").
-    // Optimistic cd tracking can lag or diverge after mkdir/pushd/etc.
-    if (useSftpFallback) {
+    // Live shell `pwd` is expensive and visible (new prompt line). Only when
+    // we have no tracked cwd at all.
+    if (useLiveShellPwd) {
       try {
         livePwd = cleanRemotePath((await requestTerminalPwd(sessionId())).trim())
       } catch {}
@@ -235,7 +251,8 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
       tracked ? cleanRemotePath(tracked) : '',
     ].filter(Boolean)
 
-    if (useSftpFallback) candidates.push('.')
+    // SFTP session cwd as last resort only when we already had to hit the shell.
+    if (useLiveShellPwd) candidates.push('.')
 
     for (const candidate of [...new Set(candidates)]) {
       try {
@@ -246,13 +263,16 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
         terminalPath.value = resolved
         if (pwdTracker) pwdTracker.setPwd(sessionId(), resolved)
 
-        // Always readdir (even if already on this path) so shell-created dirs
-        // show up; tree cache is refreshed by the caller via refreshPathChain.
+        // Already browsing this path: skip readdir so locate does not flash the tree.
+        // (Refresh button is the intentional full reload.)
+        if (cleanRemotePath(resolved) === cleanRemotePath(currentPath.value) && sftpReady.value) {
+          return true
+        }
         return await loadDirectory(resolved)
       } catch {}
     }
 
-    if (useSftpFallback) {
+    if (useLiveShellPwd) {
       error.value = t('sftp.cannotGetCwd')
     }
     return false

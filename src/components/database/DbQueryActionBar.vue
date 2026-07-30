@@ -2,10 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
-import type { RunScope } from '../../utils/sqlStatement'
-import { isRunMenuItemEnabled } from '../../utils/queryUiController'
-import { placePopupNearAnchor } from '../../utils/popupPosition'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+import type { RunScope } from '@/utils/database/sqlStatement'
+import { isRunMenuItemEnabled } from '@/utils/database/queryUiController'
+import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 /** Shared teleported menu styles (same module as active rail; no local copy). */
 import './dbRunMenuPortal.css'
 

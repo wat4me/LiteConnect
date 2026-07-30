@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { StructureTab } from './types'
-import { keyBadge } from './dbFormat'
+import type { StructureTab } from '@/domain/database/types'
+import { keyBadge } from '@/domain/database/dbFormat'
 
 const { t } = useI18n()
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Connection, PendingHostKey, Session, SSHCallbacks } from './types'
 import { ConnectionService } from './connectionService'
-import type { KnownHostsStore } from './knownHosts'
+import type { KnownHostsStore } from './trust/knownHosts'
 
 /**
  * Unit tests against ConnectionService generation gates without a real SSH server.

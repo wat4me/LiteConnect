@@ -3,8 +3,8 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import type { CustomColors, TerminalPaletteId, Theme } from '../../composables/useTheme'
-import { getTerminalColors } from '../../composables/useTheme'
+import type { CustomColors, TerminalPaletteId, Theme } from '@/composables/app/useTheme'
+import { getTerminalColors } from '@/composables/app/useTheme'
 
 const props = defineProps<{
   theme: Theme
@@ -19,10 +19,12 @@ let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
 
+// Glyphs that differ clearly across mono fonts (0O / l1I / brackets).
 const SAMPLE = [
   '\x1b[32muser@host\x1b[0m:\x1b[34m~/proj\x1b[0m$ ls -la',
   '\x1b[36mdrwxr-xr-x\x1b[0m  5 user staff  160 Jul  9 10:00 src',
   '\x1b[33m-rw-r--r--\x1b[0m  1 user staff 1204 Jul  9 10:00 README.md',
+  '  0O l1I | [] {} <> == !==  =>  /* font sample */',
   '\x1b[32muser@host\x1b[0m:\x1b[34m~/proj\x1b[0m$ ',
 ].join('\r\n')
 

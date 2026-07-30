@@ -288,7 +288,6 @@ declare global {
       sftpCancelTransfer: (transferId: string) => void
       sftpExtractArchive: (sessionId: string, remotePath: string) => Promise<{ ok: boolean; output?: string }>
       sftpExists: (sessionId: string, remotePath: string) => Promise<boolean>
-      sftpStartDrag: (localPath: string) => void
       sftpReadFile: (sessionId: string, remotePath: string) => Promise<string>
       sftpWriteFile: (sessionId: string, remotePath: string, content: string) => Promise<void>
       sftpChmod: (sessionId: string, remotePath: string, mode: string, recursive?: boolean) => Promise<void>
@@ -909,6 +908,8 @@ export interface TransferItem {
   completedFiles?: number
   failedFiles?: number
   totalFiles?: number
+  /** Multi-file batch id (e.g. multi-select download) for coalesced toasts */
+  batchId?: string
 }
 
 export interface AiProvider {

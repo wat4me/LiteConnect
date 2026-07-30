@@ -1,9 +1,9 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbSessionInfo } from '../../env.d'
-import type { QueryHistoryItem } from '../../components/database/types'
+import type { QueryHistoryItem } from '@/domain/database/types'
 import { t } from '../../i18n'
-import { filterHistoryItems } from '../../utils/queryHistoryLog'
+import { filterHistoryItems } from '@/utils/database/queryHistoryLog'
 
 export type DbQueryHistoryDeps = {
   session: ComputedRef<DbSessionInfo | null>

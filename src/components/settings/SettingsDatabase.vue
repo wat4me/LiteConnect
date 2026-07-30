@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { terminalFontFamilyPresets } from '../../composables/useTheme'
-import { DB_PAGE_SIZE_OPTIONS } from '../../composables/useDbSettings'
-import type { SettingsDraft } from '../../composables/useSettingsDraft'
+import {
+  listInstalledFontFamilyPresets,
+  pickInstalledFontFamily,
+} from '@/composables/app/useTheme'
+import { DB_PAGE_SIZE_OPTIONS } from '@/composables/database/useDbSettings'
+import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 import {
   QUERY_MAX_ROWS_MAX,
   QUERY_MAX_ROWS_MIN,
@@ -11,7 +15,7 @@ import {
   clampQueryMaxRows,
   clampQueryTimeoutSec,
   type QueryDefaultRunScopePref,
-} from '../../utils/queryTabOptions'
+} from '@/utils/database/queryTabOptions'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -19,6 +23,34 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+
+const availableFonts = ref(listInstalledFontFamilyPresets())
+
+async function refreshAvailableFonts() {
+  try {
+    await document.fonts?.ready
+  } catch {
+    // ignore
+  }
+  availableFonts.value = listInstalledFontFamilyPresets()
+  const next = pickInstalledFontFamily(props.draft.dbFontFamily)
+  if (next !== props.draft.dbFontFamily) {
+    props.draft.dbFontFamily = next
+  }
+}
+
+onMounted(() => {
+  void refreshAvailableFonts()
+})
+
+watch(
+  () => props.draft.dbFontFamily,
+  (v) => {
+    if (!availableFonts.value.some((f) => f.value === v)) {
+      props.draft.dbFontFamily = pickInstalledFontFamily(v)
+    }
+  },
+)
 
 const runScopeOptions: { value: QueryDefaultRunScopePref; labelKey: string }[] = [
   { value: 'smart', labelKey: 'settingsDatabase.runScopeSmart' },
@@ -55,7 +87,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
       <div class="settings-card">
         <div class="settings-label">{{ t('settingsDatabase.fontFamily') }}</div>
         <select v-model="draft.dbFontFamily" class="settings-select">
-          <option v-for="item in terminalFontFamilyPresets" :key="item.id" :value="item.value">
+          <option v-for="item in availableFonts" :key="item.id" :value="item.value">
             {{ item.label }}
           </option>
         </select>
@@ -130,7 +162,8 @@ function onDefaultTimeoutSecInput(ev: Event) {
             <span class="db-kw">SELECT</span> id, name, created_at<br />
             <span class="db-kw">FROM</span> users<br />
             <span class="db-kw">WHERE</span> status = <span class="db-str">'active'</span><br />
-            <span class="db-kw">LIMIT</span> {{ draft.dbPageSize }};
+            <span class="db-kw">LIMIT</span> {{ draft.dbPageSize }};<br />
+            <span class="db-preview-sample">0O l1I | [] {} /* font */</span>
           </div>
           <div class="db-preview-grid">
             <div class="db-preview-row head">
@@ -289,6 +322,11 @@ function onDefaultTimeoutSecInput(ev: Event) {
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.45;
+}
+
+.db-preview-sample {
+  color: var(--text-secondary);
+  opacity: 0.9;
 }
 
 .db-preview {

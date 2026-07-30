@@ -5,13 +5,13 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
-import { getTerminalColors, type TerminalPaletteId } from '../useTheme'
-import type { Theme, CustomColors } from '../useTheme'
+import { getTerminalColors, type TerminalPaletteId } from '@/composables/app/useTheme'
+import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import {
   PASTE_CONFIRM_MAX_CHARS,
   normalizePasteConfirmMaxChars,
-} from '../../utils/terminalPaste'
-import { canMeasureTerminal, planTerminalResize } from '../../utils/terminalResizePolicy'
+} from '@/utils/terminal/terminalPaste'
+import { canMeasureTerminal, planTerminalResize } from '@/utils/terminal/terminalResizePolicy'
 
 export function useXtermInstance(deps: {
   terminalRef: Ref<HTMLDivElement | undefined>

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { createTxDurationTimer } from '../../utils/txDurationTimer'
+import { createTxDurationTimer } from '@/utils/database/txDurationTimer'
 import AppIcon from '../icons/AppIcon.vue'
-import type { SavedQuery } from './types'
-import { truncateHistorySql } from '../../utils/queryHistoryLog'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+import type { SavedQuery } from '@/domain/database/types'
+import { truncateHistorySql } from '@/utils/database/queryHistoryLog'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const { t } = useI18n()
 

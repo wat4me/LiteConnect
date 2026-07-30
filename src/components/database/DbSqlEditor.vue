@@ -40,10 +40,10 @@ import {
   type CompletionResult,
 } from '@codemirror/autocomplete'
 import { sql, MySQL, PostgreSQL } from '@codemirror/lang-sql'
-import type { SqlDialect } from '../../utils/dbSql'
-import { quoteIdent } from '../../utils/dbSql'
+import type { SqlDialect } from '@/utils/database/dbSql'
+import { quoteIdent } from '@/utils/database/dbSql'
 import type { DbColumnInfo, DbTableInfo } from '../../env.d'
-import type { QueryTab } from './types'
+import type { QueryTab } from '@/domain/database/types'
 import {
   clampSelection,
   createCompletionGeneration,
@@ -57,7 +57,7 @@ import {
   selectionFromUi,
   shouldApplyExternalDoc,
   type SqlEditorSelection,
-} from '../../utils/cmSqlEditor'
+} from '@/utils/database/cmSqlEditor'
 
 const { t } = useI18n()
 

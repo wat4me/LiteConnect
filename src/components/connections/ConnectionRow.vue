@@ -3,9 +3,9 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection } from '../../env.d.ts'
-import { getConnectionTagColor } from '../../utils/connectionTags'
-import { placePopupNearAnchor } from '../../utils/popupPosition'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+import { getConnectionTagColor } from '@/utils/connections/connectionTags'
+import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const { t } = useI18n()
 

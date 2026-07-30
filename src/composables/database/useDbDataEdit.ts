@@ -2,16 +2,16 @@ import type { ComputedRef } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbSessionInfo } from '../../env.d'
 import { t } from '../../i18n'
-import { appConfirm } from '../useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import {
   buildDeleteSql,
   buildInsertSql,
   buildUpdateSql,
   parseCellInput,
   type SqlDialect,
-} from '../../utils/dbSql'
-import type { WsTab } from '../../components/database/types'
-import { formatCell } from '../../components/database/dbFormat'
+} from '@/utils/database/dbSql'
+import type { WsTab } from '@/domain/database/types'
+import { formatCell } from '@/domain/database/dbFormat'
 
 export type DbDataEditDeps = {
   activeTab: ComputedRef<WsTab | null>

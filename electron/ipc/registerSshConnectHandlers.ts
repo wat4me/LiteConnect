@@ -7,9 +7,9 @@ import {
   DecryptionError,
   safeWebContentsSend,
 } from '../utils/validation'
-import { diagnoseSshConnection } from '../ssh/diagnosis'
-import { testSshConnection } from '../ssh/testConnection'
-import { KnownHostsStore } from '../ssh/knownHosts'
+import { diagnoseSshConnection } from '../ssh/diagnosis/diagnosis'
+import { testSshConnection } from '../ssh/diagnosis/testConnection'
+import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import { CredentialStore } from '../store/credentialStore'

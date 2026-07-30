@@ -1,23 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { SqlDialect } from '../../utils/dbSql'
+import type { SqlDialect } from '@/utils/database/dbSql'
 import type { DbColumnInfo, DbTableInfo } from '../../env.d'
-import type { QueryHistoryItem, QueryTab, SavedQuery } from './types'
+import type { QueryHistoryItem, QueryTab, SavedQuery } from '@/domain/database/types'
 import {
   canRunCurrentStatement,
   defaultRunScope,
   resolveRunSql,
   type RunScope,
-} from '../../utils/sqlStatement'
+} from '@/utils/database/sqlStatement'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { QueryOutputPanel } from '../../utils/queryOutputPanel'
+import type { QueryOutputPanel } from '@/utils/database/queryOutputPanel'
 import {
   editorStatusFromSelection,
   resolvePreferredRunScope,
   sanitizeQueryTabExecOptions,
   type QueryTabExecOptions,
-} from '../../utils/queryTabOptions'
+} from '@/utils/database/queryTabOptions'
 import DbQueryContextBar from './DbQueryContextBar.vue'
 import DbQueryActionRail from './DbQueryActionRail.vue'
 import DbSqlEditor from './DbSqlEditor.vue'

@@ -3,9 +3,9 @@ import type { Connection } from '../../env.d'
 import type { ConnectionGroup, Session } from './useSessionManager'
 import type { SplitMode, SplitSide } from '../terminal/useSplitTerminal'
 import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
-import type { BatchCommandTarget } from '../useBatchCommand'
-import { buildBatchSessionTarget } from '../../utils/sessionDisplay'
-import { isNonRetryableSshError } from '../../utils/sshErrorRetry'
+import type { BatchCommandTarget } from '@/composables/snippets/useBatchCommand'
+import { buildBatchSessionTarget } from '@/utils/session/sessionDisplay'
+import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
 
 export type SplitDropPayload = {
   mode: 'horizontal' | 'vertical'

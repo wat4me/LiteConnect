@@ -1,5 +1,5 @@
 import type { DbEngine } from '../../env.d'
-import { quoteIdent, type SqlDialect } from '../../utils/dbSql'
+import { quoteIdent, type SqlDialect } from '@/utils/database/dbSql'
 
 /**
  * Engine-facing helpers for the database UI.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DbConnection, DbSessionInfo } from './types'
-import type { DbTunnelCloseReason, DbTunnelHandle } from './sshTunnel'
+import type { DbTunnelCloseReason, DbTunnelHandle } from './tunnel/sshTunnel'
 
 vi.mock('./drivers/mysql', () => ({
   MySqlDriver: class {
@@ -41,7 +41,7 @@ vi.mock('./drivers/mysql', () => ({
 }))
 
 const openDbSshTunnel = vi.fn()
-vi.mock('./sshTunnel', () => ({
+vi.mock('./tunnel/sshTunnel', () => ({
   openDbSshTunnel: (...args: unknown[]) => openDbSshTunnel(...args),
 }))
 

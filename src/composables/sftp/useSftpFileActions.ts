@@ -1,10 +1,11 @@
 import { ref, nextTick, watch, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
-import { appConfirm } from '../useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import type { FileEntry } from '../../env.d.ts'
-import { canEditSftpFile, isSftpArchiveName } from '../../utils/sftpEditable'
+import { canEditSftpFile, isSftpArchiveName } from '@/utils/sftp/sftpEditable'
 import type { DownloadConflictStrategy } from './useSftpUpload'
+import { beginTransferBatch } from './useTransfers'
 
 /**
  * Download / delete / rename / edit / extract / properties for SFTP sidebar.
@@ -53,17 +54,34 @@ export function useSftpFileActions(deps: {
   }
 
   function startDownloadMany(entries: FileEntry[], localDir?: string) {
-    for (const entry of entries) {
-      if (entry.isDirectory) continue
-      const transferId = `dl-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-      window.LiteConnect.sftpDownload(deps.sessionId(), entry.path, entry.name, transferId, {
+    const files = entries.filter((e) => !e.isDirectory)
+    if (files.length === 0) return
+
+    // Single file: same path as normal download (individual toast).
+    if (files.length === 1) {
+      startDownload(files[0], localDir)
+      return
+    }
+
+    const sessionId = deps.sessionId()
+    const batchId = `dl-batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const transferIds: string[] = []
+    for (const entry of files) {
+      transferIds.push(`dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+    }
+    beginTransferBatch({
+      batchId,
+      sessionId,
+      direction: 'download',
+      transferIds,
+    })
+    files.forEach((entry, i) => {
+      window.LiteConnect.sftpDownload(sessionId, entry.path, entry.name, transferIds[i], {
         conflict: deps.downloadConflict.value,
         localDir,
       })
-    }
-    if (entries.some((e) => !e.isDirectory)) {
-      deps.onDownloadQueued()
-    }
+    })
+    deps.onDownloadQueued()
   }
 
   function startDownloadDir(entry: FileEntry) {

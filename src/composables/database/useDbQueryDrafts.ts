@@ -1,8 +1,8 @@
 import type { Ref } from 'vue'
 import type { DbConnection, DbSessionInfo } from '../../env.d'
-import type { QueryTab, WsTab } from '../../components/database/types'
+import type { QueryTab, WsTab } from '@/domain/database/types'
 import { t } from '../../i18n'
-import { getCachedQueryTabDefaults } from '../useDbSettings'
+import { getCachedQueryTabDefaults } from '@/composables/database/useDbSettings'
 import {
   applyQueryTabRename,
   canRestoreDraft,
@@ -19,8 +19,8 @@ import {
   tabToDraftRecord,
   upsertDraft,
   type QueryDraftRecord,
-} from '../../utils/queryDrafts'
-import { resolveQueryTabExecOptionsFromDefaults } from '../../utils/queryTabOptions'
+} from '@/utils/database/queryDrafts'
+import { resolveQueryTabExecOptionsFromDefaults } from '@/utils/database/queryTabOptions'
 
 export type DbQueryDraftsDeps = {
   tabs: Ref<WsTab[]>

@@ -1,9 +1,9 @@
 import { ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbSessionInfo } from '../../env.d'
-import type { QueryTab, SavedQuery, WsTab } from '../../components/database/types'
+import type { QueryTab, SavedQuery, WsTab } from '@/domain/database/types'
 import { t } from '../../i18n'
-import { sqlTitleSummary } from '../../utils/queryDrafts'
+import { sqlTitleSummary } from '@/utils/database/queryDrafts'
 
 export type DbSavedQueriesDeps = {
   tabs: Ref<WsTab[]>

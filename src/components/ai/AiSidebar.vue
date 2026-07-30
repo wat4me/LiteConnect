@@ -4,12 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiSettings } from '../../env.d.ts'
 import { useAiChat, type ChatItem } from '../../composables/ai/useAiChat'
-import { appConfirm } from '../../composables/useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
-} from '../../utils/terminalPaste'
-import { placePopupNearAnchor } from '../../utils/popupPosition'
+} from '@/utils/terminal/terminalPaste'
+import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'

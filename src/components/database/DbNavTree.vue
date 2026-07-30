@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { DbConnection, DbTableInfo } from '../../env.d'
-import { formatRows } from './dbFormat'
+import { formatRows } from '@/domain/database/dbFormat'
 
 const { t } = useI18n()
 

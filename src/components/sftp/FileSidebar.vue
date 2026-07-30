@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FileEntry } from '../../env.d.ts'
 import { useSftpNavigation } from '../../composables/sftp/useSftpNavigation'
 import { useSftpDirTree } from '../../composables/sftp/useSftpDirTree'
 import { useTransfers, ensureTransferListeners } from '../../composables/sftp/useTransfers'
-import { useContextMenu } from '../../composables/useContextMenu'
+import { useContextMenu } from '@/composables/shared/useContextMenu'
 import { useSessionState } from '../../composables/session/useSessionState'
 import { useSftpUpload } from '../../composables/sftp/useSftpUpload'
 import { useSftpFileActions } from '../../composables/sftp/useSftpFileActions'
+import {
+  clearSftpFollowPausedByContainer,
+  isSftpFollowPausedByContainer,
+} from '../../composables/sftp/sftpFollowPause'
 import type { TerminalPwdTracker } from '../../composables/terminal/useTerminalPwd'
 import SftpDirTree from './SftpDirTree.vue'
 import SftpToolbar from './SftpToolbar.vue'
@@ -72,6 +77,22 @@ const {
   resolvePath,
   cleanRemotePath,
 } = useSftpNavigation(() => props.sessionId, pwdTracker)
+
+/** In-flight guard for toolbar / path actions (covers tree refresh after readdir). */
+const actionBusy = ref(false)
+/** Click lock only — do not drive toolbar opacity (that made the whole bar flash). */
+const actionLocked = computed(() => loading.value || actionBusy.value)
+
+/** Ignore re-entrant clicks while an SFTP action is still running. */
+async function runExclusive(fn: () => Promise<void>): Promise<void> {
+  if (actionBusy.value || loading.value) return
+  actionBusy.value = true
+  try {
+    await fn()
+  } finally {
+    actionBusy.value = false
+  }
+}
 
 /** 资源管理器式目录树：懒加载、跟随路径展开、不自动收起 */
 const dirTree = useSftpDirTree(() => props.sessionId)
@@ -202,15 +223,17 @@ watch(
 )
 
 async function onTreeSelectDir(path: string) {
-  if (!path || loading.value) return
+  if (!path || loading.value || actionBusy.value) return
   showPathInput.value = false
   if (path === currentPath.value) {
     await dirTree.expand(path)
     return
   }
   // loadDirectory + followPath reflow the tree; SftpDirTree locks scroll on click.
-  await loadDirectory(path)
-  saveCurrentState()
+  await runExclusive(async () => {
+    await loadDirectory(path)
+    saveCurrentState()
+  })
 }
 
 async function onTreeToggle(path: string) {
@@ -310,35 +333,44 @@ async function handleNavigate(entry: FileEntry) {
 }
 
 async function handleSyncCwd() {
-  // One-shot: live terminal pwd → navigate SFTP → force-refresh ancestors so
-  // dirs created in the shell (mkdir && cd) actually appear in the tree.
-  const ok = await syncCwdForce()
-  const path = currentPath.value
-  if (path) {
-    dirTree.ingestListing(path, files.value)
-    await dirTree.refreshPathChain(path)
-  }
-  if (!ok && !error.value) {
-    error.value = t('sftp.cannotGetCwd')
-  }
-  saveCurrentState()
+  // Jump to tracked terminal cwd and scroll it into view.
+  // Avoid full-chain force readdir (that made the whole tree "flash refresh").
+  // Missing segments still re-fetch via followPath's smart force; use 刷新 for a full reload.
+  await runExclusive(async () => {
+    const ok = await syncCwdForce()
+    const path = currentPath.value
+    if (path) {
+      if (files.value.length) {
+        dirTree.ingestListing(path, files.value)
+      }
+      // Expand ancestors if collapsed; only readdir when cache is missing a segment.
+      await dirTree.followPath(path)
+      fileListRef.value?.revealPath(path)
+    }
+    if (!ok && !error.value) {
+      error.value = t('sftp.cannotGetCwd')
+    }
+    saveCurrentState()
+  })
 }
 
 async function handleRefresh() {
-  const path = currentPath.value
-  // Always clear "连接已断开" and force SFTP re-init attempt when not ready
-  if (!sftpReady.value) {
-    error.value = ''
-  }
-  const ok = await refresh()
-  if (ok && path) {
-    dirTree.ingestListing(path, files.value)
-    // Force ancestors too: parent cache is why new shell-created dirs stayed hidden.
-    await dirTree.refreshPathChain(path)
-    error.value = ''
-  } else if (path) {
-    await dirTree.refreshPathChain(path)
-  }
+  await runExclusive(async () => {
+    const path = currentPath.value
+    // Always clear "连接已断开" and force SFTP re-init attempt when not ready
+    if (!sftpReady.value) {
+      error.value = ''
+    }
+    const ok = await refresh()
+    if (ok && path) {
+      dirTree.ingestListing(path, files.value)
+      // Force ancestors too: parent cache is why new shell-created dirs stayed hidden.
+      await dirTree.refreshPathChain(path)
+      error.value = ''
+    } else if (path) {
+      await dirTree.refreshPathChain(path)
+    }
+  })
 }
 
 async function handleSessionReconnected(sessionId: string) {
@@ -371,8 +403,56 @@ function handleFileListKeydown(e: KeyboardEvent) {
 }
 
 async function handleToggleFollow() {
-  await toggleFollowTerminalPath()
+  await runExclusive(async () => {
+    await toggleFollowTerminalPath()
+    // User explicitly re-enabled follow after a container pause.
+    if (followTerminalPath.value) {
+      clearSftpFollowPausedByContainer(props.sessionId)
+      const path = currentPath.value
+      if (path) {
+        // Same as locate: path may already match terminal cwd → no watch fire.
+        await dirTree.followPath(path)
+        fileListRef.value?.revealPath(path)
+      }
+    }
+    saveCurrentState()
+  })
+}
+
+async function handlePathSubmit() {
+  await runExclusive(async () => {
+    await submitPathInput()
+    saveCurrentState()
+  })
+}
+
+async function handleUploadFolder() {
+  await runExclusive(async () => {
+    await pickAndUploadDirectory()
+  })
+}
+
+/** Apply host-only follow pause (docker exec, etc.). */
+function applyContainerFollowPause(showToast: boolean) {
+  if (!followTerminalPath.value) return
+  followTerminalPath.value = false
   saveCurrentState()
+  if (showToast) {
+    ElMessage.info(t('sftp.followPausedContainer'))
+  }
+}
+
+/** Terminal entered docker/k8s/etc. — SFTP stays on host; stop following cwd. */
+function onPauseFollowEvent(e: Event) {
+  const d = (e as CustomEvent<{ sessionId?: string; reason?: string }>).detail
+  if (!d?.sessionId || d.sessionId !== props.sessionId) return
+  applyContainerFollowPause(d.reason === 'container')
+}
+
+/** Sidebar may open after docker exec — honor session-level pause flag. */
+function applyPendingContainerFollowPause() {
+  if (!isSftpFollowPausedByContainer(props.sessionId)) return
+  applyContainerFollowPause(false)
 }
 
 function onContextMenuDownload(entry: FileEntry) {
@@ -490,6 +570,7 @@ watch(() => props.sessionId, async (newId, oldId) => {
   if (newId) {
     bindSessionClosedListener(newId)
     if (loadSavedState(newId)) {
+      applyPendingContainerFollowPause()
       await initPwdTrackerAndSync()
       await reloadRestoredDirectory()
       saveCurrentState()
@@ -497,6 +578,7 @@ watch(() => props.sessionId, async (newId, oldId) => {
     }
     resetState()
     await initSftp()
+    applyPendingContainerFollowPause()
     await initPwdTrackerAndSync()
     saveCurrentState()
   }
@@ -508,12 +590,15 @@ onMounted(async () => {
   await loadDownloadConflict()
   bindConflictSettingsListener()
   window.addEventListener('sftp-upload-complete', onUploadCompleteEvent)
+  window.addEventListener('sftp-pause-follow', onPauseFollowEvent)
 
   if (!loadSavedState(props.sessionId)) {
     await initSftp()
+    applyPendingContainerFollowPause()
     await initPwdTrackerAndSync()
     saveCurrentState()
   } else {
+    applyPendingContainerFollowPause()
     await initPwdTrackerAndSync()
     await reloadRestoredDirectory()
     saveCurrentState()
@@ -527,6 +612,7 @@ onBeforeUnmount(() => {
   resetDragState()
   unbindConflictSettingsListener()
   window.removeEventListener('sftp-upload-complete', onUploadCompleteEvent)
+  window.removeEventListener('sftp-pause-follow', onPauseFollowEvent)
 })
 
 defineExpose({ handleTerminalCd, clearSessionState })
@@ -549,11 +635,12 @@ defineExpose({ handleTerminalCd, clearSessionState })
         <SftpToolbar
           :active-transfers="activeTransfers"
           :follow-terminal-path="followTerminalPath"
+          :locked="actionLocked"
           @sync-cwd="handleSyncCwd"
           @refresh="handleRefresh"
           @search="toggleFileSearch"
           @open-transfers="activeTab = 'transfers'"
-          @upload-folder="pickAndUploadDirectory"
+          @upload-folder="handleUploadFolder"
           @toggle-follow="handleToggleFollow"
           @close="emit('close')"
         />
@@ -561,11 +648,12 @@ defineExpose({ handleTerminalCd, clearSessionState })
           :current-path="currentPath || ''"
           :path-input="pathInput"
           :show-path-input="showPathInput"
+          :locked="actionLocked"
           @update:path-input="pathInput = $event"
           @toggle="togglePathInput()"
-          @submit="submitPathInput"
+          @submit="handlePathSubmit"
           @cancel="cancelPathInput"
-          @blur-submit="submitPathInput"
+          @blur-submit="handlePathSubmit"
         />
       </div>
 

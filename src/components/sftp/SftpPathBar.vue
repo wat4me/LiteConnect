@@ -9,6 +9,8 @@ const props = defineProps<{
   currentPath: string
   pathInput: string
   showPathInput: boolean
+  /** Ignore path edit / jump while SFTP action is in flight (no visual dim). */
+  locked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,6 +20,16 @@ const emit = defineEmits<{
   (e: 'cancel'): void
   (e: 'blur-submit'): void
 }>()
+
+function onToggle() {
+  if (props.locked) return
+  emit('toggle')
+}
+
+function onSubmit() {
+  if (props.locked) return
+  emit('submit')
+}
 
 const pathInputRef = ref<HTMLInputElement | null>(null)
 const pathDisplayRef = ref<HTMLElement | null>(null)
@@ -80,11 +92,11 @@ function onBlur() {
       ref="pathDisplayRef"
       class="path-display"
       :title="displayPath"
-      @click="emit('toggle')"
+      @click="onToggle"
     >
       <span class="path-display-text">{{ displayPath }}</span>
     </div>
-    <form v-else class="path-inline-form" @submit.prevent="emit('submit')">
+    <form v-else class="path-inline-form" @submit.prevent="onSubmit">
       <input
         ref="pathInputRef"
         v-model="localInput"
@@ -101,7 +113,7 @@ function onBlur() {
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost path-action-btn"
       :title="t('sftp.editPath')"
-      @click.stop="emit('toggle')"
+      @click.stop="onToggle"
     >
       <AppIcon name="edit" size="xs" />
     </button>
@@ -111,7 +123,7 @@ function onBlur() {
       class="ui-icon-btn ui-icon-btn-ghost path-action-btn confirm"
       :title="t('sftp.go')"
       @mousedown.prevent
-      @click="emit('submit')"
+      @click="onSubmit"
     >
       <AppIcon name="check" size="xs" />
     </button>

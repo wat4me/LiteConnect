@@ -2,7 +2,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { FileEntry } from '../../env.d.ts'
-import { formatSize } from '../../utils/format'
+import { formatSize } from '@/utils/shared/format'
 import FileTypeIcon from './FileTypeIcon.vue'
 import AppIcon from '../icons/AppIcon.vue'
 

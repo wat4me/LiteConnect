@@ -275,7 +275,7 @@ export function registerSettingsHandlers(
   ipcMain.handle('settings:setX11AutoStartEnabled', async (_event, enabled: boolean) => {
     await ensureSettingsStoreReady()
     await settingsStore.setX11AutoStartEnabled(!!enabled)
-    const { configureX11ServerOptions } = await import('../ssh/x11Server')
+    const { configureX11ServerOptions } = await import('../ssh/x11/x11Server')
     configureX11ServerOptions({
       autoStart: settingsStore.getX11AutoStartEnabled(),
       executablePath: settingsStore.getX11ServerPath(),
@@ -291,7 +291,7 @@ export function registerSettingsHandlers(
     await ensureSettingsStoreReady()
     if (typeof path !== 'string') throw new Error('Invalid path')
     await settingsStore.setX11ServerPath(path)
-    const { configureX11ServerOptions } = await import('../ssh/x11Server')
+    const { configureX11ServerOptions } = await import('../ssh/x11/x11Server')
     configureX11ServerOptions({
       autoStart: settingsStore.getX11AutoStartEnabled(),
       executablePath: settingsStore.getX11ServerPath(),
@@ -300,7 +300,7 @@ export function registerSettingsHandlers(
 
   ipcMain.handle('settings:getX11ServerStatus', async (_event, draftExecutablePath?: string) => {
     await ensureSettingsStoreReady()
-    const { configureX11ServerOptions, getX11ServerStatus } = await import('../ssh/x11Server')
+    const { configureX11ServerOptions, getX11ServerStatus } = await import('../ssh/x11/x11Server')
     configureX11ServerOptions({
       autoStart: settingsStore.getX11AutoStartEnabled(),
       executablePath: settingsStore.getX11ServerPath(),
@@ -318,7 +318,7 @@ export function registerSettingsHandlers(
       opts?: { executablePath?: string; host?: string; display?: number },
     ) => {
       await ensureSettingsStoreReady()
-      const { configureX11ServerOptions, testX11ServerReady } = await import('../ssh/x11Server')
+      const { configureX11ServerOptions, testX11ServerReady } = await import('../ssh/x11/x11Server')
       // Keep live config in sync with saved settings; draft path is applied only for this test.
       configureX11ServerOptions({
         autoStart: settingsStore.getX11AutoStartEnabled(),
@@ -344,9 +344,7 @@ export function registerSettingsHandlers(
   ipcMain.handle(
     'settings:killResidualX11Process',
     async (_event, payload?: { pid?: number; port?: number }) => {
-      const { findListeningPortOwner, killPortOwnerProcess, formatPortOwnerLabel } = await import(
-        '../ssh/x11PortOwner'
-      )
+      const { findListeningPortOwner, killPortOwnerProcess, formatPortOwnerLabel } = await import('../ssh/x11/x11PortOwner')
       const { t: mt } = await import('../i18n')
       const port =
         payload && typeof payload.port === 'number' && Number.isInteger(payload.port)

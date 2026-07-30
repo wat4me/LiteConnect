@@ -3,7 +3,7 @@ import { ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nex
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import '@xterm/xterm/css/xterm.css'
-import type { Theme, CustomColors } from '../../composables/useTheme'
+import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
 import { useCommandBuffer } from '../../composables/terminal/useCommandBuffer'
 import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
@@ -18,27 +18,29 @@ import {
   suggestCompletionSuffix,
   type ShellHistoryEntry,
   type ShellSuggestItem,
-} from '../../utils/shellCommandSuggest'
-import { looksLikeFailedShellOutput } from '../../utils/shellHistoryEligibility'
+} from '@/utils/terminal/shellCommandSuggest'
+import { looksLikeFailedShellOutput } from '@/utils/terminal/shellHistoryEligibility'
+import { isContainerEnterCommand } from '@/utils/docker/containerEnterCommand'
+import { markSftpFollowPausedByContainer } from '../../composables/sftp/sftpFollowPause'
 import TerminalCommandSuggest from './TerminalCommandSuggest.vue'
 import {
   clearAutoReconnectAttempts,
   noteAutoReconnectAttempt,
 } from '../../composables/session/useAutoReconnectBudget'
-import { appConfirm } from '../../composables/useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import AppIcon from '../icons/AppIcon.vue'
 import {
   buildPastePreview,
   countPasteLines,
   shouldConfirmPaste,
-} from '../../utils/terminalPaste'
-import { isNonRetryableSshError } from '../../utils/sshErrorRetry'
-import { focusLiveTerminal } from '../../utils/workspaceTerminalFocus'
-import { computeEffectiveTerminalActive } from '../../utils/terminalResizePolicy'
+} from '@/utils/terminal/terminalPaste'
+import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
+import { focusLiveTerminal } from '@/utils/terminal/workspaceTerminalFocus'
+import { computeEffectiveTerminalActive } from '@/utils/terminal/terminalResizePolicy'
 import TerminalSearchBar from './TerminalSearchBar.vue'
 import TerminalReconnectOverlay from './TerminalReconnectOverlay.vue'
-import { fitFixedElement } from '../../utils/popupPosition'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+import { fitFixedElement } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const props = withDefaults(
   defineProps<{
@@ -157,11 +159,21 @@ const {
   cancelPendingSubmit,
   resetCommandBuffer,
   getVisibleCommandLine,
+  extractCommandFromVisibleLine,
 } = useCommandBuffer({
   getTerminal,
   onCdCommand: (cmd) => emit('cdCommand', props.sessionId, cmd),
   onSubmitted: (cmd) => {
     suggestDismissed.value = false
+    if (cmd?.trim() && isContainerEnterCommand(cmd)) {
+      // SFTP is host FS only — pause follow so container cwd does not drag the file tree.
+      markSftpFollowPausedByContainer(props.sessionId)
+      window.dispatchEvent(
+        new CustomEvent('sftp-pause-follow', {
+          detail: { sessionId: props.sessionId, reason: 'container' },
+        }),
+      )
+    }
     if (!commandSuggestEnabled.value) return
     if (!cmd || !cmd.trim()) return
     scheduleHistorySniff(cmd.trim())
@@ -437,6 +449,21 @@ const {
   flushRenderBatch,
   writeToSsh: (data) => window.LiteConnect.sshWrite(props.sessionId, data),
   onPwdOutput: (pwd) => emit('pwdOutput', props.sessionId, pwd),
+  // Locate cwd injects a shell probe: save/clear/restore uncommitted input so
+  // the user does not end up with ghost text that cannot be backspaced.
+  getPendingInput: () => {
+    if (commandBufferDirty.value) {
+      return extractCommandFromVisibleLine() || commandBuffer.value
+    }
+    return commandBuffer.value
+  },
+  onLineClearedForPwd: () => {
+    resetCommandBuffer()
+  },
+  onRestorePendingInput: (text) => {
+    commandBuffer.value = text
+    commandBufferDirty.value = false
+  },
 })
 
 const {

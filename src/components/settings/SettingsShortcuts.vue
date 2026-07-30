@@ -2,8 +2,8 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { KEYBOARD_SHORTCUTS } from '../../composables/useTheme'
-import { resetAllFeatureTips } from '../../utils/featureTips'
+import { KEYBOARD_SHORTCUTS } from '@/composables/app/useTheme'
+import { resetAllFeatureTips } from '@/utils/shared/featureTips'
 
 const { t } = useI18n()
 const resetDone = ref(false)

@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DbEngine, DbSslOptions } from '../../env.d'
 import AppIcon from '../icons/AppIcon.vue'
-import type { ConnectionFormModel } from './types'
+import type { ConnectionFormModel } from '@/domain/database/types'
 import {
   ADVANCED_OPTION_KEYS,
   buildDbConnectionUrl,

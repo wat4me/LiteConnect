@@ -3,9 +3,9 @@ import AppIcon from '../icons/AppIcon.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { appConfirm, appPrompt } from '../../composables/useAppDialog'
+import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
 import type { Connection, Group, SavedCredential } from '../../env.d.ts'
-import { CONNECTION_COLOR_TAGS } from '../../utils/connectionTags'
+import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 
 const props = defineProps<{
   connection: Connection | null

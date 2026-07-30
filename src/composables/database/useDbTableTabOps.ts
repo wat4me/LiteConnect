@@ -1,10 +1,10 @@
 import type { Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbSessionInfo } from '../../env.d'
-import type { WsTab } from '../../components/database/types'
-import { getCachedDbSettings } from '../useDbSettings'
+import type { WsTab } from '@/domain/database/types'
+import { getCachedDbSettings } from '@/composables/database/useDbSettings'
 import { t } from '../../i18n'
-import { parseDbError } from '../../utils/dbErrorUi'
+import { parseDbError } from '@/utils/database/dbErrorUi'
 import {
   canGoNextPage,
   isLiveRequest,

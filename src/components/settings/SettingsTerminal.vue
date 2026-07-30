@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TerminalPreview from '../terminal/TerminalPreview.vue'
 import {
   terminalPaletteOrder,
   terminalPaletteLabels,
-  terminalFontFamilyPresets,
-} from '../../composables/useTheme'
-import type { SettingsDraft } from '../../composables/useSettingsDraft'
-import { PASTE_CONFIRM_MAX_CHARS_OPTIONS } from '../../utils/terminalPaste'
+  listInstalledFontFamilyPresets,
+  pickInstalledFontFamily,
+} from '@/composables/app/useTheme'
+import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
+import { PASTE_CONFIRM_MAX_CHARS_OPTIONS } from '@/utils/terminal/terminalPaste'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -21,6 +22,35 @@ const previewCustomColors = computed(() => ({
   bgColor: props.draft.bgColor,
   fontColor: props.draft.fontColor,
 }))
+
+/** Only fonts installed on this machine (recomputed after document.fonts.ready). */
+const availableFonts = ref(listInstalledFontFamilyPresets())
+
+async function refreshAvailableFonts() {
+  try {
+    await document.fonts?.ready
+  } catch {
+    // ignore
+  }
+  availableFonts.value = listInstalledFontFamilyPresets()
+  const next = pickInstalledFontFamily(props.draft.terminalFontFamily)
+  if (next !== props.draft.terminalFontFamily) {
+    props.draft.terminalFontFamily = next
+  }
+}
+
+onMounted(() => {
+  void refreshAvailableFonts()
+})
+
+watch(
+  () => props.draft.terminalFontFamily,
+  (v) => {
+    if (!availableFonts.value.some((f) => f.value === v)) {
+      props.draft.terminalFontFamily = pickInstalledFontFamily(v)
+    }
+  },
+)
 
 function updateFontSize(delta: number) {
   const next = props.draft.terminalFontSize + delta
@@ -47,7 +77,7 @@ function updateFontSize(delta: number) {
 
         <div class="settings-label" style="margin-top: 14px">{{ t('settingsTerminal.fontFamily') }}</div>
         <select v-model="draft.terminalFontFamily" class="settings-select">
-          <option v-for="item in terminalFontFamilyPresets" :key="item.id" :value="item.value">
+          <option v-for="item in availableFonts" :key="item.id" :value="item.value">
             {{ item.label }}
           </option>
         </select>

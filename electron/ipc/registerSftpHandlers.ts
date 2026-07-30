@@ -1,9 +1,8 @@
-import { ipcMain, nativeImage } from 'electron'
+import { ipcMain } from 'electron'
 import {
   isValidUUID,
   isValidPath,
   isStrictPath,
-  isSafeLocalPath,
 } from '../utils/validation'
 import { SSHManager } from '../ssh/manager'
 import { SFTP_EDITOR_MAX_BYTES } from '../utils/constants'
@@ -56,20 +55,6 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     return await sshManager.sftpExists(sessionId, remotePath)
-  })
-
-  /** Native drag of a local file into the OS file manager (file must already exist). */
-  ipcMain.on('sftp:startDrag', (event, filePath: string) => {
-    if (!isSafeLocalPath(filePath)) return
-    try {
-      const icon = nativeImage.createEmpty()
-      event.sender.startDrag({
-        file: filePath,
-        icon,
-      })
-    } catch (err) {
-      console.error('[sftp:startDrag]', err)
-    }
   })
 
   ipcMain.handle('sftp:readFile', async (_event, sessionId: string, remotePath: string) => {

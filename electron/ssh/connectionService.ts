@@ -1,9 +1,9 @@
 import { Client, ClientChannel, ConnectConfig } from 'ssh2'
 import * as net from 'net'
 import { v4 as uuidv4 } from 'uuid'
-import { KnownHostsStore } from './knownHosts'
+import { KnownHostsStore } from './trust/knownHosts'
 import { buildAuthFields } from './auth'
-import { createHostVerifier, type HostKeyRejectInfo } from './hostKeyVerify'
+import { createHostVerifier, type HostKeyRejectInfo } from './trust/hostKeyVerify'
 import { closeLocalForwardServers, setupLocalForwards } from './localForwards'
 import {
   attachX11Forwarding,
@@ -12,8 +12,8 @@ import {
   getX11Host,
   isX11ShellRequestError,
   probeX11Port,
-} from './x11'
-import { ensureX11ServerReady } from './x11Server'
+} from './x11/x11'
+import { ensureX11ServerReady } from './x11/x11Server'
 import { t } from '../i18n'
 import type { Connection, PendingHostKey, Session, SSHCallbacks } from './types'
 

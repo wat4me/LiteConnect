@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LiteConnect</title>
+    <meta
+      name="description"
+      content="LiteConnect：轻量多协议连接工作台。SSH 终端、SFTP、Docker、数据库与 AI，可在浏览器中体验真实布局演示。"
+    />
+    <link rel="icon" href="./assets/logo.png" type="image/png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-chrome">
+      <a class="site-brand" href="#">
+        <img src="./assets/logo.png" width="20" height="20" alt="" />
+        LiteConnect
+      </a>
+      <nav class="site-nav" aria-label="页面导航">
+        <a href="#demo">演示</a>
+        <a href="#features">功能</a>
+        <a href="#workflow">场景</a>
+        <a href="#download">下载</a>
+      </nav>
+      <div class="site-actions">
+        <a class="site-link" href="https://github.com/wat4me/LiteConnect" target="_blank" rel="noopener">GitHub</a>
+        <a class="site-btn" href="https://github.com/wat4me/LiteConnect/releases" target="_blank" rel="noopener">下载</a>
+      </div>
+    </div>
+
+    <header class="site-hero">
+      <p class="site-eyebrow">轻量 · 多协议 · 本地优先</p>
+      <h1>
+        一个应用，打通<br />
+        <span class="site-gradient">SSH · 数据库 · Docker · AI</span>
+      </h1>
+      <p class="site-lead">
+        LiteConnect 把终端、文件、容器、SQL 与 AI 收进同一工作区。下方是可交互的产品演示——布局对齐真实 App，数据为预置内容。
+      </p>
+      <div class="site-hero-cta">
+        <a class="site-btn site-btn-lg" href="#download">下载 Windows 版</a>
+        <a class="site-btn-ghost" href="#demo">体验演示</a>
+      </div>
+      <p class="site-meta">v1.0.2 · MIT 开源 · Electron + Vue 3</p>
+    </header>
+
+    <p class="site-demo-hint" id="demo">
+      点主机标签切换会话；左侧 <strong>Docker</strong> 在当前 SSH 窗口内切换 Docker 工作区；顶栏 <strong>LiteSSH ⇄ DB</strong> 切换整页数据库模块；工具栏可开关 AI / SFTP / 监控。
+    </p>
+
+    <!-- Mirrors src/App.vue shell -->
+    <div class="app-frame">
+      <div class="app-container mode-ssh" id="app" role="application" aria-label="LiteConnect 演示">
+        <!-- AppTitlebar -->
+        <header class="app-titlebar">
+          <div class="titlebar-safe">
+            <div class="titlebar-left">
+              <div class="titlebar-brand">
+                <span class="titlebar-brand-lite">Lite</span>
+                <button type="button" class="titlebar-brand-module" id="mode-toggle" aria-haspopup="menu" aria-expanded="false">
+                  <span class="titlebar-brand-mod-text" id="mode-label">SSH</span>
+                  <svg class="app-icon" data-size="xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+                </button>
+              </div>
+            </div>
+            <div class="titlebar-center">
+              <span class="titlebar-conn" id="titlebar-conn">prod-web · root@web.demo.local:22</span>
+            </div>
+            <div class="titlebar-right">
+              <button type="button" class="titlebar-icon-btn" title="快捷键" aria-label="快捷键">
+                <svg class="app-icon" data-size="sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </button>
+              <button type="button" class="titlebar-icon-btn" title="设置" aria-label="设置">
+                <svg class="app-icon" data-size="sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <!-- TabBar — only in SSH mode -->
+          <div class="workspace-top" id="workspace-top">
+            <div class="tab-bar" id="tab-bar">
+              <button type="button" class="home-btn" id="home-btn" title="连接管理" aria-label="连接管理">
+                <svg class="app-icon" data-size="md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              </button>
+              <div class="tab-separator" aria-hidden="true"></div>
+              <div class="tabs-scroll" id="host-tabs" role="tablist" aria-label="已打开连接"></div>
+              <div class="quick-connect-wrapper">
+                <button type="button" class="tab-add-btn" title="再开一个连接" aria-label="再开一个连接">
+                  <svg class="app-icon" data-size="sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+              </div>
+              <div class="spacer"></div>
+            </div>
+          </div>
+
+          <div class="app-main-body">
+            <!-- SSH workspace (SshWorkspace.vue) -->
+            <div class="workspace-content" id="ssh-workspace">
+              <aside class="left-toolbar" id="left-toolbar" role="toolbar" aria-label="工作区工具">
+                <button type="button" class="toolbar-icon-btn" data-tool="ai" title="AI 助手" aria-label="AI">
+                  <svg class="app-icon" data-size="lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path d="M12 7l1 2.5L15.5 10l-2.5 1L12 13.5 11 11l-2.5-1L11 9.5z"/></svg>
+                </button>
+                <button type="button" class="toolbar-icon-btn" data-tool="sftp" title="SFTP" aria-label="SFTP">
+                  <svg class="app-icon" data-size="lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button type="button" class="toolbar-icon-btn" data-tool="monitor" title="监控" aria-label="监控">
+                  <svg class="app-icon" data-size="lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                </button>
+                <button type="button" class="toolbar-icon-btn" data-tool="batch" title="批量命令" aria-label="批量命令">
+                  <svg class="app-icon" data-size="lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                </button>
+                <button type="button" class="toolbar-icon-btn" data-tool="snippets" title="命令片段" aria-label="命令片段">
+                  <svg class="app-icon" data-size="lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                </button>
+                <div class="toolbar-divider" role="separator" aria-hidden="true"></div>
+                <button type="button" class="toolbar-icon-btn" data-tool="docker" title="Docker" aria-label="Docker">
+                  <svg class="app-icon" data-size="lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g fill="currentColor" stroke="none"><rect x="3" y="10" width="3.2" height="3.2" rx="0.45" /><rect x="7" y="10" width="3.2" height="3.2" rx="0.45" /><rect x="11" y="10" width="3.2" height="3.2" rx="0.45" /><rect x="15" y="10" width="3.2" height="3.2" rx="0.45" /><rect x="7" y="6" width="3.2" height="3.2" rx="0.45" /><rect x="11" y="6" width="3.2" height="3.2" rx="0.45" /><rect x="11" y="2" width="3.2" height="3.2" rx="0.45" /><path d="M2 14.2h16.1c.2-1.15.9-2.05 2.05-2.55.55-.24 1.2-.3 1.85-.16-.25 1.12-.83 1.96-1.73 2.52-.42 4.45-3.76 6.75-8.92 6.75H8.7C5.15 20.76 2.55 18.42 2 14.2Z" /></g><circle cx="5.15" cy="16.3" r="0.7" fill="var(--bg-primary, #0d1117)" stroke="none" /><path d="M18.15 11.2c.25-1.15 1.05-1.95 2.25-2.25" /></svg>
+                </button>
+              </aside>
+
+              <aside class="sidebar-panel" id="side-panel" style="width: 300px" hidden></aside>
+              <div class="resize-handle" id="side-resize" hidden></div>
+
+              <div class="workspace-main">
+                <div class="terminal-host" id="terminal-host">
+                  <div class="sub-tab-bar-wrap">
+                    <div class="sub-tab-bar">
+                      <div class="sub-tabs-scroll" id="sub-tabs"></div>
+                      <div class="sub-tab-actions" id="sub-tab-actions">
+                        <button type="button" class="split-btn" title="水平分屏" aria-label="水平分屏">
+                          <svg class="app-icon" data-size="sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="12" x2="21" y2="12" /></svg>
+                        </button>
+                        <button type="button" class="split-btn" title="垂直分屏" aria-label="垂直分屏">
+                          <svg class="app-icon" data-size="sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="main-pane" id="main-pane"></div>
+                </div>
+                <div class="monitor-dock" id="monitor-dock" hidden>
+                  <div class="monitor-panel is-bottom">
+                    <div class="monitor-dock-stack">
+                      <div class="monitor-dock-bar">
+                        <div class="dock-metrics" id="monitor-metrics"></div>
+                        <div class="dock-actions">
+                          <button type="button" class="dock-details-btn">详情</button>
+                          <button type="button" class="dock-details-btn" data-close-monitor title="关闭" aria-label="关闭">
+                            <svg class="app-icon" data-size="xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Database mode: full-page DatabaseView (bk-root), not beside SSH -->
+            <div class="home-module" id="db-workspace" hidden>
+              <div id="db-shell" class="bk-root"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section class="site-section" id="features">
+      <h2 class="section-title">核心能力</h2>
+      <p class="section-lead">演示里能点到的，也是应用里日常会用到的。</p>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>SSH 终端</h3>
+          <p>多连接、多终端标签、分屏与命令片段；主机密钥指纹确认，断线自动重连，可独立窗口打开会话。</p>
+        </article>
+        <article class="feature-card">
+          <h3>SFTP 与监控</h3>
+          <p>目录浏览、上传下载与传输列表；底栏展示 CPU / 内存 / 磁盘，展开可看进程详情。</p>
+        </article>
+        <article class="feature-card">
+          <h3>Docker</h3>
+          <p>经现有 SSH 访问远端 docker.sock。容器列表筛选、启停重启、概览 / 日志 / exec 终端。</p>
+        </article>
+        <article class="feature-card">
+          <h3>数据库</h3>
+          <p>MySQL / PostgreSQL / Oracle。连接树、SQL 编辑器、结果与历史；可经 SSH 隧道连内网库。</p>
+        </article>
+        <article class="feature-card">
+          <h3>AI 助手</h3>
+          <p>OpenAI-compatible 接口。按会话隔离对话，历史保存在本地；回复中的命令可填入或发送到终端。</p>
+        </article>
+        <article class="feature-card">
+          <h3>本地与安全</h3>
+          <p>连接与凭据落在本机；敏感字段经系统 safeStorage 加密。known_hosts 管理主机密钥。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="site-section" id="workflow">
+      <h2 class="section-title">一条链路，多种场景</h2>
+      <p class="section-lead">从登录主机到查库、看容器、问 AI——不必在多个工具之间来回切换。</p>
+      <div class="workflow-grid">
+        <article class="workflow-card">
+          <span class="workflow-step">01</span>
+          <h3>本地优先</h3>
+          <p>配置与历史在本机；密码不落明文（在系统密钥环可用时）。</p>
+        </article>
+        <article class="workflow-card">
+          <span class="workflow-step">02</span>
+          <h3>经 SSH 触达内网</h3>
+          <p>数据库隧道、Docker sock、监控命令都走现有会话，不必暴露远端 TCP API。</p>
+        </article>
+        <article class="workflow-card">
+          <span class="workflow-step">03</span>
+          <h3>运维减负</h3>
+          <p>全局跳转、快捷键、命令历史补全、危险 SQL 二次确认。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="site-section site-download" id="download">
+      <div class="download-card">
+        <div>
+          <p class="site-eyebrow">开始使用</p>
+          <h2>下载 LiteConnect</h2>
+          <p>Windows x64 安装包。开源 MIT，可从 GitHub Releases 获取最新构建。</p>
+        </div>
+        <div class="download-actions">
+          <a
+            class="site-btn site-btn-lg"
+            href="https://github.com/wat4me/LiteConnect/releases"
+            target="_blank"
+            rel="noopener"
+            >GitHub Releases</a
+          >
+          <a
+            class="site-btn-ghost"
+            href="https://github.com/wat4me/LiteConnect"
+            target="_blank"
+            rel="noopener"
+            >查看源码</a
+          >
+        </div>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <img src="./assets/logo.png" width="18" height="18" alt="" />
+        LiteConnect
+      </div>
+      <p>演示数据为预置内容 · MIT License</p>
+      <a href="https://github.com/wat4me/LiteConnect" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+
+    <script src="./icons.js"></script>
+    <script src="./demo-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

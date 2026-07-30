@@ -1,3 +1,19 @@
+/**
+ * Composition root (main process).
+ *
+ * Construction order (do not casually reorder):
+ * 1. Stores + domain services (SSH interactive sessions, Docker host adapter, DB manager)
+ * 2. Register IPC handlers early so the renderer can call before stores finish init
+ * 3. Init settings (theme) before first window; other stores init after show
+ * 4. Quit / window-close teardown: monitors → docker → ssh sessions → db
+ *
+ * Three intentional SSH-related modes (keep separate):
+ * - Interactive: SSHManager (shell / SFTP / transfer / X11 / monitor)
+ * - Docker host: DockerSshSessionHost → DockerService (socket proxy only)
+ * - DB tunnel: DatabaseManager + db/tunnel (dedicated ssh2 client, not shell sessions)
+ *
+ * See ARCHITECTURE.md.
+ */
 import { app, BrowserWindow } from 'electron'
 import { CredentialStore } from './store/credentialStore'
 import { SettingsStore } from './store/settingsStore'
@@ -8,8 +24,8 @@ import { DatabaseManager } from './db/manager'
 import { SSHManager } from './ssh/manager'
 import { DockerService } from './docker/service'
 import { DockerSshSessionHost } from './docker/sshSessionHost'
-import { MonitorCollector } from './ssh/monitor'
-import { KnownHostsStore } from './ssh/knownHosts'
+import { MonitorCollector } from './ssh/monitor/monitor'
+import { KnownHostsStore } from './ssh/trust/knownHosts'
 import { createWindow } from './window/createWindow'
 import { registerStoreHandlers } from './ipc/registerStoreHandlers'
 import { registerShellCommandHistoryHandlers } from './ipc/registerShellCommandHistoryHandlers'
@@ -83,7 +99,7 @@ app.whenReady().then(async () => {
   }
 
   try {
-    const { configureX11ServerOptions } = await import('./ssh/x11Server')
+    const { configureX11ServerOptions } = await import('./ssh/x11/x11Server')
     configureX11ServerOptions({
       autoStart: settingsStore.getX11AutoStartEnabled(),
       executablePath: settingsStore.getX11ServerPath(),

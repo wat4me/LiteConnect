@@ -4,23 +4,11 @@ import type { Connection } from '../../env.d'
 import { t } from '../../i18n'
 import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
+import type { Session, ConnectionGroup } from '@/domain/session/types'
+
+export type { Session, ConnectionGroup }
 
 export const HOME_ID = '__home__'
-
-export interface Session {
-  id: string
-  connectionId: string
-  connectionName: string
-  tabNumber: number
-}
-
-export interface ConnectionGroup {
-  connectionId: string
-  connectionName: string
-  sessions: Session[]
-  activeSessionId: string | null
-  nextTabNumber: number
-}
 
 export interface SidebarDeps {
   sidebarVisible: Ref<boolean>

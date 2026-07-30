@@ -8,10 +8,10 @@ import ConnectionRow from '../components/connections/ConnectionRow.vue'
 import CredentialManagerModal from '../components/connections/CredentialManagerModal.vue'
 import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue'
 import type { Connection, Group } from '../env.d.ts'
-import { CONNECTION_COLOR_TAGS } from '../utils/connectionTags'
-import { appConfirm } from '../composables/useAppDialog'
-import { useConnectionList, UNGROUPED_ID } from '../composables/useConnectionList'
-import { useBatchTest } from '../composables/useBatchTest'
+import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import { useConnectionList, UNGROUPED_ID } from '@/composables/connections/useConnectionList'
+import { useBatchTest } from '@/composables/connections/useBatchTest'
 
 const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
 

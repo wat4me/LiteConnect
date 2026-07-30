@@ -35,6 +35,7 @@ export type AppIconName =
   | 'folder-up'
   | 'monitor'
   | 'terminal'
+  | 'crosshair'
   | 'file-text'
   | 'ai-chat'
   | 'sync'
@@ -281,6 +282,14 @@ const iconStyle = computed(() => {
     <template v-else-if="name === 'terminal'">
       <polyline points="4 17 10 11 4 5" />
       <line x1="12" y1="19" x2="20" y2="19" />
+    </template>
+    <!-- crosshair / FPS reticle — one-shot locate -->
+    <template v-else-if="name === 'crosshair'">
+      <circle cx="12" cy="12" r="8" />
+      <line x1="12" y1="2" x2="12" y2="6" />
+      <line x1="12" y1="18" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="6" y2="12" />
+      <line x1="18" y1="12" x2="22" y2="12" />
     </template>
     <!-- file-text / snippets -->
     <template v-else-if="name === 'file-text'">

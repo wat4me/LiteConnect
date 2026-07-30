@@ -2,7 +2,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { FileEntry } from '../../env.d.ts'
-import { formatSize } from '../../utils/format'
+import { formatSize } from '@/utils/shared/format'
 import { ancestorPaths } from '../../composables/sftp/useSftpDirTree'
 import { useSftpTreeScroll } from '../../composables/sftp/useSftpTreeScroll'
 import { useSftpTreeKeyboard } from '../../composables/sftp/useSftpTreeKeyboard'
@@ -85,7 +85,14 @@ const rowElements = new Map<string, HTMLElement>()
 const explorerRef = ref<HTMLElement | null>(null)
 const treeScrollRef = ref<HTMLElement | null>(null)
 let searchInputRef: HTMLInputElement | null = null
+/** Shift-range selection anchor (files) + last dir click target. */
 let lastClickedPath: string | null = null
+/**
+ * One-shot: click already has the row under the cursor; the following currentPath
+ * change should preserve scroll instead of scrollIntoView. Consumed by the path watch.
+ * (Sticky lastClickedPath used to block locate/follow reveal forever after a click.)
+ */
+let preserveScrollForPath: string | null = null
 
 const setSearchInputRef = (el: any) => {
   searchInputRef = el as HTMLInputElement | null
@@ -207,13 +214,13 @@ const {
   scheduleRestoreTreeScroll,
   focusRow,
   requestRevealPath,
+  forceRevealPath,
   tryRevealPendingPath,
   hasPendingReveal,
 } = useSftpTreeScroll({
   treeScrollRef,
   rowElements,
   cleanPath,
-  getLastClickedPath: () => lastClickedPath,
   setFocusedPath: (path) => { focusedPath.value = path },
   focusExplorer: () => { explorerRef.value?.focus({ preventScroll: true }) },
 })
@@ -269,10 +276,17 @@ function clearSelection() {
 function onDirClick(path: string) {
   // Row is under the cursor — do not scrollIntoView; lock scroll for empty-dir reflow.
   lastClickedPath = path
+  preserveScrollForPath = path
   captureTreeScroll(900)
   focusRow(path, { scroll: 'never' })
   emit('selectDir', path)
   scheduleRestoreTreeScroll()
+}
+
+/** Toolbar "locate cwd" / re-enable follow: scroll current path into view even if path unchanged. */
+function revealPath(path: string) {
+  preserveScrollForPath = null
+  forceRevealPath(path)
 }
 
 function onChevronClick(e: MouseEvent, path: string) {
@@ -342,11 +356,13 @@ watch(
     searchQuery.value = ''
     searchVisible.value = false
     focusedPath.value = path
-    // Click on already-visible row: preserve scroll during empty-dir reflow
-    if (lastClickedPath && cleanPath(lastClickedPath) === cleanPath(path)) {
+    // One-shot: this path change was caused by a row click under the cursor
+    if (preserveScrollForPath && cleanPath(preserveScrollForPath) === cleanPath(path)) {
+      preserveScrollForPath = null
       scheduleRestoreTreeScroll()
       return
     }
+    preserveScrollForPath = null
     // Terminal follow / path jump: expand then scroll current dir into view
     requestRevealPath(path)
   },
@@ -364,7 +380,7 @@ watch(
   },
 )
 
-defineExpose({ toggleSearch, handleKeydown, clearSelection })
+defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 </script>
 
 <template>

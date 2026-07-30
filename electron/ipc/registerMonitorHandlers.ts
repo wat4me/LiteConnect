@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { isValidUUID } from '../utils/validation'
-import { MonitorCollector } from '../ssh/monitor'
+import { MonitorCollector } from '../ssh/monitor/monitor'
 import { SettingsStore } from '../store/settingsStore'
 
 export function registerMonitorHandlers(

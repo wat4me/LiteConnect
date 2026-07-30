@@ -1,5 +1,5 @@
 import { computed, nextTick, ref, type ComputedRef, type Ref } from 'vue'
-import { getCachedQueryTabDefaults } from '../useDbSettings'
+import { getCachedQueryTabDefaults } from '@/composables/database/useDbSettings'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
   DbColumnInfo,
@@ -7,18 +7,18 @@ import type {
   DbSessionInfo,
   DbTableInfo,
 } from '../../env.d'
-import { filterRows, sortRows, type SqlDialect } from '../../utils/dbSql'
-import type { QueryTab, WsTab } from '../../components/database/types'
+import { filterRows, sortRows, type SqlDialect } from '@/utils/database/dbSql'
+import type { QueryTab, WsTab } from '@/domain/database/types'
 import {
   downloadTextFile,
   formatCell,
   resultToCsv,
   resultToTsv,
-} from '../../components/database/dbFormat'
+} from '@/domain/database/dbFormat'
 import { t } from '../../i18n'
-import { appConfirm } from '../useAppDialog'
-import { assessSqlRisk, shouldConfirmSqlRisk } from '../../utils/sqlRisk'
-import { parseDbError } from '../../utils/dbErrorUi'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import { assessSqlRisk, shouldConfirmSqlRisk } from '@/utils/database/sqlRisk'
+import { parseDbError } from '@/utils/database/dbErrorUi'
 import {
   bestEffortCancelQuery,
   cancelResultUi,
@@ -28,19 +28,19 @@ import {
   type RequestGenMap,
 } from './dbAsyncGuard'
 import { engineLabel } from './dbEngine'
-import { applyTxServerState } from '../../utils/txUiState'
-import { assessSqlReadOnly } from '../../utils/sqlReadOnly'
+import { applyTxServerState } from '@/utils/database/txUiState'
+import { assessSqlReadOnly } from '@/utils/database/sqlReadOnly'
 import {
   clampQueryMaxRows,
   clampQueryTimeoutMs,
   resolveQueryTabExecOptionsFromDefaults,
   sanitizeQueryTabExecOptions,
-} from '../../utils/queryTabOptions'
-import { buildExplainHistoryMeta } from '../../utils/queryHistoryLog'
+} from '@/utils/database/queryTabOptions'
+import { buildExplainHistoryMeta } from '@/utils/database/queryHistoryLog'
 import {
   nextLastFullDocExecutedSql,
   resolveQueryTabTitle,
-} from '../../utils/queryDrafts'
+} from '@/utils/database/queryDrafts'
 import { useDbSavedQueries } from './useDbSavedQueries'
 import { useDbQueryHistory } from './useDbQueryHistory'
 import { useDbQueryDrafts } from './useDbQueryDrafts'

@@ -3,13 +3,12 @@ import { nextTick, type Ref } from 'vue'
 export type FocusScrollMode = 'auto' | 'if-needed' | 'never' | 'center'
 
 /**
- * Tree scroll lock (click reflow) + reveal current path after terminal follow.
+ * Tree scroll lock (click reflow) + reveal current path after terminal follow / locate.
  */
 export function useSftpTreeScroll(deps: {
   treeScrollRef: Ref<HTMLElement | null>
   rowElements: Map<string, HTMLElement>
   cleanPath: (path: string) => string
-  getLastClickedPath: () => string | null
   setFocusedPath: (path: string) => void
   focusExplorer: () => void
 }) {
@@ -24,6 +23,11 @@ export function useSftpTreeScroll(deps: {
     if (!el) return
     lockedScrollTop = el.scrollTop
     lockScrollUntil = Date.now() + holdMs
+  }
+
+  function clearScrollLock() {
+    lockedScrollTop = null
+    lockScrollUntil = 0
   }
 
   function restoreTreeScroll() {
@@ -77,20 +81,29 @@ export function useSftpTreeScroll(deps: {
     return rowRect.top >= box.top - 2 && rowRect.bottom <= box.bottom + 2
   }
 
+  /**
+   * Scroll the path row into view once it exists in the DOM.
+   * Root `/` has no row in the tree, so it is a no-op.
+   */
   function requestRevealPath(path: string) {
     const clean = deps.cleanPath(path)
     if (clean === '/') {
       pendingRevealPath = null
       return
     }
-    const last = deps.getLastClickedPath()
-    if (last && deps.cleanPath(last) === clean) {
-      pendingRevealPath = null
-      return
-    }
+    // Intentional reveal (follow / path jump) must win over click reflow lock.
+    clearScrollLock()
     pendingRevealPath = clean
     revealAttempts = 0
     tryRevealPendingPath()
+  }
+
+  /**
+   * Same as requestRevealPath; kept for call sites that mean "user asked to locate".
+   * Always restarts the reveal attempt even if the path string did not change.
+   */
+  function forceRevealPath(path: string) {
+    requestRevealPath(path)
   }
 
   function tryRevealPendingPath() {
@@ -109,11 +122,8 @@ export function useSftpTreeScroll(deps: {
       return
     }
 
-    const last = deps.getLastClickedPath()
-    if (!(last && deps.cleanPath(last) === path)) {
-      lockedScrollTop = null
-      lockScrollUntil = 0
-    }
+    // Do not let a stale click lock fight scrollIntoView.
+    clearScrollLock()
 
     if (isRowVisible(path)) {
       deps.setFocusedPath(path)
@@ -141,6 +151,7 @@ export function useSftpTreeScroll(deps: {
     scheduleRestoreTreeScroll,
     focusRow,
     requestRevealPath,
+    forceRevealPath,
     tryRevealPendingPath,
     hasPendingReveal,
   }

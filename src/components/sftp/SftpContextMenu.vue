@@ -3,8 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { FileEntry } from '../../env.d.ts'
 import AppIcon from '../icons/AppIcon.vue'
-import { fitFixedElement } from '../../utils/popupPosition'
-import { useOutsideDismiss } from '../../composables/useOutsideDismiss'
+import { fitFixedElement } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const props = defineProps<{
   visible: boolean

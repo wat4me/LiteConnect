@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../icons/AppIcon.vue'
 import type { SavedCredential } from '../../env.d.ts'
-import { appConfirm } from '../../composables/useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 
 const { t } = useI18n()
 

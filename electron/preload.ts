@@ -413,7 +413,6 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('sftp:extractArchive', sessionId, remotePath),
   sftpExists: (sessionId: string, remotePath: string) =>
     ipcRenderer.invoke('sftp:exists', sessionId, remotePath),
-  sftpStartDrag: (localPath: string) => ipcRenderer.send('sftp:startDrag', localPath),
   sftpReadFile: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:readFile', sessionId, remotePath),
   sftpWriteFile: (sessionId: string, remotePath: string, content: string) => ipcRenderer.invoke('sftp:writeFile', sessionId, remotePath, content),
   sftpChmod: (sessionId: string, remotePath: string, mode: string, recursive?: boolean) => ipcRenderer.invoke('sftp:chmod', sessionId, remotePath, mode, recursive),

@@ -18,7 +18,7 @@ import {
   onDockerSshReconnected,
 } from '../../composables/docker/dockerWorkspaceLoadPolicy'
 import { restoreListScrollAfterRefresh } from '../../composables/docker/listScrollPreserve'
-import { appConfirm } from '../../composables/useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import type {
   DockerAvailability,
   DockerContainerAction,

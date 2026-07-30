@@ -826,7 +826,7 @@ async function loadSshManager() {
     app: { getPath: () => 'D:\\tmp\\LiteConnect-test-userdata' },
   }))
   vi.doMock('../i18n', () => ({ t: (k: string) => k }))
-  vi.doMock('../ssh/x11Server', () => ({
+  vi.doMock('../ssh/x11/x11Server', () => ({
     ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
   }))
   const { SSHManager } = await import('../ssh/manager')
@@ -1225,7 +1225,7 @@ describe('SSHManager primitives and DockerSshSessionHost (unit)', () => {
       app: { getPath: () => 'D:\\tmp\\LiteConnect-test-userdata' },
     }))
     vi.doMock('../i18n', () => ({ t: (k: string) => k }))
-    vi.doMock('../ssh/x11Server', () => ({
+    vi.doMock('../ssh/x11/x11Server', () => ({
       ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
     }))
 
@@ -1306,7 +1306,7 @@ describe('SSHManager primitives and DockerSshSessionHost (unit)', () => {
       app: { getPath: () => 'D:\\tmp\\LiteConnect-test-userdata' },
     }))
     vi.doMock('../i18n', () => ({ t: (k: string) => k }))
-    vi.doMock('../ssh/x11Server', () => ({
+    vi.doMock('../ssh/x11/x11Server', () => ({
       ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
     }))
 

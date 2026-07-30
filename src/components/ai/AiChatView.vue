@@ -3,7 +3,7 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, w
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiUsage } from '../../env.d.ts'
-import { useMarkdownRenderer, type MarkdownBlock } from '../../composables/useMarkdownRenderer'
+import { useMarkdownRenderer, type MarkdownBlock } from '@/composables/ai/useMarkdownRenderer'
 import type { ChatItem } from '../../composables/ai/useAiChat'
 import AppIcon from '../icons/AppIcon.vue'
 
