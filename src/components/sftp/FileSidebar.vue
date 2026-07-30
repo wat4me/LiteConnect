@@ -310,7 +310,17 @@ async function handleNavigate(entry: FileEntry) {
 }
 
 async function handleSyncCwd() {
-  await syncCwdForce()
+  // One-shot: live terminal pwd → navigate SFTP → force-refresh ancestors so
+  // dirs created in the shell (mkdir && cd) actually appear in the tree.
+  const ok = await syncCwdForce()
+  const path = currentPath.value
+  if (path) {
+    dirTree.ingestListing(path, files.value)
+    await dirTree.refreshPathChain(path)
+  }
+  if (!ok && !error.value) {
+    error.value = t('sftp.cannotGetCwd')
+  }
   saveCurrentState()
 }
 
@@ -323,10 +333,11 @@ async function handleRefresh() {
   const ok = await refresh()
   if (ok && path) {
     dirTree.ingestListing(path, files.value)
-    await dirTree.followPath(path)
+    // Force ancestors too: parent cache is why new shell-created dirs stayed hidden.
+    await dirTree.refreshPathChain(path)
     error.value = ''
   } else if (path) {
-    await dirTree.refreshNode(path)
+    await dirTree.refreshPathChain(path)
   }
 }
 

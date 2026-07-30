@@ -129,18 +129,70 @@ export function useSftpDirTree(sessionId: () => string) {
     await expand(clean)
   }
 
-  async function followPath(targetPath: string): Promise<void> {
+  /**
+   * Expand ancestors and load each segment.
+   *
+   * Important: if a parent listing is already cached but does not contain the
+   * next path segment (common after `mkdir && cd` in the terminal), force a
+   * readdir. Without this, the tree never renders the new directory row, so
+   * refresh / sync / scroll-to-cwd all appear broken even though SFTP itself
+   * can open the path.
+   */
+  async function followPath(targetPath: string, opts?: { forceAncestors?: boolean }): Promise<void> {
     const chain = ancestorPaths(targetPath)
     const next = new Set(expandedPaths.value)
     for (const p of chain) next.add(p)
     expandedPaths.value = next
-    for (const p of chain) {
-      await loadChildren(p)
+
+    for (let i = 0; i < chain.length; i++) {
+      const p = chain[i]
+      const childPath = chain[i + 1]
+      const cached = entriesByPath.value[p]
+      let force = !!opts?.forceAncestors && i < chain.length - 1
+      if (!force && childPath && cached) {
+        const hasChild = cached.some((e) => cleanRemotePath(e.path) === childPath)
+        if (!hasChild) force = true
+      }
+      await loadChildren(p, force)
+    }
+
+    // Belt-and-suspenders: if the leaf still is not listed under its parent
+    // (server lag / race), inject a directory placeholder so the row exists
+    // and scroll-to-path / highlight can work.
+    if (chain.length >= 2) {
+      const parent = chain[chain.length - 2]
+      const leaf = chain[chain.length - 1]
+      const kids = entriesByPath.value[parent] || []
+      if (!kids.some((e) => cleanRemotePath(e.path) === leaf)) {
+        const name = leaf === '/' ? '/' : leaf.slice(leaf.lastIndexOf('/') + 1)
+        const placeholder: FileEntry = {
+          name,
+          path: leaf,
+          isDirectory: true,
+          isSymlink: false,
+          size: 0,
+          modifyTime: 0,
+          permissions: 'drwxr-xr-x',
+        }
+        entriesByPath.value = {
+          ...entriesByPath.value,
+          [parent]: normalizeEntries(parent, [...kids, placeholder]),
+        }
+        if (entriesByPath.value[leaf] === undefined) {
+          entriesByPath.value = { ...entriesByPath.value, [leaf]: [] }
+        }
+      }
     }
   }
 
   async function refreshNode(path: string): Promise<void> {
     await loadChildren(path, true)
+  }
+
+  /** Force-readdir path and all ancestors (toolbar refresh / locate cwd). */
+  async function refreshPathChain(targetPath: string): Promise<void> {
+    await followPath(targetPath, { forceAncestors: true })
+    await loadChildren(cleanRemotePath(targetPath), true)
   }
 
   function reset(): void {
@@ -173,6 +225,7 @@ export function useSftpDirTree(sessionId: () => string) {
     toggleExpand,
     followPath,
     refreshNode,
+    refreshPathChain,
     reset,
     ingestListing,
   }

@@ -1037,33 +1037,8 @@ function focusTerminal(): boolean {
   })
 }
 
-function getTerminalContextText(maxLines = 80) {
-  const term = getTerminal()
-  return {
-    selection: term?.getSelection()?.trim() || '',
-    scrollback: (() => {
-      try {
-        // Lazy import avoided: inline serialize of last N lines
-        if (!term) return ''
-        const buffer = term.buffer.active
-        const total = buffer.length
-        const start = Math.max(0, total - Math.max(1, Math.min(maxLines, 400)))
-        const lines: string[] = []
-        for (let i = start; i < total; i++) {
-          lines.push(buffer.getLine(i)?.translateToString(true) ?? '')
-        }
-        while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
-        return lines.join('\n')
-      } catch {
-        return ''
-      }
-    })(),
-  }
-}
-
 defineExpose({
   focusTerminal,
-  getTerminalContextText,
   sessionId: props.sessionId,
 })
 </script>

@@ -3,6 +3,14 @@ import * as net from 'net'
 import { t } from '../i18n'
 import type { Connection, SSHCallbacks } from './types'
 
+export {
+  buildX11ConnectionSetupPacket,
+  isX11ConnectionSetupResponse,
+  probeX11Port,
+  probeX11PortDetailed,
+} from './x11Probe'
+export type { X11ProbeReason, X11ProbeResult } from './x11Probe'
+
 export function getX11Host(connection: Connection): string {
   return connection.x11Host?.trim() || '127.0.0.1'
 }
@@ -30,26 +38,6 @@ export function isX11ShellRequestError(message: string | undefined | null): bool
   // bare "… X11 …" from ssh2 Client shell callback
   if (/\bx11\b/i.test(msg)) return true
   return false
-}
-
-export function probeX11Port(host: string, port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket()
-    socket.setTimeout(2000)
-    socket.once('connect', () => {
-      socket.destroy()
-      resolve(true)
-    })
-    socket.once('error', () => {
-      socket.destroy()
-      resolve(false)
-    })
-    socket.once('timeout', () => {
-      socket.destroy()
-      resolve(false)
-    })
-    socket.connect(port, host)
-  })
 }
 
 export function destroyX11Sockets(sockets?: Set<net.Socket>) {

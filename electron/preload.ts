@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   setX11ServerPath: (path: string) => ipcRenderer.invoke('settings:setX11ServerPath', path),
   getX11ServerStatus: (draftExecutablePath?: string) =>
     ipcRenderer.invoke('settings:getX11ServerStatus', draftExecutablePath),
+  testX11Server: (opts?: { executablePath?: string; host?: string; display?: number }) =>
+    ipcRenderer.invoke('settings:testX11Server', opts),
+  killResidualX11Process: (opts?: { pid?: number; port?: number }) =>
+    ipcRenderer.invoke('settings:killResidualX11Process', opts),
   getBundledX11InstallerStatus: () => ipcRenderer.invoke('settings:getBundledX11InstallerStatus'),
   installBundledX11Server: () => ipcRenderer.invoke('settings:installBundledX11Server'),
   selectX11ServerExecutable: () => ipcRenderer.invoke('settings:selectX11ServerExecutable'),
@@ -110,9 +114,26 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   aiChat: (messages: any[]) => ipcRenderer.invoke('ai:chat', messages),
   aiChatStream: (requestId: string, messages: any[]) => ipcRenderer.invoke('ai:chatStream', requestId, messages),
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
+  aiGenerateConversationTitle: (payload: {
+    userText: string
+    assistantText?: string
+    sessionId?: string
+    threadId?: string
+  }) => ipcRenderer.invoke('ai:generateConversationTitle', payload),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
   setAiSessionStore: (sessionId: string, store: any) => ipcRenderer.invoke('ai:setSessionStore', sessionId, store),
+  aiSetThreadTitle: (sessionId: string, threadId: string, title: string) =>
+    ipcRenderer.invoke('ai:setThreadTitle', sessionId, threadId, title),
+  aiCreateConversation: (
+    sessionId: string,
+    payload: {
+      threadId?: string
+      messages?: any[]
+      title?: string
+      titleGenerated?: boolean
+    },
+  ) => ipcRenderer.invoke('ai:createConversation', sessionId, payload),
   appendAiSessionHistory: (sessionId: string, record: any) => ipcRenderer.invoke('ai:appendSessionHistory', sessionId, record),
   clearAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:clearSessionHistory', sessionId),
   onAiChatStream: (requestId: string, callback: (payload: any) => void) => {

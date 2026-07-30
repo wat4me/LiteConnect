@@ -53,8 +53,31 @@ declare global {
         platform: string
         supported: boolean
       }>
+      testX11Server: (opts?: {
+        executablePath?: string
+        host?: string
+        display?: number
+      }) => Promise<{
+        ready: boolean
+        started: boolean
+        host: string
+        port: number
+        display: number
+        message?: string
+        executablePath?: string
+        portOccupiedNotX11?: boolean
+        portOwner?: {
+          pid: number
+          name: string
+          kind: 'xserver_residual' | 'other' | 'unknown'
+        }
+      }>
+      killResidualX11Process: (opts?: {
+        pid?: number
+        port?: number
+      }) => Promise<{ ok: boolean; process: string; pid: number }>
       getBundledX11InstallerStatus: () => Promise<{ available: boolean }>
-      installBundledX11Server: () => Promise<{ started: boolean }>
+      installBundledX11Server: () => Promise<{ started: boolean; cancelled?: boolean }>
       selectX11ServerExecutable: () => Promise<string | null>
 
       getRecentConnections: () => Promise<Connection[]>
@@ -114,9 +137,31 @@ declare global {
       aiChat: (messages: AiChatMessage[]) => Promise<AiChatResult>
       aiChatStream: (requestId: string, messages: AiChatMessage[]) => Promise<AiChatResult>
       aiAbortChatStream: (requestId: string) => Promise<boolean>
+      aiGenerateConversationTitle: (payload: {
+        userText: string
+        assistantText?: string
+        sessionId?: string
+        threadId?: string
+      }) => Promise<{ title: string }>
       getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
       getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
       setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
+      /** Patch one thread title under a per-session write lock (safe during 新开对话). */
+      aiSetThreadTitle: (
+        sessionId: string,
+        threadId: string,
+        title: string,
+      ) => Promise<{ ok: boolean }>
+      /** Atomically flush current thread + open empty thread (main-process lock). */
+      aiCreateConversation: (
+        sessionId: string,
+        payload: {
+          threadId?: string
+          messages?: AiHistoryRecord[]
+          title?: string
+          titleGenerated?: boolean
+        },
+      ) => Promise<AiSessionStore>
       appendAiSessionHistory: (sessionId: string, record: AiHistoryRecord) => Promise<void>
       clearAiSessionHistory: (sessionId: string) => Promise<void>
       onAiChatStream: (requestId: string, callback: (payload: AiChatStreamPayload) => void) => () => void
@@ -922,6 +967,8 @@ export interface AiHistoryRecord {
 export interface AiConversationThread {
   id: string
   title: string
+  /** True after model-generated title; provisional first-user-message titles stay false. */
+  titleGenerated?: boolean
   createdAt: number
   updatedAt: number
   messages: AiHistoryRecord[]
@@ -936,6 +983,7 @@ export interface AiSessionStore {
 export interface AiThreadSummary {
   id: string
   title: string
+  titleGenerated?: boolean
   createdAt: number
   updatedAt: number
   messageCount: number

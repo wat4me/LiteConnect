@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { appConfirm } from '../composables/useAppDialog'
+import type { SettingsTabId } from '../composables/useAppNavigation'
 import AppIcon from '../components/icons/AppIcon.vue'
 import { useSettingsDraft } from '../composables/useSettingsDraft'
 import SettingsAppearance from '../components/settings/SettingsAppearance.vue'
@@ -10,13 +11,18 @@ import SettingsDatabase from '../components/settings/SettingsDatabase.vue'
 import SettingsNetwork from '../components/settings/SettingsNetwork.vue'
 import SettingsShortcuts from '../components/settings/SettingsShortcuts.vue'
 
+const props = defineProps<{
+  /** Open a specific tab (e.g. deep-link from X11 install prompt). */
+  initialTab?: SettingsTabId
+}>()
+
 const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
 const { t } = useI18n()
 
-type SettingsTab = 'appearance' | 'terminal' | 'database' | 'network' | 'shortcuts'
+type SettingsTab = SettingsTabId
 
 const {
   draft,
@@ -31,7 +37,14 @@ const {
   cloneDraft,
 } = useSettingsDraft()
 
-const activeTab = ref<SettingsTab>('appearance')
+const activeTab = ref<SettingsTab>(props.initialTab || 'appearance')
+
+watch(
+  () => props.initialTab,
+  (tab) => {
+    if (tab) activeTab.value = tab
+  },
+)
 
 const tabs = computed(() => [
   { id: 'appearance' as const, label: t('settings.tabs.appearance'), desc: t('settings.tabs.appearanceDesc') },

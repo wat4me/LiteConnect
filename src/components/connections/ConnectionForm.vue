@@ -16,6 +16,8 @@ const emit = defineEmits<{
   (e: 'saved', connection: Connection): void
   (e: 'cancel'): void
   (e: 'credential-saved'): void
+  /** Open app settings (e.g. network tab to install VcXsrv). */
+  (e: 'open-settings', tab?: 'network'): void
 }>()
 
 const { t } = useI18n()
@@ -180,13 +182,20 @@ async function handleSave() {
     try {
       const x11Status = await window.LiteConnect.getX11ServerStatus()
       if (x11Status.supported && !x11Status.resolvedExecutablePath) {
-        await appConfirm({
+        const action = await appConfirm({
           title: t('connectionForm.graphicalForwarding'),
-          message: t('x11.notFound'),
-          confirmText: t('common.save'),
+          message: t('x11.notFoundPrompt'),
+          confirmText: t('connectionForm.goInstallX11'),
+          tertiaryText: t('connectionForm.saveAnyway'),
           cancelText: t('common.cancel'),
           tone: 'warning',
         })
+        if (action === 'confirm') {
+          // Leave the form open so the user can save after installing.
+          emit('open-settings', 'network')
+          return
+        }
+        // action === 'tertiary' → save anyway
       }
     } catch (err) {
       // A cancelled warning must leave the form open; an unavailable status

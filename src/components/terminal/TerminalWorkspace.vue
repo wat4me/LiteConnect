@@ -98,26 +98,8 @@ function focusActiveTerminal(): boolean {
   )
 }
 
-function getActiveTerminalContext(maxLines = 80): {
-  selection: string
-  scrollback: string
-} {
-  const sid = props.activeSession?.id
-  if (!sid) return { selection: '', scrollback: '' }
-  const tab = terminalTabRefs.get(sid) as
-    | (TerminalTabExpose & {
-        getTerminalContextText?: (n?: number) => { selection: string; scrollback: string }
-      })
-    | undefined
-  if (tab && typeof tab.getTerminalContextText === 'function') {
-    return tab.getTerminalContextText(maxLines)
-  }
-  return { selection: '', scrollback: '' }
-}
-
 defineExpose({
   focusActiveTerminal,
-  getActiveTerminalContext,
 })
 
 const terminalContainerRef = ref<HTMLElement | null>(null)

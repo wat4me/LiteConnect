@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildX11ServerArgs, candidateX11ExecutablePaths } from './x11Server'
+import {
+  buildX11ServerArgs,
+  candidateX11ExecutablePaths,
+  isChildProcessAlive,
+} from './x11Server'
+import type { ChildProcess } from 'child_process'
 
 describe('x11Server candidates', () => {
   it('includes custom path first when provided', () => {
@@ -22,6 +27,25 @@ describe('VcXsrv startup arguments', () => {
       '-clipboard',
       '-wgl',
       '-ac',
+      '-silent-dup-error',
     ])
+  })
+})
+
+describe('isChildProcessAlive', () => {
+  it('treats null and exited children as dead', () => {
+    expect(isChildProcessAlive(null)).toBe(false)
+    expect(
+      isChildProcessAlive({ exitCode: 1, signalCode: null, killed: false } as ChildProcess),
+    ).toBe(false)
+    expect(
+      isChildProcessAlive({ exitCode: null, signalCode: 'SIGTERM', killed: false } as ChildProcess),
+    ).toBe(false)
+  })
+
+  it('treats running child as alive', () => {
+    expect(
+      isChildProcessAlive({ exitCode: null, signalCode: null, killed: false } as ChildProcess),
+    ).toBe(true)
   })
 })

@@ -20,6 +20,7 @@ const { t } = useI18n()
 const emit = defineEmits<{
   (e: 'connect', connectionId: string): void
   (e: 'connection-saved', connection: Connection): void
+  (e: 'open-settings', tab?: 'network'): void
 }>()
 
 const props = withDefaults(defineProps<{
@@ -350,6 +351,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       :default-group-id="activeGroupId === UNGROUPED_ID ? undefined : activeGroupId || undefined"
       @saved="onFormSaved"
       @cancel="onFormCancel"
+      @open-settings="(tab) => emit('open-settings', tab)"
     />
   </div>
 </template>

@@ -34,6 +34,8 @@ type AiSessionState = {
 
 const aiSessionStates = new Map<string, AiSessionState>()
 const replyCompleteListeners = new Set<(sessionId: string) => void>()
+/** Prevent concurrent title jobs per session+thread */
+const titleGenerationInFlight = new Set<string>()
 
 function notifyReplyComplete(sessionId: string) {
   for (const listener of replyCompleteListeners) {
@@ -53,6 +55,10 @@ function titleFromMessages(messages: Array<{ role: string; content: string }>): 
   const firstUser = messages.find((m) => m.role === 'user' && m.content.trim())
   if (!firstUser) return ''
   return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
+function titleGenKey(sessionId: string, threadId: string): string {
+  return `${sessionId}::${threadId}`
 }
 
 function getAiSessionState(sessionId: string): AiSessionState {
@@ -123,21 +129,40 @@ export function useAiChat() {
       content,
       error,
       reasoningContent: result?.reasoningContent,
-      usage: result?.usage,
+      usage: plainUsage(result?.usage),
       streaming: result?.streaming,
     }
   }
 
+  /**
+   * Vue `reactive()` wraps nested objects (e.g. usage) in Proxies.
+   * Electron IPC uses structured clone and cannot clone Proxies —
+   * produces "An object could not be cloned". Always emit plain data.
+   */
+  function plainUsage(usage: AiUsage | undefined): AiUsage | undefined {
+    if (!usage || typeof usage !== 'object') return undefined
+    const out: AiUsage = {}
+    if (typeof usage.promptTokens === 'number') out.promptTokens = usage.promptTokens
+    if (typeof usage.completionTokens === 'number') out.completionTokens = usage.completionTokens
+    if (typeof usage.totalTokens === 'number') out.totalTokens = usage.totalTokens
+    if (typeof usage.reasoningTokens === 'number') out.reasoningTokens = usage.reasoningTokens
+    return Object.keys(out).length > 0 ? out : undefined
+  }
+
   function toHistoryRecord(message: ChatItem): AiHistoryRecord {
-    return {
-      id: message.id,
+    const record: AiHistoryRecord = {
+      id: String(message.id),
       role: message.role as 'user' | 'assistant',
-      content: message.content,
-      reasoningContent: message.reasoningContent,
-      usage: message.usage,
-      error: message.error,
-      createdAt: message.createdAt,
+      content: String(message.content ?? ''),
+      createdAt: Number(message.createdAt) || Date.now(),
     }
+    if (message.reasoningContent != null && message.reasoningContent !== '') {
+      record.reasoningContent = String(message.reasoningContent)
+    }
+    const usage = plainUsage(message.usage)
+    if (usage) record.usage = usage
+    if (message.error === true) record.error = true
+    return record
   }
 
   function fromHistoryRecord(record: AiHistoryRecord): ChatItem {
@@ -157,11 +182,44 @@ export function useAiChat() {
     state.loading = value
   }
 
+  /**
+   * Mirror main-process prune: keep non-empty threads + active draft only.
+   * Avoids empty "新对话" shells piling up in local thread list / next persist.
+   */
+  function pruneEmptyThreadsLocal(store: AiSessionStore): void {
+    if (!Array.isArray(store.threads)) store.threads = []
+    store.threads = store.threads.filter(
+      (thread) =>
+        (Array.isArray(thread.messages) && thread.messages.length > 0) ||
+        thread.id === store.activeThreadId,
+    )
+    if (store.threads.length === 0) {
+      const id = createThreadId()
+      store.threads = [
+        {
+          id,
+          title: '',
+          titleGenerated: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: [],
+        },
+      ]
+      store.activeThreadId = id
+      return
+    }
+    if (!store.threads.some((thread) => thread.id === store.activeThreadId)) {
+      store.activeThreadId = store.threads[0].id
+    }
+  }
+
   function syncThreadSummaries(state: AiSessionState, store: AiSessionStore) {
+    pruneEmptyThreadsLocal(store)
     const summaries: AiThreadSummary[] = store.threads
       .map((thread) => ({
         id: thread.id,
         title: thread.title || t('ai.newConversationTitle'),
+        titleGenerated: thread.titleGenerated === true,
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
         messageCount: thread.messages.length,
@@ -171,6 +229,23 @@ export function useAiChat() {
 
     state.threads.splice(0, state.threads.length, ...summaries)
     state.activeThreadId = store.activeThreadId
+  }
+
+  function resolveThreadTitle(
+    messages: Array<{ role: string; content: string }>,
+    existing: { title?: string; titleGenerated?: boolean } | undefined,
+    localSummary?: AiThreadSummary,
+  ): { title: string; titleGenerated: boolean } {
+    if (localSummary?.titleGenerated && localSummary.title?.trim()) {
+      return { title: localSummary.title.trim().slice(0, 80), titleGenerated: true }
+    }
+    if (existing?.titleGenerated && existing.title?.trim()) {
+      return { title: existing.title.trim().slice(0, 80), titleGenerated: true }
+    }
+    return {
+      title: titleFromMessages(messages) || existing?.title || '',
+      titleGenerated: false,
+    }
   }
 
   function applyThreadMessages(state: AiSessionState, thread: AiConversationThread | undefined) {
@@ -194,9 +269,12 @@ export function useAiChat() {
     if (!Array.isArray(store.threads)) store.threads = []
     if (store.threads.length === 0) {
       const threadId = state.activeThreadId || createThreadId()
+      const local = state.threads.find((t) => t.id === threadId)
+      const resolved = resolveThreadTitle(state.messages, undefined, local)
       store.threads.push({
         id: threadId,
-        title: titleFromMessages(state.messages),
+        title: resolved.title,
+        titleGenerated: resolved.titleGenerated,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
@@ -219,9 +297,18 @@ export function useAiChat() {
     active.messages = state.messages
       .filter((m) => !m.streaming)
       .map(toHistoryRecord)
-    active.title = titleFromMessages(active.messages) || active.title || ''
+    const localSummary = state.threads.find((t) => t.id === active!.id)
+    const resolved = resolveThreadTitle(active.messages, active, localSummary)
+    active.title = resolved.title
+    active.titleGenerated = resolved.titleGenerated
     active.updatedAt = Date.now()
+    pruneEmptyThreadsLocal(store)
     return store
+  }
+
+  /** Deep-clone via JSON so Vue Proxies never cross Electron IPC. */
+  function cloneForIpc<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T
   }
 
   async function persistActiveThread(sessionId: string) {
@@ -229,7 +316,7 @@ export function useAiChat() {
     state.persisting = true
     try {
       const store = await buildStoreFromState(sessionId)
-      await window.LiteConnect.setAiSessionStore(sessionId, store)
+      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
       syncThreadSummaries(state, store)
     } catch (err) {
       console.warn('Failed to persist AI session store:', err)
@@ -240,13 +327,15 @@ export function useAiChat() {
 
   async function persistMessage(sessionId: string, message: ChatItem) {
     try {
-      await window.LiteConnect.appendAiSessionHistory(sessionId, toHistoryRecord(message))
+      // toHistoryRecord already strips Proxies; cloneForIpc is a final IPC safety net
+      await window.LiteConnect.appendAiSessionHistory(sessionId, cloneForIpc(toHistoryRecord(message)))
       const state = getAiSessionState(sessionId)
       // Keep local thread title/meta roughly in sync without full reload
-      const title = titleFromMessages(state.messages)
       const current = state.threads.find((t) => t.id === state.activeThreadId)
       if (current) {
-        current.title = title || current.title
+        if (!current.titleGenerated) {
+          current.title = titleFromMessages(state.messages) || current.title
+        }
         current.updatedAt = Date.now()
         current.messageCount = state.messages.filter((m) => !m.streaming).length
         current.active = true
@@ -254,6 +343,63 @@ export function useAiChat() {
       }
     } catch (err) {
       console.warn('Failed to persist AI message:', err)
+    }
+  }
+
+  /**
+   * After the first successful assistant reply, ask the model for a short title.
+   * Non-blocking. Title HTTP is aborted when user opens a new conversation.
+   */
+  async function maybeGenerateThreadTitle(sessionId: string): Promise<void> {
+    const state = getAiSessionState(sessionId)
+    // Capture thread id + message snapshot up front — user may click 新开对话
+    // while the network request is still in flight.
+    const threadId = state.activeThreadId
+    if (!threadId) return
+
+    const summary = state.threads.find((t) => t.id === threadId)
+    if (summary?.titleGenerated) return
+
+    const firstUser = state.messages.find((m) => m.role === 'user' && m.content.trim())
+    const firstAssistant = state.messages.find(
+      (m) => m.role === 'assistant' && !m.error && !m.streaming && m.content.trim(),
+    )
+    if (!firstUser || !firstAssistant) return
+
+    const userText = firstUser.content
+    const assistantText = firstAssistant.content
+
+    const key = titleGenKey(sessionId, threadId)
+    if (titleGenerationInFlight.has(key)) return
+    titleGenerationInFlight.add(key)
+
+    try {
+      const result = await window.LiteConnect.aiGenerateConversationTitle({
+        userText,
+        assistantText,
+        sessionId,
+        threadId,
+      })
+      const clean = (result?.title || '').replace(/\s+/g, ' ').trim().slice(0, 40)
+      // Empty = soft fail / aborted; keep provisional first-user-message title
+      if (!clean) return
+
+      // Atomic title patch on disk (safe if active thread already switched)
+      const { ok } = await window.LiteConnect.aiSetThreadTitle(sessionId, threadId, clean)
+      if (!ok) return
+
+      const now = Date.now()
+      const local = state.threads.find((t) => t.id === threadId)
+      if (local) {
+        local.title = clean
+        local.titleGenerated = true
+        local.updatedAt = now
+        state.threads.sort((a, b) => b.updatedAt - a.updatedAt)
+      }
+    } catch {
+      // Soft feature — never surface toasts; provisional title stays
+    } finally {
+      titleGenerationInFlight.delete(key)
     }
   }
 
@@ -340,7 +486,8 @@ export function useAiChat() {
         } else if (payload.type === 'reasoning') {
           updateAssistantMessage({ reasoningContent: (current.reasoningContent || '') + payload.value })
         } else if (payload.type === 'usage') {
-          updateAssistantMessage({ usage: payload.value })
+          // Store a plain copy — reactive() would wrap nested objects as Proxies
+          updateAssistantMessage({ usage: plainUsage(payload.value) })
         }
       })
 
@@ -351,7 +498,7 @@ export function useAiChat() {
         updateAssistantMessage({
           content: reply.content || current.content || (aborted ? t('ai.stopped') : ''),
           reasoningContent: reply.reasoningContent || current.reasoningContent,
-          usage: reply.usage || current.usage,
+          usage: plainUsage(reply.usage || current.usage),
           error: aborted && !reply.content && !current.content ? false : current.error,
         })
       } finally {
@@ -373,7 +520,7 @@ export function useAiChat() {
           updateAssistantMessage({
             content: reply.content,
             reasoningContent: reply.reasoningContent,
-            usage: reply.usage,
+            usage: plainUsage(reply.usage),
           })
         } catch (fallbackErr: any) {
           updateAssistantMessage({
@@ -403,6 +550,10 @@ export function useAiChat() {
         state.persisting = false
         setSessionLoading(sessionId, false)
       }
+    }
+    const finalAssistant = getAssistantMessage()
+    if (finalAssistant && !finalAssistant.error && finalAssistant.content.trim()) {
+      void maybeGenerateThreadTitle(sessionId)
     }
     notifyReplyComplete(sessionId)
     return true
@@ -565,31 +716,40 @@ export function useAiChat() {
       return false
     }
 
-    // Persist current thread, then create a fresh empty one
-    const store = await buildStoreFromState(sessionId)
-    const now = Date.now()
-    const newThread: AiConversationThread = {
-      id: createThreadId(),
-      title: '',
-      createdAt: now,
-      updatedAt: now,
-      messages: [],
+    const leavingThreadId = state.activeThreadId
+    const localSummary = state.threads.find((t) => t.id === leavingThreadId)
+    const messages = state.messages
+      .filter((m) => !m.streaming)
+      .map(toHistoryRecord)
+
+    // Drop in-flight title job for the thread we are leaving (renderer side)
+    if (leavingThreadId) {
+      titleGenerationInFlight.delete(titleGenKey(sessionId, leavingThreadId))
     }
-    store.threads.push(newThread)
-    store.activeThreadId = newThread.id
 
     try {
-      await window.LiteConnect.setAiSessionStore(sessionId, store)
+      // Main process: under write lock, flush messages + abort title HTTP + push empty thread
+      // cloneForIpc: messages/usage may still carry Vue Proxies if read from reactive state
+      const store = await window.LiteConnect.aiCreateConversation(
+        sessionId,
+        cloneForIpc({
+          threadId: leavingThreadId || undefined,
+          messages,
+          title: localSummary?.title || undefined,
+          titleGenerated: localSummary?.titleGenerated === true,
+        }),
+      )
+
+      const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
+      state.activeThreadId = active?.id || ''
+      state.messages.splice(0, state.messages.length)
+      syncThreadSummaries(state, store)
+      onUpdate(state.messages)
+      return true
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.newConversationFailed'))
       return false
     }
-
-    state.activeThreadId = newThread.id
-    state.messages.splice(0, state.messages.length)
-    syncThreadSummaries(state, store)
-    onUpdate(state.messages)
-    return true
   }
 
   async function switchConversation(
@@ -612,8 +772,10 @@ export function useAiChat() {
       return false
     }
     store.activeThreadId = threadId
+    // Leaving an empty draft: drop it so it is not kept as history
+    pruneEmptyThreadsLocal(store)
     try {
-      await window.LiteConnect.setAiSessionStore(sessionId, store)
+      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.switchConversationFailed'))
       return false
@@ -643,12 +805,13 @@ export function useAiChat() {
 
     store.threads.splice(idx, 1)
     if (store.threads.length === 0) {
-      const empty = {
+      const empty: AiConversationThread = {
         id: createThreadId(),
         title: '',
+        titleGenerated: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        messages: [] as AiHistoryRecord[],
+        messages: [],
       }
       store.threads.push(empty)
       store.activeThreadId = empty.id
@@ -657,7 +820,7 @@ export function useAiChat() {
     }
 
     try {
-      await window.LiteConnect.setAiSessionStore(sessionId, store)
+      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.deleteHistoryFailed'))
       return false
@@ -681,12 +844,13 @@ export function useAiChat() {
       return false
     }
 
-    const empty = {
+    const empty: AiConversationThread = {
       id: createThreadId(),
       title: '',
+      titleGenerated: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      messages: [] as AiHistoryRecord[],
+      messages: [],
     }
     const store: AiSessionStore = {
       version: 1,
@@ -695,7 +859,7 @@ export function useAiChat() {
     }
 
     try {
-      await window.LiteConnect.setAiSessionStore(sessionId, store)
+      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.clearHistoryFailed'))
       return false

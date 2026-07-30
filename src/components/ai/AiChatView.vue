@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiUsage } from '../../env.d.ts'
@@ -54,8 +54,118 @@ watch(() => props.messages, (msgs) => {
 const copiedKey = ref('')
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
+/**
+ * KeepAlive detaches/re-attaches this panel when switching SSH sessions.
+ * Browsers reset scrollTop to 0 on re-attach, so we save/restore explicitly.
+ */
+const listRef = ref<HTMLElement | null>(null)
+/** When on, stream updates pin the viewport to the latest output (default). */
+const followLatest = ref(true)
+let savedScrollTop = 0
+let isProgrammaticScroll = false
+let scrollRaf = 0
+const NEAR_BOTTOM_PX = 48
+
+function captureScroll() {
+  const el = listRef.value
+  if (el) savedScrollTop = el.scrollTop
+}
+
+function restoreScroll() {
+  const el = listRef.value
+  if (!el) return
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  el.scrollTop = Math.min(Math.max(0, savedScrollTop), max)
+}
+
+function isNearBottom(el: HTMLElement, threshold = NEAR_BOTTOM_PX): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+}
+
+function scrollToBottom() {
+  const el = listRef.value
+  if (!el) return
+  isProgrammaticScroll = true
+  el.scrollTop = el.scrollHeight
+  savedScrollTop = el.scrollTop
+  requestAnimationFrame(() => {
+    isProgrammaticScroll = false
+  })
+}
+
+function scheduleScrollToBottom() {
+  if (!followLatest.value) return
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    scrollToBottom()
+  })
+}
+
+function onListScroll() {
+  if (isProgrammaticScroll) {
+    captureScroll()
+    return
+  }
+  captureScroll()
+  const el = listRef.value
+  if (!el) return
+  // Manual scroll away from tail pauses follow; return to bottom re-enables.
+  if (followLatest.value && !isNearBottom(el)) {
+    followLatest.value = false
+  } else if (!followLatest.value && isNearBottom(el)) {
+    followLatest.value = true
+  }
+}
+
+function toggleFollowLatest() {
+  followLatest.value = !followLatest.value
+  if (followLatest.value) {
+    void nextTick(() => scheduleScrollToBottom())
+  }
+}
+
+/** Cheap signature so streaming token updates trigger follow-scroll. */
+const messagesSignature = computed(() =>
+  props.messages
+    .map(
+      (m) =>
+        `${m.id}:${m.content.length}:${(m.reasoningContent || '').length}:${m.streaming ? 1 : 0}`,
+    )
+    .join('|'),
+)
+
+watch(
+  [messagesSignature, () => props.loading, () => props.messages.length],
+  async () => {
+    if (!followLatest.value) return
+    await nextTick()
+    scheduleScrollToBottom()
+  },
+  { immediate: true },
+)
+
+onDeactivated(() => {
+  captureScroll()
+})
+
+onActivated(() => {
+  nextTick(() => {
+    if (followLatest.value) {
+      scheduleScrollToBottom()
+      requestAnimationFrame(() => {
+        if (followLatest.value) scrollToBottom()
+      })
+      return
+    }
+    restoreScroll()
+    requestAnimationFrame(() => restoreScroll())
+  })
+})
+
 onBeforeUnmount(() => {
   if (copiedTimer) clearTimeout(copiedTimer)
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
 })
 
 function formatUsage(usage?: AiUsage): string {
@@ -86,36 +196,50 @@ async function copyText(text: string, key: string) {
 </script>
 
 <template>
-  <div class="chat-list">
-    <div v-if="messages.length === 0" class="empty-state">
-      <div class="empty-title">{{ t('ai.emptyTitle') }}</div>
-      <div class="empty-text">
-        {{ hasApiConfigured ? t('ai.emptyConfigured') : t('ai.emptyNoKey') }}
-      </div>
-      <div class="empty-actions">
-        <button v-if="!hasApiConfigured" type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="emit('open-settings')">
-          {{ t('ai.openSettings') }}
-        </button>
-        <button v-else type="button" class="ui-btn ui-btn-sm" @click="emit('open-settings')">{{ t('ai.manageModels') }}</button>
-      </div>
-      <div v-if="hasApiConfigured" class="empty-examples">
-        <button
-          v-for="(example, i) in examplePrompts"
-          :key="i"
-          type="button"
-          class="empty-example-chip"
-          @click="emit('use-example', example)"
-        >
-          {{ example }}
-        </button>
-      </div>
+  <div class="chat-shell">
+    <div class="chat-follow-bar">
+      <button
+        type="button"
+        class="follow-toggle"
+        :class="{ on: followLatest }"
+        :aria-pressed="followLatest"
+        :title="followLatest ? t('ai.followLatestOn') : t('ai.followLatestOff')"
+        @click="toggleFollowLatest"
+      >
+        <span class="follow-toggle-dot" aria-hidden="true" />
+        <span>{{ t('ai.followLatest') }}</span>
+      </button>
     </div>
-    <div
-      v-for="message in messages"
-      :key="message.id"
-      class="chat-message"
-      :class="[message.role, { error: message.error }]"
-    >
+    <div ref="listRef" class="chat-list" @scroll.passive="onListScroll">
+      <div v-if="messages.length === 0" class="empty-state">
+        <div class="empty-title">{{ t('ai.emptyTitle') }}</div>
+        <div class="empty-text">
+          {{ hasApiConfigured ? t('ai.emptyConfigured') : t('ai.emptyNoKey') }}
+        </div>
+        <div class="empty-actions">
+          <button v-if="!hasApiConfigured" type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="emit('open-settings')">
+            {{ t('ai.openSettings') }}
+          </button>
+          <button v-else type="button" class="ui-btn ui-btn-sm" @click="emit('open-settings')">{{ t('ai.manageModels') }}</button>
+        </div>
+        <div v-if="hasApiConfigured" class="empty-examples">
+          <button
+            v-for="(example, i) in examplePrompts"
+            :key="i"
+            type="button"
+            class="empty-example-chip"
+            @click="emit('use-example', example)"
+          >
+            {{ example }}
+          </button>
+        </div>
+      </div>
+      <div
+        v-for="message in messages"
+        :key="message.id"
+        class="chat-message"
+        :class="[message.role, { error: message.error }]"
+      >
       <div class="message-role-row">
         <div class="message-role">{{ message.role === 'user' ? t('ai.roleYou') : t('ai.roleAi') }}</div>
         <div v-if="!message.streaming && !loading" class="message-actions">
@@ -231,10 +355,69 @@ async function copyText(text: string, key: string) {
         Token: {{ formatUsage(message.usage) }}
       </div>
     </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.chat-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-follow-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 2px 6px;
+}
+
+.follow-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.follow-toggle:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+}
+
+.follow-toggle.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.follow-toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0.55;
+  flex: 0 0 auto;
+}
+
+.follow-toggle.on .follow-toggle-dot {
+  background: var(--accent);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .chat-list {
   flex: 1;
   min-height: 0;

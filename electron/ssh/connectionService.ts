@@ -200,7 +200,9 @@ export class ConnectionService {
         ),
       })
 
-      if (useX11) {
+      // Mutable: may drop X11 after SSH auth if local display dies during handshake
+      let activeUseX11 = useX11
+      if (activeUseX11) {
         attachX11Forwarding(client, sessionId, connection, callbacks, x11Sockets)
       }
 
@@ -242,6 +244,59 @@ export class ConnectionService {
         }, 15000)
         let shellX11FallbackTried = false
         let activeX11Notice = x11Notice
+        let shellOpenStarted = false
+
+        const openShell = (withX11: boolean) => {
+          try {
+            if (withX11) client.shell(ptyOptions, { x11: true }, handleShell)
+            else client.shell(ptyOptions, handleShell)
+          } catch (e: any) {
+            if (shellOpenTimeout) {
+              clearTimeout(shellOpenTimeout)
+              shellOpenTimeout = null
+            }
+            try {
+              client.end()
+            } catch {}
+            safeReject(new Error(`Shell error: ${e?.message || String(e)}`))
+          }
+        }
+
+        /**
+         * SSH auth can take several seconds. Re-check (and re-try auto-start) local X
+         * right before requesting X11 so we never ask the remote when VcXsrv already died —
+         * that used to surface only as "Unable to request X11" with no start-failure hint.
+         */
+        const ensureLocalXBeforeShell = async () => {
+          if (!activeUseX11) {
+            openShell(false)
+            return
+          }
+          const x11Host = getX11Host(connection)
+          const x11Display = getX11Display(connection)
+          const x11Port = 6000 + x11Display
+          if (await probeX11Port(x11Host, x11Port)) {
+            openShell(true)
+            return
+          }
+          const again = await ensureX11ServerReady(x11Host, x11Display)
+          if (again.ready) {
+            const note = again.started
+              ? `\r\n\x1b[32m[LiteConnect] ${t('x11.autoStarted', { host: x11Host, port: x11Port })}\x1b[0m\r\n`
+              : undefined
+            if (note) activeX11Notice = note
+            openShell(true)
+            return
+          }
+          // Local X still unavailable — open plain shell with a clear start-failure notice
+          activeUseX11 = false
+          destroyX11Sockets(x11Sockets)
+          const detail = again.message || t('x11.notReady')
+          activeX11Notice = `\r\n\x1b[33m[LiteConnect] ${t('x11.skipped', {
+            detail: t('x11.recheckFailed', { host: x11Host, port: x11Port, detail }),
+          })}\x1b[0m\r\n`
+          openShell(false)
+        }
 
         const handleShell = async (err: Error | undefined | null, stream: ClientChannel) => {
           if (shellOpenTimeout) {
@@ -261,8 +316,9 @@ export class ConnectionService {
           if (err) {
             const msg = err.message || String(err)
             // Local X may be up, but remote sshd refused X11 on shell open → plain shell
-            if (useX11 && !shellX11FallbackTried && isX11ShellRequestError(msg)) {
+            if (activeUseX11 && !shellX11FallbackTried && isX11ShellRequestError(msg)) {
               shellX11FallbackTried = true
+              activeUseX11 = false
               destroyX11Sockets(x11Sockets)
               const x11Host = getX11Host(connection)
               const x11Port = 6000 + getX11Display(connection)
@@ -292,14 +348,7 @@ export class ConnectionService {
                 } catch {}
                 safeReject(new Error(message))
               }, 15000)
-              try {
-                client.shell(ptyOptions, handleShell)
-              } catch (e: any) {
-                try {
-                  client.end()
-                } catch {}
-                safeReject(new Error(`Shell error: ${e?.message || msg}`))
-              }
+              openShell(false)
               return
             }
             try {
@@ -367,11 +416,19 @@ export class ConnectionService {
           safeResolve(sessionId)
         }
 
-        if (useX11) {
-          client.shell(ptyOptions, { x11: true }, handleShell)
-        } else {
-          client.shell(ptyOptions, handleShell)
-        }
+        if (shellOpenStarted) return
+        shellOpenStarted = true
+        // Defer shell open until local X is re-verified (async)
+        void ensureLocalXBeforeShell().catch((e: any) => {
+          if (shellOpenTimeout) {
+            clearTimeout(shellOpenTimeout)
+            shellOpenTimeout = null
+          }
+          try {
+            client.end()
+          } catch {}
+          safeReject(new Error(`Shell error: ${e?.message || String(e)}`))
+        })
       })
 
       client.on('error', (err) => {

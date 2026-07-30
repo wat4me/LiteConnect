@@ -183,6 +183,8 @@ type AiHistoryRecord = {
 type AiConversationThread = {
   id: string
   title: string
+  /** Model-generated title; when true, first-user-message fallback must not overwrite. */
+  titleGenerated?: boolean
   createdAt: number
   updatedAt: number
   messages: AiHistoryRecord[]
@@ -216,10 +218,69 @@ function titleFromMessages(messages: AiHistoryRecord[]): string {
   return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
+/** Clean model output into a short history title. Never throws. */
+function sanitizeGeneratedTitle(raw: string): string {
+  let s = String(raw || '').trim()
+  if (!s) return ''
+
+  // Drop fenced code / markdown noise common in model replies
+  s = s.replace(/^```[\w]*\s*/g, '').replace(/```$/g, '').trim()
+  s = s.replace(/^(标题|Title|会话标题|主题)\s*[:：]\s*/i, '')
+  s = s.replace(/^#+\s+/, '')
+  s = s.replace(/^\*\*(.+)\*\*$/s, '$1').trim()
+  s = s.replace(/^["'`「『《【\[]+|["'`」』》】\]]+$/g, '').trim()
+
+  // Prefer first non-empty line; skip pure punctuation lines
+  const line =
+    s
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !/^[\s\-—–·.•|:/\\]+$/.test(l)) || ''
+  s = line.replace(/\s+/g, ' ').trim()
+  if (s.length > 40) s = s.slice(0, 40).trim()
+
+  // Reject empty / too generic
+  if (!s || s === '新对话' || /^new\s*chat$/i.test(s)) return ''
+  // Reject if model dumped a whole paragraph (no spaces and super long CJK is ok up to 40)
+  if (s.length < 2) return ''
+  return s
+}
+
+/** Pull any usable string from a chat completion choice for title purposes. */
+function extractTitleCandidateFromChoice(choice: any, data: any): string {
+  const message = choice?.message || {}
+  const fromContent = normalizeAiContent(message.content ?? choice?.text)
+  if (fromContent.trim()) return fromContent
+
+  // Some providers put a short answer only in reasoning fields when max_tokens is tight
+  const fromReasoning = getFirstString(
+    message.reasoning_content,
+    message.reasoning,
+    message.thinking,
+    choice?.reasoning_content,
+    choice?.reasoning,
+    data?.reasoning_content,
+    data?.reasoning,
+  )
+  if (fromReasoning.trim()) {
+    // Reasoning is often long — take last short line that looks like a title
+    const lines = fromReasoning
+      .split(/\r?\n/)
+      .map((l: string) => l.trim())
+      .filter(Boolean)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const cleaned = sanitizeGeneratedTitle(lines[i])
+      if (cleaned && cleaned.length <= 40) return cleaned
+    }
+  }
+  return ''
+}
+
 function createEmptyThread(now = Date.now()): AiConversationThread {
   return {
     id: createThreadId(),
     title: '',
+    titleGenerated: false,
     createdAt: now,
     updatedAt: now,
     messages: [],
@@ -232,6 +293,47 @@ function createEmptyStore(): AiSessionStore {
     version: 1,
     activeThreadId: thread.id,
     threads: [thread],
+  }
+}
+
+/**
+ * Drop empty conversation shells that are not the active draft.
+ * Users may open AI / 新开对话 without sending; those empty threads must not pile up in history.
+ * Keeps: every thread with messages + the current active thread (even if still empty).
+ */
+function pruneEmptyThreads(store: AiSessionStore): void {
+  if (!Array.isArray(store.threads) || store.threads.length === 0) {
+    const fresh = createEmptyThread()
+    store.threads = [fresh]
+    store.activeThreadId = fresh.id
+    return
+  }
+
+  const activeId = store.activeThreadId
+  store.threads = store.threads.filter(
+    (t) => (Array.isArray(t.messages) && t.messages.length > 0) || t.id === activeId,
+  )
+
+  // Multiple empties should never share activeId; still collapse stray empties defensively
+  const emptyIds = store.threads.filter((t) => !t.messages?.length).map((t) => t.id)
+  if (emptyIds.length > 1) {
+    store.threads = store.threads.filter(
+      (t) => t.messages?.length > 0 || t.id === activeId,
+    )
+  }
+
+  if (store.threads.length === 0) {
+    const fresh = createEmptyThread()
+    store.threads = [fresh]
+    store.activeThreadId = fresh.id
+    return
+  }
+
+  if (!store.threads.some((t) => t.id === store.activeThreadId)) {
+    // Prefer a non-empty thread as active if active empty was dropped
+    const preferred =
+      store.threads.find((t) => t.messages.length > 0) || store.threads[0]
+    store.activeThreadId = preferred.id
   }
 }
 
@@ -280,6 +382,7 @@ function normalizeThread(raw: any): AiConversationThread | null {
     typeof raw.updatedAt === 'number'
       ? raw.updatedAt
       : messages[messages.length - 1]?.createdAt || createdAt
+  const titleGenerated = raw.titleGenerated === true
   const title =
     typeof raw.title === 'string' && raw.title.trim()
       ? raw.title.trim().slice(0, 80)
@@ -287,6 +390,7 @@ function normalizeThread(raw: any): AiConversationThread | null {
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : createThreadId(),
     title,
+    titleGenerated,
     createdAt,
     updatedAt,
     messages,
@@ -305,11 +409,13 @@ function normalizeSessionStore(raw: any): AiSessionStore {
     typeof raw.activeThreadId === 'string' && threads.some((t: AiConversationThread) => t.id === raw.activeThreadId)
       ? raw.activeThreadId
       : threads[0].id
-  return {
+  const store: AiSessionStore = {
     version: 1,
     activeThreadId,
     threads,
   }
+  pruneEmptyThreads(store)
+  return store
 }
 
 /** Parse JSONL; tolerate multi-line / broken records by brace-scanning objects. */
@@ -401,6 +507,7 @@ function storeFromLegacyMessages(messages: AiHistoryRecord[]): AiSessionStore {
   const thread: AiConversationThread = {
     id: createThreadId(),
     title: titleFromMessages(messages),
+    titleGenerated: false,
     createdAt: messages[0]?.createdAt || now,
     updatedAt: messages[messages.length - 1]?.createdAt || now,
     messages,
@@ -412,34 +519,113 @@ function storeFromLegacyMessages(messages: AiHistoryRecord[]): AiSessionStore {
   }
 }
 
-async function readAiSessionStore(sessionId: string): Promise<AiSessionStore> {
+async function readAiSessionStoreFromDisk(sessionId: string): Promise<{
+  store: AiSessionStore
+  /** Raw thread count before prune — used to decide whether to rewrite disk. */
+  rawThreadCount: number | null
+}> {
   const historyPath = getAiHistoryPath(sessionId)
-  if (!existsSync(historyPath)) return createEmptyStore()
+  if (!existsSync(historyPath)) {
+    return { store: createEmptyStore(), rawThreadCount: null }
+  }
   const data = await readFile(historyPath, 'utf-8')
   const trimmed = data.trim()
-  if (!trimmed) return createEmptyStore()
+  if (!trimmed) {
+    return { store: createEmptyStore(), rawThreadCount: null }
+  }
 
   try {
     const parsed = JSON.parse(trimmed)
     if (parsed && typeof parsed === 'object' && parsed.version === 1 && Array.isArray(parsed.threads)) {
-      return normalizeSessionStore(parsed)
+      return {
+        store: normalizeSessionStore(parsed),
+        rawThreadCount: parsed.threads.length,
+      }
     }
     // Single legacy message object
     if (parsed && typeof parsed === 'object' && (parsed.role === 'user' || parsed.role === 'assistant')) {
-      return storeFromLegacyMessages([normalizeAiHistoryRecord(parsed)])
+      return {
+        store: storeFromLegacyMessages([normalizeAiHistoryRecord(parsed)]),
+        rawThreadCount: 1,
+      }
     }
   } catch {
     // fall through to JSONL migration
   }
 
-  return storeFromLegacyMessages(parseLegacyMessageRecords(data))
+  const legacy = storeFromLegacyMessages(parseLegacyMessageRecords(data))
+  return { store: legacy, rawThreadCount: legacy.threads.length }
 }
 
-async function writeAiSessionStore(sessionId: string, store: AiSessionStore): Promise<void> {
+async function readAiSessionStore(sessionId: string): Promise<AiSessionStore> {
+  const { store } = await readAiSessionStoreFromDisk(sessionId)
+  return store
+}
+
+/**
+ * Load store and rewrite disk if empty non-active threads were pruned.
+ * Called when the renderer opens AI / loads history so old junk is cleaned without waiting for a send.
+ */
+async function readAiSessionStoreAndGc(sessionId: string): Promise<AiSessionStore> {
+  return runAiStoreTask(sessionId, async () => {
+    const { store, rawThreadCount } = await readAiSessionStoreFromDisk(sessionId)
+    if (rawThreadCount != null && store.threads.length < rawThreadCount) {
+      await writeAiSessionStoreUnlocked(sessionId, store)
+    }
+    return store
+  })
+}
+
+/**
+ * Serialize all AI session-store mutations per sessionId.
+ * Prevents races like: title-gen get→set overwriting a concurrent "新开对话"
+ * that added a new empty thread.
+ */
+const aiStoreWriteChains = new Map<string, Promise<unknown>>()
+
+function runAiStoreTask<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+  const prev = aiStoreWriteChains.get(sessionId) ?? Promise.resolve()
+  const next = prev.then(task, task)
+  aiStoreWriteChains.set(
+    sessionId,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  )
+  return next
+}
+
+async function writeAiSessionStoreUnlocked(sessionId: string, store: AiSessionStore): Promise<void> {
   const historyPath = getAiHistoryPath(sessionId)
   await mkdir(getAiHistoryDir(), { recursive: true })
   const normalized = normalizeSessionStore(store)
   await writeFile(historyPath, JSON.stringify(normalized, null, 0), 'utf-8')
+}
+
+async function writeAiSessionStore(sessionId: string, store: AiSessionStore): Promise<void> {
+  // Snapshot so a later mutation of the caller's object cannot change what we write
+  // once this task is queued behind other session-store work.
+  let snapshot: AiSessionStore
+  try {
+    snapshot = JSON.parse(JSON.stringify(store))
+  } catch {
+    snapshot = normalizeSessionStore(store)
+  }
+  return runAiStoreTask(sessionId, () => writeAiSessionStoreUnlocked(sessionId, snapshot))
+}
+
+/** Read-modify-write under the per-session lock. */
+async function mutateAiSessionStore(
+  sessionId: string,
+  mutator: (store: AiSessionStore) => void | Promise<void>,
+): Promise<AiSessionStore> {
+  return runAiStoreTask(sessionId, async () => {
+    const store = await readAiSessionStore(sessionId)
+    await mutator(store)
+    await writeAiSessionStoreUnlocked(sessionId, store)
+    return store
+  })
 }
 
 function getActiveThread(store: AiSessionStore): AiConversationThread {
@@ -452,25 +638,137 @@ async function readAiHistoryRecords(sessionId: string): Promise<AiHistoryRecord[
 }
 
 async function writeAiHistoryRecords(sessionId: string, records: AiHistoryRecord[]): Promise<void> {
-  const store = await readAiSessionStore(sessionId)
-  const active = getActiveThread(store)
-  active.messages = records.map((r) => normalizeAiHistoryRecord(r)).sort((a, b) => a.createdAt - b.createdAt)
-  active.title = titleFromMessages(active.messages) || active.title
-  active.updatedAt = Date.now()
-  await writeAiSessionStore(sessionId, store)
+  await mutateAiSessionStore(sessionId, (store) => {
+    const active = getActiveThread(store)
+    active.messages = records.map((r) => normalizeAiHistoryRecord(r)).sort((a, b) => a.createdAt - b.createdAt)
+    if (!active.titleGenerated) {
+      active.title = titleFromMessages(active.messages) || active.title
+    }
+    active.updatedAt = Date.now()
+  })
 }
 
 async function upsertAiHistoryRecord(sessionId: string, record: any): Promise<void> {
   const next = normalizeAiHistoryRecord(record)
-  const store = await readAiSessionStore(sessionId)
-  const active = getActiveThread(store)
-  const idx = active.messages.findIndex((r) => r.id === next.id)
-  if (idx >= 0) active.messages[idx] = next
-  else active.messages.push(next)
-  active.messages.sort((a, b) => a.createdAt - b.createdAt)
-  active.title = titleFromMessages(active.messages) || active.title
-  active.updatedAt = Date.now()
-  await writeAiSessionStore(sessionId, store)
+  await mutateAiSessionStore(sessionId, (store) => {
+    const active = getActiveThread(store)
+    const idx = active.messages.findIndex((r) => r.id === next.id)
+    if (idx >= 0) active.messages[idx] = next
+    else active.messages.push(next)
+    active.messages.sort((a, b) => a.createdAt - b.createdAt)
+    if (!active.titleGenerated) {
+      active.title = titleFromMessages(active.messages) || active.title
+    }
+    active.updatedAt = Date.now()
+  })
+}
+
+/**
+ * Patch one thread's title without replacing the whole store from a stale snapshot.
+ * Safe to call after the user already opened a new conversation.
+ */
+async function setThreadGeneratedTitle(
+  sessionId: string,
+  threadId: string,
+  title: string,
+): Promise<boolean> {
+  // Trust caller (already sanitized); only normalize whitespace / length.
+  const clean = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 40)
+  if (!clean) return false
+
+  let updated = false
+  await mutateAiSessionStore(sessionId, (store) => {
+    const thread = store.threads.find((t) => t.id === threadId)
+    if (!thread || thread.titleGenerated) return
+    thread.title = clean
+    thread.titleGenerated = true
+    thread.updatedAt = Date.now()
+    updated = true
+  })
+  return updated
+}
+
+/** In-flight title HTTP requests — aborted when user starts a new conversation. */
+const titleGenAbortByKey = new Map<string, AbortController>()
+
+function titleGenAbortKey(sessionId: string, threadId: string): string {
+  return `${sessionId}::${threadId}`
+}
+
+function abortTitleGeneration(sessionId: string, threadId?: string): void {
+  if (threadId) {
+    const key = titleGenAbortKey(sessionId, threadId)
+    const c = titleGenAbortByKey.get(key)
+    if (c) {
+      c.abort()
+      titleGenAbortByKey.delete(key)
+    }
+    return
+  }
+  for (const [key, c] of titleGenAbortByKey) {
+    if (key.startsWith(`${sessionId}::`)) {
+      c.abort()
+      titleGenAbortByKey.delete(key)
+    }
+  }
+}
+
+/**
+ * Atomically: flush current thread messages + open a fresh empty thread.
+ * Avoids renderer full-store replace racing with title-gen / append.
+ */
+async function createNewConversationAtomic(
+  sessionId: string,
+  payload: {
+    threadId?: string
+    messages?: any[]
+    title?: string
+    titleGenerated?: boolean
+  },
+): Promise<AiSessionStore> {
+  return mutateAiSessionStore(sessionId, (store) => {
+    const now = Date.now()
+    const activeId = typeof payload.threadId === 'string' && payload.threadId
+      ? payload.threadId
+      : store.activeThreadId
+    let active = store.threads.find((t) => t.id === activeId) || store.threads[0]
+
+    if (!active) {
+      active = createEmptyThread(now)
+      store.threads.push(active)
+    }
+
+    // Flush latest messages from renderer into the thread being left
+    if (Array.isArray(payload.messages)) {
+      active.messages = payload.messages
+        .map((item) => {
+          try {
+            return normalizeAiHistoryRecord(item)
+          } catch {
+            return null
+          }
+        })
+        .filter((item): item is AiHistoryRecord => Boolean(item))
+        .sort((a, b) => a.createdAt - b.createdAt)
+    }
+
+    if (payload.titleGenerated && typeof payload.title === 'string' && payload.title.trim()) {
+      active.title = payload.title.trim().slice(0, 80)
+      active.titleGenerated = true
+    } else if (!active.titleGenerated) {
+      active.title = titleFromMessages(active.messages) || active.title || ''
+    }
+    active.updatedAt = now
+
+    // Abort any in-flight title HTTP for the thread we just left
+    abortTitleGeneration(sessionId, active.id)
+
+    const fresh = createEmptyThread(now)
+    store.threads.push(fresh)
+    store.activeThreadId = fresh.id
+    // Drop any other empty shells (including a left thread that ended up with 0 messages)
+    pruneEmptyThreads(store)
+  })
 }
 
 function extractAiReasoningFromMessage(message: any): string {
@@ -548,11 +846,14 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
   })
 
   ipcMain.handle('ai:getSessionHistory', async (_event, sessionId: string) => {
-    return await readAiHistoryRecords(sessionId)
+    // GC empty shells when history is loaded
+    const store = await readAiSessionStoreAndGc(sessionId)
+    return getActiveThread(store).messages.slice()
   })
 
   ipcMain.handle('ai:getSessionStore', async (_event, sessionId: string) => {
-    return await readAiSessionStore(sessionId)
+    // GC empty shells whenever the AI panel loads / refreshes store
+    return await readAiSessionStoreAndGc(sessionId)
   })
 
   ipcMain.handle('ai:setSessionStore', async (_event, sessionId: string, store: any) => {
@@ -560,6 +861,33 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
       throw new Error('Invalid AI session id')
     }
     await writeAiSessionStore(sessionId, normalizeSessionStore(store))
+  })
+
+  ipcMain.handle(
+    'ai:setThreadTitle',
+    async (_event, sessionId: string, threadId: string, title: string) => {
+      if (!sessionId || typeof sessionId !== 'string') return { ok: false }
+      if (!threadId || typeof threadId !== 'string') return { ok: false }
+      if (typeof title !== 'string') return { ok: false }
+      try {
+        const ok = await setThreadGeneratedTitle(sessionId, threadId, title)
+        return { ok }
+      } catch {
+        return { ok: false }
+      }
+    },
+  )
+
+  ipcMain.handle('ai:createConversation', async (_event, sessionId: string, payload: any) => {
+    if (!sessionId || typeof sessionId !== 'string') {
+      throw new Error('Invalid AI session id')
+    }
+    try {
+      const store = await createNewConversationAtomic(sessionId, payload && typeof payload === 'object' ? payload : {})
+      return store
+    } catch (err: any) {
+      throw new Error(err?.message || 'Failed to create conversation')
+    }
   })
 
   ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any) => {
@@ -747,5 +1075,83 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
     controller.abort()
     activeAiStreams.delete(requestId)
     return true
+  })
+
+  /**
+   * Short non-streaming request to name a conversation.
+   * Always resolves with `{ title }` (possibly empty) — never throws, so Electron
+   * will not log "Error occurred in handler for 'ai:generateConversationTitle'".
+   * Pass sessionId+threadId to allow abort when user opens a new conversation.
+   */
+  ipcMain.handle('ai:generateConversationTitle', async (_event, payload: any) => {
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
+    const threadId = typeof payload?.threadId === 'string' ? payload.threadId : ''
+    const abortKey = sessionId && threadId ? titleGenAbortKey(sessionId, threadId) : ''
+
+    try {
+      await ensureSettingsReady()
+      const settings = settingsStore.getAiResolvedConfig()
+      if (!settings.apiKey.trim()) return { title: '' }
+
+      const userText = typeof payload?.userText === 'string' ? payload.userText.trim() : ''
+      const assistantText = typeof payload?.assistantText === 'string' ? payload.assistantText.trim() : ''
+      if (!userText) return { title: '' }
+
+      const userSlice = userText.slice(0, 400)
+      const asstSlice = assistantText.slice(0, 400)
+      const context = asstSlice
+        ? `用户：${userSlice}\n助手：${asstSlice}`
+        : `用户：${userSlice}`
+
+      // Replace any previous in-flight title request for this thread
+      if (abortKey) abortTitleGeneration(sessionId, threadId)
+
+      const controller = new AbortController()
+      if (abortKey) titleGenAbortByKey.set(abortKey, controller)
+      const timeout = setTimeout(() => controller.abort(), 20_000)
+      try {
+        const response = await fetch(getAiChatCompletionsUrl(settings.baseUrl), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: settings.model,
+            temperature: 0.2,
+            max_tokens: 128,
+            stream: false,
+            messages: [
+              {
+                role: 'user',
+                content:
+                  '请根据下面的对话写一个简短中文标题。\n' +
+                  '规则：不超过16个字；不要引号/书名号/序号/「标题：」前缀；不要解释；只输出标题一行。\n\n' +
+                  context,
+              },
+            ],
+          }),
+          signal: controller.signal,
+        })
+
+        if (!response.ok) return { title: '' }
+
+        const data = await response.json()
+        const choice = data?.choices?.[0]
+        const raw = extractTitleCandidateFromChoice(choice, data)
+        const title = sanitizeGeneratedTitle(raw)
+        return { title: title || '' }
+      } catch {
+        // Abort / network / parse — soft fail
+        return { title: '' }
+      } finally {
+        clearTimeout(timeout)
+        if (abortKey && titleGenAbortByKey.get(abortKey) === controller) {
+          titleGenAbortByKey.delete(abortKey)
+        }
+      }
+    } catch {
+      return { title: '' }
+    }
   })
 }

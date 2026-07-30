@@ -3,6 +3,8 @@ import { t } from '../i18n'
 
 export type AppDialogMode = 'confirm' | 'prompt'
 
+export type AppConfirmResult = 'confirm' | 'tertiary'
+
 export interface AppConfirmOptions {
   title: string
   message: string
@@ -10,6 +12,12 @@ export interface AppConfirmOptions {
   detail?: string
   confirmText?: string
   cancelText?: string
+  /**
+   * Optional third action between cancel and confirm
+   * (e.g. "仍然保存" while confirm goes to settings).
+   * Resolves the promise with `'tertiary'`.
+   */
+  tertiaryText?: string
   /** Use danger styling on confirm button */
   danger?: boolean
   /** 'warning' | 'danger' | 'info' — icon tone */
@@ -41,6 +49,7 @@ interface DialogState {
   detail: string
   confirmText: string
   cancelText: string
+  tertiaryText: string
   danger: boolean
   tone: 'warning' | 'danger' | 'info'
   inputValue: string
@@ -66,6 +75,7 @@ const state = reactive<DialogState>({
   detail: '',
   confirmText: t('common.ok'),
   cancelText: t('common.cancel'),
+  tertiaryText: '',
   danger: false,
   tone: 'info',
   inputValue: '',
@@ -100,6 +110,7 @@ function openBase(partial: Partial<DialogState>) {
     detail: '',
     confirmText: t('common.ok'),
     cancelText: t('common.cancel'),
+    tertiaryText: '',
     danger: false,
     tone: 'info',
     inputValue: '',
@@ -114,10 +125,10 @@ function openBase(partial: Partial<DialogState>) {
   })
 }
 
-export function appConfirm(options: AppConfirmOptions): Promise<void> {
+export function appConfirm(options: AppConfirmOptions): Promise<AppConfirmResult> {
   return new Promise((resolve, reject) => {
     pending = {
-      resolve: () => resolve(),
+      resolve: (value) => resolve((value as AppConfirmResult) || 'confirm'),
       reject,
     }
     openBase({
@@ -127,6 +138,7 @@ export function appConfirm(options: AppConfirmOptions): Promise<void> {
       detail: options.detail || '',
       confirmText: options.confirmText || (options.danger ? t('common.delete') : t('common.ok')),
       cancelText: options.cancelText || t('common.cancel'),
+      tertiaryText: options.tertiaryText || '',
       danger: !!options.danger,
       tone: options.tone || (options.danger ? 'danger' : 'warning'),
     })
@@ -184,7 +196,16 @@ export function appDialogConfirm() {
   const resolver = pending
   pending = null
   state.visible = false
-  resolver?.resolve(undefined)
+  resolver?.resolve('confirm')
+}
+
+/** Middle action for confirm dialogs that set `tertiaryText`. */
+export function appDialogTertiary() {
+  if (state.mode !== 'confirm' || !state.tertiaryText) return
+  const resolver = pending
+  pending = null
+  state.visible = false
+  resolver?.resolve('tertiary')
 }
 
 export function appDialogCancel() {

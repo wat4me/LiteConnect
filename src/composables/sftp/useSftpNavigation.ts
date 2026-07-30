@@ -217,6 +217,8 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     const tracked = terminalPath.value
     let livePwd = ''
 
+    // Prefer a live `pwd` from the shell when forcing (toolbar "locate").
+    // Optimistic cd tracking can lag or diverge after mkdir/pushd/etc.
     if (useSftpFallback) {
       try {
         livePwd = cleanRemotePath((await requestTerminalPwd(sessionId())).trim())
@@ -244,7 +246,8 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
         terminalPath.value = resolved
         if (pwdTracker) pwdTracker.setPwd(sessionId(), resolved)
 
-        if (resolved === currentPath.value) return true
+        // Always readdir (even if already on this path) so shell-created dirs
+        // show up; tree cache is refreshed by the caller via refreshPathChain.
         return await loadDirectory(resolved)
       } catch {}
     }

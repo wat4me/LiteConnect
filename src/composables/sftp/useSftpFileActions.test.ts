@@ -24,7 +24,7 @@ describe('useSftpFileActions', () => {
   let setError: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    vi.mocked(appConfirm).mockResolvedValue()
+    vi.mocked(appConfirm).mockResolvedValue('confirm')
     sftpDelete = vi.fn(async () => {})
     sftpRename = vi.fn(async () => {})
     setError = vi.fn()

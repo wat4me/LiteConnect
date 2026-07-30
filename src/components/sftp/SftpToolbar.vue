@@ -22,8 +22,13 @@ const { t } = useI18n()
 
 <template>
   <div class="navigation-actions">
-    <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.syncCwd')" @click="emit('sync-cwd')">
-      <AppIcon name="sync" size="md" />
+    <button
+      type="button"
+      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+      :title="t('sftp.locateTerminalCwd')"
+      @click="emit('sync-cwd')"
+    >
+      <AppIcon name="terminal" size="md" />
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.refresh')" @click="emit('refresh')">
       <AppIcon name="refresh" size="md" />

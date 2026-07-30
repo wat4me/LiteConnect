@@ -3,6 +3,7 @@ import { nextTick, watch, ref } from 'vue'
 import {
   appDialogCancel,
   appDialogConfirm,
+  appDialogTertiary,
   useAppDialogMutable,
 } from '../composables/useAppDialog'
 import AppIcon from './icons/AppIcon.vue'
@@ -97,6 +98,14 @@ function onInput() {
         <div class="app-dialog-actions">
           <button type="button" class="ui-btn" @click="appDialogCancel">
             {{ state.cancelText }}
+          </button>
+          <button
+            v-if="state.tertiaryText"
+            type="button"
+            class="ui-btn"
+            @click="appDialogTertiary"
+          >
+            {{ state.tertiaryText }}
           </button>
           <button
             ref="confirmRef"

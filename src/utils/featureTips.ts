@@ -1,12 +1,10 @@
 /** localStorage keys for one-shot tips / onboarding */
 
 export const ONBOARDING_TIPS_KEY = 'LiteConnect.onboardingTips.v1'
-export const TIP_AI_KEY = 'LiteConnect.tip.ai.v1'
 export const TIP_MONITOR_KEY = 'LiteConnect.tip.monitor.v1'
 
 export const ALL_FEATURE_TIP_KEYS = [
   ONBOARDING_TIPS_KEY,
-  TIP_AI_KEY,
   TIP_MONITOR_KEY,
 ] as const
 

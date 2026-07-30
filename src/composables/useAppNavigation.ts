@@ -1,11 +1,15 @@
 import { computed, ref } from 'vue'
 
+export type SettingsTabId = 'appearance' | 'terminal' | 'database' | 'network' | 'shortcuts'
+
 /**
  * Top-level module navigation: SSH / database / settings.
  * Keeps App.vue free of shell routing state.
  */
 export function useAppNavigation(deps: { onSelectHome: () => void }) {
   const showSettingsPage = ref(false)
+  /** Tab to select when SettingsView mounts / re-opens. */
+  const settingsInitialTab = ref<SettingsTabId | undefined>(undefined)
   const appMode = ref<'ssh' | 'database'>('ssh')
   const databaseMounted = ref(false)
   /** Lazy: mount terminal workspace only after first host session is needed. */
@@ -17,6 +21,12 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
 
   function closeSettingsPage() {
     showSettingsPage.value = false
+    settingsInitialTab.value = undefined
+  }
+
+  function openSettingsPage(tab?: SettingsTabId) {
+    settingsInitialTab.value = tab
+    showSettingsPage.value = true
   }
 
   function ensureSshWorkspaceMounted() {
@@ -26,6 +36,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
   /** SSH entry: forceHome returns to connection list; otherwise restore last SSH view. */
   function enterSsh(forceHome = false) {
     showSettingsPage.value = false
+    settingsInitialTab.value = undefined
     const wasSsh = appMode.value === 'ssh'
     appMode.value = 'ssh'
     if (forceHome || wasSsh) {
@@ -35,6 +46,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
 
   function enterDatabase() {
     showSettingsPage.value = false
+    settingsInitialTab.value = undefined
     appMode.value = 'database'
     databaseMounted.value = true
   }
@@ -43,12 +55,13 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     if (showSettingsPage.value) {
       void settingsViewRef.value?.requestClose()
     } else {
-      showSettingsPage.value = true
+      openSettingsPage()
     }
   }
 
   return {
     showSettingsPage,
+    settingsInitialTab,
     appMode,
     databaseMounted,
     sshWorkspaceMounted,
@@ -56,6 +69,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     isSshMode,
     isDatabaseMode,
     closeSettingsPage,
+    openSettingsPage,
     enterSsh,
     enterDatabase,
     toggleSettingsPage,

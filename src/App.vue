@@ -154,6 +154,7 @@ const {
 
 const {
   showSettingsPage,
+  settingsInitialTab,
   appMode,
   databaseMounted,
   sshWorkspaceMounted,
@@ -161,6 +162,7 @@ const {
   isSshMode,
   isDatabaseMode,
   closeSettingsPage,
+  openSettingsPage,
   enterSsh,
   enterDatabase,
   toggleSettingsPage,
@@ -650,6 +652,7 @@ onBeforeUnmount(() => {
       <SettingsView
         v-if="showSettingsPage"
         ref="settingsViewRef"
+        :initial-tab="settingsInitialTab"
         @close="closeSettingsPage"
       />
 
@@ -661,6 +664,7 @@ onBeforeUnmount(() => {
             :initial-data-pending="bootstrapPending"
             @connect="onConnect"
             @connection-saved="syncConnectionName"
+            @open-settings="openSettingsPage"
           />
         </div>
 
@@ -774,7 +778,7 @@ onBeforeUnmount(() => {
       @close="jumpPaletteVisible = false"
       @connect="(id) => { jumpPaletteVisible = false; showSettingsPage = false; appMode = 'ssh'; onQuickConnect(id) }"
       @open-home="() => { jumpPaletteVisible = false; showSettingsPage = false; enterSsh(true) }"
-      @open-settings="() => { jumpPaletteVisible = false; showSettingsPage = true }"
+      @open-settings="() => { jumpPaletteVisible = false; openSettingsPage() }"
     />
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiSettings } from '../../env.d.ts'
@@ -9,26 +9,15 @@ import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
 } from '../../utils/terminalPaste'
-import {
-  buildExplainErrorPrompt,
-  buildSuggestNextPrompt,
-} from '../../utils/aiTerminalContext'
 import { placePopupNearAnchor } from '../../utils/popupPosition'
-import type { TerminalPwdTracker } from '../../composables/terminal/useTerminalPwd'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'
-import FeatureTipBanner from '../FeatureTipBanner.vue'
-import { TIP_AI_KEY } from '../../utils/featureTips'
 
 const { t } = useI18n()
 
 const props = defineProps<{
   sessionId: string
-  connectionId?: string
-  hostLabel?: string
-  /** Live terminal selection / scrollback for context actions */
-  getTerminalContext?: () => { selection: string; scrollback: string }
   selectionRequest?: {
     id: number
     sessionId: string
@@ -36,8 +25,6 @@ const props = defineProps<{
     mode: 'send' | 'insert'
   } | null
 }>()
-
-const pwdTracker = inject<TerminalPwdTracker | null>('pwdTracker', null)
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -89,8 +76,10 @@ const hasApiConfigured = computed(() => {
 let initialLoadPromise: Promise<void> | null = null
 const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
 
+/** History panel: only threads that actually have messages (hide empty active draft). */
 const historyItems = computed(() =>
   threadSummaries.value
+    .filter((thread) => (thread.messageCount || 0) > 0)
     .slice()
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map((thread) => ({
@@ -342,67 +331,6 @@ async function handleSendText(text: string): Promise<boolean> {
   return result
 }
 
-async function collectAiContext() {
-  const term = props.getTerminalContext?.() || { selection: '', scrollback: '' }
-  const terminalText = (term.selection || term.scrollback || '').trim()
-  const source = term.selection?.trim()
-    ? ('selection' as const)
-    : terminalText
-      ? ('scrollback' as const)
-      : ('empty' as const)
-  let recentCommands: string[] = []
-  if (props.connectionId) {
-    try {
-      const hist = await window.LiteConnect.listShellCommandHistory(props.connectionId)
-      recentCommands = (hist || []).slice(0, 15).map((h) => h.command).filter(Boolean)
-    } catch {
-      recentCommands = []
-    }
-  }
-  const pwd = pwdTracker?.getPwd(props.sessionId) || null
-  return {
-    terminalText,
-    source,
-    pwd,
-    recentCommands,
-    hostLabel: props.hostLabel || '',
-  }
-}
-
-async function runQuickExplainError() {
-  if (loading.value) {
-    ElMessage.warning(t('ai.quickActionBusy'))
-    return
-  }
-  if (!hasApiConfigured.value) {
-    await openSettingsCta()
-    return
-  }
-  await ensureInitialLoad()
-  const ctx = await collectAiContext()
-  if (!ctx.terminalText && !ctx.recentCommands.length) {
-    ElMessage.info(t('ai.quickContextEmpty'))
-  }
-  await handleSendText(buildExplainErrorPrompt(ctx))
-}
-
-async function runQuickSuggestNext() {
-  if (loading.value) {
-    ElMessage.warning(t('ai.quickActionBusy'))
-    return
-  }
-  if (!hasApiConfigured.value) {
-    await openSettingsCta()
-    return
-  }
-  await ensureInitialLoad()
-  const ctx = await collectAiContext()
-  if (!ctx.terminalText && !ctx.recentCommands.length && !ctx.pwd) {
-    ElMessage.info(t('ai.quickContextEmpty'))
-  }
-  await handleSendText(buildSuggestNextPrompt(ctx))
-}
-
 async function sendMessage() {
   if (!canSend.value) return
   const content = input.value.trim()
@@ -596,31 +524,6 @@ function handleClearMessages() {
     </div>
 
     <div class="ai-body">
-      <FeatureTipBanner
-        :tip-key="TIP_AI_KEY"
-        :title="t('ai.tipTitle')"
-        :body="t('ai.tipBody')"
-      />
-      <div class="ai-quick-actions" role="toolbar" :aria-label="t('ai.title')">
-        <button
-          type="button"
-          class="ai-quick-btn"
-          :disabled="loading"
-          :title="t('ai.quickExplainErrorTitle')"
-          @click="runQuickExplainError"
-        >
-          {{ t('ai.quickExplainError') }}
-        </button>
-        <button
-          type="button"
-          class="ai-quick-btn"
-          :disabled="loading"
-          :title="t('ai.quickSuggestNextTitle')"
-          @click="runQuickSuggestNext"
-        >
-          {{ t('ai.quickSuggestNext') }}
-        </button>
-      </div>
       <AiChatView
         :messages="messages"
         :has-api-configured="hasApiConfigured"
@@ -976,45 +879,6 @@ function handleClearMessages() {
   flex-direction: column;
   overflow: hidden;
   padding: 8px 8px 0;
-}
-
-.ai-quick-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-  flex-shrink: 0;
-}
-
-.ai-quick-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary, color-mix(in srgb, var(--text-primary) 4%, transparent));
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  line-height: 1.2;
-  padding: 5px 9px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
-}
-
-.ai-quick-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.ai-quick-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ai-body :deep(.feature-tip) {
-  margin-bottom: 8px;
-}
-
-.ai-body :deep(.chat-list) {
-  padding-top: 0;
 }
 
 .ai-header-title-area {
