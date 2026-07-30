@@ -2,7 +2,7 @@
 
 LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具与 AI 对话面板，适合日常运维与开发联调。
 
-当前版本：**1.0.2**
+当前版本：**1.0.3**
 
 ## 功能
 
