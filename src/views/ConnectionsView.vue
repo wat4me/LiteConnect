@@ -10,7 +10,7 @@ import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue
 import type { Connection, Group } from '../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import { appConfirm } from '@/composables/app/useAppDialog'
-import { useConnectionList, UNGROUPED_ID } from '@/composables/connections/useConnectionList'
+import { useConnectionList } from '@/composables/connections/useConnectionList'
 import { useBatchTest } from '@/composables/connections/useBatchTest'
 
 const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
@@ -348,7 +348,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
     <ConnectionForm
       v-if="showForm"
       :connection="editingConnection"
-      :default-group-id="activeGroupId === UNGROUPED_ID ? undefined : activeGroupId || undefined"
+      :default-group-id="activeGroupId || undefined"
       @saved="onFormSaved"
       @cancel="onFormCancel"
       @open-settings="(tab) => emit('open-settings', tab)"

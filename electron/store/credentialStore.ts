@@ -64,6 +64,9 @@ export interface SavedCredential {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** Built-in default group name (user may rename later). */
+const DEFAULT_GROUP_NAME = '默认分组'
+
 export class CredentialStore {
   private connectionsPath: string
   private groupsPath: string
@@ -168,6 +171,8 @@ export class CredentialStore {
     }
 
     await this.migrateGroupField()
+    // Always keep a real default group; migrate legacy "ungrouped" connections into it.
+    await this.ensureDefaultGroupAndReassign()
     if (this.needsPasswordMigration()) {
       await this.migratePasswords()
     }
@@ -177,6 +182,69 @@ export class CredentialStore {
     if (this.needsSavedCredentialMigration()) {
       await this.migrateSavedCredentials()
     }
+  }
+
+  /** Return the default group id (creates one if needed). */
+  getDefaultGroupId(): string {
+    const def = this.groups.find((g) => g.isDefault)
+    if (def) return def.id
+    const sorted = [...this.groups].sort((a, b) => a.order - b.order)
+    if (sorted[0]) return sorted[0].id
+    // Synchronous fallback should not happen after ensureDefaultGroupAndReassign
+    return ''
+  }
+
+  /**
+   * Ensure there is exactly one isDefault group named for new installs,
+   * and every connection belongs to an existing group (no virtual "ungrouped").
+   */
+  private async ensureDefaultGroupAndReassign(): Promise<void> {
+    let dirtyGroups = false
+    let dirtyConns = false
+
+    if (this.groups.length === 0) {
+      this.groups.push({
+        id: uuidv4(),
+        name: DEFAULT_GROUP_NAME,
+        order: 0,
+        isDefault: true,
+      })
+      dirtyGroups = true
+    } else {
+      const defaults = this.groups.filter((g) => g.isDefault)
+      if (defaults.length === 0) {
+        // Prefer a group already named 默认分组, else first by order
+        const named = this.groups.find((g) => g.name === DEFAULT_GROUP_NAME)
+        const target =
+          named || [...this.groups].sort((a, b) => a.order - b.order)[0]
+        for (const g of this.groups) g.isDefault = g.id === target.id
+        dirtyGroups = true
+      } else if (defaults.length > 1) {
+        // Keep the first as sole default
+        let kept = false
+        for (const g of this.groups) {
+          if (g.isDefault) {
+            if (!kept) kept = true
+            else {
+              g.isDefault = false
+              dirtyGroups = true
+            }
+          }
+        }
+      }
+    }
+
+    const groupIds = new Set(this.groups.map((g) => g.id))
+    const fallback = this.groups.find((g) => g.isDefault)?.id || this.groups[0].id
+    for (const conn of this.connections) {
+      if (!conn.group || !groupIds.has(conn.group)) {
+        conn.group = fallback
+        dirtyConns = true
+      }
+    }
+
+    if (dirtyGroups) await this.saveGroups()
+    if (dirtyConns) await this.saveConnections()
   }
 
   private needsSavedCredentialMigration(): boolean {
@@ -471,6 +539,12 @@ export class CredentialStore {
       return next
     }
 
+    const groupIds = new Set(this.groups.map((g) => g.id))
+    const resolvedGroup =
+      encryptedConn.group && groupIds.has(encryptedConn.group as string)
+        ? (encryptedConn.group as string)
+        : this.getDefaultGroupId()
+
     if (conn.id) {
       const idx = this.connections.findIndex((c) => c.id === conn.id)
       if (idx === -1) {
@@ -479,6 +553,7 @@ export class CredentialStore {
       this.connections[idx] = applyJumpSecrets({
         ...this.connections[idx],
         ...encryptedConn,
+        group: resolvedGroup,
         updatedAt: now,
       } as Connection)
       saved = this.connections[idx]
@@ -492,6 +567,7 @@ export class CredentialStore {
         id: uuidv4(),
         port: conn.port || 22,
         order: maxOrder + 1,
+        group: resolvedGroup,
         createdAt: now,
         updatedAt: now,
       } as Connection)
@@ -509,7 +585,11 @@ export class CredentialStore {
   async updateConnectionGroup(id: string, groupId: string | undefined): Promise<Connection> {
     const idx = this.connections.findIndex((c) => c.id === id)
     if (idx === -1) throw new Error('Connection not found')
-    this.connections[idx] = { ...this.connections[idx], group: groupId, updatedAt: Date.now() }
+    const groupIds = new Set(this.groups.map((g) => g.id))
+    // null/empty/orphan → default group (no virtual ungrouped bucket)
+    const resolved =
+      groupId && groupIds.has(groupId) ? groupId : this.getDefaultGroupId()
+    this.connections[idx] = { ...this.connections[idx], group: resolved, updatedAt: Date.now() }
     await this.saveConnections()
     return this.stripPassword(this.connections[idx])
   }
@@ -649,11 +729,26 @@ export class CredentialStore {
   async deleteGroup(id: string): Promise<boolean> {
     const idx = this.groups.findIndex((g) => g.id === id)
     if (idx === -1) return false
+    const wasDefault = this.groups[idx].isDefault
     this.groups.splice(idx, 1)
 
+    // Always keep at least one real group
+    if (this.groups.length === 0) {
+      this.groups.push({
+        id: uuidv4(),
+        name: DEFAULT_GROUP_NAME,
+        order: 0,
+        isDefault: true,
+      })
+    } else if (wasDefault || !this.groups.some((g) => g.isDefault)) {
+      const next = [...this.groups].sort((a, b) => a.order - b.order)[0]
+      for (const g of this.groups) g.isDefault = g.id === next.id
+    }
+
+    const fallback = this.groups.find((g) => g.isDefault)?.id || this.groups[0].id
     for (const conn of this.connections) {
-      if (conn.group === id) {
-        conn.group = undefined
+      if (conn.group === id || !conn.group) {
+        conn.group = fallback
       }
     }
 
@@ -680,8 +775,13 @@ export class CredentialStore {
   }
 
   async setDefaultGroup(id: string | null): Promise<void> {
+    // Always keep exactly one default group (cannot clear all).
+    if (!id || !this.groups.some((g) => g.id === id)) {
+      await this.ensureDefaultGroupAndReassign()
+      return
+    }
     for (const g of this.groups) {
-      g.isDefault = id !== null && g.id === id
+      g.isDefault = g.id === id
     }
     await this.saveGroups()
   }

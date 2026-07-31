@@ -335,7 +335,7 @@ export default {
     renameGroup: '重命名分组',
     renameGroupMessage: '请输入新的分组名称',
     deleteGroupTitle: '确认删除分组',
-    deleteGroupMessage: '删除分组后，该分组下的连接将移至「未分组」。',
+    deleteGroupMessage: '删除分组后，该分组下的连接将移至默认分组。',
     moved: '已移动',
     reorderDisabled: '筛选结果中不可排序，请先清除搜索或标签筛选',
     reorderFailed: '排序失败',
@@ -986,7 +986,6 @@ export default {
     delete: '删除',
     dragToOther: '拖到其他分组',
     noMatch: '未找到匹配内容',
-    ungrouped: '未分组',
     newGroup: '新建分组',
   },
   credentials: {

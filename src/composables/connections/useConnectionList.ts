@@ -5,8 +5,6 @@ import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
 import { t } from '@/i18n'
 
-export const UNGROUPED_ID = '__ungrouped__'
-
 export function useConnectionList(options: {
   initialData?: Ref<{
     connections: Connection[]
@@ -35,24 +33,22 @@ export function useConnectionList(options: {
 
   const connectionCounts = computed(() => {
     const counts: Record<string, number> = {}
-    counts[UNGROUPED_ID] = 0
     for (const g of groups.value) {
       counts[g.id] = 0
     }
+    const fallback = groups.value.find((g) => g.isDefault)?.id || groups.value[0]?.id
     for (const conn of connections.value) {
       if (conn.group && counts[conn.group] !== undefined) {
         counts[conn.group]++
-      } else if (!conn.group) {
-        counts[UNGROUPED_ID]++
-      } else {
-        counts[UNGROUPED_ID]++
+      } else if (fallback && counts[fallback] !== undefined) {
+        // Orphan / missing group id — attribute to default until store migration runs
+        counts[fallback]++
       }
     }
     return counts
   })
 
   const activeGroupName = computed(() => {
-    if (activeGroupId.value === UNGROUPED_ID) return t('connections.ungrouped')
     const g = groups.value.find((item) => item.id === activeGroupId.value)
     return g?.name || t('connections.allConnections')
   })
@@ -60,9 +56,7 @@ export function useConnectionList(options: {
   const filteredConnections = computed(() => {
     let list = connections.value
 
-    if (activeGroupId.value === UNGROUPED_ID) {
-      list = list.filter((c) => !c.group)
-    } else if (activeGroupId.value) {
+    if (activeGroupId.value) {
       list = list.filter((c) => c.group === activeGroupId.value)
     }
 
@@ -165,7 +159,7 @@ export function useConnectionList(options: {
     } else if (groups.value.length > 0) {
       activeGroupId.value = groups.value[0].id
     } else {
-      activeGroupId.value = UNGROUPED_ID
+      activeGroupId.value = null
     }
   }
 
@@ -220,6 +214,8 @@ export function useConnectionList(options: {
   }
 
   async function onSetDefault(groupId: string | null) {
+    // Always keep one default group; ignore clear-all.
+    if (!groupId) return
     await window.LiteConnect.setDefaultGroup(groupId)
     await loadData()
   }
@@ -230,6 +226,7 @@ export function useConnectionList(options: {
   }
 
   async function onMoveConnection(connectionId: string, groupId: string | null) {
+    // Store maps empty to the real default group (no virtual ungrouped)
     await window.LiteConnect.updateConnectionGroup(connectionId, groupId || undefined)
     ElMessage.success(t('connections.moved'))
     await loadData()
@@ -322,7 +319,7 @@ export function useConnectionList(options: {
       if (result) {
         ElMessage.success(t('connections.imported', { imported: result.imported, total: result.total }))
         await loadData()
-        if (activeGroupId.value && !groups.value.some((group) => group.id === activeGroupId.value) && activeGroupId.value !== UNGROUPED_ID) {
+        if (activeGroupId.value && !groups.value.some((group) => group.id === activeGroupId.value)) {
           selectInitialGroup()
         }
       }

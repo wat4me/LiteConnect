@@ -7,8 +7,6 @@ import { getConnectionTagColor } from '@/utils/connections/connectionTags'
 
 const { t } = useI18n()
 
-const UNGROUPED_ID = '__ungrouped__'
-
 const props = defineProps<{
   groups: Group[]
   activeGroupId: string | null
@@ -36,7 +34,6 @@ const dragConnId = ref<string | null>(null)
 const dropTargetGroupId = ref<string | null>(null)
 const groupSearchQuery = ref('')
 const collapsedGroupIds = ref<Set<string>>(new Set())
-const ungroupedCollapsed = ref(false)
 
 const normalizedGroupSearchQuery = computed(() => groupSearchQuery.value.trim().toLowerCase())
 
@@ -49,22 +46,7 @@ const visibleGroups = computed(() => {
   })
 })
 
-const visibleUngroupedConnections = computed(() => {
-  const query = normalizedGroupSearchQuery.value
-  const connections = getConnectionsForGroup(UNGROUPED_ID)
-  if (!query || t('groups.ungrouped').toLowerCase().includes(query)) return connections
-  return connections.filter((conn) => matchesConnection(conn, query))
-})
-
-const showUngrouped = computed(() => {
-  const query = normalizedGroupSearchQuery.value
-  return !query || t('groups.ungrouped').toLowerCase().includes(query) || visibleUngroupedConnections.value.length > 0
-})
-
 function getConnectionsForGroup(groupId: string): Connection[] {
-  if (groupId === UNGROUPED_ID) {
-    return props.connections.filter((c) => !c.group)
-  }
   return props.connections.filter((c) => c.group === groupId)
 }
 
@@ -99,14 +81,6 @@ function toggleGroupCollapsed(groupId: string) {
     next.add(groupId)
   }
   collapsedGroupIds.value = next
-}
-
-function isUngroupedCollapsed(): boolean {
-  return !normalizedGroupSearchQuery.value && ungroupedCollapsed.value
-}
-
-function toggleUngroupedCollapsed() {
-  ungroupedCollapsed.value = !ungroupedCollapsed.value
 }
 
 function startRename(group: Group) {
@@ -217,32 +191,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   dropTargetGroupId.value = null
 }
 
-function onUngroupedDropConn(e: DragEvent) {
-  e.preventDefault()
-  const connId =
-    dragConnId.value ||
-    e.dataTransfer?.getData('application/x-lite-connect-conn') ||
-    e.dataTransfer?.getData('application/x-lite-ssh-conn')
-  if (connId) {
-    emit('moveConnection', connId, null)
-  }
-  dragConnId.value = null
-  dropTargetGroupId.value = null
-}
-
-function onUngroupedDragOverConn(e: DragEvent) {
-  const types = e.dataTransfer?.types ? Array.from(e.dataTransfer.types) : []
-  if (
-    !dragConnId.value &&
-    !types.includes('application/x-lite-connect-conn') &&
-    !types.includes('application/x-lite-ssh-conn')
-  ) {
-    return
-  }
-  e.preventDefault()
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-  dropTargetGroupId.value = UNGROUPED_ID
-}
 </script>
 
 <template>
@@ -311,8 +259,15 @@ function onUngroupedDragOverConn(e: DragEvent) {
                 <AppIcon name="edit" size="xs" />
               </button>
             </el-tooltip>
-            <el-tooltip :content="group.isDefault ? t('groups.unsetDefault') : t('groups.setDefault')" placement="right">
-              <button class="icon-btn-tiny" @click.stop="emit('setDefault', group.isDefault ? null : group.id)">
+            <el-tooltip
+              :content="group.isDefault ? t('groups.defaultGroup') : t('groups.setDefault')"
+              placement="right"
+            >
+              <button
+                class="icon-btn-tiny"
+                :disabled="group.isDefault"
+                @click.stop="!group.isDefault && emit('setDefault', group.id)"
+              >
                 <AppIcon :name="group.isDefault ? 'star-fill' : 'star'" size="xs" />
               </button>
             </el-tooltip>
@@ -352,52 +307,8 @@ function onUngroupedDragOverConn(e: DragEvent) {
         </div>
       </template>
 
-      <div v-if="visibleGroups.length === 0 && !showUngrouped" class="empty-groups">
+      <div v-if="visibleGroups.length === 0" class="empty-groups">
         {{ t('groups.noMatch') }}
-      </div>
-
-      <div
-        v-if="showUngrouped"
-        class="group-item ungrouped"
-        :class="{ active: UNGROUPED_ID === activeGroupId, 'drop-target': dropTargetGroupId === UNGROUPED_ID }"
-        @click="emit('select', UNGROUPED_ID)"
-        @dragover="onUngroupedDragOverConn"
-        @dragleave="onGroupDragLeaveConn"
-        @drop="onUngroupedDropConn"
-      >
-        <div class="group-item-content">
-          <button class="collapse-btn" @click.stop="toggleUngroupedCollapsed">
-            <AppIcon :name="isUngroupedCollapsed() ? 'chevron-right' : 'chevron-down'" size="xs" />
-          </button>
-          <span class="group-name">{{ t('groups.ungrouped') }}</span>
-          <span class="group-count">{{ connectionCounts[UNGROUPED_ID] || 0 }}</span>
-        </div>
-      </div>
-      <div v-if="showUngrouped && !isUngroupedCollapsed()" class="group-connections">
-        <div
-          v-for="conn in visibleUngroupedConnections"
-          :key="conn.id"
-          class="sidebar-conn"
-          :class="{ dragging: dragConnId === conn.id }"
-          @dblclick="emit('connect', conn.id)"
-        >
-          <span
-            class="sidebar-conn-handle"
-            draggable="true"
-            :title="t('groups.dragToOther')"
-            @dragstart.stop="onConnDragStart($event, conn.id)"
-            @dragend="onConnDragEnd"
-            @click.stop
-            @dblclick.stop
-          >
-            <AppIcon name="grip" size="xs" />
-          </span>
-          <span
-            class="sidebar-conn-dot"
-            :style="conn.colorTag ? { background: getConnectionTagColor(conn.colorTag), opacity: 1 } : undefined"
-          ></span>
-          <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
-        </div>
       </div>
     </div>
 
@@ -640,10 +551,6 @@ function onUngroupedDragOverConn(e: DragEvent) {
 
 .drop-indicator.bottom {
   bottom: -1px;
-}
-
-.ungrouped {
-  cursor: default;
 }
 
 .group-item.drop-target {

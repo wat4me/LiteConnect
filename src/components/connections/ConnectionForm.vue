@@ -96,6 +96,11 @@ onMounted(async () => {
   groups.value = loadedGroups
   savedCredentials.value = loadedCredentials
   credentialAutoFillEnabled.value = autoFillEnabled
+  const defaultGroupId =
+    props.defaultGroupId
+    || loadedGroups.find((g) => g.isDefault)?.id
+    || loadedGroups[0]?.id
+    || ''
 
   if (props.connection) {
     form.value = {
@@ -105,7 +110,7 @@ onMounted(async () => {
       username: props.connection.username,
       password,
       privateKey: props.connection.privateKey || '',
-      group: props.connection.group || '',
+      group: props.connection.group || defaultGroupId,
       note: props.connection.note || '',
       colorTag: props.connection.colorTag || '',
       keepaliveInterval: props.connection.keepaliveInterval
@@ -137,8 +142,8 @@ onMounted(async () => {
     } else if (props.connection.useAgent || (props.connection.keepaliveInterval && props.connection.keepaliveInterval !== 30000)) {
       formSection.value = 'advanced'
     }
-  } else if (props.defaultGroupId) {
-    form.value.group = props.defaultGroupId
+  } else {
+    form.value.group = defaultGroupId
   }
 
   if (!props.connection && autoFillEnabled && loadedCredentials.length > 0) {
@@ -500,8 +505,9 @@ async function toggleCredentialAutoFill() {
               <div class="form-row">
                 <label class="label">{{ t('connectionForm.group') }}</label>
                 <select v-model="form.group" class="ui-input select-input">
-                  <option value="">{{ t('connectionForm.ungrouped') }}</option>
-                  <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+                  <option v-for="g in groups" :key="g.id" :value="g.id">
+                    {{ g.name }}{{ g.isDefault ? ` (${t('groups.defaultGroup')})` : '' }}
+                  </option>
                 </select>
               </div>
               <div class="form-row">

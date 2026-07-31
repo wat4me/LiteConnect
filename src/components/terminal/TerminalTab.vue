@@ -174,7 +174,8 @@ const {
         }),
       )
     }
-    if (!commandSuggestEnabled.value) return
+    // Always record shell history (used by command suggest). Do not gate on
+    // suggest-enabled — paste/submit must still enter history when suggest is off.
     if (!cmd || !cmd.trim()) return
     scheduleHistorySniff(cmd.trim())
   },
@@ -484,6 +485,19 @@ const {
   reRunSearch,
 } = useTerminalSearch({ getTerminal, getSearchAddon })
 
+/**
+ * Send paste as normal keystrokes (CR newlines, no bracketed-paste wrappers).
+ * `terminal.paste()` wraps `\x1b[200~…\x1b[201~` when the shell enabled bracketed
+ * paste; some bash/zsh setups then do not put the line into ↑↓ history the same
+ * way as typed input. Writing plain bytes matches hand-typing for remote history.
+ */
+function pasteAsTypedInput(text: string) {
+  if (!text) return
+  // Shells expect CR for "end of line", not bare LF.
+  const payload = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r')
+  handleTerminalUserInput(payload)
+}
+
 async function pasteWithConfirm(text: string) {
   const terminal = getTerminal()
   if (!terminal || !text) return
@@ -499,7 +513,7 @@ async function pasteWithConfirm(text: string) {
         tone: 'warning',
       })
     }
-    terminal.paste(text)
+    pasteAsTypedInput(text)
   } catch {
     // User cancelled the confirmation.
   } finally {
@@ -507,6 +521,86 @@ async function pasteWithConfirm(text: string) {
     // removed the overlay/menu so the next keystroke goes to SSH immediately.
     await nextTick()
     if (props.active && getTerminal() === terminal) terminal.focus()
+  }
+}
+
+/** User keystrokes / paste → local command buffer + SSH PTY (same path for both). */
+function handleTerminalUserInput(data: string) {
+  updatePasteState(data)
+
+  if (data.length === 1 && isLocallyEchoable(data) && !isPasting()) {
+    pulseCursor()
+  }
+
+  const isSubmit = data === '\r' || data === '\n'
+  const isCancel = data === '\x03' || data === '\x15'
+  const isBackspace = data === '\x7f' || data === '\x08'
+  const isTab = data === '\t' || data === '\x09'
+  const isEscape = data.charCodeAt(0) === 0x1b
+  const hasNewline = data.includes('\r') || data.includes('\n')
+
+  // Strip bracketed-paste markers if any (legacy paste path / remote quirks).
+  const plainChunk = data
+    .replace(/\x1b\[200~/g, '')
+    .replace(/\x1b\[201~/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+
+  if (isSubmit) {
+    hideSuggest()
+    const fromBuffer = commandBuffer.value.trim()
+    capturedSubmitLine.value = fromBuffer
+      || getVisibleCommandLine().replace(/\[Pasted[^\]]*\]\s*/g, '')
+    scheduleSubmit()
+  } else if (isCancel) {
+    cancelPendingSubmit()
+    resetCommandBuffer()
+    hideSuggest()
+  } else if (isBackspace) {
+    suggestDismissed.value = false
+    if (commandBuffer.value.length > 0) commandBuffer.value = commandBuffer.value.slice(0, -1)
+  } else if (data === '\x17') {
+    suggestDismissed.value = false
+    commandBuffer.value = commandBuffer.value.replace(/\S+\s*$/, '')
+  } else if (isTab) {
+    hideSuggest()
+    commandBufferDirty.value = true
+  } else if (isLocallyEchoable(plainChunk) || (isLocallyEchoable(data) && !isPasting())) {
+    const text = isLocallyEchoable(plainChunk) ? plainChunk : data
+    suggestDismissed.value = false
+    commandBuffer.value += text
+  } else if (isEscape) {
+    if (suggestVisible.value) {
+      // Esc closes suggest only
+    } else {
+      commandBuffer.value = ''
+      commandBufferDirty.value = true
+    }
+  } else if (hasNewline) {
+    hideSuggest()
+    const normalized = plainChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const parts = normalized.split('\n')
+    if (parts[0]) {
+      commandBuffer.value += parts[0]
+    }
+    commandBufferDirty.value = true
+    if (commandBuffer.value.trim()) {
+      capturedSubmitLine.value = commandBuffer.value
+    }
+    for (const line of parts) {
+      const trimmed = line.trim()
+      if (/(?:^|[;&|]\s*)cd(?:\s|$)/.test(trimmed)) {
+        setTimeout(() => {
+          emit('cdCommand', props.sessionId, trimmed)
+        }, 50)
+      }
+    }
+    scheduleSubmit()
+  }
+
+  if (data.length > 32 || getWriteQueueLength() > 0) {
+    enqueueWrite(data, props.sessionId)
+  } else {
+    window.LiteConnect.sshWrite(props.sessionId, data)
   }
 }
 
@@ -898,69 +992,9 @@ onMounted(async () => {
 
   terminal.attachCustomKeyEventHandler(handleKey)
 
+  // Typing and paste both go through handleTerminalUserInput → same PTY bytes.
   terminal.onData((data) => {
-    updatePasteState(data)
-
-    if (data.length === 1 && isLocallyEchoable(data) && !isPasting()) {
-      pulseCursor()
-    }
-
-    const isSubmit = data === '\r' || data === '\n'
-    const isCancel = data === '\x03' || data === '\x15'
-    const isBackspace = data === '\x7f' || data === '\x08'
-    const isTab = data === '\t' || data === '\x09'
-    const isEscape = data.charCodeAt(0) === 0x1b
-    const hasNewline = data.includes('\r') || data.includes('\n')
-
-    // Track input only for cd / submit inference (no visual highlight decorations).
-    if (isSubmit) {
-      hideSuggest()
-      capturedSubmitLine.value = getVisibleCommandLine().replace(/\[Pasted[^\]]*\]\s*/g, '')
-      scheduleSubmit()
-    } else if (isCancel) {
-      cancelPendingSubmit()
-      resetCommandBuffer()
-      hideSuggest()
-    } else if (isBackspace) {
-      suggestDismissed.value = false
-      if (commandBuffer.value.length > 0) commandBuffer.value = commandBuffer.value.slice(0, -1)
-    } else if (data === '\x17') {
-      suggestDismissed.value = false
-      commandBuffer.value = commandBuffer.value.replace(/\S+\s*$/, '')
-    } else if (isTab) {
-      // Tab goes to remote shell completion; drop local suggest so they do not fight
-      hideSuggest()
-      commandBufferDirty.value = true
-    } else if (isLocallyEchoable(data) && !isPasting()) {
-      suggestDismissed.value = false
-      commandBuffer.value += data
-    } else if (isEscape) {
-      if (suggestVisible.value) {
-        // Esc closes suggest only (handleKey); do not wipe buffer
-      } else {
-        commandBuffer.value = ''
-        commandBufferDirty.value = true
-      }
-    } else if (hasNewline) {
-      hideSuggest()
-      commandBufferDirty.value = true
-      const lines = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').split(/\r?\n/)
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (/(?:^|[;&|]\s*)cd(?:\s|$)/.test(trimmed)) {
-          setTimeout(() => {
-            emit('cdCommand', props.sessionId, trimmed)
-          }, 50)
-        }
-      }
-      scheduleSubmit()
-    }
-
-    if (data.length > 32 || getWriteQueueLength() > 0) {
-      enqueueWrite(data, props.sessionId)
-    } else {
-      window.LiteConnect.sshWrite(props.sessionId, data)
-    }
+    handleTerminalUserInput(data)
   })
 
   unsubData = window.LiteConnect.onSshData(props.sessionId, (data) => {
