@@ -100,10 +100,11 @@ export type DataTab = {
   result: DbTableBrowseResult | null
   /** 服务端 ORDER BY */
   sort: GridSort
-  /** 服务端全文搜索（跨列 LIKE） */
-  serverSearch: string
-  /** 本页结果筛选 */
-  filter: string
+  /**
+   * Server-side WHERE predicate (no leading WHERE).
+   * Example: `id = 1 AND name LIKE '%foo%'`
+   */
+  whereFilter: string
   columnsMeta: DbColumnInfo[]
   pkColumns: string[]
   /** 行索引 -> 修改后的整行 */

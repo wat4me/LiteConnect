@@ -24,7 +24,7 @@ export type DbNavTreeDeps = {
 }
 
 export function useDbNavTree(deps: DbNavTreeDeps) {
-  /** 导航树中展开的连接（DBeaver：点击展开，不是跳页） */
+  /** 导航树中展开的连接（点击展开，不是跳页） */
   const expandedConnIds = ref<Set<string>>(new Set())
   /** connectionId -> 该连接下的库名列表 */
   const databasesByConn = ref<Record<string, string[]>>({})

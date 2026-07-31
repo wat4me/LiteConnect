@@ -44,8 +44,9 @@ export function useDbDataEdit(deps: DbDataEditDeps) {
       return
     }
     tab.editCell = { rowIndex, col }
-    tab.editAsNull = val === null || val === undefined
-    tab.editDraft = tab.editAsNull ? '' : formatCell(val)
+    // No NULL checkbox — type the word NULL (or leave as NULL for null cells).
+    tab.editAsNull = false
+    tab.editDraft = val === null || val === undefined ? 'NULL' : formatCell(val)
   }
 
   function cancelEditCell() {

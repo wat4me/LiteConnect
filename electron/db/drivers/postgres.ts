@@ -795,18 +795,7 @@ export class PostgresDriver implements DbDriver {
     const offset = (safePage - 1) * safeSize
     const fq = `${quoteIdentPostgres(schema)}.${quoteIdentPostgres(tableName)}`
 
-    let searchCols = options?.searchColumns
-    if (options?.search && (!searchCols || searchCols.length === 0)) {
-      const cols = await this.getTableColumns(sessionId, database, table)
-      searchCols = cols
-        .filter((c) => !/bytea|json|xml|bit/i.test(c.type))
-        .map((c) => c.name)
-        .slice(0, 32)
-    }
-    const where = buildWhereClausePg(
-      searchCols ? { ...options, searchColumns: searchCols } : options,
-      searchCols || [],
-    )
+    const where = buildWhereClausePg(options)
 
     let orderClause = ''
     if (options?.orderBy) {
@@ -1118,12 +1107,7 @@ export class PostgresDriver implements DbDriver {
     assertIdent(tableName)
 
     const maxRows = Math.min(Math.max(options.maxRows || 1_000_000, 1), 5_000_000)
-    const searchCols = options.browse?.searchColumns || []
-    const browseOpts =
-      options.browse?.search && !searchCols.length
-        ? { ...options.browse, search: undefined }
-        : options.browse
-    const where = buildWhereClausePg(browseOpts, searchCols)
+    const where = buildWhereClausePg(options.browse)
     let orderSql = ''
     if (options.browse?.orderBy) {
       assertIdent(options.browse.orderBy)

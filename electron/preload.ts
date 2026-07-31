@@ -621,8 +621,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     options?: {
       orderBy?: string
       orderDir?: 'asc' | 'desc'
-      search?: string
-      searchColumns?: string[]
+      /** Custom WHERE predicate (no leading WHERE) */
+      where?: string
       filters?: Array<{ column: string; op: string; value?: string }>
     },
   ) => ipcRenderer.invoke('db:browseTable', sessionId, database, table, page, pageSize, options),
@@ -676,8 +676,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     options?: {
       orderBy?: string
       orderDir?: 'asc' | 'desc'
-      search?: string
-      searchColumns?: string[]
+      where?: string
       filters?: Array<{ column: string; op: string; value?: string }>
     }
     maxRows?: number

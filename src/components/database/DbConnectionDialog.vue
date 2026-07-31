@@ -220,7 +220,7 @@ onMounted(() => {
       <form class="dbeaver-dialog-body" @submit.prevent="emit('save')">
         <div class="dbeaver-driver-bar">
           <div class="dbeaver-driver-badge" :class="engineMeta.badgeClass" :title="engineMeta.label">
-            <AppIcon name="database" size="2xl" />
+            <AppIcon name="server" size="2xl" />
             <span>{{ engineMeta.label }}</span>
           </div>
           <div class="dbeaver-driver-fields">

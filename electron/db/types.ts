@@ -294,11 +294,12 @@ export type DbColumnFilter = {
 export type DbBrowseOptions = {
   orderBy?: string
   orderDir?: 'asc' | 'desc'
-  /** Free-text search: OR LIKE across listed columns (or all result columns if omitted at driver) */
-  search?: string
-  /** Optional explicit columns for search; empty = use first 32 non-blob columns from table */
-  searchColumns?: string[]
-  /** Structured column filters (AND) */
+  /**
+   * Custom WHERE expression. Only the predicate — no leading WHERE.
+   * Example: `id = 1 AND name LIKE '%foo%'`
+   */
+  where?: string
+  /** Structured column filters (AND), combined with `where` when both present */
   filters?: DbColumnFilter[]
 }
 

@@ -373,6 +373,24 @@ async function handleRefresh() {
   })
 }
 
+/** Fold every side branch; keep only the chain to the current followed/locked path. */
+async function handleCollapseTree() {
+  await runExclusive(async () => {
+    const path = currentPath.value
+    if (path) {
+      dirTree.collapseToPath(path)
+      // Ensure listing for the kept path is still in the tree cache.
+      if (files.value.length) {
+        dirTree.ingestListing(path, files.value)
+      }
+      await dirTree.followPath(path)
+      fileListRef.value?.revealPath(path)
+    } else {
+      dirTree.collapseAll()
+    }
+  })
+}
+
 async function handleSessionReconnected(sessionId: string) {
   if (props.sessionId !== sessionId) return
   error.value = ''
@@ -638,6 +656,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
           :locked="actionLocked"
           @sync-cwd="handleSyncCwd"
           @refresh="handleRefresh"
+          @collapse-tree="handleCollapseTree"
           @search="toggleFileSearch"
           @open-transfers="activeTab = 'transfers'"
           @upload-folder="handleUploadFolder"

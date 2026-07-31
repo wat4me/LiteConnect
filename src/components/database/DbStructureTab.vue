@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import type { StructureTab } from '@/domain/database/types'
 import { keyBadge } from '@/domain/database/dbFormat'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -40,7 +41,7 @@ const emit = defineEmits<{
     <div v-else-if="tab.error" class="err-panel">{{ tab.error }}</div>
     <template v-else>
       <div class="struct-block">
-        <h4>{{ t('database.structure.columns') }}</h4>
+        <h4><AppIcon name="columns" size="sm" class="struct-h-icon" />{{ t('database.structure.columns') }}</h4>
         <div class="grid-scroll struct-scroll">
           <table class="sheet">
             <thead>
@@ -74,7 +75,7 @@ const emit = defineEmits<{
         </div>
       </div>
       <div class="struct-block">
-        <h4>{{ t('database.structure.indexes') }}</h4>
+        <h4><AppIcon name="index" size="sm" class="struct-h-icon" />{{ t('database.structure.indexes') }}</h4>
         <div v-if="!tab.indexes?.length" class="grid-empty small">{{ t('database.structure.noIndexes') }}</div>
         <div v-else class="grid-scroll struct-scroll">
           <table class="sheet">
@@ -102,7 +103,7 @@ const emit = defineEmits<{
         </div>
       </div>
       <div class="struct-block">
-        <h4>{{ t('database.structure.createSql') }}</h4>
+        <h4><AppIcon name="sql" size="sm" class="struct-h-icon" />{{ t('database.structure.createSql') }}</h4>
         <pre class="ddl">{{ tab.createSql || '—' }}</pre>
       </div>
     </template>
@@ -173,11 +174,18 @@ const emit = defineEmits<{
 }
 
 .struct-block h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0 0 8px;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
+}
+
+.struct-h-icon {
+  opacity: 0.85;
 }
 
 .grid-scroll {

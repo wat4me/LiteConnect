@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DataTab } from '@/domain/database/types'
 import {
@@ -7,6 +7,8 @@ import {
   isBlobPlaceholder,
   sortIndicator,
 } from '@/domain/database/dbFormat'
+import { quoteIdent, sqlLiteral, type SqlDialect } from '@/utils/database/dbSql'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -17,8 +19,10 @@ const props = withDefaults(
     connectionMeta: string
     /** When embedded in table workspace, parent shows path + panel tabs */
     hideBreadcrumb?: boolean
+    /** SQL dialect for building WHERE from cell values */
+    dialect?: SqlDialect
   }>(),
-  { hideBreadcrumb: false },
+  { hideBreadcrumb: false, dialect: 'mysql' },
 )
 
 const emit = defineEmits<{
@@ -35,7 +39,7 @@ const emit = defineEmits<{
   exportCsv: []
   exportJson: []
   exportAll: []
-  serverSearch: [value: string]
+  whereFilter: [value: string]
   toggleSelect: [rowIndex: number]
   startEdit: [rowIndex: number, col: string]
   editKeydown: [e: KeyboardEvent]
@@ -45,29 +49,219 @@ const emit = defineEmits<{
   cancelInsert: []
 }>()
 
-function onServerSearchKey(e: KeyboardEvent) {
+const moreOpen = ref(false)
+const moreMenuRef = ref<HTMLElement | null>(null)
+const moreBtnRef = ref<HTMLButtonElement | null>(null)
+
+type CellMenuState = {
+  x: number
+  y: number
+  col: string
+  value: unknown
+}
+const cellMenu = ref<CellMenuState | null>(null)
+
+/**
+ * Column widths:
+ * - Auto-fit from header + current page cell text length (monospace estimate)
+ * - User drag overrides auto until the result set identity changes
+ */
+const userColWidths = ref<Record<string, number>>({})
+const autoColWidths = ref<Record<string, number>>({})
+const MIN_COL_W = 48
+const MAX_COL_W = 420
+/** ~11px mono: latin ~6.6px, CJK ~11px — use mixed estimate */
+const CHAR_W = 6.8
+const CELL_PAD = 20 // horizontal padding + sort/pk chrome
+/** Sample at most this many rows for width (perf on large pages) */
+const WIDTH_SAMPLE_ROWS = 80
+
+let resizeState: { col: string; startX: number; startW: number } | null = null
+/** Result fingerprint last used for auto widths — drop user overrides on new load */
+let lastWidthKey = ''
+
+function measureTextWidth(text: string): number {
+  if (!text) return 0
+  let w = 0
+  for (const ch of text) {
+    // Full-width / CJK roughly double mono cell
+    const code = ch.codePointAt(0) || 0
+    w += code > 0xff ? CHAR_W * 1.65 : CHAR_W
+  }
+  return w
+}
+
+function estimateColWidth(col: string, result: NonNullable<DataTab['result']>): number {
+  let maxCharsVisual = measureTextWidth(col) + (props.tab.pkColumns.includes(col) ? 14 : 0)
+  const rows = result.rows
+  const n = Math.min(rows.length, WIDTH_SAMPLE_ROWS)
+  for (let i = 0; i < n; i++) {
+    const raw = formatCell(rows[i]?.[col])
+    // Cap per-cell sample so one huge JSON doesn't force max always early
+    const sample = raw.length > 80 ? raw.slice(0, 80) : raw
+    const w = measureTextWidth(sample)
+    if (w > maxCharsVisual) maxCharsVisual = w
+  }
+  const px = Math.ceil(maxCharsVisual + CELL_PAD)
+  // Prefer slightly roomy for tiny int columns, but keep short
+  return Math.min(MAX_COL_W, Math.max(MIN_COL_W, px))
+}
+
+function resultWidthKey(result: NonNullable<DataTab['result']> | null | undefined): string {
+  if (!result) return ''
+  // page + columns + first/last row hints so page turn recalculates content
+  const cols = result.columns.join('\0')
+  const r0 = result.rows[0]
+  const rN = result.rows[result.rows.length - 1]
+  const tip = r0
+    ? result.columns.map((c) => formatCell(r0[c]).slice(0, 24)).join('|')
+    : ''
+  const tipN = rN
+    ? result.columns.map((c) => formatCell(rN[c]).slice(0, 12)).join('|')
+    : ''
+  return `${props.tab.id}\0${props.tab.page}\0${result.rows.length}\0${cols}\0${tip}\0${tipN}`
+}
+
+function recomputeAutoWidths() {
+  const result = props.tab.result
+  if (!result) {
+    autoColWidths.value = {}
+    return
+  }
+  const key = resultWidthKey(result)
+  if (key !== lastWidthKey) {
+    // New page / query result: drop manual sizes so auto-fit applies again
+    userColWidths.value = {}
+    lastWidthKey = key
+  }
+  const next: Record<string, number> = {}
+  for (const col of result.columns) {
+    next[col] = estimateColWidth(col, result)
+  }
+  autoColWidths.value = next
+}
+
+watch(
+  () => resultWidthKey(props.tab.result),
+  () => {
+    recomputeAutoWidths()
+  },
+  { immediate: true },
+)
+
+function onWhereFilterKey(e: KeyboardEvent) {
   if (e.key === 'Enter') {
-    emit('serverSearch', props.tab.serverSearch)
+    emit('whereFilter', props.tab.whereFilter)
+    return
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    if (!props.tab.whereFilter.trim()) return
+    props.tab.whereFilter = ''
+    emit('whereFilter', '')
   }
 }
+
+function colWidth(col: string): number {
+  if (userColWidths.value[col] != null) return userColWidths.value[col]
+  return autoColWidths.value[col] ?? MIN_COL_W + 40
+}
+
+function onResizeStart(e: MouseEvent, col: string) {
+  e.preventDefault()
+  e.stopPropagation()
+  resizeState = { col, startX: e.clientX, startW: colWidth(col) }
+  window.addEventListener('mousemove', onResizeMove)
+  window.addEventListener('mouseup', onResizeEnd)
+}
+
+function onResizeMove(e: MouseEvent) {
+  if (!resizeState) return
+  const next = Math.min(
+    MAX_COL_W,
+    Math.max(MIN_COL_W, resizeState.startW + (e.clientX - resizeState.startX)),
+  )
+  userColWidths.value = { ...userColWidths.value, [resizeState.col]: next }
+}
+
+function onResizeEnd() {
+  resizeState = null
+  window.removeEventListener('mousemove', onResizeMove)
+  window.removeEventListener('mouseup', onResizeEnd)
+}
+
+function openCellMenu(e: MouseEvent, col: string, value: unknown) {
+  e.preventDefault()
+  moreOpen.value = false
+  cellMenu.value = { x: e.clientX, y: e.clientY, col, value }
+}
+
+function closeCellMenu() {
+  cellMenu.value = null
+}
+
+function applyCellWhere(op: 'eq' | 'ne' | 'is_null' | 'is_not_null') {
+  const m = cellMenu.value
+  if (!m) return
+  const dialect = props.dialect || 'mysql'
+  const col = quoteIdent(m.col, dialect)
+  let expr = ''
+  if (op === 'is_null' || (op === 'eq' && m.value == null)) {
+    expr = `${col} IS NULL`
+  } else if (op === 'is_not_null' || (op === 'ne' && m.value == null)) {
+    expr = `${col} IS NOT NULL`
+  } else if (op === 'eq') {
+    expr = `${col} = ${sqlLiteral(m.value, dialect)}`
+  } else {
+    expr = `${col} <> ${sqlLiteral(m.value, dialect)}`
+  }
+  props.tab.whereFilter = expr
+  emit('whereFilter', expr)
+  closeCellMenu()
+}
+
+function toggleMore() {
+  moreOpen.value = !moreOpen.value
+  cellMenu.value = null
+}
+
+function runExport(kind: 'copy' | 'csv' | 'json' | 'all') {
+  moreOpen.value = false
+  if (kind === 'copy') emit('copyResult')
+  else if (kind === 'csv') emit('exportCsv')
+  else if (kind === 'json') emit('exportJson')
+  else emit('exportAll')
+}
+
+function onDocPointerDown(e: MouseEvent) {
+  const t = e.target as Node
+  if (moreOpen.value) {
+    if (!moreMenuRef.value?.contains(t) && !moreBtnRef.value?.contains(t)) {
+      moreOpen.value = false
+    }
+  }
+  if (cellMenu.value) {
+    const menu = document.querySelector('.db-cell-menu')
+    if (menu && !menu.contains(t)) closeCellMenu()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', onDocPointerDown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocPointerDown)
+  onResizeEnd()
+})
 
 const dataDisplayRows = computed(() => {
   const tab = props.tab
   if (!tab.result) return [] as Array<{ row: Record<string, unknown>; index: number }>
-  const columns = tab.result.columns
-  const withIndex = tab.result.rows.map((row, index) => ({
+  // No in-page filter: use Ctrl+F for text search in the grid.
+  return tab.result.rows.map((row, index) => ({
     row: (tab.dirty[index] || row) as Record<string, unknown>,
     index,
   }))
-  const q = tab.filter.trim().toLowerCase()
-  if (!q) return withIndex
-  return withIndex.filter(({ row }) =>
-    columns.some((col) => {
-      const v = row[col]
-      if (v == null) return q === 'null'
-      return String(v).toLowerCase().includes(q)
-    }),
-  )
 })
 
 function dataCellValue(rowIndex: number, col: string): unknown {
@@ -117,61 +311,49 @@ const nextDisabled = computed(() => {
 })
 
 const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
+
+const prevPageDisabled = computed(() => props.tab.loading || props.tab.page < 2)
+
+const cellMenuPreview = computed(() => {
+  const m = cellMenu.value
+  if (!m) return ''
+  if (m.value == null) return 'NULL'
+  const s = String(m.value)
+  return s.length > 40 ? `${s.slice(0, 40)}…` : s
+})
 </script>
 
 <template>
   <div class="table-view">
     <div class="table-toolbar">
-      <div class="toolbar-row primary">
-        <div v-if="!hideBreadcrumb" class="breadcrumb">
-          <span class="bc-conn" :title="connectionMeta">{{ connectionName }}</span>
-          <span class="sep">/</span>
-          <span>{{ tab.database }}</span>
-          <span class="sep">/</span>
-          <strong>{{ tab.table }}</strong>
-          <span v-if="tab.pkColumns.length" class="tag pk-tag" :title="t('database.data.pkColumns')">
-            PK {{ tab.pkColumns.join(', ') }}
+      <div class="toolbar-row single">
+        <!-- meta: pk + row count -->
+        <div class="meta-strip">
+          <template v-if="!hideBreadcrumb">
+            <span class="bc-conn" :title="connectionMeta">{{ connectionName }}</span>
+            <span class="sep">/</span>
+            <span>{{ tab.database }}</span>
+            <span class="sep">/</span>
+            <strong>{{ tab.table }}</strong>
+          </template>
+          <span
+            v-if="tab.pkColumns.length"
+            class="tag pk-tag"
+            :title="t('database.data.pkColumnsTitle', { cols: tab.pkColumns.join(', ') })"
+          >
+            <AppIcon name="key" size="xs" class="pk-icon" />
+            {{ t('database.data.pkLabel') }} {{ tab.pkColumns.join(', ') }}
           </span>
           <span v-else class="tag warn-tag" :title="t('database.data.noPkTitle')">{{ t('database.data.noPk') }}</span>
           <span v-if="tab.result" class="row-total">{{ totalRowsLabel }}</span>
         </div>
-        <div v-else class="breadcrumb meta-only">
-          <span v-if="tab.pkColumns.length" class="tag pk-tag" :title="t('database.data.pkColumns')">
-            PK {{ tab.pkColumns.join(', ') }}
-          </span>
-          <span v-else class="tag warn-tag" :title="t('database.data.noPkTitle')">{{ t('database.data.noPk') }}</span>
-          <span v-if="tab.result" class="row-total">{{ totalRowsLabel }}</span>
-        </div>
-        <div class="search-group">
-          <label class="search-field" :title="t('database.data.serverSearchTitle')">
-            <span class="search-label">{{ t('database.data.serverSearch') }}</span>
-            <input
-              v-model="tab.serverSearch"
-              class="ui-input ui-input-sm search-input"
-              type="search"
-              :placeholder="t('database.data.serverSearchPlaceholder')"
-              :disabled="tab.loading"
-              @keydown="onServerSearchKey"
-            />
-          </label>
-          <label class="search-field" :title="t('database.data.pageFilterTitle')">
-            <span class="search-label">{{ t('database.data.pageFilter') }}</span>
-            <input
-              v-model="tab.filter"
-              class="ui-input ui-input-sm search-input narrow"
-              type="search"
-              :placeholder="t('database.data.pageFilterPlaceholder')"
-            />
-          </label>
-        </div>
-      </div>
 
-      <div class="toolbar-row secondary">
+        <!-- pager -->
         <div class="tool-group pager">
           <button
             type="button"
             class="ui-btn ui-btn-sm"
-            :disabled="tab.loading || tab.page <= 1"
+            :disabled="prevPageDisabled"
             :title="t('database.data.prevPage')"
             @click="emit('pageDelta', -1)"
           >
@@ -221,7 +403,24 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
           </button>
         </div>
 
-        <div class="tool-group edit">
+        <!-- WHERE only; in-page text search → Ctrl+F -->
+        <div class="search-group">
+          <input
+            v-model="tab.whereFilter"
+            class="ui-input ui-input-sm search-input where-input"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            :title="t('database.data.whereFilterTitle')"
+            :placeholder="t('database.data.whereFilterPlaceholder')"
+            :disabled="tab.loading"
+            :aria-label="t('database.data.whereFilter')"
+            @keydown="onWhereFilterKey"
+          />
+        </div>
+
+        <!-- edit actions -->
+        <div class="tool-group edit" :class="{ 'has-dirty': dirtyCount !== 0 }">
           <button
             type="button"
             class="ui-btn ui-btn-sm"
@@ -234,6 +433,7 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
           <button
             type="button"
             class="ui-btn ui-btn-sm"
+            :class="{ 'is-dirty-action': dirtyCount !== 0 }"
             :disabled="dirtyCount === 0 || tab.saving"
             :title="t('database.data.saveTitle')"
             @click="emit('saveDirty')"
@@ -258,46 +458,36 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
           </button>
         </div>
 
-        <div class="tool-group export">
+        <!-- export overflow -->
+        <div class="tool-group more-wrap">
           <button
+            ref="moreBtnRef"
             type="button"
             class="ui-btn ui-btn-sm"
-            :disabled="!tab.result"
-            :title="t('database.data.copyTitle')"
-            @click="emit('copyResult')"
+            :title="t('database.data.moreActions')"
+            :disabled="!tab.result && !tab.loading"
+            @click="toggleMore"
           >
-            {{ t('database.data.copy') }}
+            <AppIcon name="more" size="sm" />
           </button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-sm"
-            :disabled="!tab.result"
-            :title="t('database.data.exportCsvTitle')"
-            @click="emit('exportCsv')"
-          >
-            CSV
-          </button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-sm"
-            :disabled="!tab.result"
-            :title="t('database.data.exportJsonTitle')"
-            @click="emit('exportJson')"
-          >
-            JSON
-          </button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-sm"
-            :disabled="tab.loading"
-            :title="t('database.data.exportAllTitle')"
-            @click="emit('exportAll')"
-          >
-            {{ t('database.data.exportAll') }}
-          </button>
+          <div v-if="moreOpen" ref="moreMenuRef" class="more-menu" role="menu">
+            <button type="button" role="menuitem" :disabled="!tab.result" @click="runExport('copy')">
+              {{ t('database.data.copy') }}
+            </button>
+            <button type="button" role="menuitem" :disabled="!tab.result" @click="runExport('csv')">
+              CSV
+            </button>
+            <button type="button" role="menuitem" :disabled="!tab.result" @click="runExport('json')">
+              JSON
+            </button>
+            <button type="button" role="menuitem" :disabled="tab.loading" @click="runExport('all')">
+              {{ t('database.data.exportAll') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
+
     <div v-if="tab.loading" class="grid-empty">{{ t('database.data.loading') }}</div>
     <div v-else-if="tab.error" class="err-panel">{{ tab.error }}</div>
     <div v-else-if="tab.result" class="grid-scroll">
@@ -310,10 +500,21 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
               v-for="col in tab.result.columns"
               :key="col"
               class="sortable"
-              :class="{ sorted: tab.sort?.col === col }"
+              :class="{ sorted: tab.sort?.col === col, pk: tab.pkColumns.includes(col) }"
+              :style="{ width: colWidth(col) + 'px', minWidth: colWidth(col) + 'px', maxWidth: colWidth(col) + 'px' }"
+              :title="tab.pkColumns.includes(col) ? t('database.data.pkColumnTitle', { col }) : col"
               @click="emit('sort', col)"
             >
-              {{ col }}{{ sortIndicator(tab.sort, col) }}
+              <span class="th-inner">
+                <AppIcon v-if="tab.pkColumns.includes(col)" name="key" size="xs" class="col-pk-icon" />
+                <span class="th-label">{{ col }}{{ sortIndicator(tab.sort, col) }}</span>
+              </span>
+              <span
+                class="col-resizer"
+                title=""
+                @mousedown="onResizeStart($event, col)"
+                @click.stop
+              />
             </th>
           </tr>
         </thead>
@@ -321,7 +522,11 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
           <tr v-if="tab.inserting" class="insert-row">
             <td class="rn sel"></td>
             <td class="rn">+</td>
-            <td v-for="col in tab.result.columns" :key="'ins-' + col">
+            <td
+              v-for="col in tab.result.columns"
+              :key="'ins-' + col"
+              :style="{ width: colWidth(col) + 'px', minWidth: colWidth(col) + 'px', maxWidth: colWidth(col) + 'px' }"
+            >
               <input
                 class="cell-edit-input"
                 :value="tab.inserting[col] == null ? '' : String(tab.inserting[col])"
@@ -363,23 +568,21 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
                 blob: isBlobPlaceholder(dataCellValue(item.index, col)),
                 editing: tab.editCell?.rowIndex === item.index && tab.editCell?.col === col,
               }"
+              :style="{ width: colWidth(col) + 'px', minWidth: colWidth(col) + 'px', maxWidth: colWidth(col) + 'px' }"
               @dblclick="emit('startEdit', item.index, col)"
+              @contextmenu="openCellMenu($event, col, dataCellValue(item.index, col))"
             >
               <template v-if="tab.editCell?.rowIndex === item.index && tab.editCell?.col === col">
                 <div class="cell-edit-wrap" @click.stop>
                   <input
                     class="cell-edit-input"
                     :value="tab.editDraft"
-                    :disabled="tab.editAsNull"
                     autofocus
+                    :title="t('database.data.editNullHint')"
                     @input="tab.editDraft = ($event.target as HTMLInputElement).value"
                     @keydown="emit('editKeydown', $event)"
                     @blur="emit('editBlur')"
                   />
-                  <label class="cell-null-label" @mousedown.prevent>
-                    <input v-model="tab.editAsNull" type="checkbox" />
-                    NULL
-                  </label>
                 </div>
               </template>
               <template v-else>
@@ -390,15 +593,42 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
         </tbody>
       </table>
       <div v-if="dataDisplayRows.length === 0 && !tab.inserting" class="grid-empty">
-        {{ tab.filter.trim() ? t('database.data.noMatch') : t('database.data.emptyTable') }}
+        {{ t('database.data.emptyTable') }}
       </div>
     </div>
-    <div v-if="tab.result && tab.pkColumns.length === 0" class="edit-hint">
+
+    <!-- only show when no PK (action-blocking); hide everyday edit tip -->
+    <div v-if="tab.result && tab.pkColumns.length === 0" class="edit-hint warn">
       {{ t('database.data.noPkHint') }}
     </div>
-    <div v-else-if="tab.result" class="edit-hint">
-      {{ t('database.data.editHint') }}
-    </div>
+
+    <!-- cell context menu: filter by value -->
+    <Teleport to="body">
+      <div
+        v-if="cellMenu"
+        class="db-cell-menu"
+        :style="{ left: cellMenu.x + 'px', top: cellMenu.y + 'px' }"
+        role="menu"
+        @mousedown.stop
+      >
+        <div class="db-cell-menu-head" :title="String(cellMenu.col)">
+          {{ cellMenu.col }}
+          <span class="db-cell-menu-val">{{ cellMenuPreview }}</span>
+        </div>
+        <button type="button" role="menuitem" @click="applyCellWhere('eq')">
+          {{ t('database.data.filterEq') }}
+        </button>
+        <button type="button" role="menuitem" @click="applyCellWhere('ne')">
+          {{ t('database.data.filterNe') }}
+        </button>
+        <button type="button" role="menuitem" @click="applyCellWhere('is_null')">
+          {{ t('database.data.filterIsNull') }}
+        </button>
+        <button type="button" role="menuitem" @click="applyCellWhere('is_not_null')">
+          {{ t('database.data.filterIsNotNull') }}
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -415,147 +645,181 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
-.toolbar-row {
+.toolbar-row.single {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 5px 8px;
   flex-wrap: wrap;
 }
 
-.toolbar-row.primary {
-  justify-content: space-between;
-  gap: 12px 16px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
-}
-
-.toolbar-row.secondary {
-  gap: 10px 14px;
-  padding-top: 7px;
-  padding-bottom: 7px;
-}
-
-.breadcrumb {
+.meta-strip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
+  gap: 5px;
   min-width: 0;
   flex-wrap: wrap;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  font-size: 11px;
 }
 
-.breadcrumb .bc-conn {
+.meta-strip .bc-conn {
   font-weight: 600;
   color: var(--accent);
-  max-width: 140px;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.breadcrumb strong {
+.meta-strip strong {
   color: var(--text-primary);
 }
 
-.breadcrumb .sep {
+.meta-strip .sep {
   opacity: 0.5;
 }
 
-.breadcrumb .tag {
+.meta-strip .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--accent-bg);
-  color: var(--accent);
 }
 
 .row-total {
-  margin-left: 4px;
   opacity: 0.8;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .search-group {
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 220px;
   min-width: 0;
 }
 
-.search-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.search-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--text-secondary);
-  opacity: 0.85;
-  white-space: nowrap;
-}
-
-.search-input {
-  width: min(220px, 28vw);
-  min-width: 140px;
-}
-
-.search-input.narrow {
-  width: min(150px, 20vw);
-  min-width: 110px;
+.where-input {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 160px;
+  max-width: 480px;
+  height: 26px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
 }
 
 .tool-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .tool-group + .tool-group {
-  padding-left: 12px;
+  padding-left: 8px;
   border-left: 1px solid var(--border-color);
 }
 
 .page-jump {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .page-input {
-  width: 52px;
+  width: 44px;
+  height: 26px;
   text-align: center;
-  padding-left: 4px;
-  padding-right: 4px;
+  padding-left: 2px;
+  padding-right: 2px;
+  font-size: 11px;
 }
 
 .page-size-select {
   width: auto;
-  min-width: 80px;
+  min-width: 68px;
+  height: 26px;
+  font-size: 11px;
 }
 
 .page-info {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-  padding: 0 2px;
   font-variant-numeric: tabular-nums;
+}
+
+.toolbar-row :deep(.ui-btn-sm) {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.tool-group.edit.has-dirty .is-dirty-action {
+  border-color: color-mix(in srgb, #ecc94b 55%, var(--border-color));
+  color: #d69e2e;
+  font-weight: 600;
+}
+
+.more-wrap {
+  position: relative;
+  border-left: 1px solid var(--border-color);
+  padding-left: 8px;
+}
+
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 132px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.more-menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.more-menu button:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.more-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 @media (max-width: 900px) {
   .tool-group + .tool-group {
     padding-left: 0;
     border-left: none;
+  }
+  .more-wrap {
+    border-left: none;
+    padding-left: 0;
   }
 }
 
@@ -570,21 +834,21 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: var(--font-ui-sm, 12px);
+  font-size: 11px;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  table-layout: fixed;
 }
 
 .sheet th,
 .sheet td {
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
-  padding: 6px 12px;
+  padding: 4px 8px;
   text-align: left;
   white-space: nowrap;
-  max-width: 360px;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 
 .sheet th {
@@ -597,6 +861,52 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
   font-family: inherit;
   user-select: none;
   letter-spacing: 0.01em;
+  font-size: 11px;
+  /* sticky + resizer handle */
+  overflow: visible;
+}
+
+.sheet th.sortable {
+  cursor: pointer;
+  position: sticky;
+}
+
+.th-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.th-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 2;
+}
+
+.col-resizer:hover,
+.col-resizer:active {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.sheet th.pk {
+  color: #63b3ed;
+}
+
+.col-pk-icon {
+  flex-shrink: 0;
+  opacity: 0.95;
 }
 
 .sheet .rn {
@@ -607,6 +917,7 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
   z-index: 2;
   text-align: right;
   min-width: 36px;
+  width: 36px;
 }
 
 .sheet th.rn {
@@ -626,11 +937,6 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
   font-style: italic;
 }
 
-.sheet th.sortable {
-  cursor: pointer;
-  user-select: none;
-}
-
 .sheet th.sortable:hover {
   color: var(--accent);
 }
@@ -641,6 +947,7 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
 
 .sheet .sel {
   width: 28px;
+  min-width: 28px;
   text-align: center;
 }
 
@@ -668,34 +975,23 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
 
 .cell-edit-wrap {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
+  min-width: 100px;
 }
 
 .cell-edit-input {
   width: 100%;
-  min-width: 80px;
-  height: var(--control-h-sm, 32px);
-  padding: 0 8px;
+  min-width: 60px;
+  height: 26px;
+  padding: 0 6px;
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: var(--font-ui-sm, 12px);
+  font-size: 11px;
   font-family: var(--font-mono, inherit);
   box-sizing: border-box;
   outline: none;
   box-shadow: 0 0 0 2px var(--accent-bg);
-}
-
-.cell-null-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  user-select: none;
 }
 
 .insert-row td {
@@ -709,43 +1005,95 @@ const dirtyCount = computed(() => Object.keys(props.tab.dirty).length)
 
 .edit-hint {
   flex-shrink: 0;
-  padding: 6px 12px;
-  font-size: 11px;
+  padding: 4px 10px;
+  font-size: 10px;
   color: var(--text-secondary);
   border-top: 1px solid var(--border-color);
 }
 
+.edit-hint.warn {
+  color: #d69e2e;
+  background: color-mix(in srgb, #ecc94b 10%, transparent);
+}
+
 .pk-tag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
   background: color-mix(in srgb, #63b3ed 20%, transparent);
   color: #63b3ed;
 }
 
+.pk-icon {
+  flex-shrink: 0;
+}
+
 .warn-tag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
   background: color-mix(in srgb, #ecc94b 20%, transparent);
   color: #d69e2e;
 }
 
 .grid-empty {
-  padding: 24px;
+  padding: 20px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .err-panel {
-  margin: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md, 8px);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border-color));
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger);
-  font-size: var(--font-ui-sm, 12px);
-  white-space: pre-wrap;
-  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  padding: 12px 14px;
+  color: #e53e3e;
+  font-size: 12px;
+}
+</style>
+
+<style>
+/* Teleported cell menu (not scoped) */
+.db-cell-menu {
+  position: fixed;
+  z-index: 5000;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.db-cell-menu-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-cell-menu-val {
+  display: block;
+  margin-top: 2px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-cell-menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.db-cell-menu button:hover {
+  background: var(--hover-bg);
 }
 </style>

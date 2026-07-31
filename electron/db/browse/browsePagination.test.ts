@@ -7,10 +7,10 @@ import {
 } from './browsePagination'
 
 describe('browseCountCacheKey', () => {
-  it('includes session/database/table/search/filters', () => {
-    const a = browseCountCacheKey('s1', 'db', 't', { search: 'x' })
-    const b = browseCountCacheKey('s1', 'db', 't', { search: 'y' })
-    const c = browseCountCacheKey('s1', 'db', 't2', { search: 'x' })
+  it('includes session/database/table/where/filters', () => {
+    const a = browseCountCacheKey('s1', 'db', 't', { where: 'id = 1' })
+    const b = browseCountCacheKey('s1', 'db', 't', { where: 'id = 2' })
+    const c = browseCountCacheKey('s1', 'db', 't2', { where: 'id = 1' })
     expect(a).not.toBe(b)
     expect(a).not.toBe(c)
   })
@@ -31,7 +31,7 @@ describe('BrowseCountCache', () => {
 
   it('dedupe key identity for concurrent warmers', () => {
     const cache = new BrowseCountCache()
-    const key = browseCountCacheKey('s', 'd', 't', { search: 'a' })
+    const key = browseCountCacheKey('s', 'd', 't', { where: "name LIKE '%a%'" })
     expect(cache.get(key)).toBeNull()
     cache.set(key, 5)
     expect(cache.get(key)).toBe(5)
@@ -116,10 +116,10 @@ describe('finalizeBrowsePage', () => {
     expect(r.hasNext).toBe(false)
   })
 
-  it('browseHasFilter detects search and filters', () => {
+  it('browseHasFilter detects where and filters', () => {
     expect(browseHasFilter(undefined)).toBe(false)
-    expect(browseHasFilter({ search: '  ' })).toBe(false)
-    expect(browseHasFilter({ search: 'a' })).toBe(true)
+    expect(browseHasFilter({ where: '  ' })).toBe(false)
+    expect(browseHasFilter({ where: 'id = 1' })).toBe(true)
     expect(browseHasFilter({ filters: [{ column: 'c', op: 'eq', value: '1' }] })).toBe(true)
   })
 })

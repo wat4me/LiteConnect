@@ -71,4 +71,38 @@ describe('useSftpDirTree followPath', () => {
     const parentKids = tree.entriesOf('/home/u')
     expect(parentKids.some((e) => e.path === '/home/u/new' && e.isDirectory)).toBe(true)
   })
+
+  it('collapseToPath keeps only the current path chain', async () => {
+    const tree = useSftpDirTree(() => 'sess-1')
+    readdir.mockResolvedValue([])
+
+    // Expand two unrelated branches
+    await tree.expand('/var/log')
+    await tree.expand('/home/u/project')
+    await tree.expand('/etc')
+
+    expect(tree.isExpanded('/var/log')).toBe(true)
+    expect(tree.isExpanded('/etc')).toBe(true)
+
+    tree.collapseToPath('/home/u/project')
+
+    expect([...tree.expandedPaths.value].sort()).toEqual([
+      '/',
+      '/home',
+      '/home/u',
+      '/home/u/project',
+    ])
+    expect(tree.isExpanded('/var/log')).toBe(false)
+    expect(tree.isExpanded('/etc')).toBe(false)
+    // Cache is kept for cheap re-expand
+    expect(tree.isLoaded('/var/log')).toBe(true)
+  })
+
+  it('collapseAll clears every expanded folder', async () => {
+    const tree = useSftpDirTree(() => 'sess-1')
+    readdir.mockResolvedValue([])
+    await tree.expand('/tmp')
+    tree.collapseAll()
+    expect(tree.expandedPaths.value.size).toBe(0)
+  })
 })

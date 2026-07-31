@@ -281,17 +281,7 @@ export function useDbTabs(deps: DbTabsDeps) {
     }
     if (tab.kind === 'data' && tab.result) {
       const columns = tab.result.columns
-      let rows = tab.result.rows.map((row, index) => (tab.dirty[index] || row) as Record<string, unknown>)
-      const q = tab.filter.trim().toLowerCase()
-      if (q) {
-        rows = rows.filter((row) =>
-          columns.some((col) => {
-            const v = row[col]
-            if (v == null) return q === 'null'
-            return String(v).toLowerCase().includes(q)
-          }),
-        )
-      }
+      const rows = tab.result.rows.map((row, index) => (tab.dirty[index] || row) as Record<string, unknown>)
       return { columns, rows, name: tab.table }
     }
     return null
@@ -353,6 +343,20 @@ export function useDbTabs(deps: DbTabsDeps) {
           danger: true,
           tone: 'danger',
           confirmText: t('database.tx.closeConfirm'),
+        })
+      } catch {
+        return
+      }
+    }
+    // Data tab: unsaved cell edits
+    if (tab.kind === 'data' && Object.keys(tab.dirty || {}).length > 0) {
+      try {
+        await appConfirm({
+          title: t('database.data.closeDirtyTitle'),
+          message: t('database.data.closeDirtyMessage', { table: tab.table }),
+          danger: true,
+          tone: 'warning',
+          confirmText: t('database.data.closeDirtyConfirm'),
         })
       } catch {
         return
@@ -928,7 +932,7 @@ export function useDbTabs(deps: DbTabsDeps) {
     rollbackTransaction,
     cancelActiveQuery,
     toggleDataSort: tableOps.toggleDataSort,
-    applyServerSearch: tableOps.applyServerSearch,
+    applyWhereFilter: tableOps.applyWhereFilter,
     changeDataPage: tableOps.changeDataPage,
     jumpDataPage: tableOps.jumpDataPage,
     changeDataPageSize: tableOps.changeDataPageSize,

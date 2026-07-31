@@ -233,7 +233,7 @@ export function useDbWorkspace() {
     cancelTableExport: tabsApi.cancelTableExport,
     copyResultCell: tabsApi.copyResultCell,
     toggleDataSort: tabsApi.toggleDataSort,
-    applyServerSearch: tabsApi.applyServerSearch,
+    applyWhereFilter: tabsApi.applyWhereFilter,
     changeDataPage: tabsApi.changeDataPage,
     jumpDataPage: tabsApi.jumpDataPage,
     changeDataPageSize: tabsApi.changeDataPageSize,

@@ -33,6 +33,7 @@ export type AppIconName =
   | 'home-grid'
   | 'folder'
   | 'folder-up'
+  | 'list-collapse'
   | 'monitor'
   | 'terminal'
   | 'crosshair'
@@ -66,6 +67,14 @@ export type AppIconName =
   | 'lock'
   | 'database'
   | 'table'
+  | 'server'
+  | 'schema'
+  | 'view'
+  | 'columns'
+  | 'key'
+  | 'index'
+  | 'filter'
+  | 'sql'
 
 export type AppIconSizeToken = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'hero'
 
@@ -272,6 +281,14 @@ const iconStyle = computed(() => {
       <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
       <path d="M12 17v-6m-3 3 3-3 3 3" />
     </template>
+    <!-- list-collapse: fold tree branches (keep current path only) -->
+    <template v-else-if="name === 'list-collapse'">
+      <path d="m7 10 2.5-2.5L12 10" />
+      <path d="m7 14 2.5 2.5L12 14" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="13" y1="12" x2="21" y2="12" />
+      <line x1="13" y1="18" x2="21" y2="18" />
+    </template>
     <!-- monitor -->
     <template v-else-if="name === 'monitor'">
       <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -459,16 +476,70 @@ const iconStyle = computed(() => {
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </template>
-    <!-- database cylinder -->
+    <!--
+      Database family — Lucide official paths
+      (https://github.com/lucide-icons/lucide/tree/main/icons)
+      Local names may alias Lucide names (schema→layers, view→table-2, filter→funnel, sql→code, index→list).
+    -->
+    <!-- lucide: database -->
     <template v-else-if="name === 'database'">
-      <ellipse cx="12" cy="5" rx="8" ry="3" />
-      <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
-      <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+      <path d="M3 12A9 3 0 0 0 21 12" />
     </template>
-    <!-- table grid -->
+    <!-- lucide: table -->
     <template v-else-if="name === 'table'">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M3 9h18M3 15h18M9 3v18" />
+      <path d="M12 3v18" />
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M3 15h18" />
+    </template>
+    <!-- lucide: server -->
+    <template v-else-if="name === 'server'">
+      <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+      <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+      <line x1="6" x2="6.01" y1="6" y2="6" />
+      <line x1="6" x2="6.01" y1="18" y2="18" />
+    </template>
+    <!-- lucide: layers (schema / catalog) -->
+    <template v-else-if="name === 'schema'">
+      <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+      <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+      <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
+    </template>
+    <!-- lucide: table-2 (SQL view) -->
+    <template v-else-if="name === 'view'">
+      <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
+    </template>
+    <!-- lucide: columns-3 -->
+    <template v-else-if="name === 'columns'">
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+      <path d="M15 3v18" />
+    </template>
+    <!-- lucide: key -->
+    <template v-else-if="name === 'key'">
+      <path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4" />
+      <path d="m21 2-9.6 9.6" />
+      <circle cx="7.5" cy="15.5" r="5.5" />
+    </template>
+    <!-- lucide: list (index) -->
+    <template v-else-if="name === 'index'">
+      <path d="M3 5h.01" />
+      <path d="M3 12h.01" />
+      <path d="M3 19h.01" />
+      <path d="M8 5h13" />
+      <path d="M8 12h13" />
+      <path d="M8 19h13" />
+    </template>
+    <!-- lucide: funnel (filter; Lucide renamed filter → funnel) -->
+    <template v-else-if="name === 'filter'">
+      <path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z" />
+    </template>
+    <!-- lucide: code (SQL) -->
+    <template v-else-if="name === 'sql'">
+      <path d="m16 18 6-6-6-6" />
+      <path d="m8 6-6 6 6 6" />
     </template>
   </svg>
 </template>

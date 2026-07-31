@@ -1,13 +1,13 @@
 import type { DbBrowseOptions, DbTotalMode } from '../types'
 
-/** Build cache key for exact COUNT results (session/database/table/filter/search). */
+/** Build cache key for exact COUNT results (session/database/table/filter/where). */
 export function browseCountCacheKey(
   sessionId: string,
   database: string,
   table: string,
   options?: DbBrowseOptions,
 ): string {
-  const search = options?.search?.trim() || ''
+  const where = options?.where?.trim() || ''
   const filters = options?.filters?.length
     ? JSON.stringify(
         options.filters.map((f) => ({
@@ -17,10 +17,7 @@ export function browseCountCacheKey(
         })),
       )
     : ''
-  const searchCols = options?.searchColumns?.length
-    ? options.searchColumns.join(',')
-    : ''
-  return `${sessionId}\0${database}\0${table}\0${search}\0${searchCols}\0${filters}`
+  return `${sessionId}\0${database}\0${table}\0${where}\0${filters}`
 }
 
 export type CountCacheEntry = {
@@ -33,7 +30,7 @@ const DEFAULT_COUNT_TTL_MS = 60_000
 
 /**
  * In-memory exact COUNT cache shared per driver instance.
- * Key must include session/database/table/filter/search (see browseCountCacheKey).
+ * Key must include session/database/table/filter/where (see browseCountCacheKey).
  */
 export class BrowseCountCache {
   private map = new Map<string, CountCacheEntry>()
@@ -150,7 +147,7 @@ export function finalizeBrowsePage(args: {
 }
 
 export function browseHasFilter(options?: DbBrowseOptions): boolean {
-  if (options?.search?.trim()) return true
+  if (options?.where?.trim()) return true
   if (options?.filters && options.filters.length > 0) return true
   return false
 }

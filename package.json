@@ -1,6 +1,6 @@
 {
   "name": "lite-connect",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Lightweight multi-protocol connection manager (SSH, database) with embedded terminal",
   "author": "LiteConnect",
   "main": "dist-electron/main.js",

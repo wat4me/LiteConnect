@@ -112,6 +112,24 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
   if (!q || db.toLowerCase().includes(q)) return all
   return all.filter((t) => t.name.toLowerCase().includes(q))
 }
+
+const hasNavFilter = computed(() => !!navFilter.value.trim())
+
+/** While searching, force-open matching branches so table hits are visible. */
+function connExpandedForDisplay(connectionId: string): boolean {
+  if (props.isConnExpanded(connectionId)) return true
+  if (!hasNavFilter.value || !props.isConnActive(connectionId)) return false
+  return filteredDbs(connectionId).length > 0
+}
+
+function dbExpandedForDisplay(connectionId: string, db: string): boolean {
+  if (props.isDbExpanded(connectionId, db)) return true
+  if (!hasNavFilter.value) return false
+  // Show table list when filter hits this db or any table under it
+  const q = navFilter.value.trim().toLowerCase()
+  if (db.toLowerCase().includes(q)) return true
+  return props.tablesFor(connectionId, db).some((t) => t.name.toLowerCase().includes(q))
+}
 </script>
 
 <template>
@@ -162,7 +180,7 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
           :class="{
             active: isConnActive(conn.id),
             focused: isConnFocused(conn.id),
-            expanded: isConnExpanded(conn.id),
+            expanded: connExpandedForDisplay(conn.id),
             connecting: connConnecting(conn.id),
           }"
           @click="emit('toggleConnection', conn)"
@@ -171,12 +189,12 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
         >
           <AppIcon
             class="bk-chevron"
-            :class="{ open: isConnExpanded(conn.id) }"
+            :class="{ open: connExpandedForDisplay(conn.id) }"
             name="chevron-right"
             size="xs"
           />
           <span class="nav-conn-icon" aria-hidden="true">
-            <AppIcon name="database" size="sm" />
+            <AppIcon name="server" size="sm" />
           </span>
           <span
             class="nav-conn-name"
@@ -203,13 +221,13 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
           </div>
         </div>
 
-        <div v-if="isConnExpanded(conn.id) && isConnActive(conn.id)" class="nav-conn-children">
+        <div v-if="connExpandedForDisplay(conn.id) && isConnActive(conn.id)" class="nav-conn-children">
           <div v-if="databasesOf(conn.id).length === 0" class="nav-muted indent">{{ t('database.nav.noDatabases') }}</div>
           <div
             v-for="db in filteredDbs(conn.id)"
             :key="conn.id + ':' + db"
             class="bk-db-block"
-            :class="{ expanded: isDbExpanded(conn.id, db) }"
+            :class="{ expanded: dbExpandedForDisplay(conn.id, db) }"
           >
             <button
               type="button"
@@ -219,11 +237,11 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
             >
               <AppIcon
                 class="bk-chevron"
-                :class="{ open: isDbExpanded(conn.id, db) }"
+                :class="{ open: dbExpandedForDisplay(conn.id, db) }"
                 name="chevron-right"
                 size="xs"
               />
-              <AppIcon name="database" size="sm" class="bk-ico" />
+              <AppIcon name="database" size="sm" class="bk-ico db" />
               <span class="bk-name">{{ db }}</span>
               <span
                 v-if="isTreeLoading(treeDbKey(conn.id, db))"
@@ -231,7 +249,7 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
                 :title="t('database.nav.loading')"
               ></span>
             </button>
-            <div v-if="isDbExpanded(conn.id, db)" class="bk-table-list">
+            <div v-if="dbExpandedForDisplay(conn.id, db)" class="bk-table-list">
               <button
                 v-for="t in visibleTables(conn.id, db)"
                 :key="t.name"
@@ -245,7 +263,7 @@ function visibleTables(connectionId: string, db: string): DbTableInfo[] {
               >
                 <AppIcon
                   v-if="t.type === 'view'"
-                  name="eye"
+                  name="view"
                   size="sm"
                   class="bk-ico view"
                 />

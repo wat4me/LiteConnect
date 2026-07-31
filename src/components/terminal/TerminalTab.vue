@@ -547,9 +547,12 @@ function handleTerminalUserInput(data: string) {
 
   if (isSubmit) {
     hideSuggest()
-    const fromBuffer = commandBuffer.value.trim()
-    capturedSubmitLine.value = fromBuffer
-      || getVisibleCommandLine().replace(/\[Pasted[^\]]*\]\s*/g, '')
+    // Always capture the on-screen line at Enter — not the local buffer.
+    // Tab-completion expands only on the remote PTY; commandBuffer stays a stale
+    // prefix (e.g. "cd /home/doc" while the screen shows "cd /home/docker/").
+    // Preferring the buffer (a0fe6e2) made SFTP follow jump to a missing path.
+    // Restore pre-a0fe6e2 behavior: visible line is the source of truth on submit.
+    capturedSubmitLine.value = getVisibleCommandLine().replace(/\[Pasted[^\]]*\]\s*/g, '')
     scheduleSubmit()
   } else if (isCancel) {
     cancelPendingSubmit()
@@ -562,31 +565,30 @@ function handleTerminalUserInput(data: string) {
     suggestDismissed.value = false
     commandBuffer.value = commandBuffer.value.replace(/\S+\s*$/, '')
   } else if (isTab) {
+    // Tab goes to remote shell completion; drop local suggest so they do not fight
     hideSuggest()
     commandBufferDirty.value = true
-  } else if (isLocallyEchoable(plainChunk) || (isLocallyEchoable(data) && !isPasting())) {
-    const text = isLocallyEchoable(plainChunk) ? plainChunk : data
+  } else if (isLocallyEchoable(data) && !isPasting()) {
+    // Match pre-a0fe6e2: do not fold paste bytes into the local buffer.
+    // pasteAsTypedInput still writes plain keystrokes to the PTY for shell history;
+    // cd/follow inference uses the visible line (or hasNewline line scan) instead.
     suggestDismissed.value = false
-    commandBuffer.value += text
+    commandBuffer.value += data
   } else if (isEscape) {
     if (suggestVisible.value) {
-      // Esc closes suggest only
+      // Esc closes suggest only (handleKey); do not wipe buffer
     } else {
       commandBuffer.value = ''
       commandBufferDirty.value = true
     }
   } else if (hasNewline) {
+    // Multi-line paste / embedded CR: scan lines for cd (same as pre-a0fe6e2).
+    // Do not seed capturedSubmitLine from the local buffer — it may be a stale
+    // prefix after tab-complete, and scheduleSubmit would double-apply the first cd.
     hideSuggest()
-    const normalized = plainChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    const parts = normalized.split('\n')
-    if (parts[0]) {
-      commandBuffer.value += parts[0]
-    }
     commandBufferDirty.value = true
-    if (commandBuffer.value.trim()) {
-      capturedSubmitLine.value = commandBuffer.value
-    }
-    for (const line of parts) {
+    const lines = plainChunk.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').split(/\r?\n/)
+    for (const line of lines) {
       const trimmed = line.trim()
       if (/(?:^|[;&|]\s*)cd(?:\s|$)/.test(trimmed)) {
         setTimeout(() => {

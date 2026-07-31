@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'sync-cwd'): void
   (e: 'refresh'): void
+  (e: 'collapse-tree'): void
   (e: 'search'): void
   (e: 'open-transfers'): void
   (e: 'upload-folder'): void
@@ -47,6 +48,14 @@ function onGuarded(action: () => void) {
       @click="onGuarded(() => emit('refresh'))"
     >
       <AppIcon name="refresh" size="md" />
+    </button>
+    <button
+      type="button"
+      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+      :title="t('sftp.collapseToCurrent')"
+      @click="onGuarded(() => emit('collapse-tree'))"
+    >
+      <AppIcon name="list-collapse" size="md" />
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.searchFiles')" @click="emit('search')">
       <AppIcon name="search" size="md" />

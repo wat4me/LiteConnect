@@ -752,18 +752,7 @@ export class OracleDriver implements DbDriver {
     const offset = (safePage - 1) * safeSize
     const fq = `${quoteIdentOracle(owner)}.${quoteIdentOracle(tableName)}`
 
-    let searchCols = options?.searchColumns
-    if (options?.search && (!searchCols || searchCols.length === 0)) {
-      const cols = await this.getTableColumns(sessionId, database, table)
-      searchCols = cols
-        .filter((c) => !/blob|raw|long|bfile|xml|clob|nclob/i.test(c.type))
-        .map((c) => c.name)
-        .slice(0, 32)
-    }
-    const where = buildWhereClauseOracle(
-      searchCols ? { ...options, searchColumns: searchCols } : options,
-      searchCols || [],
-    )
+    const where = buildWhereClauseOracle(options)
 
     let orderClause = ''
     if (options?.orderBy) {
@@ -1060,12 +1049,7 @@ export class OracleDriver implements DbDriver {
     assertIdent(tableName)
 
     const maxRows = Math.min(Math.max(options.maxRows || 1_000_000, 1), 5_000_000)
-    const searchCols = options.browse?.searchColumns || []
-    const browseOpts =
-      options.browse?.search && !searchCols.length
-        ? { ...options.browse, search: undefined }
-        : options.browse
-    const where = buildWhereClauseOracle(browseOpts, searchCols)
+    const where = buildWhereClauseOracle(options.browse)
     let orderSql = ''
     if (options.browse?.orderBy) {
       assertIdent(options.browse.orderBy)

@@ -85,7 +85,7 @@ const {
   exportTableAllCsv,
   copyResultCell,
   toggleDataSort,
-  applyServerSearch,
+  applyWhereFilter,
   changeDataPage,
   jumpDataPage,
   changeDataPageSize,
@@ -254,7 +254,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
         </div>
         <div class="bk-topbar-right">
           <button type="button" class="ui-btn ui-btn-sm" :disabled="!session" @click="openQueryTab()">
-            <AppIcon name="plus" size="sm" /> {{ t('database.newQuery') }}
+            <AppIcon name="sql" size="sm" /> {{ t('database.newQuery') }}
           </button>
           <button type="button" class="ui-btn ui-btn-sm" :disabled="!session || !!scriptJobId" @click="importSqlScript">
             <AppIcon name="upload" size="sm" /> 导入 SQL
@@ -430,6 +430,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
               :tab="activeTab"
               :connection-name="connectionNameOf(activeTab.connectionId)"
               :connection-meta="connectionMetaOf(activeTab.connectionId)"
+              :dialect="dialectOf(activeTab.connectionId)"
               @set-panel="setTablePanel"
               @sort="toggleDataSort"
               @page-delta="changeDataPage"
@@ -445,7 +446,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
               @export-csv="exportActiveResultCsv"
               @export-json="exportActiveResultJson"
               @export-all="exportTableAllCsv"
-              @server-search="applyServerSearch"
+              @where-filter="applyWhereFilter"
               @toggle-select="toggleSelectRow"
               @start-edit="startEditCell"
               @edit-keydown="onEditCellKeydown"

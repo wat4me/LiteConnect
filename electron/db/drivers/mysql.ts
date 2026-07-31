@@ -567,18 +567,7 @@ export class MySqlDriver implements DbDriver {
     const offset = (safePage - 1) * safeSize
     const fq = `${quoteIdentMysql(database)}.${quoteIdentMysql(table)}`
 
-    let searchCols = options?.searchColumns
-    if (options?.search && (!searchCols || searchCols.length === 0)) {
-      const cols = await this.getTableColumns(sessionId, database, table)
-      searchCols = cols
-        .filter((c) => !/blob|binary|json/i.test(c.type))
-        .map((c) => c.name)
-        .slice(0, 32)
-    }
-    const where = buildWhereClauseMysql(
-      searchCols ? { ...options, searchColumns: searchCols } : options,
-      searchCols || [],
-    )
+    const where = buildWhereClauseMysql(options)
 
     let orderClause = ''
     if (options?.orderBy) {
@@ -929,14 +918,7 @@ export class MySqlDriver implements DbDriver {
     assertIdent(database)
     assertIdent(table)
     const maxRows = Math.min(Math.max(options.maxRows || 1_000_000, 1), 5_000_000)
-    // Prefer filter/order only; free-text search needs column list — omit when unknown
-    const searchCols = options.browse?.searchColumns || []
-    const where = buildWhereClauseMysql(
-      options.browse?.search && !searchCols.length
-        ? { ...options.browse, search: undefined }
-        : options.browse,
-      searchCols,
-    )
+    const where = buildWhereClauseMysql(options.browse)
     let orderSql = ''
     if (options.browse?.orderBy) {
       assertIdent(options.browse.orderBy)

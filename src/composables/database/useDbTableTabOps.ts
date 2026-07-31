@@ -61,8 +61,7 @@ export function useDbTableTabOps(deps: DbTableTabOpsDeps) {
       error: '',
       result: null,
       sort: null,
-      serverSearch: '',
-      filter: '',
+      whereFilter: '',
       columnsMeta: [],
       pkColumns: [],
       dirty: {},
@@ -159,7 +158,7 @@ export function useDbTableTabOps(deps: DbTableTabOpsDeps) {
     const sessionId = live.sessionId
     const page = tab.page
     const pageSize = tab.pageSize
-    const search = tab.serverSearch.trim()
+    const whereFilter = tab.whereFilter.trim()
     const sort = tab.sort ? { ...tab.sort } : null
     tab.loading = true
     tab.error = ''
@@ -171,14 +170,14 @@ export function useDbTableTabOps(deps: DbTableTabOpsDeps) {
       const browseOpts: {
         orderBy?: string
         orderDir?: 'asc' | 'desc'
-        search?: string
+        where?: string
       } = {}
       if (sort) {
         browseOpts.orderBy = sort.col
         browseOpts.orderDir = sort.dir
       }
-      if (search) {
-        browseOpts.search = search
+      if (whereFilter) {
+        browseOpts.where = whereFilter
       }
       const result = await window.LiteConnect.dbBrowseTable(
         sessionId,
@@ -246,10 +245,10 @@ export function useDbTableTabOps(deps: DbTableTabOpsDeps) {
     }
   }
 
-  function applyServerSearch(search: string) {
+  function applyWhereFilter(where: string) {
     const tab = deps.activeTab.value
     if (!tab || tab.kind !== 'data') return
-    tab.serverSearch = search
+    tab.whereFilter = where
     tab.page = 1
     void loadDataPage(tab.id)
   }
@@ -265,13 +264,13 @@ export function useDbTableTabOps(deps: DbTableTabOpsDeps) {
     const browseOpts: {
       orderBy?: string
       orderDir?: 'asc' | 'desc'
-      search?: string
+      where?: string
     } = {}
     if (tab.sort) {
       browseOpts.orderBy = tab.sort.col
       browseOpts.orderDir = tab.sort.dir
     }
-    if (tab.serverSearch.trim()) browseOpts.search = tab.serverSearch.trim()
+    if (tab.whereFilter.trim()) browseOpts.where = tab.whereFilter.trim()
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
     let unsub: (() => void) | null = null
     try {
@@ -395,7 +394,7 @@ export function useDbTableTabOps(deps: DbTableTabOpsDeps) {
     loadDataPage,
     loadDataMeta,
     loadStructure,
-    applyServerSearch,
+    applyWhereFilter,
     exportTableAllCsv,
     cancelTableExport,
     toggleDataSort,

@@ -617,8 +617,8 @@ export type DbColumnFilter = {
 export type DbBrowseOptions = {
   orderBy?: string
   orderDir?: 'asc' | 'desc'
-  search?: string
-  searchColumns?: string[]
+  /** Custom WHERE predicate only (no leading WHERE keyword) */
+  where?: string
   filters?: DbColumnFilter[]
 }
 

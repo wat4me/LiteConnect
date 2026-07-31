@@ -13,8 +13,38 @@ const FILTER_OPS: readonly DbFilterOp[] = [
   'is_not_null',
 ]
 
+/** Max length for a custom WHERE predicate. */
+export const MAX_WHERE_EXPRESSION_LEN = 2000
+
 export function isFilterOp(value: unknown): value is DbFilterOp {
   return typeof value === 'string' && (FILTER_OPS as readonly string[]).includes(value)
+}
+
+/**
+ * Normalize a filter-field value into a bare WHERE predicate.
+ * - Trims whitespace
+ * - Strips a single leading WHERE keyword if the user typed it
+ * - Rejects multi-statement / null-byte payloads
+ */
+export function normalizeWhereExpression(raw: string): string {
+  let s = raw.trim()
+  if (!s) return ''
+  if (s.length > MAX_WHERE_EXPRESSION_LEN) {
+    throw new Error(`WHERE expression too long (max ${MAX_WHERE_EXPRESSION_LEN} chars)`)
+  }
+  if (s.includes('\0')) throw new Error('Invalid WHERE expression')
+  // Block multi-statement injection; predicate only (same trust model as SQL editor otherwise).
+  if (s.includes(';')) throw new Error('WHERE expression must not contain semicolons')
+
+  // Allow optional leading WHERE / where (the keyword is implied by the filter field).
+  if (/^\s*where\s*$/i.test(s)) return ''
+  s = s.replace(/^\s*where\s+/i, '').trim()
+  if (!s) return ''
+  if (/^\s*where\b/i.test(s)) {
+    // Nested WHERE after strip is almost certainly a mistake / injection attempt.
+    throw new Error('Invalid WHERE expression')
+  }
+  return s
 }
 
 export function sanitizeBrowseOptions(options?: DbBrowseOptions): DbBrowseOptions | undefined {
@@ -24,17 +54,8 @@ export function sanitizeBrowseOptions(options?: DbBrowseOptions): DbBrowseOption
     out.orderBy = options.orderBy.trim()
     out.orderDir = options.orderDir === 'desc' ? 'desc' : 'asc'
   }
-  if (typeof options.search === 'string' && options.search.trim()) {
-    const s = options.search.trim()
-    if (s.length > 500) throw new Error('Search text too long')
-    if (s.includes('\0')) throw new Error('Invalid search')
-    out.search = s
-  }
-  if (Array.isArray(options.searchColumns)) {
-    out.searchColumns = options.searchColumns
-      .filter((c) => typeof c === 'string' && c.trim())
-      .map((c) => c.trim())
-      .slice(0, 64)
+  if (typeof options.where === 'string' && options.where.trim()) {
+    out.where = normalizeWhereExpression(options.where)
   }
   if (Array.isArray(options.filters)) {
     out.filters = options.filters
@@ -99,9 +120,16 @@ function opSql(
   }
 }
 
+function appendCustomWhere(parts: string[], options: DbBrowseOptions | undefined): void {
+  const expr = options?.where?.trim()
+  if (!expr) return
+  // Parenthesize so AND with structured filters keeps expected precedence.
+  parts.push(`(${expr})`)
+}
+
 export function buildWhereClausePg(
   options: DbBrowseOptions | undefined,
-  fallbackSearchColumns: string[] = [],
+  _fallbackSearchColumns: string[] = [],
 ): { clause: string; params: unknown[] } {
   if (!options) return { clause: '', params: [] }
   const quote = quoteIdentPostgres
@@ -118,24 +146,7 @@ export function buildWhereClausePg(
     }
   }
 
-  const search = options.search?.trim()
-  if (search) {
-    const cols =
-      options.searchColumns && options.searchColumns.length > 0
-        ? options.searchColumns
-        : fallbackSearchColumns
-    const useCols = cols.slice(0, 32)
-    if (useCols.length > 0) {
-      const likes: string[] = []
-      for (const col of useCols) {
-        assertIdent(col)
-        likes.push(`CAST(${quote(col)} AS TEXT) LIKE $${p}`)
-        params.push(`%${search}%`)
-        p += 1
-      }
-      parts.push(`(${likes.join(' OR ')})`)
-    }
-  }
+  appendCustomWhere(parts, options)
 
   if (parts.length === 0) return { clause: '', params: [] }
   return { clause: ` WHERE ${parts.join(' AND ')}`, params }
@@ -144,7 +155,7 @@ export function buildWhereClausePg(
 /** Oracle 12c+ binds as :1, :2, … (node-oracledb positional). */
 export function buildWhereClauseOracle(
   options: DbBrowseOptions | undefined,
-  fallbackSearchColumns: string[] = [],
+  _fallbackSearchColumns: string[] = [],
 ): { clause: string; params: unknown[] } {
   if (!options) return { clause: '', params: [] }
   const quote = quoteIdentOracle
@@ -161,24 +172,7 @@ export function buildWhereClauseOracle(
     }
   }
 
-  const search = options.search?.trim()
-  if (search) {
-    const cols =
-      options.searchColumns && options.searchColumns.length > 0
-        ? options.searchColumns
-        : fallbackSearchColumns
-    const useCols = cols.slice(0, 32)
-    if (useCols.length > 0) {
-      const likes: string[] = []
-      for (const col of useCols) {
-        assertIdent(col)
-        likes.push(`TO_CHAR(${quote(col)}) LIKE :${p}`)
-        params.push(`%${search}%`)
-        p += 1
-      }
-      parts.push(`(${likes.join(' OR ')})`)
-    }
-  }
+  appendCustomWhere(parts, options)
 
   if (parts.length === 0) return { clause: '', params: [] }
   return { clause: ` WHERE ${parts.join(' AND ')}`, params }
@@ -186,7 +180,7 @@ export function buildWhereClauseOracle(
 
 export function buildWhereClauseMysql(
   options: DbBrowseOptions | undefined,
-  fallbackSearchColumns: string[] = [],
+  _fallbackSearchColumns: string[] = [],
 ): { clause: string; params: unknown[] } {
   if (!options) return { clause: '', params: [] }
   const quote = quoteIdentMysql
@@ -201,23 +195,7 @@ export function buildWhereClauseMysql(
     }
   }
 
-  const search = options.search?.trim()
-  if (search) {
-    const cols =
-      options.searchColumns && options.searchColumns.length > 0
-        ? options.searchColumns
-        : fallbackSearchColumns
-    const useCols = cols.slice(0, 32)
-    if (useCols.length > 0) {
-      const likes: string[] = []
-      for (const col of useCols) {
-        assertIdent(col)
-        likes.push(`CAST(${quote(col)} AS CHAR) LIKE ?`)
-        params.push(`%${search}%`)
-      }
-      parts.push(`(${likes.join(' OR ')})`)
-    }
-  }
+  appendCustomWhere(parts, options)
 
   if (parts.length === 0) return { clause: '', params: [] }
   return { clause: ` WHERE ${parts.join(' AND ')}`, params }

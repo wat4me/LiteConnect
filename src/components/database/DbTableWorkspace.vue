@@ -2,8 +2,10 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DataTab, StructureTab } from '@/domain/database/types'
+import type { SqlDialect } from '@/utils/database/dbSql'
 import DbDataTab from './DbDataTab.vue'
 import DbStructureTab from './DbStructureTab.vue'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
@@ -11,6 +13,7 @@ const props = defineProps<{
   tab: DataTab
   connectionName: string
   connectionMeta: string
+  dialect?: SqlDialect
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +32,7 @@ const emit = defineEmits<{
   exportCsv: []
   exportJson: []
   exportAll: []
-  serverSearch: [value: string]
+  whereFilter: [value: string]
   toggleSelect: [rowIndex: number]
   startEdit: [rowIndex: number, col: string]
   editKeydown: [e: KeyboardEvent]
@@ -65,6 +68,7 @@ const structureTab = computed((): StructureTab => ({
         :aria-selected="tab.panel === 'data'"
         @click="emit('setPanel', 'data')"
       >
+        <AppIcon name="table" size="xs" />
         {{ t('database.data.panelData') }}
       </button>
       <button
@@ -75,6 +79,7 @@ const structureTab = computed((): StructureTab => ({
         :aria-selected="tab.panel === 'structure'"
         @click="emit('setPanel', 'structure')"
       >
+        <AppIcon name="columns" size="xs" />
         {{ t('database.data.panelStructure') }}
       </button>
       <span class="panel-path" :title="connectionMeta">
@@ -87,6 +92,7 @@ const structureTab = computed((): StructureTab => ({
       :tab="tab"
       :connection-name="connectionName"
       :connection-meta="connectionMeta"
+      :dialect="dialect"
       :hide-breadcrumb="true"
       @sort="emit('sort', $event)"
       @page-delta="emit('pageDelta', $event)"
@@ -101,7 +107,7 @@ const structureTab = computed((): StructureTab => ({
       @export-csv="emit('exportCsv')"
       @export-json="emit('exportJson')"
       @export-all="emit('exportAll')"
-      @server-search="emit('serverSearch', $event)"
+      @where-filter="emit('whereFilter', $event)"
       @toggle-select="emit('toggleSelect', $event)"
       @start-edit="(r, c) => emit('startEdit', r, c)"
       @edit-keydown="emit('editKeydown', $event)"
@@ -135,8 +141,8 @@ const structureTab = computed((): StructureTab => ({
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 10px;
-  height: 34px;
+  padding: 0 8px;
+  height: 30px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
   flex-shrink: 0;
@@ -144,12 +150,15 @@ const structureTab = computed((): StructureTab => ({
 
 .panel-tab {
   position: relative;
-  height: 34px;
-  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -174,12 +183,12 @@ const structureTab = computed((): StructureTab => ({
 }
 
 .panel-path {
-  margin-left: 12px;
+  margin-left: 10px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 

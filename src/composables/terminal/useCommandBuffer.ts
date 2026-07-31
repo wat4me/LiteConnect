@@ -116,6 +116,8 @@ export function useCommandBuffer(deps: {
     const submitLine = capturedSubmitLine.value
     capturedSubmitLine.value = ''
 
+    // Dirty (tab / history / multi-line): trust the line captured at Enter time
+    // (visible screen). Clean path: merge buffer with the live visible line.
     if (commandBufferDirty.value) {
       if (submitLine.trim()) {
         cmd = extractCommandFromLine(submitLine)

@@ -195,6 +195,25 @@ export function useSftpDirTree(sessionId: () => string) {
     await loadChildren(cleanRemotePath(targetPath), true)
   }
 
+  /**
+   * Collapse every expanded folder, then keep only the chain to `targetPath`
+   * (current followed / locked directory). Cache is preserved so re-expand is free.
+   */
+  function collapseToPath(targetPath: string): void {
+    const clean = cleanRemotePath(targetPath || '')
+    if (!clean || clean === '') {
+      expandedPaths.value = new Set()
+      return
+    }
+    // Keep ancestors + current so the locked/followed path stays visible with its listing.
+    expandedPaths.value = new Set(ancestorPaths(clean))
+  }
+
+  /** Collapse the entire tree (no path kept open). */
+  function collapseAll(): void {
+    expandedPaths.value = new Set()
+  }
+
   function reset(): void {
     entriesByPath.value = {}
     expandedPaths.value = new Set()
@@ -226,6 +245,8 @@ export function useSftpDirTree(sessionId: () => string) {
     followPath,
     refreshNode,
     refreshPathChain,
+    collapseToPath,
+    collapseAll,
     reset,
     ingestListing,
   }
