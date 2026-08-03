@@ -47,7 +47,12 @@ export function useBatchTest(filteredConnections: FilteredConnectionsSource) {
         }, 10000)
         testTimers.value.set(connectionId, timer)
       } else {
-        testStatuses.value.set(connectionId, { state: 'error', error: result.error || t('connections.connectFailed') })
+        let error = result.error || t('connections.connectFailed')
+        // First contact fails host-key by design; list test cannot open the trust dialog.
+        if (result.stage === 'host_key' && result.hostKeyUnknown) {
+          error = t('connections.testNeedTrust')
+        }
+        testStatuses.value.set(connectionId, { state: 'error', error })
         const timer = setTimeout(() => {
           if (testStatuses.value.get(connectionId)?.state === 'error') {
             testStatuses.value.delete(connectionId)

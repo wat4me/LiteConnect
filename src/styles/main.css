@@ -109,9 +109,16 @@ html:not([data-theme]),
   box-sizing: border-box;
 }
 
+/*
+ * Electron + Windows DPI: prefer % height over 100vh.
+ * 100vh can exceed the BrowserWindow client area by a few px (titleBarOverlay /
+ * scaling), clipping the bottom of every page — descenders (y/g/p) look like
+ * v/c, and the last line cannot be scrolled into view.
+ */
 html, body, #app {
   height: 100%;
   width: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -119,6 +126,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
+  /* Enough for Latin descenders (y, g, p, q, j) under mixed CJK fonts */
+  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.3s, color 0.3s;
   /* 桌面端 UI：默认禁止划选文字，避免鼠标经过时出现「选中/变粗变大」感 */
@@ -294,11 +303,13 @@ select:focus:not(:focus-visible) {
   color: var(--text-primary);
   font-size: var(--font-ui);
   font-weight: 600;
-  line-height: 1;
+  /* line-height: 1 clips descenders (y→v) inside fixed-height controls */
+  line-height: 1.25;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s;
   white-space: nowrap;
   box-sizing: border-box;
+  overflow: visible;
 }
 
 .ui-btn:hover:not(:disabled) {
@@ -459,6 +470,8 @@ select:focus:not(:focus-visible) {
   color: var(--text-primary);
   font-size: var(--font-ui);
   font-family: inherit;
+  /* Keep descenders inside control height without clipping */
+  line-height: calc(var(--control-h) - 2px);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -631,9 +644,19 @@ select:focus:not(:focus-visible) {
   margin-bottom: 6px;
 }
 
+/*
+ * Titlebar uses -webkit-app-region: drag (titleBarStyle: hidden).
+ * Electron hit-tests drag regions independently of z-index: a tall centered
+ * modal’s close (X) can sit under the 36px strip and never receive clicks
+ * until the window is large enough that the card sits lower. Keep overlays
+ * interactive and reserve the titlebar band.
+ */
 .ui-modal-overlay {
   position: fixed;
   inset: 0;
+  /* Safe band under custom titlebar / titleBarOverlay */
+  padding-top: env(titlebar-area-height, var(--titlebar-height, 36px));
+  box-sizing: border-box;
   background: var(--overlay-bg);
   display: flex;
   align-items: center;
@@ -641,11 +664,14 @@ select:focus:not(:focus-visible) {
   z-index: 1000;
   backdrop-filter: blur(4px);
   animation: ui-fade-in 0.15s ease;
+  -webkit-app-region: no-drag;
 }
 
 .ui-modal-card {
   width: min(680px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(
+    100vh - 48px - env(titlebar-area-height, var(--titlebar-height, 36px))
+  );
   overflow: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -654,6 +680,7 @@ select:focus:not(:focus-visible) {
   position: relative;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
   animation: ui-scale-in 0.18s ease;
+  -webkit-app-region: no-drag;
 }
 
 .ui-modal-close {
@@ -672,6 +699,8 @@ select:focus:not(:focus-visible) {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 2;
+  -webkit-app-region: no-drag;
 }
 
 .ui-modal-close:hover {

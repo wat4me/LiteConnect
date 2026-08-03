@@ -31,3 +31,15 @@ export function getConnectionTagColor(tag?: string | null): string {
   const found = CONNECTION_COLOR_TAG_DEFS.find((x) => x.id === tag)
   return found?.color || DEFAULT_CONNECTION_TAG_COLOR
 }
+
+/** Resolved i18n label for tooltips / a11y (empty / unknown → default). */
+export function getConnectionTagLabel(tag?: string | null): string {
+  const id = tag || ''
+  const found = CONNECTION_COLOR_TAG_DEFS.find((x) => x.id === id)
+  return t(found?.labelKey || 'connections.colorTagDefault')
+}
+
+/** True when a non-default color tag is set. */
+export function hasConnectionColorTag(tag?: string | null): boolean {
+  return !!tag && CONNECTION_COLOR_TAG_DEFS.some((x) => x.id === tag && x.id !== '')
+}

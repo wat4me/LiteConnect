@@ -3,7 +3,11 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection, Group } from '../../env.d.ts'
-import { getConnectionTagColor } from '@/utils/connections/connectionTags'
+import {
+  getConnectionTagColor,
+  getConnectionTagLabel,
+  hasConnectionColorTag,
+} from '@/utils/connections/connectionTags'
 
 const { t } = useI18n()
 
@@ -106,6 +110,14 @@ function onDragStart(index: number) {
 
 function onDragOver(e: DragEvent, index: number) {
   if (dragConnId.value || index < 0) return
+  // Connection drags (sidebar or main list) are not group reorder
+  const types = e.dataTransfer?.types ? Array.from(e.dataTransfer.types) : []
+  if (
+    types.includes('application/x-lite-connect-conn') ||
+    types.includes('application/x-lite-ssh-conn')
+  ) {
+    return
+  }
   e.preventDefault()
   dropIndex.value = index
 }
@@ -159,27 +171,36 @@ function onGroupDragOverConn(e: DragEvent, groupId: string) {
   dropTargetGroupId.value = groupId
 }
 
-function onGroupDragLeaveConn() {
+/** Leave only when pointer exits the whole group block (not child→child). */
+function onGroupBlockDragLeave(e: DragEvent) {
+  const current = e.currentTarget as HTMLElement | null
+  const related = e.relatedTarget as Node | null
+  if (current && related && current.contains(related)) return
   dropTargetGroupId.value = null
 }
 
-function onGroupDragLeave(e: DragEvent) {
+function onGroupItemDragLeave(e: DragEvent) {
+  const current = e.currentTarget as HTMLElement | null
+  const related = e.relatedTarget as Node | null
+  if (current && related && current.contains(related)) return
   onDragLeave()
-  onGroupDragLeaveConn()
 }
 
-function onGroupDragOver(e: DragEvent, groupId: string) {
+function onGroupItemDragOver(e: DragEvent, groupId: string) {
+  // Group reorder only (connection moves use the wrapping .group-block)
   onDragOver(e, getGroupIndex(groupId))
   onGroupDragOverConn(e, groupId)
 }
 
-function onGroupDrop(e: DragEvent, groupId: string) {
+function onGroupItemDrop(e: DragEvent, groupId: string) {
   onDrop(e, getGroupIndex(groupId))
   onGroupDropConn(e, groupId)
 }
 
 function onGroupDropConn(e: DragEvent, groupId: string) {
   e.preventDefault()
+  // Title row also handles drop; stop bubbling so moveConnection fires once
+  e.stopPropagation()
   const connId =
     dragConnId.value ||
     e.dataTransfer?.getData('application/x-lite-connect-conn') ||
@@ -205,104 +226,124 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
     </div>
     <div class="group-list">
       <template v-for="group in visibleGroups" :key="group.id">
+        <!-- Whole block accepts connection drops (not only the thin title row) -->
         <div
-          class="group-item"
-          :class="{
-            active: group.id === activeGroupId,
-            dragging: dragIndex === getGroupIndex(group.id),
-            'drop-above': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id),
-            'drop-below': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id),
-            'drop-target': dropTargetGroupId === group.id,
-          }"
-          @click="emit('select', group.id)"
-          @dragover="onGroupDragOver($event, group.id)"
-          @dragleave="onGroupDragLeave"
-          @drop="onGroupDrop($event, group.id)"
+          class="group-block"
+          :class="{ 'drop-target': dropTargetGroupId === group.id }"
+          @dragover="onGroupDragOverConn($event, group.id)"
+          @dragleave="onGroupBlockDragLeave"
+          @drop="onGroupDropConn($event, group.id)"
         >
-          <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id)" class="drop-indicator top"></div>
-          <div class="group-item-content">
-            <span
-              class="group-drag-handle"
-              draggable="true"
-              :title="t('groups.dragSort')"
-              :aria-label="t('groups.dragSort')"
-              @dragstart.stop="onDragStart(getGroupIndex(group.id))"
-              @dragend="onDragEnd"
-              @click.stop
-            >
-              <AppIcon name="grip" size="xs" />
-            </span>
-            <button class="collapse-btn" @click.stop="toggleGroupCollapsed(group.id)">
-              <AppIcon :name="isGroupCollapsed(group.id) ? 'chevron-right' : 'chevron-down'" size="xs" />
-            </button>
-            <span v-if="group.isDefault" class="default-star" :title="t('groups.defaultGroup')">
-              <AppIcon name="star-fill" size="xs" />
-            </span>
-            <template v-if="editingId === group.id">
-              <input
-                v-model="editingName"
-                class="rename-input"
-                @keyup.enter="finishRename(group)"
-                @keyup.escape="cancelRename"
-                @blur="finishRename(group)"
-                @click.stop
-              />
-            </template>
-            <template v-else>
-              <span class="group-name">{{ group.name }}</span>
-              <span class="group-count">{{ connectionCounts[group.id] || 0 }}</span>
-            </template>
-          </div>
-          <div v-if="editingId !== group.id" class="group-actions">
-            <el-tooltip :content="t('groups.rename')" placement="right">
-              <button class="icon-btn-tiny" @click.stop="startRename(group)">
-                <AppIcon name="edit" size="xs" />
-              </button>
-            </el-tooltip>
-            <el-tooltip
-              :content="group.isDefault ? t('groups.defaultGroup') : t('groups.setDefault')"
-              placement="right"
-            >
-              <button
-                class="icon-btn-tiny"
-                :disabled="group.isDefault"
-                @click.stop="!group.isDefault && emit('setDefault', group.id)"
-              >
-                <AppIcon :name="group.isDefault ? 'star-fill' : 'star'" size="xs" />
-              </button>
-            </el-tooltip>
-            <el-tooltip :content="t('groups.delete')" placement="right">
-              <button class="icon-btn-tiny danger" @click.stop="emit('delete', group.id)">
-                <AppIcon name="delete" size="xs" />
-              </button>
-            </el-tooltip>
-          </div>
-          <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id)" class="drop-indicator bottom"></div>
-        </div>
-        <div v-if="!isGroupCollapsed(group.id)" class="group-connections">
           <div
-            v-for="conn in getVisibleConnectionsForGroup(group.id)"
-            :key="conn.id"
-            class="sidebar-conn"
-            :class="{ dragging: dragConnId === conn.id }"
-            @dblclick="emit('connect', conn.id)"
+            class="group-item"
+            :class="{
+              active: group.id === activeGroupId,
+              dragging: dragIndex === getGroupIndex(group.id),
+              'drop-above': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id),
+              'drop-below': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id),
+            }"
+            @click="emit('select', group.id)"
+            @dragover="onGroupItemDragOver($event, group.id)"
+            @dragleave="onGroupItemDragLeave"
+            @drop="onGroupItemDrop($event, group.id)"
           >
-            <span
-              class="sidebar-conn-handle"
-              draggable="true"
-              :title="t('groups.dragToOther')"
-              @dragstart.stop="onConnDragStart($event, conn.id)"
-              @dragend="onConnDragEnd"
-              @click.stop
-              @dblclick.stop
+            <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id)" class="drop-indicator top"></div>
+            <div class="group-item-content">
+              <span
+                class="group-drag-handle"
+                draggable="true"
+                :title="t('groups.dragSort')"
+                :aria-label="t('groups.dragSort')"
+                @dragstart.stop="onDragStart(getGroupIndex(group.id))"
+                @dragend="onDragEnd"
+                @click.stop
+              >
+                <AppIcon name="grip" size="xs" />
+              </span>
+              <button class="collapse-btn" @click.stop="toggleGroupCollapsed(group.id)">
+                <AppIcon :name="isGroupCollapsed(group.id) ? 'chevron-right' : 'chevron-down'" size="xs" />
+              </button>
+              <span v-if="group.isDefault" class="default-star" :title="t('groups.defaultGroup')">
+                <AppIcon name="star-fill" size="xs" />
+              </span>
+              <template v-if="editingId === group.id">
+                <input
+                  v-model="editingName"
+                  class="rename-input"
+                  @keyup.enter="finishRename(group)"
+                  @keyup.escape="cancelRename"
+                  @blur="finishRename(group)"
+                  @click.stop
+                />
+              </template>
+              <template v-else>
+                <span class="group-name">{{ group.name }}</span>
+                <span class="group-count">{{ connectionCounts[group.id] || 0 }}</span>
+              </template>
+            </div>
+            <div v-if="editingId !== group.id" class="group-actions">
+              <el-tooltip :content="t('groups.rename')" placement="right">
+                <button class="icon-btn-tiny" @click.stop="startRename(group)">
+                  <AppIcon name="edit" size="xs" />
+                </button>
+              </el-tooltip>
+              <el-tooltip
+                :content="group.isDefault ? t('groups.defaultGroup') : t('groups.setDefault')"
+                placement="right"
+              >
+                <button
+                  class="icon-btn-tiny"
+                  :disabled="group.isDefault"
+                  @click.stop="!group.isDefault && emit('setDefault', group.id)"
+                >
+                  <AppIcon :name="group.isDefault ? 'star-fill' : 'star'" size="xs" />
+                </button>
+              </el-tooltip>
+              <el-tooltip :content="t('groups.delete')" placement="right">
+                <button class="icon-btn-tiny danger" @click.stop="emit('delete', group.id)">
+                  <AppIcon name="delete" size="xs" />
+                </button>
+              </el-tooltip>
+            </div>
+            <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id)" class="drop-indicator bottom"></div>
+          </div>
+          <div v-if="!isGroupCollapsed(group.id)" class="group-connections">
+            <div
+              v-for="conn in getVisibleConnectionsForGroup(group.id)"
+              :key="conn.id"
+              class="sidebar-conn"
+              :class="{ dragging: dragConnId === conn.id }"
+              @dblclick="emit('connect', conn.id)"
             >
-              <AppIcon name="grip" size="xs" />
-            </span>
-            <span
-              class="sidebar-conn-dot"
-              :style="conn.colorTag ? { background: getConnectionTagColor(conn.colorTag), opacity: 1 } : undefined"
-            ></span>
-            <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
+              <span
+                class="sidebar-conn-handle"
+                draggable="true"
+                :title="t('groups.dragToOther')"
+                @dragstart.stop="onConnDragStart($event, conn.id)"
+                @dragend="onConnDragEnd"
+                @click.stop
+                @dblclick.stop
+              >
+                <AppIcon name="grip" size="xs" />
+              </span>
+              <span
+                class="sidebar-conn-dot"
+                :class="{ 'has-tag': hasConnectionColorTag(conn.colorTag) }"
+                :style="{ background: getConnectionTagColor(conn.colorTag) }"
+                :title="
+                  hasConnectionColorTag(conn.colorTag)
+                    ? `${t('connections.colorTag')}: ${getConnectionTagLabel(conn.colorTag)}`
+                    : t('connections.colorTagDefault')
+                "
+                :aria-label="
+                  hasConnectionColorTag(conn.colorTag)
+                    ? `${t('connections.colorTag')}: ${getConnectionTagLabel(conn.colorTag)}`
+                    : t('connections.colorTagDefault')
+                "
+                role="img"
+              ></span>
+              <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
+            </div>
           </div>
         </div>
       </template>
@@ -326,6 +367,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   width: 220px;
   min-width: 220px;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
@@ -369,8 +411,20 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0 8px;
+  padding: 0 8px 8px;
+}
+
+.group-block {
+  border-radius: 6px;
+  margin-bottom: 2px;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.group-block.drop-target {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .group-item {
@@ -553,11 +607,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   bottom: -1px;
 }
 
-.group-item.drop-target {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-  background: var(--accent-bg);
-}
+
 
 .sidebar-conn.dragging {
   opacity: 0.4;
@@ -637,12 +687,22 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .sidebar-conn-dot {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--text-secondary);
   flex-shrink: 0;
-  opacity: 0.35;
+  opacity: 0.55;
+  box-shadow: 0 0 0 1px var(--border-color);
+  transition: opacity 0.12s ease, box-shadow 0.12s ease;
+}
+
+.sidebar-conn-dot.has-tag {
+  opacity: 1;
+}
+
+.sidebar-conn:hover .sidebar-conn-dot {
+  opacity: 1;
 }
 
 .sidebar-conn-name {

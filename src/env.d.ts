@@ -185,6 +185,13 @@ declare global {
         latency?: number
         stage?: string
         error?: string
+        hostKeyHost?: string
+        hostKeyPort?: number
+        hostKeyRole?: 'target' | 'jump'
+        existingFingerprint?: string
+        newFingerprint?: string
+        hostKeyUnknown?: boolean
+        hostKeyBase64?: string
       }>
       sshTestConnectionParams: (params: {
         host: string
@@ -205,6 +212,13 @@ declare global {
         latency?: number
         stage?: string
         error?: string
+        hostKeyHost?: string
+        hostKeyPort?: number
+        hostKeyRole?: 'target' | 'jump'
+        existingFingerprint?: string
+        newFingerprint?: string
+        hostKeyUnknown?: boolean
+        hostKeyBase64?: string
       }>
       sshDiagnoseConnectionParams: (params: {
         host: string
@@ -229,10 +243,19 @@ declare global {
         totalLatency?: number
         stage?: string
         error?: string
+        hostKeyHost?: string
+        hostKeyPort?: number
+        hostKeyRole?: 'target' | 'jump'
+        existingFingerprint?: string
+        newFingerprint?: string
+        hostKeyUnknown?: boolean
+        hostKeyBase64?: string
       }>
 
       sshRemoveHostKey: (host: string, port: number) => Promise<void>
       sshUpdateHostKey: (host: string, port: number, keyBuffer: Buffer) => Promise<string>
+      /** Trust host key from test/diagnose (public key base64); returns fingerprint. */
+      sshTrustHostKey: (host: string, port: number, keyBase64: string) => Promise<string>
       sshGetHostKeyFingerprint: (host: string, port: number) => Promise<string | null>
       sshConfirmHostKey: (connectionId: string) => Promise<string>
       sshRejectHostKey: (connectionId: string) => Promise<void>

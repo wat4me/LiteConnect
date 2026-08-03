@@ -129,12 +129,15 @@ function onInput() {
 
 .app-dialog {
   width: min(520px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(
+    100vh - 48px - env(titlebar-area-height, var(--titlebar-height, 36px))
+  );
   padding: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+  -webkit-app-region: no-drag;
 }
 
 .app-dialog-header {

@@ -164,12 +164,19 @@ async function onDeleteConnection(connectionId: string) {
   } catch {}
 }
 
-async function onFormSaved(savedConnection: Connection) {
-  showForm.value = false
-  editingConnection.value = null
+async function onFormSaved(
+  savedConnection: Connection,
+  meta?: { continueCreating?: boolean },
+) {
   await loadData()
   const refreshed = connections.value.find((conn) => conn.id === savedConnection.id) || savedConnection
   emit('connection-saved', refreshed)
+  if (meta?.continueCreating) {
+    // Keep dialog open for continuous create / copy; form resets itself
+    return
+  }
+  showForm.value = false
+  editingConnection.value = null
 }
 
 function onFormCancel() {
@@ -360,6 +367,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
 .connections-page {
   flex: 1;
   display: flex;
+  min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -368,8 +377,9 @@ defineExpose({ loadData, editConnection: onEditConnection })
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 18px 22px 16px;
+  padding: 18px 22px 20px;
   min-width: 0;
+  min-height: 0;
 }
 
 .filter-bar {
@@ -458,12 +468,27 @@ defineExpose({ loadData, editConnection: onEditConnection })
 
 .connections-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
+  /* Last-row descenders / hairlines need a little air above the clip edge */
+  padding-bottom: 8px;
 }
 
 .connection-row-wrap {
   position: relative;
+}
+
+/* Soft inset hairline between real rows (skip drag gutter; not after last row) */
+.connection-row-wrap:not(.drop-tail):has(+ .connection-row-wrap:not(.drop-tail))::after {
+  content: '';
+  position: absolute;
+  left: 28px;
+  right: 12px;
+  bottom: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--border-color) 55%, transparent);
+  pointer-events: none;
 }
 
 .connection-row-wrap.drop-before::before {

@@ -2,7 +2,7 @@ import { Client, type ConnectConfig, type ClientChannel } from 'ssh2'
 import { Socket } from 'net'
 import { AuthConnectionParams } from '../../utils/validation'
 import { buildAuthFields } from '../auth'
-import { classifyAuthError } from './testConnection'
+import { classifyAuthError, hostKeyRejectFields } from './testConnection'
 import { createHostVerifier, type HostKeyRejectInfo } from '../trust/hostKeyVerify'
 import type { KnownHostsStore } from '../trust/knownHosts'
 
@@ -17,6 +17,16 @@ export type SshDiagnosisResult = {
   totalLatency?: number
   stage?: 'tcp' | 'ssh_handshake' | 'host_key' | 'auth' | 'jump' | 'shell'
   error?: string
+  /** Host that failed host-key check (jump or target) */
+  hostKeyHost?: string
+  hostKeyPort?: number
+  hostKeyRole?: 'target' | 'jump'
+  existingFingerprint?: string
+  newFingerprint?: string
+  /** true when host was never trusted (first contact) */
+  hostKeyUnknown?: boolean
+  /** Public host key (base64) so UI can offer trust + retest without a live session */
+  hostKeyBase64?: string
 }
 
 export function classifyDiagnosisClientError(
@@ -236,7 +246,7 @@ export async function diagnoseSshConnection(
           ok: false,
           totalLatency: Date.now() - totalStart,
           stage: 'host_key',
-          error: hostKeyReject.error,
+          ...hostKeyRejectFields(hostKeyReject),
         })
         return
       }

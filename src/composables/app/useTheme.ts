@@ -491,6 +491,18 @@ export function getTerminalColors(
   return { ...(presetPalettes[t] || presetPalettes.dark) }
 }
 
+/** True when the resolved terminal background is light (for dircolors contrast fixes). */
+export function isLightTerminalBackground(
+  t: Theme,
+  colors?: CustomColors,
+  palette: TerminalPaletteId = 'auto',
+): boolean {
+  const bg = getTerminalColors(t, colors, palette).background || '#000000'
+  // rgba() selection-only themes always use hex background in presets
+  if (!bg.startsWith('#')) return false
+  return getLuminance(bg) >= 0.45
+}
+
 export const KEYBOARD_SHORTCUTS: Array<{ keys: string; descKey: string; scopeKey: string; keysKey?: string }> = [
   { keys: 'Ctrl+/ 或 ?', descKey: 'settingsShortcuts.items.shortcutsHelp', scopeKey: 'settingsShortcuts.scopes.global' },
   { keys: 'Ctrl+B', descKey: 'settingsShortcuts.items.toggleSftp', scopeKey: 'settingsShortcuts.scopes.workspace' },

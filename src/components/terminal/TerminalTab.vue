@@ -3,7 +3,8 @@ import { ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nex
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import '@xterm/xterm/css/xterm.css'
-import type { Theme, CustomColors } from '@/composables/app/useTheme'
+import { isLightTerminalBackground, type Theme, type CustomColors } from '@/composables/app/useTheme'
+import { rewriteOtherWritableAnsi } from '@/utils/terminal/otherWritableAnsi'
 import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
 import { useCommandBuffer } from '../../composables/terminal/useCommandBuffer'
 import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
@@ -955,7 +956,15 @@ watch(
 
 function appendIncomingTerminalData(data: string) {
   if (!getTerminal()) return
-  const visibleData = processPwdQueryData(data)
+  let visibleData = processPwdQueryData(data)
+  // Light themes: dircolors ow=34;42 (blue on green) for 777 dirs is unreadable —
+  // rewrite only that SGR pair to black-on-green; leave all other colors alone.
+  if (
+    visibleData.length > 0 &&
+    isLightTerminalBackground(theme.value, customColors.value, terminalPalette.value)
+  ) {
+    visibleData = rewriteOtherWritableAnsi(visibleData)
+  }
   if (visibleData.length > 0) {
     feedHistorySniff(visibleData)
     appendRenderBatch(visibleData)

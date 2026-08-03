@@ -23,6 +23,34 @@ export type SshTestConnectionResult = {
   hostKeyRole?: 'target' | 'jump'
   existingFingerprint?: string
   newFingerprint?: string
+  /** true when host was never trusted (first contact) */
+  hostKeyUnknown?: boolean
+  /** Public host key (base64) so UI can offer trust + retest without a live session */
+  hostKeyBase64?: string
+}
+
+/** Map host-key reject into result fields shared by test + diagnose UIs. */
+export function hostKeyRejectFields(info: HostKeyRejectInfo): Pick<
+  SshTestConnectionResult,
+  | 'hostKeyHost'
+  | 'hostKeyPort'
+  | 'hostKeyRole'
+  | 'existingFingerprint'
+  | 'newFingerprint'
+  | 'hostKeyUnknown'
+  | 'hostKeyBase64'
+  | 'error'
+> {
+  return {
+    hostKeyHost: info.host,
+    hostKeyPort: info.port,
+    hostKeyRole: info.role,
+    existingFingerprint: info.existingFingerprint || undefined,
+    newFingerprint: info.fingerprint,
+    hostKeyUnknown: !!info.unknown,
+    hostKeyBase64: info.keyBuffer.toString('base64'),
+    error: info.error,
+  }
 }
 
 export type SshTestConnectionParams = {
@@ -210,12 +238,7 @@ export async function testSshConnection(
           finish({
             ok: false,
             stage: 'host_key',
-            error: hostKeyReject.error,
-            hostKeyHost: hostKeyReject.host,
-            hostKeyPort: hostKeyReject.port,
-            hostKeyRole: hostKeyReject.role,
-            existingFingerprint: hostKeyReject.existingFingerprint,
-            newFingerprint: hostKeyReject.fingerprint,
+            ...hostKeyRejectFields(hostKeyReject),
           })
           return
         }
@@ -264,12 +287,7 @@ export async function testSshConnection(
           finish({
             ok: false,
             stage: 'host_key',
-            error: hostKeyReject.error,
-            hostKeyHost: hostKeyReject.host,
-            hostKeyPort: hostKeyReject.port,
-            hostKeyRole: hostKeyReject.role,
-            existingFingerprint: hostKeyReject.existingFingerprint,
-            newFingerprint: hostKeyReject.fingerprint,
+            ...hostKeyRejectFields(hostKeyReject),
           })
           return
         }

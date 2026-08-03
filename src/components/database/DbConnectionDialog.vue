@@ -577,11 +577,14 @@ onMounted(() => {
 <style scoped>
 .dbeaver-dialog {
   width: min(580px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(
+    100vh - 48px - env(titlebar-area-height, var(--titlebar-height, 36px))
+  );
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  -webkit-app-region: no-drag;
 }
 
 .dbeaver-dialog-head {

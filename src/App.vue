@@ -822,8 +822,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-container {
-  height: 100vh;
-  width: 100vw;
+  /* Match BrowserWindow client area (see main.css note on 100vh clipping) */
+  height: 100%;
+  width: 100%;
+  max-height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;

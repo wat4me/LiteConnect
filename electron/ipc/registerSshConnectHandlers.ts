@@ -138,6 +138,36 @@ export function registerSshConnectHandlers(
     return fingerprint
   })
 
+  /**
+   * Trust a host key returned by test/diagnose (public key as base64).
+   * Used when the form tests a draft connection before formal connect has a session.
+   */
+  ipcMain.handle(
+    'ssh:trustHostKey',
+    async (_event, host: string, port: number, keyBase64: string) => {
+      if (typeof host !== 'string' || !host.trim()) {
+        throw new Error('Invalid host')
+      }
+      if (typeof port !== 'number' || port <= 0 || port > 65535 || !Number.isInteger(port)) {
+        throw new Error('Invalid port')
+      }
+      if (typeof keyBase64 !== 'string' || !keyBase64.trim()) {
+        throw new Error('Invalid host key')
+      }
+      let keyBuffer: Buffer
+      try {
+        keyBuffer = Buffer.from(keyBase64, 'base64')
+      } catch {
+        throw new Error('Invalid host key encoding')
+      }
+      if (!keyBuffer.length) {
+        throw new Error('Invalid host key')
+      }
+      await ensureKnownHostsReady()
+      return knownHosts.updateHostKey(host.trim(), port, keyBuffer)
+    },
+  )
+
   ipcMain.handle('ssh:getHostKeyFingerprint', async (_event, host: string, port: number) => {
     if (typeof host !== 'string' || !host.trim()) {
       throw new Error('Invalid host')

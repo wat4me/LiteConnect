@@ -193,6 +193,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
 
   sshRemoveHostKey: (host: string, port: number) => ipcRenderer.invoke('ssh:removeHostKey', host, port),
   sshUpdateHostKey: (host: string, port: number, keyBuffer: Buffer) => ipcRenderer.invoke('ssh:updateHostKey', host, port, keyBuffer),
+  /** Trust host key from test/diagnose result (public key base64). */
+  sshTrustHostKey: (host: string, port: number, keyBase64: string) =>
+    ipcRenderer.invoke('ssh:trustHostKey', host, port, keyBase64),
   sshGetHostKeyFingerprint: (host: string, port: number) => ipcRenderer.invoke('ssh:getHostKeyFingerprint', host, port),
   sshConfirmHostKey: (connectionId: string) => ipcRenderer.invoke('ssh:confirmHostKey', connectionId),
   sshRejectHostKey: (connectionId: string) => ipcRenderer.invoke('ssh:rejectHostKey', connectionId),

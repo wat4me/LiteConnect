@@ -217,6 +217,17 @@ function scheduleRefresh(): void {
   })
 }
 
+/**
+ * Send paste as plain keystrokes (CR newlines), same policy as SSH TerminalTab.
+ * Avoid terminal.paste(): it can still race with browser paste if Ctrl+V is not
+ * preventDefault'd, and bracketed-paste wrappers are unnecessary for docker exec.
+ */
+function pasteAsTypedInput(text: string): void {
+  if (!text) return
+  const payload = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r')
+  writeInput(payload)
+}
+
 async function pasteWithConfirm(text: string): Promise<void> {
   if (!terminal || !text) return
   try {
@@ -231,8 +242,7 @@ async function pasteWithConfirm(text: string): Promise<void> {
         tone: 'warning',
       })
     }
-    // paste goes through onData → writeInput (not SSH)
-    terminal.paste(text)
+    pasteAsTypedInput(text)
   } catch {
     // cancelled
   } finally {
@@ -249,9 +259,8 @@ function onKeyDown(e: KeyboardEvent): void {
     toggleSearch()
     return
   }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-    // Let browser paste; xterm attachCustomKeyEventHandler handles paste path via clipboard
-  }
+  // Ctrl/Cmd+V is handled in attachCustomKeyEventHandler (must preventDefault there
+  // so browser paste does not double-insert with our clipboard path).
 }
 
 async function loadSettings(): Promise<void> {
@@ -349,10 +358,15 @@ function createXterm(): void {
   terminal.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true
     if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'f' || ev.key === 'F')) {
+      ev.preventDefault()
       toggleSearch()
       return false
     }
     if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'v' || ev.key === 'V')) {
+      // Critical: return false alone does NOT preventDefault in xterm — browser
+      // paste still fires on the hidden textarea → text appears twice (e.g. ctp.logctp.log).
+      ev.preventDefault()
+      ev.stopPropagation()
       void window.LiteConnect.clipboardReadText().then((text) => {
         if (text) void pasteWithConfirm(text)
       })
@@ -360,6 +374,7 @@ function createXterm(): void {
     }
     if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'c' || ev.key === 'C')) {
       if (terminal?.hasSelection()) {
+        ev.preventDefault()
         const sel = terminal.getSelection()
         if (sel) void window.LiteConnect.clipboardWriteText(sel)
         return false

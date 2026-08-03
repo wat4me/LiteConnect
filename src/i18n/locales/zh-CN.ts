@@ -278,9 +278,17 @@ export default {
     needPrivateKey: '请选择私钥文件',
     updated: '连接已更新',
     added: '连接已添加',
+    /** Continuous create: toast after each save while dialog stays open */
+    addedContinue: '已保存，可继续添加下一条',
+    saveAndContinue: '保存并继续',
+    saveAndContinueHint: '保存当前连接后继续填写下一条（不关闭窗口）',
     saveFailed: '保存失败',
     connectFailed: '连接失败',
     testFailed: '测试失败',
+    /** First contact: host not in known_hosts yet */
+    testNeedTrust: '首次连接该主机，请先确认并信任主机密钥后再测试',
+    testTrustRejected: '已取消信任主机密钥，测试未完成',
+    hostKeyTrusted: '已信任该主机，正在重新测试…',
     diagnoseFailed: '诊断失败',
     keyLoaded: '已加载密钥',
     keySelected: '已选择私钥文件',
@@ -345,6 +353,8 @@ export default {
     importFailed: '导入失败',
     connectFailed: '连接失败',
     testFailed: '测试失败',
+    /** First contact: open the connection once to trust host key, or use form “测试连接” */
+    testNeedTrust: '首次连接该主机，请先打开连接或在编辑中测试以信任主机密钥',
     batchTestDone: '测通完成：成功 {ok} · 失败 {fail}',
     colorTagDefault: '默认',
     colorTagLabel: '颜色标签',

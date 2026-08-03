@@ -3,7 +3,11 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection } from '../../env.d.ts'
-import { getConnectionTagColor } from '@/utils/connections/connectionTags'
+import {
+  getConnectionTagColor,
+  getConnectionTagLabel,
+  hasConnectionColorTag,
+} from '@/utils/connections/connectionTags'
 import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
@@ -77,7 +81,16 @@ const menuStyle = ref<Record<string, string>>({
 })
 
 const tagColor = computed(() => getConnectionTagColor(props.connection.colorTag))
-const tagTitle = computed(() => props.connection.note || (props.connection.colorTag ? t('connections.colorTagLabel') : t('connections.colorTagDefault')))
+const hasColorTag = computed(() => hasConnectionColorTag(props.connection.colorTag))
+/** Hover tip: color name first; append note when present so the dot stays informative in long lists. */
+const tagTitle = computed(() => {
+  const label = getConnectionTagLabel(props.connection.colorTag)
+  const tagText = hasColorTag.value
+    ? `${t('connections.colorTag')}: ${label}`
+    : t('connections.colorTagDefault')
+  const note = props.connection.note?.trim()
+  return note ? `${tagText} · ${note}` : tagText
+})
 
 function onDoubleClick() {
   emit('connect', props.connection.id)
@@ -157,7 +170,9 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
       'menu-open': menuOpen,
       'keyboard-active': keyboardActive,
       pinned: connection.pinned,
+      'has-color-tag': hasColorTag,
     }"
+    :style="{ '--tag-color': tagColor }"
     @dblclick="onDoubleClick"
   >
     <div
@@ -313,18 +328,26 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 
 <style scoped>
 .connection-row {
+  --tag-color: #8b949e;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 11px 12px 11px 6px;
+  padding: 11px 12px 11px 8px;
   border-radius: 8px;
   cursor: default;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  /* Solid left accent (no transparent mix) — sharp scan strip in long lists */
   border: 1px solid transparent;
-  margin-bottom: 4px;
+  border-left: 3px solid color-mix(in srgb, var(--tag-color) 55%, var(--border-color));
+  /* Spacing handled by wrap; divider lives on .connection-row-wrap */
+  margin-bottom: 0;
   background: transparent;
   user-select: none;
+}
+
+.connection-row.has-color-tag {
+  border-left-color: var(--tag-color);
 }
 
 .connection-row.pinned {
@@ -352,7 +375,10 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 }
 
 .connection-row.keyboard-active {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  /* Keep left tag strip; only highlight the other three edges */
+  border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-right-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
@@ -461,11 +487,29 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 }
 
 .color-tag {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-color) 80%, transparent);
+  /* Single crisp outline — avoid multi soft rings + scale() blur */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tag-color) 35%, var(--border-color));
+  transition: box-shadow 0.12s ease;
+}
+
+.connection-row:hover .color-tag,
+.connection-row.keyboard-active .color-tag,
+.connection-row.menu-open .color-tag {
+  box-shadow: 0 0 0 1px var(--tag-color);
+}
+
+.connection-row.has-color-tag .color-tag {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tag-color) 55%, var(--border-color));
+}
+
+.connection-row.has-color-tag:hover .color-tag,
+.connection-row.has-color-tag.keyboard-active .color-tag,
+.connection-row.has-color-tag.menu-open .color-tag {
+  box-shadow: 0 0 0 1px var(--tag-color);
 }
 
 .conn-note {

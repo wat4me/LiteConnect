@@ -1,12 +1,12 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, type WebContents } from 'electron'
 import * as path from 'path'
 import {
   isValidUUID,
   isValidTransferId,
   isStrictPath,
   isSafeLocalPath,
+  safeWebContentsSend,
 } from '../utils/validation'
-import { broadcast } from '../window/windowRegistry'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import {
@@ -36,6 +36,11 @@ function normalizeConflict(v: unknown): ConflictStrategy {
   return 'rename'
 }
 
+/** Route transfer events only to the window that started the transfer (not all windows). */
+function emitTransfer(sender: WebContents, channel: string, ...args: unknown[]): void {
+  safeWebContentsSend(sender, channel, ...args)
+}
+
 type MainWindowGetter = () => BrowserWindow | null
 
 export function registerSftpTransferHandlers(
@@ -48,7 +53,7 @@ export function registerSftpTransferHandlers(
   ipcMain.on(
     'sftp:download',
     async (
-      _event,
+      event,
       sessionId: string,
       remotePath: string,
       fileName: string,
@@ -61,6 +66,7 @@ export function registerSftpTransferHandlers(
       if (!isValidTransferId(transferId)) return
       await ensureSettingsStoreReady()
 
+      const sender = event.sender
       const conflict = normalizeConflict(opts?.conflict)
       const resume = opts?.resume === true
       let localPath: string
@@ -76,8 +82,8 @@ export function registerSftpTransferHandlers(
           ? path.join(downloadDir, fileName)
           : resolveLocalConflictPath(downloadDir, fileName, conflict)
         if (resolved === null) {
-          broadcast( 'sftp:transferStart', sessionId, transferId, fileName, path.join(downloadDir, fileName), 'download')
-          broadcast( 'sftp:transferComplete', sessionId, transferId, path.join(downloadDir, fileName), 'skipped')
+          emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, fileName, path.join(downloadDir, fileName), 'download')
+          emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, path.join(downloadDir, fileName), 'skipped')
           return
         }
         localPath = resolved
@@ -89,7 +95,7 @@ export function registerSftpTransferHandlers(
         } catch {}
       }
 
-      broadcast( 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'download', remotePath)
+      emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'download', remotePath)
 
       sshManager
         .sftpDownload(
@@ -98,15 +104,15 @@ export function registerSftpTransferHandlers(
           localPath,
           transferId,
           (transferred, total) => {
-            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total)
+            emitTransfer(sender, 'sftp:transferProgress', sessionId, transferId, transferred, total)
           },
           { resume, keepPartial: true },
         )
         .then(() => {
-          broadcast( 'sftp:transferComplete', sessionId, transferId, localPath)
+          emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, localPath)
         })
         .catch((err) => {
-          broadcast( 'sftp:transferError', sessionId, transferId, err.message)
+          emitTransfer(sender, 'sftp:transferError', sessionId, transferId, err.message)
         })
     },
   )
@@ -119,7 +125,7 @@ export function registerSftpTransferHandlers(
   ipcMain.on(
     'sftp:upload',
     async (
-      _event,
+      event,
       sessionId: string,
       localPath: string,
       remotePath: string,
@@ -133,6 +139,7 @@ export function registerSftpTransferHandlers(
       if (!fileNameArg || typeof fileNameArg !== 'string' || fileNameArg.includes('\0') || fileNameArg.includes('/') || fileNameArg.includes('\\')) return
       if (!isValidTransferId(transferId)) return
 
+      const sender = event.sender
       const conflict = normalizeConflict(opts?.conflict)
       const resume = opts?.resume === true
       let fileName = fileNameArg
@@ -146,8 +153,8 @@ export function registerSftpTransferHandlers(
           const exists = await sshManager.sftpExists(sessionId, fullRemotePath)
           if (exists) {
             if (conflict === 'skip') {
-              broadcast( 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
-              broadcast( 'sftp:transferComplete', sessionId, transferId, localPath, 'skipped')
+              emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
+              emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, localPath, 'skipped')
               return
             }
             if (conflict === 'rename') {
@@ -165,7 +172,7 @@ export function registerSftpTransferHandlers(
         }
       }
 
-      broadcast( 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
+      emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, fileName, localPath, 'upload', fullRemotePath)
 
       sshManager
         .sftpUpload(
@@ -174,15 +181,15 @@ export function registerSftpTransferHandlers(
           fullRemotePath,
           transferId,
           (transferred, total) => {
-            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total)
+            emitTransfer(sender, 'sftp:transferProgress', sessionId, transferId, transferred, total)
           },
           { resume },
         )
         .then(() => {
-          broadcast( 'sftp:transferComplete', sessionId, transferId, localPath)
+          emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, localPath)
         })
         .catch((err) => {
-          broadcast( 'sftp:transferError', sessionId, transferId, err.message)
+          emitTransfer(sender, 'sftp:transferError', sessionId, transferId, err.message)
         })
     },
   )
@@ -190,7 +197,7 @@ export function registerSftpTransferHandlers(
   ipcMain.on(
     'sftp:downloadDirectory',
     async (
-      _event,
+      event,
       sessionId: string,
       remotePath: string,
       dirName: string,
@@ -200,9 +207,10 @@ export function registerSftpTransferHandlers(
       if (!isValidUUID(sessionId) || !isStrictPath(remotePath) || !isValidTransferId(transferId)) return
       if (dirName && (typeof dirName !== 'string' || dirName.includes('\0') || dirName.includes('/') || dirName.includes('\\'))) return
       await ensureSettingsStoreReady()
+      const sender = event.sender
       const downloadDir = settingsStore.getDownloadPath()
       const localPath = path.join(downloadDir, dirName || path.basename(remotePath))
-      broadcast( 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'download')
+      emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'download')
       try {
         const result = await sshManager.sftpDownloadDirectory(
           sessionId,
@@ -210,7 +218,7 @@ export function registerSftpTransferHandlers(
           localPath,
           transferId,
           (transferred, total, stats) => {
-            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
+            emitTransfer(sender, 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
           },
           {
             concurrency: opts?.concurrency ?? settingsStore.getDirTransferConcurrency(),
@@ -221,7 +229,8 @@ export function registerSftpTransferHandlers(
           },
         )
         if (result.status === 'partial') {
-          broadcast(
+          emitTransfer(
+            sender,
             'sftp:transferComplete',
             sessionId,
             transferId,
@@ -230,10 +239,10 @@ export function registerSftpTransferHandlers(
             result.stats,
           )
         } else {
-          broadcast('sftp:transferComplete', sessionId, transferId, localPath)
+          emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, localPath)
         }
       } catch (err: any) {
-        broadcast('sftp:transferError', sessionId, transferId, err?.message || String(err))
+        emitTransfer(sender, 'sftp:transferError', sessionId, transferId, err?.message || String(err))
       }
     },
   )
@@ -241,7 +250,7 @@ export function registerSftpTransferHandlers(
   ipcMain.on(
     'sftp:uploadDirectory',
     async (
-      _event,
+      event,
       sessionId: string,
       localPath: string,
       remoteParent: string,
@@ -251,9 +260,10 @@ export function registerSftpTransferHandlers(
     ) => {
       if (!isValidUUID(sessionId) || !isSafeLocalPath(localPath) || !isStrictPath(remoteParent) || !isValidTransferId(transferId)) return
       if (dirName && (typeof dirName !== 'string' || dirName.includes('\0') || dirName.includes('/') || dirName.includes('\\'))) return
+      const sender = event.sender
       const conflict = normalizeConflict(opts?.conflict)
       const remotePath = remoteParent === '/' ? `/${dirName}` : `${remoteParent}/${dirName}`
-      broadcast( 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'upload', remotePath)
+      emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'upload', remotePath)
       try {
         const result = await sshManager.sftpUploadDirectory(
           sessionId,
@@ -261,7 +271,7 @@ export function registerSftpTransferHandlers(
           remotePath,
           transferId,
           (transferred, total, stats) => {
-            broadcast( 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
+            emitTransfer(sender, 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
           },
           {
             conflict,
@@ -273,7 +283,8 @@ export function registerSftpTransferHandlers(
           },
         )
         if (result.status === 'partial') {
-          broadcast(
+          emitTransfer(
+            sender,
             'sftp:transferComplete',
             sessionId,
             transferId,
@@ -282,10 +293,10 @@ export function registerSftpTransferHandlers(
             result.stats,
           )
         } else {
-          broadcast('sftp:transferComplete', sessionId, transferId, localPath)
+          emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, localPath)
         }
       } catch (err: any) {
-        broadcast('sftp:transferError', sessionId, transferId, err?.message || String(err))
+        emitTransfer(sender, 'sftp:transferError', sessionId, transferId, err?.message || String(err))
       }
     },
   )

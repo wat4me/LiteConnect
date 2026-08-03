@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import AppIcon from '../icons/AppIcon.vue'
-import { computed, ref, onMounted } from 'vue'
+import HostKeyMismatchDialog from '@/components/app/HostKeyMismatchDialog.vue'
+import { computed, nextTick, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
+import type { HostKeyMismatchData } from '@/composables/app/useSecurityDialogs'
 import type { Connection, Group, SavedCredential } from '../../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 
@@ -13,7 +15,11 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'saved', connection: Connection): void
+  (
+    e: 'saved',
+    connection: Connection,
+    meta?: { continueCreating?: boolean },
+  ): void
   (e: 'cancel'): void
   (e: 'credential-saved'): void
   /** Open app settings (e.g. network tab to install VcXsrv). */
@@ -57,6 +63,17 @@ type FormSection = 'basic' | 'tunnel' | 'advanced'
 const formSection = ref<FormSection>('basic')
 
 const testingConnection = ref(false)
+const nameInputRef = ref<HTMLInputElement | null>(null)
+
+/** Host-key trust prompt during “测试连接” (first contact / key change). */
+const hostKeyDialogVisible = ref(false)
+const hostKeyDialogData = ref<HostKeyMismatchData | null>(null)
+let hostKeyDialogResolve: ((accepted: boolean) => void) | null = null
+
+/** Edit existing vs create (new / copy without id). */
+const isCreateMode = computed(() => !props.connection?.id)
+/** Copy opens with a prefilled connection but empty id. */
+const isCopyCreate = computed(() => !!props.connection && !props.connection.id)
 
 const selectedCredential = computed(() => {
   return savedCredentials.value.find((credential) => credential.id === selectedCredentialId.value) || null
@@ -152,7 +169,37 @@ onMounted(async () => {
   }
 })
 
-async function handleSave() {
+/** Next "Name (n)" for continuous copy / bulk create. */
+function nextSequentialName(originalName: string): string {
+  const trimmed = originalName.trim() || t('connectionForm.namePlaceholder')
+  const match = trimmed.match(/^(.+?)\s*\((\d+)\)$/)
+  if (match) {
+    return `${match[1].trim()} (${parseInt(match[2], 10) + 1})`
+  }
+  return `${trimmed} (2)`
+}
+
+/** Keep form open after create; prepare fields for the next entry. */
+async function prepareNextCreateForm(justSaved: Connection) {
+  formSection.value = 'basic'
+  if (isCopyCreate.value) {
+    // Copy flow: keep credentials / tunnel, only bump the display name
+    form.value.name = nextSequentialName(justSaved.name)
+  } else {
+    // Blank create: clear identity fields, keep group / auth / tunnel for batch entry
+    form.value.name = ''
+    form.value.host = ''
+    form.value.note = ''
+  }
+  await nextTick()
+  nameInputRef.value?.focus()
+  nameInputRef.value?.select()
+}
+
+/**
+ * @param continueCreating When true (create/copy only), keep the dialog open for the next host.
+ */
+async function handleSave(continueCreating = false) {
   if (!form.value.name.trim()) {
     formSection.value = 'basic'
     ElMessage.warning(t('connectionForm.needName'))
@@ -209,6 +256,8 @@ async function handleSave() {
     }
   }
 
+  const stayOpen = continueCreating === true && isCreateMode.value
+
   saving.value = true
   try {
     const data: any = {
@@ -238,13 +287,76 @@ async function handleSave() {
       data.id = props.connection.id
     }
     const saved = await window.LiteConnect.saveConnection(data)
-    ElMessage.success(props.connection?.id ? t('connectionForm.updated') : t('connectionForm.added'))
-    emit('saved', saved)
+    if (stayOpen) {
+      ElMessage.success(t('connectionForm.addedContinue'))
+      emit('saved', saved, { continueCreating: true })
+      await prepareNextCreateForm(saved)
+    } else {
+      ElMessage.success(props.connection?.id ? t('connectionForm.updated') : t('connectionForm.added'))
+      emit('saved', saved)
+    }
   } catch (err: any) {
     ElMessage.error(err.message || t('connectionForm.saveFailed'))
   } finally {
     saving.value = false
   }
+}
+
+function promptHostKeyTrust(data: HostKeyMismatchData): Promise<boolean> {
+  return new Promise((resolve) => {
+    hostKeyDialogData.value = data
+    hostKeyDialogVisible.value = true
+    hostKeyDialogResolve = resolve
+  })
+}
+
+function handleHostKeyDialogAccept() {
+  hostKeyDialogVisible.value = false
+  const resolve = hostKeyDialogResolve
+  hostKeyDialogResolve = null
+  hostKeyDialogData.value = null
+  resolve?.(true)
+}
+
+function handleHostKeyDialogReject() {
+  hostKeyDialogVisible.value = false
+  const resolve = hostKeyDialogResolve
+  hostKeyDialogResolve = null
+  hostKeyDialogData.value = null
+  resolve?.(false)
+}
+
+function buildTestParams() {
+  return {
+    host: form.value.host.trim(),
+    port: form.value.port,
+    username: form.value.username.trim(),
+    password: form.value.password,
+    privateKey: authType.value === 'key' ? form.value.privateKey.trim() || undefined : undefined,
+    jumpHost: form.value.jumpHost.trim() || undefined,
+    jumpPort: form.value.jumpHost.trim() ? form.value.jumpPort || 22 : undefined,
+    jumpUsername: form.value.jumpUsername?.trim() || undefined,
+    jumpPassword: form.value.jumpPassword || undefined,
+    useAgent: form.value.useAgent,
+  }
+}
+
+function formatTestFailure(result: {
+  stage?: string
+  error?: string
+  hostKeyUnknown?: boolean
+}): string {
+  if (result.stage === 'host_key' && result.hostKeyUnknown) {
+    return t('connectionForm.testNeedTrust')
+  }
+  const stageKey = result.stage && ['tcp', 'ssh_handshake', 'host_key', 'auth', 'jump', 'shell'].includes(result.stage)
+    ? result.stage
+    : 'unknown'
+  const stageLabel = t(`connectionForm.testStage.${stageKey}`)
+  if (result.error) {
+    return `${t('connectionForm.testFailed')}（${stageLabel}）：${result.error}`
+  }
+  return `${t('connectionForm.testFailed')}（${stageLabel}）`
 }
 
 async function handleConnectionTest() {
@@ -267,23 +379,59 @@ async function handleConnectionTest() {
   testingConnection.value = true
 
   try {
-    const result = await window.LiteConnect.sshDiagnoseConnectionParams({
-      host: form.value.host.trim(),
-      port: form.value.port,
-      username: form.value.username.trim(),
-      password: form.value.password,
-      privateKey: authType.value === 'key' ? form.value.privateKey.trim() || undefined : undefined,
-      jumpHost: form.value.jumpHost.trim() || undefined,
-      jumpPort: form.value.jumpHost.trim() ? form.value.jumpPort || 22 : undefined,
-      jumpUsername: form.value.jumpUsername?.trim() || undefined,
-      jumpPassword: form.value.jumpPassword || undefined,
-      useAgent: form.value.useAgent,
-    })
-    if (result.ok) {
-      ElMessage.success(t('connectionForm.testSuccess'))
-    } else {
-      ElMessage.error(t('connectionForm.testFailed'))
+    const params = buildTestParams()
+    // Jump + target may each need one trust step on first contact.
+    const maxAttempts = 3
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const result = await window.LiteConnect.sshDiagnoseConnectionParams(params)
+      if (result.ok) {
+        ElMessage.success(t('connectionForm.testSuccess'))
+        return
+      }
+
+      const canTrust =
+        result.stage === 'host_key' &&
+        !!result.hostKeyBase64 &&
+        !!result.hostKeyHost &&
+        typeof result.hostKeyPort === 'number'
+
+      if (!canTrust) {
+        ElMessage.error(formatTestFailure(result))
+        return
+      }
+
+      const accepted = await promptHostKeyTrust({
+        connectionId: props.connection?.id || '__test__',
+        host: result.hostKeyHost!,
+        port: result.hostKeyPort!,
+        existingFingerprint: result.existingFingerprint || '',
+        newFingerprint: result.newFingerprint || '',
+        role: result.hostKeyRole || 'target',
+      })
+
+      if (!accepted) {
+        ElMessage.warning(
+          result.hostKeyUnknown
+            ? t('connectionForm.testTrustRejected')
+            : t('connectionForm.testFailed'),
+        )
+        return
+      }
+
+      try {
+        await window.LiteConnect.sshTrustHostKey(
+          result.hostKeyHost!,
+          result.hostKeyPort!,
+          result.hostKeyBase64!,
+        )
+        ElMessage.success(t('connectionForm.hostKeyTrusted'))
+      } catch (err: any) {
+        ElMessage.error(err?.message || t('connectionForm.testFailed'))
+        return
+      }
+      // Loop: re-run diagnose with the newly trusted host key.
     }
+    ElMessage.error(t('connectionForm.testFailed'))
   } catch {
     ElMessage.error(t('connectionForm.testFailed'))
   } finally {
@@ -433,13 +581,18 @@ async function toggleCredentialAutoFill() {
         </nav>
       </header>
 
-      <form @submit.prevent="handleSave" class="form">
+      <form @submit.prevent="handleSave(false)" class="form">
         <div class="form-body">
           <!-- 基本 -->
           <div v-show="formSection === 'basic'" class="form-section">
             <div class="form-row">
               <label class="label">{{ t('connectionForm.name') }}</label>
-              <input v-model="form.name" :placeholder="t('connectionForm.namePlaceholder')" class="ui-input" />
+              <input
+                ref="nameInputRef"
+                v-model="form.name"
+                :placeholder="t('connectionForm.namePlaceholder')"
+                class="ui-input"
+              />
             </div>
 
             <div class="form-row">
@@ -655,6 +808,16 @@ async function toggleCredentialAutoFill() {
           </div>
           <div class="form-actions-right">
             <button type="button" class="ui-btn" @click="emit('cancel')">{{ t('common.cancel') }}</button>
+            <button
+              v-if="isCreateMode"
+              type="button"
+              class="ui-btn"
+              :disabled="saving"
+              :title="t('connectionForm.saveAndContinueHint')"
+              @click="handleSave(true)"
+            >
+              {{ saving ? t('common.saving') : t('connectionForm.saveAndContinue') }}
+            </button>
             <button type="submit" class="ui-btn ui-btn-primary" :disabled="saving">
               {{ saving ? t('common.saving') : t('common.save') }}
             </button>
@@ -662,6 +825,13 @@ async function toggleCredentialAutoFill() {
         </footer>
       </form>
     </div>
+
+    <HostKeyMismatchDialog
+      v-if="hostKeyDialogVisible"
+      :data="hostKeyDialogData"
+      @accept="handleHostKeyDialogAccept"
+      @reject="handleHostKeyDialogReject"
+    />
   </div>
 </template>
 
@@ -669,11 +839,15 @@ async function toggleCredentialAutoFill() {
 .connection-modal {
   width: 480px;
   max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
+  /* Leave room for custom titlebar so close (X) is never under drag region */
+  max-height: calc(
+    100vh - 32px - env(titlebar-area-height, var(--titlebar-height, 36px))
+  );
   display: flex;
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+  -webkit-app-region: no-drag;
 }
 
 .modal-header {

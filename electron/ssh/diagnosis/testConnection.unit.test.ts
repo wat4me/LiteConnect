@@ -4,7 +4,12 @@ vi.mock('electron', () => ({
   app: { getPath: () => 'D:\\tmp\\LiteConnect-test-userdata' },
 }))
 
-import { classifyAuthError, type SshTestConnectionResult, type SshTestStage } from './testConnection'
+import {
+  classifyAuthError,
+  hostKeyRejectFields,
+  type SshTestConnectionResult,
+  type SshTestStage,
+} from './testConnection'
 import { classifyDiagnosisClientError } from './diagnosis'
 
 describe('testConnection stage classification', () => {
@@ -43,7 +48,29 @@ describe('testConnection stage classification', () => {
       stage: 'host_key',
       error: 'x',
       latency: 12,
+      hostKeyUnknown: true,
+      hostKeyBase64: 'YWJj',
     }
     expect(stages).toContain(sample.stage!)
+    expect(sample.hostKeyUnknown).toBe(true)
+  })
+
+  it('hostKeyRejectFields exposes unknown + base64 for trust prompt', () => {
+    const fields = hostKeyRejectFields({
+      role: 'target',
+      host: 'example.com',
+      port: 22,
+      fingerprint: 'SHA256:abc',
+      existingFingerprint: '',
+      error: 'Unknown host key',
+      keyBuffer: Buffer.from('pubkey'),
+      unknown: true,
+    })
+    expect(fields.hostKeyUnknown).toBe(true)
+    expect(fields.hostKeyHost).toBe('example.com')
+    expect(fields.hostKeyPort).toBe(22)
+    expect(fields.newFingerprint).toBe('SHA256:abc')
+    expect(fields.hostKeyBase64).toBe(Buffer.from('pubkey').toString('base64'))
+    expect(fields.existingFingerprint).toBeUndefined()
   })
 })

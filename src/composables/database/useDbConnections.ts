@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRaw, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { DbConnection, DbEngine, DbSessionInfo, DbSslOptions } from '../../env.d'
 import { appConfirm } from '@/composables/app/useAppDialog'
@@ -39,6 +39,56 @@ function emptyForm(): ConnectionFormModel {
     extraOptions: {},
     group: '',
     sshConnectionId: '',
+  }
+}
+
+/**
+ * Electron IPC uses structured clone. Vue reactive Proxies (nested form fields)
+ * throw "An object could not be cloned" — always send plain data.
+ */
+function plainSslOptions(form: ConnectionFormModel): DbSslOptions {
+  const raw = form.sslOptions ? toRaw(form.sslOptions) : undefined
+  return {
+    enabled: !!(raw?.enabled ?? form.ssl),
+    rejectUnauthorized: typeof raw?.rejectUnauthorized === 'boolean' ? raw.rejectUnauthorized : undefined,
+    ca: raw?.ca?.trim() || undefined,
+    cert: raw?.cert?.trim() || undefined,
+    key: raw?.key?.trim() || undefined,
+  }
+}
+
+function plainExtraOptions(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const src = toRaw(raw as Record<string, unknown>)
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(src)) {
+    const key = String(k || '').trim()
+    if (!key) continue
+    if (v == null) continue
+    const val = String(v)
+    if (!val) continue
+    out[key] = val
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+function buildFormIpcPayload(form: ConnectionFormModel, editingId: string | null) {
+  const engine = normalizeEngine(form.engine)
+  const sslOptions = plainSslOptions(form)
+  return {
+    ...(editingId ? { id: editingId } : {}),
+    name: form.name.trim(),
+    engine,
+    host: form.host.trim(),
+    port: form.port || defaultPort(engine),
+    username: form.username.trim(),
+    password: String(form.password ?? ''),
+    database: form.database.trim() || undefined,
+    ssl: !!sslOptions.enabled,
+    sslOptions,
+    extraOptions: plainExtraOptions(form.extraOptions),
+    group: form.group.trim() || undefined,
+    sshConnectionId: form.sshConnectionId.trim() || undefined,
   }
 }
 
@@ -213,29 +263,7 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
     }
     saving.value = true
     try {
-      const engine = normalizeEngine(form.value.engine)
-      const sslOptions: DbSslOptions = {
-        enabled: !!(form.value.sslOptions?.enabled ?? form.value.ssl),
-        rejectUnauthorized: form.value.sslOptions?.rejectUnauthorized,
-        ca: form.value.sslOptions?.ca?.trim() || undefined,
-        cert: form.value.sslOptions?.cert?.trim() || undefined,
-        key: form.value.sslOptions?.key?.trim() || undefined,
-      }
-      await window.LiteConnect.dbSaveConnection({
-        ...(editingId.value ? { id: editingId.value } : {}),
-        name: form.value.name.trim(),
-        engine,
-        host: form.value.host.trim(),
-        port: form.value.port || defaultPort(engine),
-        username: form.value.username.trim(),
-        password: form.value.password,
-        database: form.value.database.trim() || undefined,
-        ssl: !!sslOptions.enabled,
-        sslOptions,
-        extraOptions: form.value.extraOptions,
-        group: form.value.group.trim() || undefined,
-        sshConnectionId: form.value.sshConnectionId.trim() || undefined,
-      })
+      await window.LiteConnect.dbSaveConnection(buildFormIpcPayload(form.value, editingId.value))
       ElMessage.success(editingId.value ? t('database.msg.saved') : t('database.msg.added'))
       closeForm()
       await loadConnections()
@@ -254,32 +282,25 @@ export function useDbConnections(hooks: DbConnectionsHooks) {
     testing.value = true
     testHint.value = ''
     try {
-      const engine = normalizeEngine(form.value.engine)
-      const sslOptions: DbSslOptions = {
-        enabled: !!(form.value.sslOptions?.enabled ?? form.value.ssl),
-        rejectUnauthorized: form.value.sslOptions?.rejectUnauthorized,
-        ca: form.value.sslOptions?.ca?.trim() || undefined,
-        cert: form.value.sslOptions?.cert?.trim() || undefined,
-        key: form.value.sslOptions?.key?.trim() || undefined,
-      }
+      const payload = buildFormIpcPayload(form.value, editingId.value)
       const result = await window.LiteConnect.dbTestConnection({
-        engine,
-        host: form.value.host.trim(),
-        port: form.value.port || defaultPort(engine),
-        username: form.value.username.trim(),
-        password: form.value.password,
-        database: form.value.database.trim() || undefined,
-        ssl: !!sslOptions.enabled,
-        sslOptions,
-        extraOptions: form.value.extraOptions,
-        sshConnectionId: form.value.sshConnectionId.trim() || undefined,
+        engine: payload.engine,
+        host: payload.host,
+        port: payload.port,
+        username: payload.username,
+        password: payload.password,
+        database: payload.database,
+        ssl: payload.ssl,
+        sslOptions: payload.sslOptions,
+        extraOptions: payload.extraOptions,
+        sshConnectionId: payload.sshConnectionId,
         connectionId: editingId.value || undefined,
       })
       const tunnel = result.viaTunnel ? t('database.connection.tunnelSuffix') : ''
       testHint.value = result.ok
         ? t('database.connection.testOk', {
             ms: result.latencyMs,
-            version: result.serverVersion || engineLabel(engine),
+            version: result.serverVersion || engineLabel(payload.engine),
             tunnel,
           })
         : result.error || t('database.connection.testFail')

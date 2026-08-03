@@ -174,6 +174,7 @@ defineExpose({ requestClose: handleClose })
 .settings-page {
   flex: 1;
   display: flex;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: var(--bg-primary);
@@ -311,8 +312,10 @@ defineExpose({ requestClose: handleClose })
 
 .settings-main {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
-  padding: 28px 32px 40px;
+  padding: 28px 32px 48px;
 }
 
 .settings-loading {

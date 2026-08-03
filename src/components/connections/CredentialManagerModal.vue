@@ -325,11 +325,14 @@ function formatTime(value: number): string {
 <style scoped>
 .credential-modal {
   width: min(720px, calc(100vw - 32px));
-  max-height: calc(100vh - 40px);
+  max-height: calc(
+    100vh - 40px - env(titlebar-area-height, var(--titlebar-height, 36px))
+  );
   display: flex;
   flex-direction: column;
   overflow: hidden;
   padding: 22px 24px 18px;
+  -webkit-app-region: no-drag;
 }
 
 .modal-top {
