@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
-import type { Connection } from '@/env.d'
+import type { Connection, KeyboardInteractivePrompt } from '@/env.d'
 
 export interface HostKeyMismatchData {
   connectionId: string
@@ -33,9 +33,11 @@ export function useSecurityDialogs(deps: {
   const hostKeyMismatchData = ref<HostKeyMismatchData | null>(null)
   const decryptionFailedVisible = ref(false)
   const decryptionFailedData = ref<DecryptionFailedData | null>(null)
+  const keyboardPrompt = ref<KeyboardInteractivePrompt | null>(null)
 
   let unsubHostKeyMismatch: (() => void) | null = null
   let unsubDecryptionFailed: (() => void) | null = null
+  let unsubKeyboard: (() => void) | null = null
 
   async function handleHostKeyAccept() {
     if (!hostKeyMismatchData.value) return
@@ -79,6 +81,20 @@ export function useSecurityDialogs(deps: {
     decryptionFailedData.value = null
   }
 
+  function handleKeyboardSubmit(answers: string[]) {
+    const req = keyboardPrompt.value
+    keyboardPrompt.value = null
+    if (!req) return
+    void window.LiteConnect.sshReplyKeyboardInteractive(req.requestId, answers)
+  }
+
+  function handleKeyboardCancel() {
+    const req = keyboardPrompt.value
+    keyboardPrompt.value = null
+    if (!req) return
+    void window.LiteConnect.sshReplyKeyboardInteractive(req.requestId, null)
+  }
+
   function subscribe() {
     unsubHostKeyMismatch = window.LiteConnect.onSshHostKeyMismatch((data) => {
       hostKeyMismatchData.value = data
@@ -88,6 +104,9 @@ export function useSecurityDialogs(deps: {
       decryptionFailedData.value = data
       decryptionFailedVisible.value = true
     })
+    unsubKeyboard = window.LiteConnect.onSshKeyboardInteractive((data) => {
+      keyboardPrompt.value = data
+    })
   }
 
   function unsubscribe() {
@@ -95,6 +114,8 @@ export function useSecurityDialogs(deps: {
     unsubHostKeyMismatch = null
     unsubDecryptionFailed?.()
     unsubDecryptionFailed = null
+    unsubKeyboard?.()
+    unsubKeyboard = null
   }
 
   onMounted(subscribe)
@@ -109,5 +130,8 @@ export function useSecurityDialogs(deps: {
     handleHostKeyReject,
     handleDecryptionFailedGoEdit,
     handleDecryptionFailedDismiss,
+    keyboardPrompt,
+    handleKeyboardSubmit,
+    handleKeyboardCancel,
   }
 }

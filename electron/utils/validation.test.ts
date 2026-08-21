@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isAbsolute } from 'path'
 import {
   isValidHost,
+  isLoopbackHost,
   isValidPort,
   isValidUUID,
   isStrictPath,
@@ -35,8 +36,21 @@ describe('validation', () => {
   it('validates host', () => {
     expect(isValidHost('example.com')).toBe(true)
     expect(isValidHost('10.0.0.1')).toBe(true)
+    expect(isValidHost('h')).toBe(true)
+    expect(isValidHost('::1')).toBe(true)
+    expect(isValidHost('[::1]')).toBe(true)
+    expect(isValidHost('internal_db')).toBe(true)
     expect(isValidHost('')).toBe(false)
     expect(isValidHost('bad host')).toBe(false)
+    expect(isValidHost('host..com')).toBe(false)
+  })
+
+  it('treats IPv6 loopback and 127/8 as loopback', () => {
+    expect(isLoopbackHost('127.0.0.1')).toBe(true)
+    expect(isLoopbackHost('127.1.2.3')).toBe(true)
+    expect(isLoopbackHost('::1')).toBe(true)
+    expect(isLoopbackHost('[::1]')).toBe(true)
+    expect(isLoopbackHost('10.0.0.1')).toBe(false)
   })
 
   it('validates username', () => {

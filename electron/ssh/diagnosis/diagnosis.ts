@@ -1,7 +1,9 @@
-import { Client, type ConnectConfig, type ClientChannel } from 'ssh2'
+import type { Client, ConnectConfig, ClientChannel } from 'ssh2'
+import { loadSsh2 } from '../loadSsh2'
 import { Socket } from 'net'
 import { AuthConnectionParams } from '../../utils/validation'
 import { buildAuthFields } from '../auth'
+import { autoAnswerKeyboardPrompts } from '../keyboardInteractive'
 import { classifyAuthError, hostKeyRejectFields } from './testConnection'
 import { createHostVerifier, type HostKeyRejectInfo } from '../trust/hostKeyVerify'
 import type { KnownHostsStore } from '../trust/knownHosts'
@@ -101,6 +103,7 @@ export async function diagnoseSshConnection(
   const hasJump = !!(params.jumpHost && params.jumpHost.trim())
   const tcpHost = hasJump ? params.jumpHost!.trim() : params.host
   const tcpPort = hasJump ? params.jumpPort || 22 : params.port
+  const ssh2Ready = loadSsh2()
 
   try {
     tcpLatency = await testTcpLatency(tcpHost, tcpPort, SSH_DIAG_TIMEOUT_MS)
@@ -113,9 +116,10 @@ export async function diagnoseSshConnection(
     }
   }
 
-  if (knownHosts) {
-    await knownHosts.init()
-  }
+  const [{ Client }] = await Promise.all([
+    ssh2Ready,
+    knownHosts ? knownHosts.init() : Promise.resolve(),
+  ])
 
   return new Promise((resolve) => {
     const sshStart = Date.now()
@@ -258,8 +262,20 @@ export async function diagnoseSshConnection(
       })
     }
 
+    const attachKeyboard = (c: Client, password: string) => {
+      c.on('keyboard-interactive', (_n, _i, _l, prompts, finish) => {
+        const list = (prompts || []).map((p: any) => ({
+          prompt: String(p?.prompt || ''),
+          echo: p?.echo !== false,
+        }))
+        const auto = autoAnswerKeyboardPrompts(list, password)
+        finish(auto.complete ? auto.answers : list.map(() => ''))
+      })
+    }
+
     if (!hasJump) {
       client = new Client()
+      attachKeyboard(client, params.password || '')
       client.on('ready', () => openShell(client!))
       client.on('error', (err) => onClientError(err, 'ssh_handshake'))
       client.connect(targetConfig())
@@ -267,6 +283,7 @@ export async function diagnoseSshConnection(
     }
 
     jumpClient = new Client()
+    attachKeyboard(jumpClient, params.jumpPassword || params.password || '')
     const jumpHost = params.jumpHost!.trim()
     const jumpPort = params.jumpPort || 22
     const jumpCfg: ConnectConfig = {
@@ -308,6 +325,7 @@ export async function diagnoseSshConnection(
               return
             }
             client = new Client()
+            attachKeyboard(client, params.password || '')
             client.on('ready', () => openShell(client!))
             client.on('error', (e) => onClientError(e, 'ssh_handshake'))
             client.connect(targetConfig(fwd))

@@ -238,6 +238,54 @@ export class SftpSession {
     return await this.sftpExec(sessionId, cmd, timeoutMs)
   }
 
+  async sftpReadFileRange(
+    sessionId: string,
+    remotePath: string,
+    offset: number,
+    length: number,
+  ): Promise<{ buffer: Buffer; size: number; eof: boolean }> {
+    const session = this.getSession(sessionId)
+    if (!session?.sftp) throw new Error(t('sftp.notInitialized'))
+    if (!Number.isFinite(offset) || offset < 0) throw new Error('Invalid read offset')
+    if (!Number.isFinite(length) || length <= 0) throw new Error('Invalid read length')
+
+    const stats = await this.sftpStat(sessionId, remotePath)
+    const size = typeof stats.size === 'number' && Number.isFinite(stats.size) ? stats.size : 0
+    if (offset >= size) {
+      return { buffer: Buffer.alloc(0), size, eof: true }
+    }
+    const end = Math.min(size, offset + length) - 1
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      let total = 0
+      const stream = session.sftp!.createReadStream(remotePath, { start: offset, end })
+      let settled = false
+      const finish = (err?: Error) => {
+        if (settled) return
+        settled = true
+        if (err) {
+          try {
+            stream.destroy()
+          } catch {}
+          reject(err)
+        } else {
+          const buffer = Buffer.concat(chunks)
+          resolve({ buffer, size, eof: offset + buffer.length >= size })
+        }
+      }
+      stream.on('data', (chunk: Buffer) => {
+        total += chunk.length
+        if (total > length) {
+          finish(new Error(t('sftp.fileTooLarge', { maxBytes: length })))
+          return
+        }
+        chunks.push(chunk)
+      })
+      stream.on('end', () => finish())
+      stream.on('error', (err: Error) => finish(err))
+    })
+  }
+
   async sftpReadFile(sessionId: string, remotePath: string, maxBytes = 5 * 1024 * 1024): Promise<string> {
     const session = this.getSession(sessionId)
     if (!session?.sftp) throw new Error(t('sftp.notInitialized'))
@@ -283,10 +331,17 @@ export class SftpSession {
     content: string,
     maxBytes = 5 * 1024 * 1024,
   ): Promise<void> {
+    return this.sftpWriteBuffer(sessionId, remotePath, Buffer.from(content, 'utf-8'), maxBytes)
+  }
+
+  async sftpWriteBuffer(
+    sessionId: string,
+    remotePath: string,
+    buffer: Buffer,
+    maxBytes = 5 * 1024 * 1024,
+  ): Promise<void> {
     const session = this.getSession(sessionId)
     if (!session?.sftp) throw new Error(t('sftp.notInitialized'))
-
-    const buffer = Buffer.from(content, 'utf-8')
     if (buffer.length > maxBytes) {
       throw new Error(t('sftp.contentTooLarge', { size: buffer.length, maxBytes }))
     }

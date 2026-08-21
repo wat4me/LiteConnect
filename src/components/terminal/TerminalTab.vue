@@ -36,6 +36,7 @@ import {
   shouldConfirmPaste,
 } from '@/utils/terminal/terminalPaste'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
+import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 import { focusLiveTerminal } from '@/utils/terminal/workspaceTerminalFocus'
 import { computeEffectiveTerminalActive } from '@/utils/terminal/terminalResizePolicy'
 import TerminalSearchBar from './TerminalSearchBar.vue'
@@ -55,8 +56,10 @@ const props = withDefaults(
      * Combined with active for resize/blink/focus; SSH session stays connected either way.
      */
     workspaceVisible?: boolean
+    /** Restored workspace tab: show reconnect overlay, do not auto-connect */
+    startDisconnected?: boolean
   }>(),
-  { active: true, workspaceVisible: true },
+  { active: true, workspaceVisible: true, startDisconnected: false },
 )
 
 const emit = defineEmits<{
@@ -64,7 +67,6 @@ const emit = defineEmits<{
   (e: 'cdCommand', sessionId: string, command: string): void
   (e: 'pwdOutput', sessionId: string, pwd: string): void
   (e: 'reconnect', sessionId: string): void
-  (e: 'reconnect-all', connectionId: string): void
   (e: 'aiSelection', text: string, mode: 'send' | 'insert'): void
   (e: 'saveAsSnippet', text: string): void
 }>()
@@ -75,6 +77,8 @@ const theme = inject<import('vue').Ref<Theme>>('theme')!
 const customColors = inject<import('vue').Ref<CustomColors>>('customColors')!
 
 const disconnected = ref(false)
+const neverConnected = ref(!!props.startDisconnected)
+const disconnectDetail = ref('')
 const reconnecting = ref(false)
 const reconnectAttempt = ref(0)
 /** 自动重试已达上限，等待用户手动重连 */
@@ -776,6 +780,11 @@ function noteDisconnectedAndMaybeReconnect(opts?: {
   if (appUnloading) return
   const wasDisconnected = disconnected.value
   disconnected.value = true
+  if (opts?.message) {
+    const key = sshDisconnectDetailKey(opts.message)
+    if (key) disconnectDetail.value = t(key)
+    else if (!disconnectDetail.value) disconnectDetail.value = opts.message
+  }
   // Avoid duplicate red lines when error + closed both fire for the same drop
   if (opts?.message && (!wasDisconnected || opts.reschedule)) {
     flushRenderBatch()
@@ -783,6 +792,9 @@ function noteDisconnectedAndMaybeReconnect(opts?: {
     if (term) {
       term.writeln(`\r\n\x1b[1;31m--- ${opts.message} ---\x1b[0m`)
     }
+  }
+  if (!wasDisconnected && !props.active && props.workspaceVisible !== false) {
+    ElMessage.warning(t('terminal.disconnectedToast', { name: props.connectionName }))
   }
   if (opts?.reschedule) {
     reconnecting.value = false
@@ -799,6 +811,8 @@ function markReconnectedInPlace() {
   clearAutoReconnectTimer()
   clearAutoReconnectAttempts(props.connectionId)
   disconnected.value = false
+  neverConnected.value = false
+  disconnectDetail.value = ''
   reconnecting.value = false
   autoReconnectExhausted.value = false
   reconnectAttempt.value = 0
@@ -832,6 +846,8 @@ function onReconnectFailed(event: Event) {
     reconnecting.value = false
     disconnected.value = true
     autoReconnectExhausted.value = false
+    const key = sshDisconnectDetailKey(detail.message)
+    disconnectDetail.value = key ? t(key) : (detail.message || msg)
     flushRenderBatch()
     const term = getTerminal()
     if (term) {
@@ -855,20 +871,6 @@ function handleReconnect() {
     terminal.writeln('\r\n\x1b[1;33m--- Reconnecting… ---\x1b[0m\r\n')
   }
   emit('reconnect', props.sessionId)
-}
-
-function handleReconnectAll() {
-  clearAutoReconnectTimer()
-  clearAutoReconnectAttempts(props.connectionId)
-  userDismissedAutoReconnect = false
-  autoReconnectExhausted.value = false
-  reconnectAttempt.value = 0
-  reconnecting.value = true
-  const terminal = getTerminal()
-  if (terminal) {
-    terminal.writeln('\r\n\x1b[1;33m--- Reconnecting all sessions… ---\x1b[0m\r\n')
-  }
-  emit('reconnect-all', props.connectionId)
 }
 
 function cancelAutoReconnect() {
@@ -1031,6 +1033,8 @@ onMounted(async () => {
       reconnecting.value = false
       disconnected.value = true
       autoReconnectExhausted.value = false
+      const key = sshDisconnectDetailKey(error)
+      disconnectDetail.value = key ? t(key) : error
       flushRenderBatch()
       const term = getTerminal()
       if (term) {
@@ -1054,6 +1058,11 @@ onMounted(async () => {
     autoReconnectEnabled = enabled
     autoReconnectMaxRetries.value = maxRetries
   } catch {}
+
+  if (props.startDisconnected) {
+    disconnected.value = true
+    userDismissedAutoReconnect = true
+  }
 
   await nextTick()
   if (isEffectiveActive()) {
@@ -1209,8 +1218,9 @@ defineExpose({
       :attempt="reconnectAttempt"
       :max-retries="autoReconnectMaxRetries"
       :exhausted="autoReconnectExhausted"
+      :never-connected="neverConnected"
+      :detail="disconnectDetail"
       @reconnect="handleReconnect"
-      @reconnect-all="handleReconnectAll"
       @cancel-auto="cancelAutoReconnect"
       @keydown="onWrapperKeydown"
     />
@@ -1218,18 +1228,29 @@ defineExpose({
 </template>
 
 <style scoped>
+/*
+ * Padding lives on the wrapper, not on .xterm-container.
+ * FitAddon measures the terminal parent with border-box height and does not
+ * subtract parent padding — padding on the fit host over-counts rows so the
+ * canvas is taller than the content box. overflow:hidden ancestors then clip
+ * the last row (descenders: y→V) and scrollback cannot show full glyphs.
+ */
 .terminal-wrapper {
   width: 100%;
   height: 100%;
+  min-height: 0;
   position: relative;
   display: flex;
   flex-direction: column;
+  padding: 4px;
+  box-sizing: border-box;
 }
 
 .xterm-container {
   width: 100%;
   height: 100%;
-  padding: 4px;
+  flex: 1;
+  min-height: 0;
 }
 
 /* 按键反馈：光标短暂高亮，提示按键已被客户端接收 */

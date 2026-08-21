@@ -278,7 +278,7 @@ onMounted(loadSnippets)
       <div class="snippet-row">
         <select
           v-model="snippetSelect"
-          class="ui-input ui-input-sm snippet-select"
+          class="ui-select ui-input-sm snippet-select"
           :disabled="isRunning || snippetOptions.length === 0"
           @change="onSnippetPick"
         >

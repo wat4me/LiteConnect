@@ -41,6 +41,20 @@ describe('useDockerWorkspaceMode', () => {
     expect(mode.dockerButtonEnabled.value).toBe(true)
   })
 
+  it('tracks pending sessions as disconnected until marked live', () => {
+    const activeSessionId = ref<string | null>('s1')
+    const panels = makePanels()
+    const mode = useDockerWorkspaceMode({
+      activeSessionId: computed(() => activeSessionId.value),
+      panels,
+    })
+    mode.ensureSessionTracked('s1', { connected: false })
+    expect(mode.disconnectedSessionIds.value.has('s1')).toBe(true)
+    expect(mode.isActiveSessionConnected.value).toBe(false)
+    mode.markSessionConnected('s1', true)
+    expect(mode.disconnectedSessionIds.value.has('s1')).toBe(false)
+  })
+
   it('snapshots and hides sidebars when entering docker; restores on leave', () => {
     const activeSessionId = ref<string | null>('s1')
     const panels = makePanels({

@@ -5,9 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="./LiteConnect.ico" />
     <title>LiteConnect</title>
+    <style>
+      html, body, #app { height: 100%; margin: 0; background: transparent; }
+      .boot-shell { height: 100%; display: flex; flex-direction: column; }
+      .boot-titlebar { height: 36px; flex-shrink: 0; -webkit-app-region: drag; }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="boot-shell">
+        <div class="boot-titlebar"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

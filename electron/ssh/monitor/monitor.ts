@@ -374,4 +374,10 @@ export class MonitorCollector {
       this.stop(sessionId)
     }
   }
+
+  /** Latest cached snapshot, or undefined if the monitor was never started. */
+  getCached(sessionId: string): MonitorData | undefined {
+    const current = this.data.get(sessionId)
+    return current ? { ...current } : undefined
+  }
 }

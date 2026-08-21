@@ -1,9 +1,10 @@
-import { ref, computed, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Connection } from '../../env.d'
 import { t } from '../../i18n'
 import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
+import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 import type { Session, ConnectionGroup } from '@/domain/session/types'
 
 export type { Session, ConnectionGroup }
@@ -100,9 +101,115 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
    * each get their own session (instead of silently dropping the second call).
    * Double-click still creates two tabs — intentional multi-session UX.
    */
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
+  let workspaceReady = false
+
+  function schedulePersistWorkspace() {
+    if (!workspaceReady) return
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      void persistWorkspaceTabs()
+    }, 400)
+  }
+
+  async function persistWorkspaceTabs() {
+    try {
+      const enabled = await window.LiteConnect.getWorkspaceRestoreEnabled?.()
+      if (!enabled) return
+      if (groups.value.length === 0) {
+        await window.LiteConnect.setWorkspaceTabs(null)
+        return
+      }
+      await window.LiteConnect.setWorkspaceTabs({
+        version: 1,
+        homeActive: activeGroupId.value === HOME_ID,
+        activeConnectionId: activeGroupId.value === HOME_ID ? null : activeGroupId.value,
+        groups: groups.value.map((g) => ({
+          connectionId: g.connectionId,
+          sessionCount: g.sessions.length,
+          activeIndex: Math.max(
+            0,
+            g.sessions.findIndex((s) => s.id === g.activeSessionId),
+          ),
+        })),
+      })
+    } catch {
+      // ignore persist failures
+    }
+  }
+
+  function restorePendingGroup(conn: Connection, sessionCount: number, activeIndex: number) {
+    if (groups.value.some((g) => g.connectionId === conn.id)) return
+    const count = Math.max(1, Math.min(8, sessionCount))
+    const sessions: Session[] = []
+    for (let i = 0; i < count; i++) {
+      sessions.push({
+        id: crypto.randomUUID(),
+        connectionId: conn.id,
+        connectionName: conn.name,
+        tabNumber: i + 1,
+        pending: true,
+      })
+    }
+    const idx = Math.min(Math.max(0, activeIndex), sessions.length - 1)
+    groups.value.push({
+      connectionId: conn.id,
+      connectionName: conn.name,
+      sessions,
+      activeSessionId: sessions[idx].id,
+      nextTabNumber: count + 1,
+    })
+  }
+
+  async function restoreWorkspaceTabs() {
+    try {
+      const enabled = await window.LiteConnect.getWorkspaceRestoreEnabled?.()
+      if (!enabled) return
+      const saved = await window.LiteConnect.getWorkspaceTabs()
+      if (!saved?.groups?.length) return
+      if (connections.value.length === 0) await loadConnections()
+      for (const g of saved.groups) {
+        const conn = connections.value.find((c) => c.id === g.connectionId)
+        if (!conn) continue
+        restorePendingGroup(conn, g.sessionCount, g.activeIndex)
+      }
+      if (saved.homeActive || !saved.activeConnectionId) {
+        activeGroupId.value = HOME_ID
+      } else if (groups.value.some((g) => g.connectionId === saved.activeConnectionId)) {
+        activeGroupId.value = saved.activeConnectionId
+      } else if (groups.value[0]) {
+        activeGroupId.value = groups.value[0].connectionId
+      }
+    } catch {
+      // ignore
+    } finally {
+      workspaceReady = true
+    }
+  }
+
+  watch(
+    () =>
+      groups.value.map((g) => `${g.connectionId}:${g.sessions.length}:${g.activeSessionId}`).join('|')
+      + `|${activeGroupId.value}`,
+    () => schedulePersistWorkspace(),
+  )
+
+  function onWorkspaceRestoreSetting(e: Event) {
+    const enabled = (e as CustomEvent<{ enabled?: boolean }>).detail?.enabled === true
+    if (enabled) void persistWorkspaceTabs()
+  }
+
+  onMounted(() => {
+    window.addEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+  })
+
   const connectTail = new Map<string, Promise<void>>()
 
-  async function createSession(connectionId: string) {
+  async function createSession(connectionId: string): Promise<string | null> {
     const prev = connectTail.get(connectionId) ?? Promise.resolve()
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
@@ -118,7 +225,7 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
         await loadConnections()
         conn = connections.value.find((c) => c.id === connectionId)
       }
-      if (!conn) return
+      if (!conn) return null
 
       const sessionId = await window.LiteConnect.sshConnect(connectionId)
       // 真正连上后清零自动重试计数
@@ -132,7 +239,7 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
       if (group?.sessions.some((s) => s.id === sessionId)) {
         group.activeSessionId = sessionId
         activeGroupId.value = connectionId
-        return
+        return sessionId
       }
 
       const session: Session = {
@@ -165,20 +272,31 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
       sb.sidebarVisible.value = true
       await window.LiteConnect.recordRecentConnection(connectionId)
       await loadRecentConnections()
-      // Reflect useCount / lastConnectedAt in local list without full reload
-      const now = Date.now()
-      connections.value = connections.value.map((item) =>
-        item.id === connectionId
-          ? {
-              ...item,
-              useCount: (item.useCount || 0) + 1,
-              lastConnectedAt: now,
-            }
-          : item,
-      )
+      // Reflect useCount / lastConnectedAt in local list when stats are enabled
+      try {
+        const statsOn = await window.LiteConnect.getConnectionUsageStatsEnabled()
+        if (statsOn) {
+          const now = Date.now()
+          connections.value = connections.value.map((item) =>
+            item.id === connectionId
+              ? {
+                  ...item,
+                  useCount: (item.useCount || 0) + 1,
+                  lastConnectedAt: now,
+                }
+              : item,
+          )
+        }
+      } catch {
+        // ignore stats refresh failures
+      }
+      return sessionId
     } catch (err: any) {
       console.error('SSH connection failed:', err)
-      ElMessage.error(err.message || t('terminal.connectFailed'))
+      const raw = err?.message || ''
+      const detailKey = sshDisconnectDetailKey(raw)
+      ElMessage.error(detailKey ? t(detailKey) : (raw || t('terminal.connectFailed')))
+      return null
     } finally {
       release()
       if (connectTail.get(connectionId) === chained) {
@@ -390,5 +508,6 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
     getGroupBySessionId,
     getLastSessionId,
     connectSidebar,
+    restoreWorkspaceTabs,
   }
 }

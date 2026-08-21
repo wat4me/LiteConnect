@@ -1,9 +1,17 @@
 import { app, safeStorage } from 'electron'
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { join, dirname } from 'path'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { DecryptionError } from '../utils/validation'
+import { writeJsonAtomic } from '../utils/atomicWrite'
+import { sealSecret } from '../utils/secretCrypto'
 import { t } from '../i18n'
+import {
+  mapImportedSshConnection,
+  sanitizeDynamicForwards,
+  sanitizeRemoteForwards,
+  stripSecretsFromExport,
+} from './connectionTransfer'
 
 export interface Connection {
   id: string
@@ -35,12 +43,18 @@ export interface Connection {
   jumpPrivateKeyEncrypted?: boolean
   useAgent?: boolean
   localForwards?: Array<{ localPort: number; remoteHost: string; remotePort: number }>
+  remoteForwards?: Array<{ remoteHost?: string; remotePort: number; localHost: string; localPort: number }>
+  dynamicForwards?: Array<{ localPort: number }>
   /** Pin to top of connection list */
   pinned?: boolean
   /** Successful connect count (UI stats) */
   useCount?: number
   /** Last successful connect timestamp */
   lastConnectedAt?: number
+  /** Public-only: secret material is never included in list payloads */
+  hasPrivateKey?: boolean
+  hasJumpPassword?: boolean
+  hasJumpPrivateKey?: boolean
   createdAt: number
   updatedAt: number
 }
@@ -98,11 +112,11 @@ export class CredentialStore {
 
   private encrypt(value: string): string {
     if (!value) return value
-    if (safeStorage.isEncryptionAvailable()) {
-      const encrypted = safeStorage.encryptString(value)
-      return encrypted.toString('base64')
-    }
-    return value
+    return sealSecret(value, {
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
+      unavailableMessage: t('crypto.encryptionUnavailable'),
+    }).value
   }
 
   private decrypt(value: string, encrypted?: boolean): string {
@@ -173,14 +187,16 @@ export class CredentialStore {
     await this.migrateGroupField()
     // Always keep a real default group; migrate legacy "ungrouped" connections into it.
     await this.ensureDefaultGroupAndReassign()
-    if (this.needsPasswordMigration()) {
-      await this.migratePasswords()
-    }
-    if (this.needsPrivateKeyMigration()) {
-      await this.migratePrivateKeys()
-    }
-    if (this.needsSavedCredentialMigration()) {
-      await this.migrateSavedCredentials()
+    if (safeStorage.isEncryptionAvailable()) {
+      if (this.needsPasswordMigration()) {
+        await this.migratePasswords()
+      }
+      if (this.needsPrivateKeyMigration()) {
+        await this.migratePrivateKeys()
+      }
+      if (this.needsSavedCredentialMigration()) {
+        await this.migrateSavedCredentials()
+      }
     }
   }
 
@@ -334,34 +350,37 @@ export class CredentialStore {
   }
 
   private async saveConnections(): Promise<void> {
-    try {
-      await mkdir(dirname(this.connectionsPath), { recursive: true })
-      await writeFile(this.connectionsPath, JSON.stringify(this.connections, null, 2), 'utf-8')
-    } catch (err) {
-      console.error('Failed to save connections:', err)
-    }
+    await writeJsonAtomic(this.connectionsPath, this.connections)
   }
 
   private async saveGroups(): Promise<void> {
-    try {
-      await mkdir(dirname(this.groupsPath), { recursive: true })
-      await writeFile(this.groupsPath, JSON.stringify(this.groups, null, 2), 'utf-8')
-    } catch (err) {
-      console.error('Failed to save groups:', err)
-    }
+    await writeJsonAtomic(this.groupsPath, this.groups)
   }
 
   private async saveSavedCredentials(): Promise<void> {
-    try {
-      await mkdir(dirname(this.savedCredentialsPath), { recursive: true })
-      await writeFile(this.savedCredentialsPath, JSON.stringify(this.savedCredentials, null, 2), 'utf-8')
-    } catch (err) {
-      console.error('Failed to save saved credentials:', err)
+    await writeJsonAtomic(this.savedCredentialsPath, this.savedCredentials)
+  }
+
+  /** List/UI payload: never include secret material. */
+  private toPublic(conn: Connection): Connection {
+    return {
+      ...conn,
+      password: '',
+      privateKey: undefined,
+      jumpPassword: undefined,
+      jumpPrivateKey: undefined,
+      encrypted: undefined,
+      privateKeyEncrypted: undefined,
+      jumpPasswordEncrypted: undefined,
+      jumpPrivateKeyEncrypted: undefined,
+      hasPrivateKey: !!conn.privateKey,
+      hasJumpPassword: !!conn.jumpPassword,
+      hasJumpPrivateKey: !!conn.jumpPrivateKey,
     }
   }
 
   private stripPassword(conn: Connection): Connection {
-    return { ...conn, password: '' }
+    return this.toPublic(conn)
   }
 
   private stripSavedCredentialPassword(credential: SavedCredential): SavedCredential {
@@ -411,24 +430,89 @@ export class CredentialStore {
     return this.stripPassword(this.connections[idx])
   }
 
-  getConnectionsForExport(): Connection[] {
-    return this.connections.map(conn => {
-      let password = ''
-      let privateKey: string | undefined
-      try {
-        password = this.decryptCachedOrEmpty(conn.id)
-      } catch {}
-      if (conn.privateKey) {
-        privateKey = this.decryptPrivateKeyOrUndefined(conn.privateKey, conn.privateKeyEncrypted)
+  getConnectionsForExport(includeSecrets = false): Connection[] {
+    return this.connections.map((conn) => {
+      const base = {
+        ...this.toPublic(conn),
+        hasPrivateKey: undefined,
+        hasJumpPassword: undefined,
+        hasJumpPrivateKey: undefined,
+      }
+      if (!includeSecrets) {
+        return stripSecretsFromExport({
+          ...base,
+          password: '',
+        }) as Connection
       }
       return {
-        ...conn,
-        password,
-        privateKey,
+        ...base,
+        password: this.decryptCachedOrEmpty(conn.id),
+        privateKey: conn.privateKey
+          ? this.decryptPrivateKeyOrUndefined(conn.privateKey, conn.privateKeyEncrypted)
+          : undefined,
+        jumpPassword: conn.jumpPassword
+          ? this.decryptOrEmpty(conn.jumpPassword, conn.jumpPasswordEncrypted)
+          : undefined,
+        jumpPrivateKey: conn.jumpPrivateKey
+          ? this.decryptPrivateKeyOrUndefined(conn.jumpPrivateKey, conn.jumpPrivateKeyEncrypted)
+          : undefined,
         encrypted: false,
-        privateKeyEncrypted: false
+        privateKeyEncrypted: false,
+        jumpPasswordEncrypted: false,
+        jumpPrivateKeyEncrypted: false,
       }
     })
+  }
+
+  getConnectionSecrets(id: string): {
+    password: string
+    privateKey: string
+    jumpPassword: string
+    jumpPrivateKey: string
+  } {
+    const empty = { password: '', privateKey: '', jumpPassword: '', jumpPrivateKey: '' }
+    const conn = this.connections.find((c) => c.id === id)
+    if (!conn) return empty
+    return {
+      password: this.decryptCachedOrEmpty(id),
+      privateKey: conn.privateKey
+        ? this.decryptPrivateKeyOrUndefined(conn.privateKey, conn.privateKeyEncrypted) || ''
+        : '',
+      jumpPassword: conn.jumpPassword
+        ? this.decryptOrEmpty(conn.jumpPassword, conn.jumpPasswordEncrypted)
+        : '',
+      jumpPrivateKey: conn.jumpPrivateKey
+        ? this.decryptPrivateKeyOrUndefined(conn.jumpPrivateKey, conn.jumpPrivateKeyEncrypted) || ''
+        : '',
+    }
+  }
+
+  async importConnections(list: unknown[]): Promise<{ imported: number; skipped: number; total: number }> {
+    let imported = 0
+    let skipped = 0
+    const existing = this.getConnections()
+    for (const raw of list) {
+      const mapped = mapImportedSshConnection(raw)
+      if (!mapped) {
+        skipped++
+        continue
+      }
+      const dup = existing.find(
+        (c) => c.host === mapped.host && c.username === mapped.username && c.port === (mapped.port || 22),
+      )
+      if (dup) {
+        skipped++
+        continue
+      }
+      try {
+        const saved = await this.saveConnection(mapped)
+        existing.push(saved)
+        imported++
+      } catch {
+        skipped++
+      }
+    }
+    return { imported, skipped, total: list.length }
   }
 
   getConnection(id: string): Connection | undefined {
@@ -496,13 +580,44 @@ export class CredentialStore {
     const now = Date.now()
     let saved: Connection
 
+    const passwordSealed =
+      conn.password
+        ? { password: this.encrypt(conn.password), encrypted: true as const }
+        : conn.id
+          ? {}
+          : { password: '', encrypted: false as const }
+
+    const applyOptionalSecret = (
+      next: Connection,
+      incoming: string | undefined,
+      valueKey: 'privateKey' | 'jumpPassword' | 'jumpPrivateKey',
+      flagKey: 'privateKeyEncrypted' | 'jumpPasswordEncrypted' | 'jumpPrivateKeyEncrypted',
+    ): Connection => {
+      if (incoming === undefined) return next
+      if (!incoming) {
+        return { ...next, [valueKey]: undefined, [flagKey]: false }
+      }
+      return { ...next, [valueKey]: this.encrypt(incoming), [flagKey]: true }
+    }
+
+    const {
+      privateKey: incomingPrivateKey,
+      jumpPassword: _jp,
+      jumpPrivateKey: _jpk,
+      password: _pw,
+      encrypted: _enc,
+      privateKeyEncrypted: _pke,
+      jumpPasswordEncrypted: _jpe,
+      jumpPrivateKeyEncrypted: _jpke,
+      hasPrivateKey: _hpk,
+      hasJumpPassword: _hjp,
+      hasJumpPrivateKey: _hjpk,
+      ...connPublic
+    } = conn
+
     const encryptedConn = {
-      ...conn,
-      password: this.encrypt(conn.password),
-      encrypted: true,
-      ...(conn.privateKey !== undefined
-        ? { privateKey: this.encrypt(conn.privateKey), privateKeyEncrypted: true }
-        : {}),
+      ...connPublic,
+      ...passwordSealed,
       useAgent: !!conn.useAgent,
       localForwards: Array.isArray(conn.localForwards)
         ? conn.localForwards
@@ -513,9 +628,11 @@ export class CredentialStore {
               remotePort: Number(f.remotePort),
             }))
         : undefined,
+      remoteForwards: sanitizeRemoteForwards(conn.remoteForwards),
+      dynamicForwards: sanitizeDynamicForwards(conn.dynamicForwards),
     }
 
-    // Jump secrets: only overwrite when a new value is provided; clear when jumpHost removed
+    // Jump secrets: undefined = keep; '' = clear; value = replace. No jumpHost → wipe.
     const applyJumpSecrets = (base: Connection): Connection => {
       let next = { ...base }
       if (!conn.jumpHost) {
@@ -526,16 +643,10 @@ export class CredentialStore {
         next.jumpHost = undefined
         next.jumpPort = undefined
         next.jumpUsername = undefined
-      } else {
-        if (conn.jumpPassword) {
-          next.jumpPassword = this.encrypt(conn.jumpPassword)
-          next.jumpPasswordEncrypted = true
-        }
-        if (conn.jumpPrivateKey) {
-          next.jumpPrivateKey = this.encrypt(conn.jumpPrivateKey)
-          next.jumpPrivateKeyEncrypted = true
-        }
+        return next
       }
+      next = applyOptionalSecret(next, conn.jumpPassword, 'jumpPassword', 'jumpPasswordEncrypted')
+      next = applyOptionalSecret(next, conn.jumpPrivateKey, 'jumpPrivateKey', 'jumpPrivateKeyEncrypted')
       return next
     }
 
@@ -550,36 +661,45 @@ export class CredentialStore {
       if (idx === -1) {
         throw new Error('Connection not found')
       }
-      this.connections[idx] = applyJumpSecrets({
-        ...this.connections[idx],
-        ...encryptedConn,
-        group: resolvedGroup,
-        updatedAt: now,
-      } as Connection)
+      this.connections[idx] = applyOptionalSecret(
+        applyJumpSecrets({
+          ...this.connections[idx],
+          ...encryptedConn,
+          group: resolvedGroup,
+          updatedAt: now,
+        } as Connection),
+        incomingPrivateKey,
+        'privateKey',
+        'privateKeyEncrypted',
+      )
       saved = this.connections[idx]
     } else {
       const maxOrder = this.connections.reduce(
         (max, c) => Math.max(max, typeof c.order === 'number' ? c.order : -1),
         -1,
       )
-      saved = applyJumpSecrets({
-        ...encryptedConn,
-        id: uuidv4(),
-        port: conn.port || 22,
-        order: maxOrder + 1,
-        group: resolvedGroup,
-        createdAt: now,
-        updatedAt: now,
-      } as Connection)
+      saved = applyOptionalSecret(
+        applyJumpSecrets({
+          ...encryptedConn,
+          id: uuidv4(),
+          port: conn.port || 22,
+          order: maxOrder + 1,
+          group: resolvedGroup,
+          createdAt: now,
+          updatedAt: now,
+        } as Connection),
+        incomingPrivateKey,
+        'privateKey',
+        'privateKeyEncrypted',
+      )
       this.connections.push(saved)
     }
 
     await this.saveConnections()
-    this.decryptedCache.set(saved.id, { value: conn.password, ts: Date.now() })
-    return {
-      ...saved,
-      password: conn.password,
+    if (conn.password) {
+      this.decryptedCache.set(saved.id, { value: conn.password, ts: Date.now() })
     }
+    return this.toPublic(saved)
   }
 
   async updateConnectionGroup(id: string, groupId: string | undefined): Promise<Connection> {

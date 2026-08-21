@@ -242,6 +242,7 @@ async function onTreeToggle(path: string) {
 
 let unsubClosed: (() => void) | null = null
 let unsubReconnected: (() => void) | null = null
+let unsubError: (() => void) | null = null
 
 function onUploadCompleteEvent(e: Event) {
   const sessionId = (e as CustomEvent).detail?.sessionId as string | undefined
@@ -262,6 +263,10 @@ function handleSessionClosed(sessionId: string) {
 function bindSessionClosedListener(sessionId: string) {
   unsubClosed?.()
   unsubClosed = window.LiteConnect.onSshClosed(sessionId, () => {
+    handleSessionClosed(sessionId)
+  })
+  unsubError?.()
+  unsubError = window.LiteConnect.onSshError(sessionId, () => {
     handleSessionClosed(sessionId)
   })
   unsubReconnected?.()
@@ -626,6 +631,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   saveCurrentState()
   unsubClosed?.()
+  unsubError?.()
   unsubReconnected?.()
   resetDragState()
   unbindConflictSettingsListener()

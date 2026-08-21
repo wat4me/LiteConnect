@@ -212,7 +212,7 @@ defineExpose({ resetSearch })
       <label class="logs-field">
         <span class="logs-field-label">{{ t('docker.logs.tailLabel') }}</span>
         <select
-          class="logs-select"
+          class="ui-select ui-input-sm logs-select"
           :value="String(tail)"
           :aria-label="t('docker.logs.tailLabel')"
           @change="onLogTailChange"
@@ -354,12 +354,8 @@ defineExpose({ resetSearch })
 }
 
 .logs-select {
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 3px 6px;
-  font-size: 12px;
+  width: auto;
+  min-width: 72px;
 }
 
 .logs-check {

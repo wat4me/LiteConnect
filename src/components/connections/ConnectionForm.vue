@@ -46,8 +46,11 @@ const form = ref({
   jumpPort: 22,
   jumpUsername: '',
   jumpPassword: '',
+  jumpPrivateKey: '',
   useAgent: false,
   localForwards: [] as Array<{ localPort: number; remoteHost: string; remotePort: number }>,
+  remoteForwards: [] as Array<{ remoteHost: string; remotePort: number; localHost: string; localPort: number }>,
+  dynamicForwards: [] as Array<{ localPort: number }>,
 })
 
 const groups = ref<Group[]>([])
@@ -58,6 +61,11 @@ const saving = ref(false)
 const showPassword = ref(false)
 const privateKeyFileName = ref('')
 const authType = ref<'password' | 'key'>('password')
+const jumpAuthType = ref<'password' | 'key'>('password')
+const jumpPrivateKeyFileName = ref('')
+/** When editing, keep stored private key unless the user picks/clears one. */
+const keepStoredPrivateKey = ref(false)
+const keepStoredJumpPrivateKey = ref(false)
 /** Form sections to keep the modal short and scannable */
 type FormSection = 'basic' | 'tunnel' | 'advanced'
 const formSection = ref<FormSection>('basic')
@@ -83,6 +91,8 @@ const tunnelConfigCount = computed(() => {
   let n = 0
   if (form.value.jumpHost.trim()) n += 1
   n += form.value.localForwards.filter((f) => f.localPort > 0 || f.remotePort > 0 || f.remoteHost.trim()).length
+  n += form.value.remoteForwards.filter((f) => f.remotePort > 0 || f.localPort > 0).length
+  n += form.value.dynamicForwards.filter((f) => f.localPort > 0).length
   if (form.value.x11Forwarding) n += 1
   return n
 })
@@ -100,16 +110,22 @@ onMounted(async () => {
   const groupsPromise = window.LiteConnect.getGroups()
   const savedCredentialsPromise = window.LiteConnect.getSavedCredentials()
   const autoFillPromise = window.LiteConnect.getCredentialAutoFillEnabled()
-  const passwordPromise = props.connection?.id
-    ? window.LiteConnect.getConnectionPassword(props.connection.id)
-    : Promise.resolve(props.connection?.password || '')
+  const secretsPromise = props.connection?.id
+    ? window.LiteConnect.getConnectionSecrets(props.connection.id)
+    : Promise.resolve({
+        password: props.connection?.password || '',
+        privateKey: props.connection?.privateKey || '',
+        jumpPassword: props.connection?.jumpPassword || '',
+        jumpPrivateKey: props.connection?.jumpPrivateKey || '',
+      })
 
-  const [loadedGroups, loadedCredentials, autoFillEnabled, password] = await Promise.all([
+  const [loadedGroups, loadedCredentials, autoFillEnabled, secrets] = await Promise.all([
     groupsPromise,
     savedCredentialsPromise,
     autoFillPromise,
-    passwordPromise,
+    secretsPromise,
   ])
+  const password = secrets.password
   groups.value = loadedGroups
   savedCredentials.value = loadedCredentials
   credentialAutoFillEnabled.value = autoFillEnabled
@@ -126,7 +142,7 @@ onMounted(async () => {
       port: props.connection.port,
       username: props.connection.username,
       password,
-      privateKey: props.connection.privateKey || '',
+      privateKey: secrets.privateKey || '',
       group: props.connection.group || defaultGroupId,
       note: props.connection.note || '',
       colorTag: props.connection.colorTag || '',
@@ -139,15 +155,45 @@ onMounted(async () => {
       jumpHost: props.connection.jumpHost || '',
       jumpPort: props.connection.jumpPort || 22,
       jumpUsername: props.connection.jumpUsername || '',
-      jumpPassword: props.connection.jumpPassword || '',
+      jumpPassword: secrets.jumpPassword || props.connection.jumpPassword || '',
+      jumpPrivateKey: secrets.jumpPrivateKey || '',
       useAgent: props.connection.useAgent ?? false,
       localForwards: props.connection.localForwards
         ? props.connection.localForwards.map((f) => ({ ...f }))
         : [],
+      remoteForwards: props.connection.remoteForwards
+        ? props.connection.remoteForwards.map((f) => ({
+            remoteHost: f.remoteHost || '127.0.0.1',
+            remotePort: f.remotePort,
+            localHost: f.localHost || '127.0.0.1',
+            localPort: f.localPort,
+          }))
+        : [],
+      dynamicForwards: props.connection.dynamicForwards
+        ? props.connection.dynamicForwards.map((f) => ({ ...f }))
+        : [],
     }
-    if (props.connection.privateKey) {
+    if (props.connection.hasPrivateKey || secrets.privateKey) {
       authType.value = 'key'
       privateKeyFileName.value = t('connectionForm.keyLoaded')
+      keepStoredPrivateKey.value = !secrets.privateKey && !!props.connection.id
+      if (!props.connection.id && secrets.privateKey) {
+        // Copy-as-new: keep key material in the form so save writes it
+        keepStoredPrivateKey.value = false
+      } else if (props.connection.id && (props.connection.hasPrivateKey || secrets.privateKey)) {
+        form.value.privateKey = ''
+        keepStoredPrivateKey.value = true
+      }
+    }
+    if (props.connection.hasJumpPrivateKey || secrets.jumpPrivateKey) {
+      jumpAuthType.value = 'key'
+      jumpPrivateKeyFileName.value = t('connectionForm.keyLoaded')
+      if (props.connection.id) {
+        form.value.jumpPrivateKey = ''
+        keepStoredJumpPrivateKey.value = true
+      }
+    } else if (secrets.jumpPassword || props.connection.hasJumpPassword) {
+      jumpAuthType.value = 'password'
     }
     // Open the section that already has advanced data when editing
     if (
@@ -215,7 +261,7 @@ async function handleSave(continueCreating = false) {
     ElMessage.warning(t('connectionForm.needUsername'))
     return
   }
-  if (authType.value === 'key' && !form.value.privateKey.trim()) {
+  if (authType.value === 'key' && !form.value.privateKey.trim() && !keepStoredPrivateKey.value) {
     formSection.value = 'basic'
     ElMessage.warning(t('connectionForm.needPrivateKey'))
     return
@@ -266,7 +312,10 @@ async function handleSave(continueCreating = false) {
       port: form.value.port,
       username: form.value.username.trim(),
       password: form.value.password,
-      privateKey: authType.value === 'key' ? form.value.privateKey.trim() || undefined : undefined,
+      privateKey:
+        authType.value === 'key'
+          ? (form.value.privateKey.trim() || (keepStoredPrivateKey.value ? undefined : ''))
+          : '',
       group: form.value.group || undefined,
       note: form.value.note.trim(),
       colorTag: form.value.colorTag || '',
@@ -277,11 +326,26 @@ async function handleSave(continueCreating = false) {
       jumpHost: form.value.jumpHost.trim() || undefined,
       jumpPort: form.value.jumpHost.trim() ? form.value.jumpPort || 22 : undefined,
       jumpUsername: form.value.jumpUsername.trim() || undefined,
-      jumpPassword: form.value.jumpPassword || undefined,
+      jumpPassword:
+        form.value.jumpHost.trim()
+          ? (jumpAuthType.value === 'password'
+              ? (form.value.jumpPassword || undefined)
+              : '')
+          : undefined,
+      jumpPrivateKey:
+        form.value.jumpHost.trim()
+          ? (jumpAuthType.value === 'key'
+              ? (form.value.jumpPrivateKey.trim() || (keepStoredJumpPrivateKey.value ? undefined : ''))
+              : '')
+          : undefined,
       useAgent: form.value.useAgent,
       localForwards: form.value.localForwards.filter(
         (f) => f.localPort > 0 && f.remoteHost.trim() && f.remotePort > 0,
       ),
+      remoteForwards: form.value.remoteForwards.filter(
+        (f) => f.remotePort > 0 && f.localPort > 0,
+      ),
+      dynamicForwards: form.value.dynamicForwards.filter((f) => f.localPort > 0),
     }
     if (props.connection?.id) {
       data.id = props.connection.id
@@ -333,10 +397,12 @@ function buildTestParams() {
     username: form.value.username.trim(),
     password: form.value.password,
     privateKey: authType.value === 'key' ? form.value.privateKey.trim() || undefined : undefined,
+    connectionId: props.connection?.id || undefined,
     jumpHost: form.value.jumpHost.trim() || undefined,
     jumpPort: form.value.jumpHost.trim() ? form.value.jumpPort || 22 : undefined,
     jumpUsername: form.value.jumpUsername?.trim() || undefined,
-    jumpPassword: form.value.jumpPassword || undefined,
+    jumpPassword: jumpAuthType.value === 'password' ? form.value.jumpPassword || undefined : undefined,
+    jumpPrivateKey: jumpAuthType.value === 'key' ? form.value.jumpPrivateKey.trim() || undefined : undefined,
     useAgent: form.value.useAgent,
   }
 }
@@ -370,7 +436,7 @@ async function handleConnectionTest() {
     ElMessage.warning(t('connectionForm.needUsername'))
     return
   }
-  if (authType.value === 'key' && !form.value.privateKey.trim()) {
+  if (authType.value === 'key' && !form.value.privateKey.trim() && !keepStoredPrivateKey.value) {
     formSection.value = 'basic'
     ElMessage.warning(t('connectionForm.needPrivateKey'))
     return
@@ -444,12 +510,14 @@ async function selectPrivateKey() {
   if (content) {
     form.value.privateKey = content
     privateKeyFileName.value = t('connectionForm.keySelected')
+    keepStoredPrivateKey.value = false
   }
 }
 
 function clearPrivateKey() {
   form.value.privateKey = ''
   privateKeyFileName.value = ''
+  keepStoredPrivateKey.value = false
   authType.value = 'password'
 }
 
@@ -458,6 +526,33 @@ function switchAuthType(type: 'password' | 'key') {
   if (type === 'password') {
     form.value.privateKey = ''
     privateKeyFileName.value = ''
+    keepStoredPrivateKey.value = false
+  }
+}
+
+async function selectJumpPrivateKey() {
+  const content = await window.LiteConnect.readPrivateKeyFile()
+  if (content) {
+    form.value.jumpPrivateKey = content
+    jumpPrivateKeyFileName.value = t('connectionForm.keySelected')
+    keepStoredJumpPrivateKey.value = false
+    jumpAuthType.value = 'key'
+  }
+}
+
+function clearJumpPrivateKey() {
+  form.value.jumpPrivateKey = ''
+  jumpPrivateKeyFileName.value = ''
+  keepStoredJumpPrivateKey.value = false
+  jumpAuthType.value = 'password'
+}
+
+function switchJumpAuthType(type: 'password' | 'key') {
+  jumpAuthType.value = type
+  if (type === 'password') {
+    form.value.jumpPrivateKey = ''
+    jumpPrivateKeyFileName.value = ''
+    keepStoredJumpPrivateKey.value = false
   }
 }
 
@@ -607,7 +702,12 @@ async function toggleCredentialAutoFill() {
               <label class="label">{{ t('connectionForm.username') }}</label>
               <div class="username-row">
                 <input v-model="form.username" placeholder="root" class="ui-input username-input" />
-                <select v-model="selectedCredentialId" class="ui-input credential-inline-select" :title="t('connectionForm.credentialSelectTitle')" @change="applySavedCredential">
+                <select
+                  v-model="selectedCredentialId"
+                  class="ui-select credential-inline-select"
+                  :title="t('connectionForm.credentialSelectTitle')"
+                  @change="applySavedCredential"
+                >
                   <option value="">{{ t('connectionForm.selectCredential') }}</option>
                   <option v-for="credential in savedCredentials" :key="credential.id" :value="credential.id">
                     {{ credential.name }} / {{ credential.username }}
@@ -638,7 +738,7 @@ async function toggleCredentialAutoFill() {
               <label class="label">{{ t('connectionForm.privateKey') }}</label>
               <div class="privatekey-row">
                 <button type="button" class="btn-select-key" @click="selectPrivateKey">{{ privateKeyFileName || t('connectionForm.selectPrivateKey') }}</button>
-                <button v-if="form.privateKey" type="button" class="btn-clear-key" @click="clearPrivateKey" :title="t('connectionForm.clearPrivateKey')">
+                <button v-if="form.privateKey || keepStoredPrivateKey" type="button" class="btn-clear-key" @click="clearPrivateKey" :title="t('connectionForm.clearPrivateKey')">
                   <AppIcon name="close" size="sm" />
                 </button>
               </div>
@@ -657,7 +757,7 @@ async function toggleCredentialAutoFill() {
             <div class="form-grid-2">
               <div class="form-row">
                 <label class="label">{{ t('connectionForm.group') }}</label>
-                <select v-model="form.group" class="ui-input select-input">
+                <select v-model="form.group" class="ui-select">
                   <option v-for="g in groups" :key="g.id" :value="g.id">
                     {{ g.name }}{{ g.isDefault ? ` (${t('groups.defaultGroup')})` : '' }}
                   </option>
@@ -710,8 +810,25 @@ async function toggleCredentialAutoFill() {
                   <input v-model="form.jumpUsername" class="ui-input" :placeholder="t('connectionForm.jumpUserPlaceholder')" />
                 </div>
                 <div class="x11-field">
+                  <label class="label">{{ t('connectionForm.jumpAuthType') }}</label>
+                  <div class="auth-tabs">
+                    <button type="button" class="auth-tab" :class="{ active: jumpAuthType === 'password' }" @click="switchJumpAuthType('password')">{{ t('connectionForm.password') }}</button>
+                    <button type="button" class="auth-tab" :class="{ active: jumpAuthType === 'key' }" @click="switchJumpAuthType('key')">{{ t('connectionForm.key') }}</button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="form.jumpHost && jumpAuthType === 'password'" class="x11-options">
+                <div class="x11-field">
                   <label class="label">{{ t('connectionForm.jumpPassword') }}</label>
                   <input v-model="form.jumpPassword" type="password" class="ui-input" :placeholder="t('connectionForm.jumpPasswordPlaceholder')" />
+                </div>
+              </div>
+              <div v-if="form.jumpHost && jumpAuthType === 'key'" class="form-row">
+                <label class="label">{{ t('connectionForm.jumpPrivateKey') }}</label>
+                <div class="key-file-row">
+                  <button type="button" class="ui-btn" @click="selectJumpPrivateKey">{{ t('connectionForm.selectPrivateKey') }}</button>
+                  <span v-if="jumpPrivateKeyFileName" class="key-file-name">{{ jumpPrivateKeyFileName }}</span>
+                  <button v-if="jumpPrivateKeyFileName" type="button" class="btn-icon-remove" @click="clearJumpPrivateKey">{{ t('connectionForm.clearPrivateKey') }}</button>
                 </div>
               </div>
             </div>
@@ -746,6 +863,56 @@ async function toggleCredentialAutoFill() {
                 @click="form.localForwards.push({ localPort: 0, remoteHost: '127.0.0.1', remotePort: 0 })"
               >
                 {{ t('connectionForm.addForward') }}
+              </button>
+            </div>
+
+            <div class="form-row panel">
+              <div class="panel-head">
+                <span class="panel-title">{{ t('connectionForm.remoteForwardTitle') }}</span>
+                <span class="panel-hint">{{ t('connectionForm.remoteForwardHint') }}</span>
+              </div>
+              <div v-for="(fwd, idx) in form.remoteForwards" :key="'rf' + idx" class="forward-row">
+                <div class="x11-field x11-display-field">
+                  <label class="label">{{ t('connectionForm.remotePort') }}</label>
+                  <input v-model.number="fwd.remotePort" type="number" min="1" max="65535" class="ui-input" />
+                </div>
+                <div class="x11-field">
+                  <label class="label">{{ t('connectionForm.localHost') }}</label>
+                  <input v-model="fwd.localHost" class="ui-input" placeholder="127.0.0.1" />
+                </div>
+                <div class="x11-field x11-display-field">
+                  <label class="label">{{ t('connectionForm.localPort') }}</label>
+                  <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
+                </div>
+                <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.remoteForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
+              </div>
+              <button
+                type="button"
+                class="btn-add-row"
+                @click="form.remoteForwards.push({ remoteHost: '127.0.0.1', remotePort: 0, localHost: '127.0.0.1', localPort: 0 })"
+              >
+                {{ t('connectionForm.addRemoteForward') }}
+              </button>
+            </div>
+
+            <div class="form-row panel">
+              <div class="panel-head">
+                <span class="panel-title">{{ t('connectionForm.dynamicForwardTitle') }}</span>
+                <span class="panel-hint">{{ t('connectionForm.dynamicForwardHint') }}</span>
+              </div>
+              <div v-for="(fwd, idx) in form.dynamicForwards" :key="'df' + idx" class="forward-row">
+                <div class="x11-field x11-display-field">
+                  <label class="label">{{ t('connectionForm.socksPort') }}</label>
+                  <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
+                </div>
+                <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.dynamicForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
+              </div>
+              <button
+                type="button"
+                class="btn-add-row"
+                @click="form.dynamicForwards.push({ localPort: 1080 })"
+              >
+                {{ t('connectionForm.addSocksForward') }}
               </button>
             </div>
 
@@ -1081,7 +1248,7 @@ async function toggleCredentialAutoFill() {
 
 .credential-inline-select {
   width: 170px;
-  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .btn-credential {
@@ -1196,21 +1363,6 @@ async function toggleCredentialAutoFill() {
 
 .port-input {
   width: 100px;
-}
-
-.select-input {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
-  cursor: pointer;
-}
-
-.select-input option {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
 }
 
 .checkbox-row {

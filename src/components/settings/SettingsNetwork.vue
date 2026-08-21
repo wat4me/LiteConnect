@@ -203,6 +203,20 @@ watch(
         <button type="button" class="font-size-btn" @click="draft.latencyIntervalSec = Math.min(60, draft.latencyIntervalSec + 1)">+</button>
       </div>
 
+      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.usageStats') }}</div>
+      <div class="toggle-row">
+        <span>{{ draft.connectionUsageStatsEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
+        <button
+          type="button"
+          class="toggle-btn"
+          :class="{ active: draft.connectionUsageStatsEnabled }"
+          @click="draft.connectionUsageStatsEnabled = !draft.connectionUsageStatsEnabled"
+        >
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+      <p class="settings-hint">{{ t('settingsNetwork.usageStatsHint') }}</p>
+
       <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.monitor') }}</div>
       <div class="toggle-row">
         <span>{{ draft.monitorEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
@@ -242,6 +256,22 @@ watch(
       </div>
       <div class="settings-hint">
         {{ t('settingsNetwork.autoReconnectHint') }}
+      </div>
+
+      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.workspaceRestore') }}</div>
+      <div class="toggle-row">
+        <span>{{ draft.workspaceRestoreEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
+        <button
+          type="button"
+          class="toggle-btn"
+          :class="{ active: draft.workspaceRestoreEnabled }"
+          @click="draft.workspaceRestoreEnabled = !draft.workspaceRestoreEnabled"
+        >
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+      <div class="settings-hint">
+        {{ t('settingsNetwork.workspaceRestoreHint') }}
       </div>
 
       <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.graphical') }}</div>
@@ -564,4 +594,5 @@ watch(
   color: var(--text-primary);
   margin-bottom: 4px;
 }
+
 </style>

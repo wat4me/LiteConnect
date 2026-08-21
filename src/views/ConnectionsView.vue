@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { defineAsyncComponent, ref, toRef, computed } from 'vue'
+import { defineAsyncComponent, ref, toRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../components/icons/AppIcon.vue'
 import GroupPanel from '../components/connections/GroupPanel.vue'
 import ConnectionRow from '../components/connections/ConnectionRow.vue'
-import CredentialManagerModal from '../components/connections/CredentialManagerModal.vue'
 import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue'
 import type { Connection, Group } from '../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
@@ -14,6 +13,7 @@ import { useConnectionList } from '@/composables/connections/useConnectionList'
 import { useBatchTest } from '@/composables/connections/useBatchTest'
 
 const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
+const CredentialManagerModal = defineAsyncComponent(() => import('../components/connections/CredentialManagerModal.vue'))
 
 const { t } = useI18n()
 
@@ -38,16 +38,48 @@ const showForm = ref(false)
 const editingConnection = ref<Connection | null>(null)
 const showCredentialManager = ref(false)
 const pageRootRef = ref<HTMLElement | null>(null)
+const connectionsListRef = ref<HTMLElement | null>(null)
 const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
+
+/** useCount / lastConnected display & sort; default on */
+const usageStatsEnabled = ref(true)
+
+function onUsageStatsSettingsChange(e: Event) {
+  const detail = (e as CustomEvent<{ enabled?: boolean }>).detail
+  if (typeof detail?.enabled === 'boolean') {
+    usageStatsEnabled.value = detail.enabled
+  }
+}
+
+onMounted(async () => {
+  try {
+    usageStatsEnabled.value = await window.LiteConnect.getConnectionUsageStatsEnabled()
+  } catch {
+    usageStatsEnabled.value = true
+  }
+  window.addEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+})
+
+watch(usageStatsEnabled, (enabled) => {
+  if (!enabled && (sortMode.value === 'recent' || sortMode.value === 'frequent')) {
+    sortMode.value = 'manual'
+  }
+})
 
 function onConnectFromRow(connectionId: string) {
   // Optimistic stats so list shows useCount / lastConnected without reload
-  const now = Date.now()
-  connections.value = connections.value.map((c) =>
-    c.id === connectionId
-      ? { ...c, useCount: (c.useCount || 0) + 1, lastConnectedAt: now }
-      : c,
-  )
+  if (usageStatsEnabled.value) {
+    const now = Date.now()
+    connections.value = connections.value.map((c) =>
+      c.id === connectionId
+        ? { ...c, useCount: (c.useCount || 0) + 1, lastConnectedAt: now }
+        : c,
+    )
+  }
   emit('connect', connectionId)
 }
 
@@ -55,6 +87,7 @@ const list = useConnectionList({
   initialData: toRef(props, 'initialData'),
   initialDataPending: toRef(props, 'initialDataPending'),
   pageRootRef,
+  connectionsListRef,
   getSearchInput: () => toolbarRef.value?.searchInputRef ?? null,
   isModalOpen: () => showForm.value || showCredentialManager.value,
   onConnect: onConnectFromRow,
@@ -127,13 +160,24 @@ function generateCopyName(originalName: string): string {
 }
 
 async function onCopyConnection(conn: Connection) {
-  const password = conn.id
-    ? await window.LiteConnect.getConnectionPassword(conn.id)
-    : conn.password
+  const secrets = conn.id
+    ? await window.LiteConnect.getConnectionSecrets(conn.id)
+    : {
+        password: conn.password || '',
+        privateKey: conn.privateKey || '',
+        jumpPassword: conn.jumpPassword || '',
+        jumpPrivateKey: conn.jumpPrivateKey || '',
+      }
   editingConnection.value = {
     ...conn,
     id: '',
-    password: password || conn.password,
+    password: secrets.password,
+    privateKey: secrets.privateKey,
+    jumpPassword: secrets.jumpPassword,
+    jumpPrivateKey: secrets.jumpPrivateKey,
+    hasPrivateKey: !!secrets.privateKey,
+    hasJumpPassword: !!secrets.jumpPassword,
+    hasJumpPrivateKey: !!secrets.jumpPrivateKey,
     name: generateCopyName(conn.name),
     createdAt: 0,
     updatedAt: 0,
@@ -250,6 +294,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
               {{ t('connections.sortManual') }}
             </button>
             <button
+              v-if="usageStatsEnabled"
               type="button"
               class="tag-filter-chip"
               :class="{ active: sortMode === 'recent' }"
@@ -258,6 +303,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
               {{ t('connections.sortRecent') }}
             </button>
             <button
+              v-if="usageStatsEnabled"
               type="button"
               class="tag-filter-chip"
               :class="{ active: sortMode === 'frequent' }"
@@ -278,6 +324,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       </div>
 
       <div
+        ref="connectionsListRef"
         class="connections-list"
         @dragleave="onConnListDragLeave"
       >
@@ -300,6 +347,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
             :test-status="getTestStatus(conn.id)"
             :reorder-disabled="isSearching || !!colorTagFilter"
             :keyboard-active="listKeyboardIndex === index"
+            :show-usage-stats="usageStatsEnabled"
             @connect="onConnectFromRow"
             @test="onTestConnection"
             @edit="onEditConnection"
@@ -339,7 +387,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
                 {{ t('connections.newConnection') }}
               </button>
               <button type="button" class="ui-btn" :disabled="importing" @click="handleImport">
-                {{ t('connections.importConfig') }}
+                {{ t('connections.import') }}
               </button>
               <button type="button" class="ui-btn" @click="showCredentialManager = true">
                 {{ t('connections.addCredentialsFirst') }}
@@ -350,7 +398,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       </div>
     </div>
 
-    <CredentialManagerModal v-model="showCredentialManager" />
+    <CredentialManagerModal v-if="showCredentialManager" v-model="showCredentialManager" />
 
     <ConnectionForm
       v-if="showForm"
@@ -471,7 +519,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
-  /* Last-row descenders / hairlines need a little air above the clip edge */
+  /* Room for insertion line above first row + last-row descenders */
+  padding-top: 6px;
   padding-bottom: 8px;
 }
 
@@ -479,38 +528,63 @@ defineExpose({ loadData, editConnection: onEditConnection })
   position: relative;
 }
 
-/* Soft inset hairline between real rows (skip drag gutter; not after last row) */
-.connection-row-wrap:not(.drop-tail):has(+ .connection-row-wrap:not(.drop-tail))::after {
-  content: '';
-  position: absolute;
-  left: 28px;
-  right: 12px;
-  bottom: 0;
-  height: 1px;
-  background: color-mix(in srgb, var(--border-color) 55%, transparent);
-  pointer-events: none;
+/* Independent rounded cards: light gap between rows (drop line sits in this gap) */
+.connection-row-wrap:not(.drop-tail) + .connection-row-wrap:not(.drop-tail) {
+  margin-top: 8px;
 }
 
+/*
+ * Insertion indicator: full-width accent line + end caps (VS Code / Finder style).
+ * Positioned in the gap above the target row.
+ */
 .connection-row-wrap.drop-before::before {
   content: '';
   position: absolute;
-  left: 8px;
-  right: 8px;
-  top: -1px;
+  left: 0;
+  right: 0;
+  top: -5px;
   height: 2px;
   background: var(--accent);
   border-radius: 1px;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-.connection-row-wrap.is-dragging-source {
-  opacity: 0.45;
+/* Left / right circular caps on the insertion line */
+.connection-row-wrap.drop-before::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -8px;
+  height: 8px;
+  z-index: 4;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 3px 50%, var(--accent) 0 3px, transparent 3.5px),
+    radial-gradient(circle at calc(100% - 3px) 50%, var(--accent) 0 3px, transparent 3.5px);
+}
+
+/* First row: line sits just above the card (list has padding-top) */
+.connection-row-wrap:first-child.drop-before::before {
+  top: -4px;
+}
+
+.connection-row-wrap:first-child.drop-before::after {
+  top: -7px;
 }
 
 .connection-row-wrap.drop-tail {
-  height: 12px;
+  height: 14px;
+}
+
+.connection-row-wrap.drop-tail.drop-before::before {
+  top: 4px;
+}
+
+.connection-row-wrap.drop-tail.drop-before::after {
+  top: 1px;
 }
 
 .empty-connections {

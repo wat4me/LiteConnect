@@ -1,4 +1,5 @@
 import type { BrowserWindow, WebContents } from 'electron'
+import { isIP } from 'net'
 import { isAbsolute, normalize } from 'path'
 import {
   CLIPBOARD_MAX_CHARS,
@@ -37,12 +38,29 @@ export function isValidPort(port: number): boolean {
 
 export function isValidHost(host: string): boolean {
   if (typeof host !== 'string' || host.length === 0 || host.length > 255) return false
-  return /^[a-zA-Z0-9.\-:]+$/.test(host)
+  if (host.includes('\0') || /\s/.test(host)) return false
+
+  if (host.startsWith('[') && host.endsWith(']')) {
+    return isIP(host.slice(1, -1)) === 6
+  }
+  if (isIP(host) === 4 || isIP(host) === 6) return true
+
+  if (host.startsWith('.') || host.endsWith('.') || host.includes('..')) return false
+  const labels = host.split('.')
+  return labels.every((label) => {
+    if (!label || label.length > 63) return false
+    return /^[A-Za-z0-9_\u00a1-\uffff](?:[A-Za-z0-9_\-\u00a1-\uffff]{0,61}[A-Za-z0-9_\u00a1-\uffff])?$/.test(
+      label,
+    )
+  })
 }
 
 export function isLoopbackHost(host: string): boolean {
   const normalized = host.trim().toLowerCase()
-  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1'
+  if (normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1' || normalized === '[::1]') {
+    return true
+  }
+  return isIP(normalized) === 4 && normalized.startsWith('127.')
 }
 
 export function isValidX11Display(display: number): boolean {

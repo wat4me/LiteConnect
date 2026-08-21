@@ -549,7 +549,7 @@ onBeforeUnmount(() => {
       />
       <div class="form-row-inline">
         <label class="form-label">{{ t('snippets.send') }}</label>
-        <select v-model="formSendMode" class="ui-input ui-input-sm form-select">
+        <select v-model="formSendMode" class="ui-select ui-input-sm form-select">
           <option value="run">{{ t('snippets.modeRun') }}</option>
           <option value="fill">{{ t('snippets.modeFill') }}</option>
         </select>

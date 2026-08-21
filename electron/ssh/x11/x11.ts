@@ -1,4 +1,4 @@
-import { Client, ClientChannel } from 'ssh2'
+import type { Client, ClientChannel } from 'ssh2'
 import * as net from 'net'
 import { t } from '../../i18n'
 import type { Connection, SSHCallbacks } from '../types'

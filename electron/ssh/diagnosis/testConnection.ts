@@ -1,6 +1,8 @@
-import { Client, type ConnectConfig, type ClientChannel } from 'ssh2'
+import type { Client, ConnectConfig, ClientChannel } from 'ssh2'
+import { loadSsh2 } from '../loadSsh2'
 import { Socket } from 'net'
 import { buildAuthFields } from '../auth'
+import { autoAnswerKeyboardPrompts } from '../keyboardInteractive'
 import { createHostVerifier, type HostKeyRejectInfo } from '../trust/hostKeyVerify'
 import type { KnownHostsStore } from '../trust/knownHosts'
 
@@ -132,6 +134,7 @@ export async function testSshConnection(
   knownHosts: KnownHostsStore,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<SshTestConnectionResult> {
+  const ssh2Ready = loadSsh2()
   await knownHosts.init()
   const totalStart = Date.now()
   const hasJump = !!(params.jumpHost && params.jumpHost.trim())
@@ -150,6 +153,8 @@ export async function testSshConnection(
       error: err?.message || 'TCP connection failed',
     }
   }
+
+  const { Client } = await ssh2Ready
 
   return new Promise((resolve) => {
     let settled = false
@@ -230,8 +235,20 @@ export async function testSshConnection(
       )
     }
 
+    const attachKeyboard = (c: Client, password: string) => {
+      c.on('keyboard-interactive', (_n, _i, _l, prompts, finish) => {
+        const list = (prompts || []).map((p: any) => ({
+          prompt: String(p?.prompt || ''),
+          echo: p?.echo !== false,
+        }))
+        const auto = autoAnswerKeyboardPrompts(list, password)
+        finish(auto.complete ? auto.answers : list.map(() => ''))
+      })
+    }
+
     const attachTarget = (c: Client) => {
       client = c
+      attachKeyboard(c, params.password || '')
       c.once('ready', () => openShellOrSucceed(c))
       c.once('error', (err) => {
         if (hostKeyReject) {
@@ -258,6 +275,7 @@ export async function testSshConnection(
     }
 
     jumpClient = new Client()
+    attachKeyboard(jumpClient, params.jumpPassword || params.password || '')
     const jumpHost = params.jumpHost!.trim()
     const jumpPort = params.jumpPort || 22
     jumpClient

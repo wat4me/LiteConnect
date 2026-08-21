@@ -19,6 +19,7 @@ const props = defineProps<{
   unreadSessions?: Set<string>
   /** 当前是否在连接管理页（高亮「返回连接列表」） */
   homeActive?: boolean
+  disconnectedSessionIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
@@ -61,6 +62,12 @@ function latencyColor(ms: number): string {
 function hasGroupUnread(group: { sessions: { id: string }[] }): boolean {
   const set = props.unreadSessions
   if (!set) return false
+  return group.sessions.some((s) => set.has(s.id))
+}
+
+function isGroupDisconnected(group: { sessions: { id: string }[] }): boolean {
+  const set = props.disconnectedSessionIds
+  if (!set || set.size === 0) return false
   return group.sessions.some((s) => set.has(s.id))
 }
 
@@ -222,24 +229,25 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="tab-bar">
-    <!-- 连接管理入口常驻：连接管理页高亮，有会话时可一键返回列表 -->
-    <el-tooltip
-      :content="t('connections.connectionManage')"
-      placement="bottom"
-      :show-after="300"
-    >
-      <button
-        type="button"
-        class="home-btn"
-        :class="{ active: homeActive }"
-        :aria-label="t('connections.connectionManage')"
-        :aria-pressed="homeActive"
-        @click="emit('select-home')"
+    <!-- 连接管理入口：宽度与下方 LeftToolbar 对齐，共用右侧竖线 -->
+    <div class="home-zone">
+      <el-tooltip
+        :content="t('connections.connectionManage')"
+        placement="bottom"
+        :show-after="300"
       >
-        <AppIcon name="home-grid" size="md" />
-      </button>
-    </el-tooltip>
-    <div class="tab-separator" aria-hidden="true"></div>
+        <button
+          type="button"
+          class="home-btn"
+          :class="{ active: homeActive }"
+          :aria-label="t('connections.connectionManage')"
+          :aria-pressed="homeActive"
+          @click="emit('select-home')"
+        >
+          <AppIcon name="home-grid" size="md" />
+        </button>
+      </el-tooltip>
+    </div>
 
     <div class="tabs-scroll">
       <div
@@ -249,7 +257,7 @@ onBeforeUnmount(() => {
         :class="{ active: !homeActive && group.connectionId === activeGroupId }"
         @click="emit('select', group.connectionId)"
       >
-        <div class="tab-indicator"></div>
+        <div class="tab-indicator" :class="{ down: isGroupDisconnected(group) }"></div>
         <span class="tab-name">{{ group.connectionName }}</span>
         <span
           v-if="unreadSessions && group.connectionId !== activeGroupId && hasGroupUnread(group)"
@@ -257,7 +265,11 @@ onBeforeUnmount(() => {
         ></span>
         <span v-if="group.sessions.length > 1" class="tab-count">{{ group.sessions.length }}</span>
         <span
-          v-if="latencyEnabled && latencyMap && latencyMap[group.connectionId] !== undefined"
+          v-if="isGroupDisconnected(group)"
+          class="tab-disconnected"
+        >{{ t('terminal.tabDisconnected') }}</span>
+        <span
+          v-else-if="latencyEnabled && latencyMap && latencyMap[group.connectionId] !== undefined"
           class="tab-latency"
           :style="{ color: latencyColor(latencyMap[group.connectionId]) }"
         >{{ formatLatency(latencyMap[group.connectionId]) }}</span>
@@ -366,19 +378,33 @@ onBeforeUnmount(() => {
 .tab-bar {
   height: var(--tab-height);
   min-height: var(--tab-height);
+  max-height: var(--tab-height);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   padding-right: 12px;
+  overflow: hidden;
   transition: background-color 0.3s, border-color 0.3s;
   -webkit-app-region: no-drag;
 }
 
+/* Matches LeftToolbar width so the shared vertical border lines up */
+.home-zone {
+  width: var(--left-toolbar-width, 40px);
+  min-width: var(--left-toolbar-width, 40px);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
+  box-sizing: border-box;
+}
+
 .home-btn {
-  width: 34px;
+  width: 28px;
   height: 28px;
-  margin-left: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -409,6 +435,7 @@ onBeforeUnmount(() => {
 .spacer {
   flex: 1;
   height: 100%;
+  min-width: 0;
   -webkit-app-region: drag;
 }
 
@@ -417,48 +444,50 @@ onBeforeUnmount(() => {
   height: 100%;
   flex: 0 1 auto;
   overflow-x: auto;
+  overflow-y: hidden;
   align-items: center;
   min-width: 0;
   padding-left: 2px;
 }
 
 .tabs-scroll::-webkit-scrollbar {
+  width: 0;
   height: 0;
 }
 
-.tab-separator {
-  width: 1px;
-  height: 18px;
-  background: var(--border-color);
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-
+/* Flat host tabs: 10.1.1.1  × | 10.2.1.1  ×  + */
 .tab {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 14px;
+  padding: 0 12px;
   height: 100%;
   cursor: pointer;
   white-space: nowrap;
   font-size: 12px;
   color: var(--text-secondary);
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s;
   user-select: none;
   position: relative;
   flex-shrink: 0;
+  background: transparent;
 }
 
-.tab::after {
+/* pipe sits in the gap between tabs: A  |  B  (not stuck to B) */
+.tab + .tab {
+  margin-left: 10px;
+}
+
+.tab + .tab::before {
   content: '';
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: transparent;
-  transition: background 0.2s;
+  left: -5px;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px;
+  height: 14px;
+  background: var(--border-color);
+  pointer-events: none;
 }
 
 .tab:hover {
@@ -472,16 +501,13 @@ onBeforeUnmount(() => {
 }
 
 .tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
   background: var(--accent);
-}
-
-.home-tab {
-  gap: 6px;
-  padding: 0 12px;
-}
-
-.home-tab svg {
-  flex-shrink: 0;
 }
 
 .tab-indicator {
@@ -492,13 +518,23 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.tab-indicator.down {
+  background: var(--danger, #f85149);
+}
+
+.tab-disconnected {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--danger, #f85149);
+  margin-left: 2px;
+}
+
 .tab-name {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
 }
-
 
 .tab-count {
   min-width: 16px;
@@ -522,6 +558,10 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--bg-secondary);
   animation: tab-unread-pulse 1.6s ease-in-out infinite;
+}
+
+.tab.active .tab-unread-dot {
+  box-shadow: 0 0 0 2px var(--bg-primary);
 }
 
 @keyframes tab-unread-pulse {
@@ -634,13 +674,6 @@ onBeforeUnmount(() => {
 .toolbar-btn.active {
   color: var(--accent);
   background: var(--accent-bg);
-}
-
-.quick-connect-wrapper {
-  position: relative;
-  height: 100%;
-  display: flex;
-  align-items: center;
 }
 
 .settings-wrapper {

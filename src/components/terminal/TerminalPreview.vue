@@ -91,6 +91,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/*
+ * Padding on the wrap (not the FitAddon host). Same reason as TerminalTab:
+ * FitAddon ignores parent padding and would over-fit rows.
+ */
 .terminal-preview-wrap {
   border-radius: 10px;
   overflow: hidden;
@@ -98,13 +102,14 @@ onBeforeUnmount(() => {
   min-height: 200px;
   height: 220px;
   background: #0d1117;
+  padding: 8px 10px 4px;
+  box-sizing: border-box;
 }
 
 .terminal-preview-xterm {
   width: 100%;
   height: 100%;
-  padding: 8px 10px 4px;
-  box-sizing: border-box;
+  min-height: 0;
 }
 
 .terminal-preview-xterm :deep(.xterm) {

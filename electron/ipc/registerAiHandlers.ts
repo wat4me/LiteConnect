@@ -4,6 +4,26 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
+import {
+  clampContextWindowTokens,
+  isContextLengthError,
+  packAiMessages,
+  parseAiModels,
+  resolveContextWindowTokens,
+  type AiContextMessage,
+} from '../../shared/aiContext'
+import {
+  accumulateToolCallDeltas,
+  bindSessionArgs,
+  looksLikeToolsUnsupported,
+  MAX_SSH_TOOL_ROUNDS,
+  parseToolCallArguments,
+  sshToolsForChat,
+  sshToolSystemAddendum,
+  type AccumulatedToolCall,
+} from '../ai/sshToolChat'
+import type { SshMcpRuntime } from '../mcp/runtime'
+import { isValidUUID } from '../utils/validation'
 
 type AiChatMessage = {
   role: 'system' | 'user' | 'assistant'
@@ -84,6 +104,7 @@ function validateAiSettings(settings: any): {
   activeModel: string
   systemPrompt: string
   temperature: number
+  contextWindowTokens?: number
 } {
   if (!settings || typeof settings !== 'object') {
     throw new Error('Invalid AI settings')
@@ -97,9 +118,7 @@ function validateAiSettings(settings: any): {
       name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
       baseUrl,
       apiKey: typeof p.apiKey === 'string' ? p.apiKey : '',
-      models: Array.isArray(p.models)
-        ? p.models.filter((m: any) => typeof m === 'string' && m.trim()).map((m: string) => m.trim())
-        : [],
+      models: parseAiModels(p.models),
     }
   })
   return {
@@ -108,13 +127,14 @@ function validateAiSettings(settings: any): {
     activeModel: typeof settings.activeModel === 'string' ? settings.activeModel.trim() : '',
     systemPrompt: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : '',
     temperature: clampTemperature(settings.temperature),
+    contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
   }
 }
 
 function validateAiMessages(messages: any): AiChatMessage[] {
   if (!Array.isArray(messages)) throw new Error('Invalid AI messages')
   const validRoles = new Set(['system', 'user', 'assistant'])
-  return messages.slice(-20).map((message) => {
+  return messages.map((message) => {
     if (!message || typeof message !== 'object') throw new Error('Invalid AI message')
     if (!validRoles.has(message.role)) throw new Error('Invalid AI message role')
     if (typeof message.content !== 'string' || !message.content.trim()) {
@@ -122,9 +142,35 @@ function validateAiMessages(messages: any): AiChatMessage[] {
     }
     return {
       role: message.role,
-      content: message.content.slice(0, 12000),
+      // Hard cap only as a DoS guard; packAiMessages does the real windowing.
+      content: message.content.slice(0, 200_000),
     }
   })
+}
+
+function packRequestMessages(
+  settings: { systemPrompt: string; model: string; contextWindowTokens?: number },
+  incoming: AiChatMessage[],
+  budgetTokens?: number,
+  extraSystem?: string,
+): AiContextMessage[] {
+  const systemPrompt = [settings.systemPrompt, extraSystem].filter((s) => s && s.trim()).join('\n\n')
+  return packAiMessages({
+    systemPrompt,
+    messages: incoming.filter((m) => m.role !== 'system'),
+    model: settings.model,
+    budgetTokens,
+    contextWindowTokens: settings.contextWindowTokens,
+  }).messages
+}
+
+async function readHttpErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json()
+    return data?.error?.message || data?.message || fallback
+  } catch {
+    return fallback
+  }
 }
 
 function getFirstString(...values: any[]): string {
@@ -170,6 +216,14 @@ function extractAiUsage(usage: any): {
   return result
 }
 
+type AiToolRunRecord = {
+  id: string
+  name: string
+  args: string
+  content: string
+  isError: boolean
+}
+
 type AiHistoryRecord = {
   id: string
   role: 'user' | 'assistant'
@@ -178,6 +232,7 @@ type AiHistoryRecord = {
   usage?: ReturnType<typeof extractAiUsage>
   error?: boolean
   createdAt: number
+  toolRuns?: AiToolRunRecord[]
 }
 
 type AiConversationThread = {
@@ -360,7 +415,27 @@ function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     }),
     error: record.error === true,
     createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
+    toolRuns: normalizeToolRuns(record.toolRuns),
   }
+}
+
+function normalizeToolRuns(raw: unknown): AiToolRunRecord[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const out: AiToolRunRecord[] = []
+  for (const item of raw.slice(0, 20)) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    const name = typeof rec.name === 'string' ? rec.name.slice(0, 64) : ''
+    if (!name) continue
+    out.push({
+      id: typeof rec.id === 'string' && rec.id ? rec.id : `${Date.now()}-${out.length}`,
+      name,
+      args: typeof rec.args === 'string' ? rec.args.slice(0, 4000) : '',
+      content: typeof rec.content === 'string' ? rec.content.slice(0, 20000) : '',
+      isError: rec.isError === true,
+    })
+  }
+  return out.length ? out : undefined
 }
 
 function normalizeThread(raw: any): AiConversationThread | null {
@@ -819,8 +894,8 @@ async function readAiStream(response: Response, onEvent: (event: any) => void): 
 
 const activeAiStreams = new Map<string, AbortController>()
 
-export function registerAiHandlers(settingsStore: SettingsStore): void {
-  const ensureSettingsReady = () => settingsStore.init()
+export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?: SshMcpRuntime): void {
+  const ensureSettingsReady = () => settingsStore.init().then(() => settingsStore.initMigrations())
 
   ipcMain.handle('settings:getAiSettings', async () => {
     await ensureSettingsReady()
@@ -907,29 +982,37 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
       throw new Error(t('ai.apiKeyRequired'))
     }
 
-    const response = await fetch(getAiChatCompletionsUrl(settings.baseUrl), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: settings.model,
-        temperature: settings.temperature ?? 0.7,
-        messages: [
-          ...(settings.systemPrompt.trim() ? [{ role: 'system', content: settings.systemPrompt.trim() }] : []),
-          ...chatMessages.filter((message) => message.role !== 'system'),
-        ],
-      }),
-    })
+    const postChat = (packed: AiContextMessage[]) =>
+      fetch(getAiChatCompletionsUrl(settings.baseUrl), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: settings.model,
+          temperature: settings.temperature ?? 0.7,
+          messages: packed,
+        }),
+      })
 
+    let packed = packRequestMessages(settings, chatMessages)
+    let response = await postChat(packed)
     if (!response.ok) {
-      let message = t('ai.requestFailed', { status: response.status })
-      try {
-        const data = await response.json()
-        message = data?.error?.message || data?.message || message
-      } catch {}
-      throw new Error(message)
+      const message = await readHttpErrorMessage(
+        response,
+        t('ai.requestFailed', { status: response.status }),
+      )
+      if (!isContextLengthError(message)) throw new Error(message)
+      packed = packRequestMessages(
+        settings,
+        chatMessages,
+        Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
+      )
+      response = await postChat(packed)
+      if (!response.ok) {
+        throw new Error(await readHttpErrorMessage(response, message))
+      }
     }
 
     const data = await response.json()
@@ -956,7 +1039,7 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
     }
   })
 
-  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any) => {
+  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any, opts?: { sessionId?: string }) => {
     if (!requestId || typeof requestId !== 'string') {
       throw new Error('Invalid AI request id')
     }
@@ -973,16 +1056,36 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
       }
     }
 
-    const createBody = (includeUsage: boolean) => ({
-        model: settings.model,
-        temperature: settings.temperature ?? 0.7,
-        messages: [
-          ...(settings.systemPrompt.trim() ? [{ role: 'system', content: settings.systemPrompt.trim() }] : []),
-          ...chatMessages.filter((message) => message.role !== 'system'),
-        ],
-        stream: true,
-        ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
+    const boundSessionId =
+      typeof opts?.sessionId === 'string' && isValidUUID(opts.sessionId) ? opts.sessionId : ''
+    let extraSystem = ''
+    let useTools = Boolean(sshMcpRuntime && boundSessionId)
+    if (useTools && sshMcpRuntime) {
+      const listed = await sshMcpRuntime.call('list_sessions', {})
+      const sessions =
+        (listed.structuredContent as {
+          sessions?: Array<{ sessionId: string; host?: string; username?: string; connectionName?: string }>
+        })?.sessions || []
+      const snap = sessions.find((s) => s.sessionId === boundSessionId)
+      extraSystem = sshToolSystemAddendum({
+        sessionId: boundSessionId,
+        host: snap?.host,
+        username: snap?.username,
+        connectionName: snap?.connectionName,
       })
+    }
+
+    let packedMessages = packRequestMessages(settings, chatMessages, undefined, extraSystem)
+    const tools = useTools ? sshToolsForChat() : undefined
+
+    const createBody = (includeUsage: boolean, msgs: any[], withTools: boolean) => ({
+      model: settings.model,
+      temperature: settings.temperature ?? 0.7,
+      messages: msgs,
+      stream: true,
+      ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
+      ...(withTools && tools ? { tools, tool_choice: 'auto' as const } : {}),
+    })
 
     const abortController = new AbortController()
     activeAiStreams.set(requestId, abortController)
@@ -990,63 +1093,143 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
       activeAiStreams.delete(requestId)
     }
 
-    const requestStream = (includeUsage: boolean) => fetch(getAiChatCompletionsUrl(settings.baseUrl), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify(createBody(includeUsage)),
-      signal: abortController.signal,
-    })
-
-    try {
-      let response = await requestStream(true)
-      if (!response.ok) {
-        response = await requestStream(false)
-      }
-
-      if (!response.ok) {
-        let message = `AI request failed (${response.status})`
-        try {
-          const data = await response.json()
-          message = data?.error?.message || data?.message || message
-        } catch {}
-        throw new Error(message)
-      }
-
-      let content = ''
-      let reasoningContent = ''
-      let usage: ReturnType<typeof extractAiUsage> | undefined
-
-      await readAiStream(response, (chunk) => {
-        if (abortController.signal.aborted) return
-        const choice = chunk?.choices?.[0]
-        const delta = choice?.delta || {}
-        const contentDelta = normalizeAiContent(delta.content ?? choice?.text)
-        const reasoningDelta = extractAiReasoningFromChoice(choice)
-        const chunkUsage = extractAiUsage(chunk?.usage)
-
-        if (reasoningDelta) {
-          reasoningContent += reasoningDelta
-          send({ type: 'reasoning', value: reasoningDelta })
-        }
-        if (contentDelta) {
-          content += contentDelta
-          send({ type: 'content', value: contentDelta })
-        }
-        if (chunkUsage) {
-          usage = chunkUsage
-          send({ type: 'usage', value: chunkUsage })
-        }
+    const requestStream = (includeUsage: boolean, msgs: any[], withTools: boolean) =>
+      fetch(getAiChatCompletionsUrl(settings.baseUrl), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify(createBody(includeUsage, msgs, withTools)),
+        signal: abortController.signal,
       })
 
+    const openStream = async (msgs: any[], withTools: boolean) => {
+      let response = await requestStream(true, msgs, withTools)
+      if (!response.ok) response = await requestStream(false, msgs, withTools)
+      return response
+    }
+
+    try {
+      let apiMessages: any[] = packedMessages
+      const contentParts: string[] = []
+      let reasoningContent = ''
+      let usage: ReturnType<typeof extractAiUsage> | undefined
+      const toolRuns: AiToolRunRecord[] = []
+      let toolsEnabled = Boolean(useTools && tools)
+
+      for (let round = 0; round < (toolsEnabled ? MAX_SSH_TOOL_ROUNDS : 1); round++) {
+        if (abortController.signal.aborted) break
+
+        let response = await openStream(apiMessages, toolsEnabled)
+        if (!response.ok) {
+          const message = await readHttpErrorMessage(response, `AI request failed (${response.status})`)
+          if (toolsEnabled && looksLikeToolsUnsupported(message)) {
+            toolsEnabled = false
+            response = await openStream(apiMessages, false)
+          } else if (isContextLengthError(message) && round === 0) {
+            packedMessages = packRequestMessages(
+              settings,
+              chatMessages,
+              Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
+              extraSystem,
+            )
+            apiMessages = packedMessages
+            response = await openStream(apiMessages, toolsEnabled)
+          }
+          if (!response.ok) {
+            throw new Error(await readHttpErrorMessage(response, message))
+          }
+        }
+
+        let roundContent = ''
+        const toolAcc = new Map<number, AccumulatedToolCall>()
+        await readAiStream(response, (chunk) => {
+          if (abortController.signal.aborted) return
+          const choice = chunk?.choices?.[0]
+          const delta = choice?.delta || {}
+          const contentDelta = normalizeAiContent(delta.content ?? choice?.text)
+          const reasoningDelta = extractAiReasoningFromChoice(choice)
+          const chunkUsage = extractAiUsage(chunk?.usage)
+          accumulateToolCallDeltas(toolAcc, delta.tool_calls || choice?.message?.tool_calls)
+
+          if (reasoningDelta) {
+            reasoningContent += reasoningDelta
+            send({ type: 'reasoning', value: reasoningDelta })
+          }
+          if (contentDelta) {
+            roundContent += contentDelta
+            send({ type: 'content', value: contentDelta })
+          }
+          if (chunkUsage) {
+            usage = chunkUsage
+            send({ type: 'usage', value: chunkUsage })
+          }
+        })
+
+        if (roundContent.trim()) contentParts.push(roundContent)
+
+        const calls = [...toolAcc.values()].filter((c) => c.name)
+        if (!calls.length || !toolsEnabled || !sshMcpRuntime || abortController.signal.aborted) break
+
+        const assistantToolCalls = calls.map((c, i) => ({
+          id: c.id || `call_${round}_${i}`,
+          type: 'function' as const,
+          function: { name: c.name, arguments: c.arguments || '{}' },
+        }))
+        apiMessages = [
+          ...apiMessages,
+          {
+            role: 'assistant',
+            content: roundContent || null,
+            tool_calls: assistantToolCalls,
+          },
+        ]
+
+        for (const call of assistantToolCalls) {
+          send({
+            type: 'tool',
+            value: { phase: 'start', id: call.id, name: call.function.name, args: call.function.arguments },
+          })
+          const result = await sshMcpRuntime.call(
+            call.function.name,
+            bindSessionArgs(parseToolCallArguments(call.function.arguments), boundSessionId),
+          )
+          const run: AiToolRunRecord = {
+            id: call.id,
+            name: call.function.name,
+            args: call.function.arguments.slice(0, 4000),
+            content: result.content.slice(0, 20000),
+            isError: result.isError,
+          }
+          toolRuns.push(run)
+          send({
+            type: 'tool',
+            value: {
+              phase: 'done',
+              id: run.id,
+              name: run.name,
+              args: run.args,
+              content: run.content,
+              isError: run.isError,
+            },
+          })
+          apiMessages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result.content,
+          })
+        }
+      }
+
+      const content = contentParts.join('\n\n')
       if (abortController.signal.aborted) {
         send({ type: 'done' })
         return {
           content,
           reasoningContent: reasoningContent || undefined,
           usage,
+          toolRuns,
           aborted: true,
         }
       }
@@ -1056,6 +1239,7 @@ export function registerAiHandlers(settingsStore: SettingsStore): void {
         content,
         reasoningContent: reasoningContent || undefined,
         usage,
+        toolRuns,
       }
     } catch (err: any) {
       if (abortController.signal.aborted || err?.name === 'AbortError') {

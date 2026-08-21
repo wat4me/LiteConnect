@@ -14,6 +14,7 @@ export function buildAuthFields(params: {
     return {
       username: params.username,
       agent,
+      tryKeyboard: true,
       // Prefer agent; allow key/password as fallback if agent empty
       ...(params.privateKey
         ? {
@@ -29,11 +30,13 @@ export function buildAuthFields(params: {
     return {
       username: params.username,
       privateKey: Buffer.from(params.privateKey),
+      tryKeyboard: true,
       ...(params.password ? { passphrase: params.password } : {}),
     }
   }
   return {
     username: params.username,
     password: params.password || '',
+    tryKeyboard: true,
   }
 }

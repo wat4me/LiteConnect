@@ -1,6 +1,7 @@
 import { app } from 'electron'
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { join, dirname } from 'path'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import type {
   DbQueryHistoryPushInput,
   DbQueryHistoryRunScope,
@@ -100,12 +101,7 @@ export class DbQueryHistoryStore {
   }
 
   private async persist(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true })
-    await writeFile(
-      this.filePath,
-      JSON.stringify({ version: 2, items: this.items }, null, 2),
-      'utf-8',
-    )
+    await writeJsonAtomic(this.filePath, { version: 2, items: this.items })
   }
 
   list(connectionId?: string): DbQueryHistoryItem[] {

@@ -7,8 +7,7 @@ import {
   DecryptionError,
   safeWebContentsSend,
 } from '../utils/validation'
-import { diagnoseSshConnection } from '../ssh/diagnosis/diagnosis'
-import { testSshConnection } from '../ssh/diagnosis/testConnection'
+import type { KeyboardInteractiveRequest } from '../ssh/types'
 import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
@@ -87,6 +86,23 @@ function resolveAuthParams(
 }
 
 const latencyTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+const pendingKeyboard = new Map<
+  string,
+  { resolve: (answers: string[] | null) => void; timer: ReturnType<typeof setTimeout> }
+>()
+
+function createKeyboardHandler(sender: import('electron').WebContents) {
+  return (req: KeyboardInteractiveRequest) =>
+    new Promise<string[] | null>((resolve) => {
+      const timer = setTimeout(() => {
+        pendingKeyboard.delete(req.requestId)
+        resolve(null)
+      }, 120_000)
+      pendingKeyboard.set(req.requestId, { resolve, timer })
+      safeWebContentsSend(sender, 'ssh:keyboardInteractive', req)
+    })
+}
 
 export function clearLatencyTimers(): void {
   for (const [, timer] of latencyTimers) clearInterval(timer)
@@ -188,6 +204,7 @@ export function registerSshConnectHandlers(
     const connection = credentialStore.getConnectionForAuth(connectionId)
     if (!connection) throw new Error('Connection not found')
 
+    const { testSshConnection } = await import('../ssh/diagnosis/testConnection')
     return testSshConnection(
       {
         host: connection.host,
@@ -251,6 +268,7 @@ export function registerSshConnectHandlers(
       }
     }
 
+    const { testSshConnection } = await import('../ssh/diagnosis/testConnection')
     return testSshConnection(
       {
         host: resolved.host,
@@ -287,6 +305,7 @@ export function registerSshConnectHandlers(
       typeof (params as any).jumpPassword === 'string' ? (params as any).jumpPassword : undefined
     const jumpPrivateKey =
       typeof (params as any).jumpPrivateKey === 'string' ? (params as any).jumpPrivateKey : undefined
+    const { diagnoseSshConnection } = await import('../ssh/diagnosis/diagnosis')
     return await diagnoseSshConnection(
       {
         ...resolved,
@@ -338,6 +357,7 @@ export function registerSshConnectHandlers(
         onError: (sid, err) => {
           broadcast(`ssh:error:${sid}`, err)
         },
+        onKeyboardInteractive: createKeyboardHandler(event.sender),
       })
       setSessionOwner(sessionId, event.sender.id)
       return sessionId
@@ -382,6 +402,19 @@ export function registerSshConnectHandlers(
   ipcMain.handle('ssh:rejectHostKey', async (_event, connectionId: string) => {
     sshManager.rejectHostKey(connectionId)
   })
+
+  ipcMain.handle(
+    'ssh:replyKeyboardInteractive',
+    (_event, requestId: string, answers: string[] | null) => {
+      if (typeof requestId !== 'string' || !requestId) return false
+      const pending = pendingKeyboard.get(requestId)
+      if (!pending) return false
+      clearTimeout(pending.timer)
+      pendingKeyboard.delete(requestId)
+      pending.resolve(Array.isArray(answers) ? answers.map((a) => String(a ?? '')) : null)
+      return true
+    },
+  )
 
   ipcMain.handle('ssh:disconnect', (_event, sessionId: string) => {
     if (!isValidUUID(sessionId)) {
@@ -437,6 +470,7 @@ export function registerSshConnectHandlers(
         onError: (sid, err) => {
           broadcast(`ssh:error:${sid}`, err)
         },
+        onKeyboardInteractive: createKeyboardHandler(event.sender),
       })
       setSessionOwner(id, event.sender.id)
       broadcast(`ssh:reconnected:${id}`)
@@ -463,6 +497,9 @@ export function registerSshConnectHandlers(
     const ok = sshManager.write(sessionId, data)
     if (!ok) {
       console.warn('[ssh:write] Session not writable, possible disconnect:', sessionId)
+      sshManager.discardDeadSession(sessionId)
+      clearSessionOwner(sessionId)
+      broadcast(`ssh:error:${sessionId}`, 'Connection lost')
     }
   })
 

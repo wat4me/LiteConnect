@@ -15,12 +15,18 @@ declare global {
       getConnections: () => Promise<Connection[]>
       saveConnection: (conn: Partial<Connection> & { name: string; host: string; username: string; password: string }) => Promise<Connection>
       deleteConnection: (id: string) => Promise<boolean>
-      updateConnectionGroup: (id: string, groupId: string | undefined) => Promise<boolean>
+      updateConnectionGroup: (id: string, groupId: string | undefined) => Promise<Connection>
       setConnectionPinned: (id: string, pinned: boolean) => Promise<Connection>
       openConnectionWindow: (connectionId: string) => Promise<{ reused: boolean; connectionId: string }>
       reorderConnections: (orderedIds: string[]) => Promise<void>
       isEncryptionAvailable: () => Promise<boolean>
       getConnectionPassword: (id: string) => Promise<string>
+      getConnectionSecrets: (id: string) => Promise<{
+        password: string
+        privateKey: string
+        jumpPassword: string
+        jumpPrivateKey: string
+      }>
       getSavedCredentials: () => Promise<SavedCredential[]>
       getSavedCredentialPassword: (id: string) => Promise<string>
       saveSavedCredential: (credential: Partial<SavedCredential> & { name: string; username: string; password: string }) => Promise<SavedCredential>
@@ -135,7 +141,11 @@ declare global {
       switchAiModel: (providerId: string, model: string) => Promise<AiSettings>
       testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean }>
       aiChat: (messages: AiChatMessage[]) => Promise<AiChatResult>
-      aiChatStream: (requestId: string, messages: AiChatMessage[]) => Promise<AiChatResult>
+      aiChatStream: (
+        requestId: string,
+        messages: AiChatMessage[],
+        opts?: { sessionId?: string },
+      ) => Promise<AiChatResult>
       aiAbortChatStream: (requestId: string) => Promise<boolean>
       aiGenerateConversationTitle: (payload: {
         userText: string
@@ -168,11 +178,43 @@ declare global {
 
       getLatencyEnabled: () => Promise<boolean>
       setLatencyEnabled: (enabled: boolean) => Promise<void>
+      getConnectionUsageStatsEnabled: () => Promise<boolean>
+      setConnectionUsageStatsEnabled: (enabled: boolean) => Promise<void>
+      getFancyCursorEnabled: () => Promise<boolean>
+      setFancyCursorEnabled: (enabled: boolean) => Promise<void>
+      getFancyCursorStyle: () => Promise<string>
+      setFancyCursorStyle: (style: string) => Promise<void>
+      getAllSettings: () => Promise<AppSettingsAll>
+      setManySettings: (patch: AppSettingsAllPatch) => Promise<AppSettingsAll>
+      getAppBackground: () => Promise<{
+        fileName: string
+        fit: 'cover' | 'contain' | 'fill'
+        overlay: number
+        imageUrl: string
+      }>
+      selectAppBackgroundImage: () => Promise<{
+        token: string
+        fileName: string
+        imageUrl: string
+      } | null>
+      setAppBackgroundImage: (payload: {
+        token?: string
+        fit?: 'cover' | 'contain' | 'fill'
+        overlay?: number
+        clear?: boolean
+      }) => Promise<{ fileName: string; fit: 'cover' | 'contain' | 'fill'; overlay: number; imageUrl: string }>
       getLatencyIntervalMs: () => Promise<number>
       setLatencyIntervalMs: (intervalMs: number) => Promise<void>
 
-      exportConnections: () => Promise<boolean>
-      importConnections: () => Promise<{ imported: number; total: number } | null>
+      exportConnections: (includeSecrets?: boolean) => Promise<boolean>
+      importConnections: () => Promise<{ imported: number; skipped: number; total: number } | null>
+      importSshConfig: () => Promise<{
+        imported: number
+        skipped: number
+        total: number
+        knownHostsImported: number
+        knownHostsHashedSkipped: number
+      } | null>
 
       sshConnect: (connectionId: string) => Promise<string>
       sshReconnect: (sessionId: string, connectionId: string) => Promise<string>
@@ -258,6 +300,7 @@ declare global {
       sshTrustHostKey: (host: string, port: number, keyBase64: string) => Promise<string>
       sshGetHostKeyFingerprint: (host: string, port: number) => Promise<string | null>
       sshConfirmHostKey: (connectionId: string) => Promise<string>
+      sshReplyKeyboardInteractive: (requestId: string, answers: string[] | null) => Promise<boolean>
       sshRejectHostKey: (connectionId: string) => Promise<void>
       onSshHostKeyMismatch: (callback: (data: {
         connectionId: string
@@ -268,11 +311,33 @@ declare global {
         role?: 'target' | 'jump'
       }) => void) => () => void
       onSshDecryptionFailed: (callback: (data: { connectionId: string; field: 'password' | 'privateKey' | 'apiKey'; message: string }) => void) => () => void
+      onSshKeyboardInteractive: (callback: (data: KeyboardInteractivePrompt) => void) => () => void
+      getWorkspaceRestoreEnabled: () => Promise<boolean>
+      setWorkspaceRestoreEnabled: (enabled: boolean) => Promise<void>
+      getWorkspaceTabs: () => Promise<WorkspaceTabsState | null>
+      setWorkspaceTabs: (state: WorkspaceTabsState | null) => Promise<void>
 
       sshStartLatencyMonitor: (sessionId: string) => Promise<void>
       sshStopLatencyMonitor: (sessionId: string) => Promise<void>
       sshMeasureLatency: (sessionId: string) => Promise<number>
       sshExec: (sessionId: string, command: string, timeoutMs?: number) => Promise<string>
+      mcpListTools: () => Promise<SshMcpToolDefinition[]>
+      mcpCallTool: (
+        name: string,
+        args?: Record<string, unknown>,
+      ) => Promise<SshMcpToolCallResult>
+      mcpGetHttpStatus: () => Promise<McpHttpStatus>
+      mcpSetHttpEnabled: (enabled: boolean) => Promise<McpHttpStatus>
+      mcpSetHttpPort: (port: number) => Promise<McpHttpStatus>
+      mcpRotateHttpToken: () => Promise<McpHttpStatus>
+      mcpReportConnectResult: (
+        requestId: string,
+        result: { sessionId?: string; error?: string },
+      ) => Promise<boolean>
+      onMcpConnectRequest: (
+        callback: (payload: { requestId: string; connectionId: string }) => void,
+      ) => () => void
+      onMcpCloseSession: (callback: (sessionId: string) => void) => () => void
       getMonitorEnabled: () => Promise<boolean>
       setMonitorEnabled: (enabled: boolean) => Promise<void>
       getMonitorIntervalMs: () => Promise<number>
@@ -818,6 +883,33 @@ export interface LocalForward {
   remotePort: number
 }
 
+export interface RemoteForward {
+  remoteHost?: string
+  remotePort: number
+  localHost: string
+  localPort: number
+}
+
+export interface DynamicForward {
+  localPort: number
+}
+
+export interface KeyboardInteractivePrompt {
+  requestId: string
+  sessionId: string
+  name: string
+  instructions: string
+  prompts: Array<{ prompt: string; echo: boolean }>
+  role: 'target' | 'jump'
+}
+
+export interface WorkspaceTabsState {
+  version: 1
+  homeActive: boolean
+  activeConnectionId: string | null
+  groups: Array<{ connectionId: string; sessionCount: number; activeIndex: number }>
+}
+
 export interface Connection {
   id: string
   name: string
@@ -841,6 +933,11 @@ export interface Connection {
   jumpPrivateKey?: string
   useAgent?: boolean
   localForwards?: LocalForward[]
+  remoteForwards?: RemoteForward[]
+  dynamicForwards?: DynamicForward[]
+  hasPrivateKey?: boolean
+  hasJumpPassword?: boolean
+  hasJumpPrivateKey?: boolean
   /** Pin to top of connection list */
   pinned?: boolean
   /** Successful connect count */
@@ -877,6 +974,60 @@ export interface CommandSnippet {
   updatedAt: number
 }
 
+export type AppSettingsAll = {
+  theme: string
+  customColors: { fontColor: string; bgColor: string } | null
+  downloadPath: string
+  configuredDownloadPath: string
+  defaultDownloadPath: string
+  terminalFontSize: number
+  terminalFontFamily: string
+  terminalPalette: string
+  terminalScrollback: number
+  terminalPasteConfirmEnabled: boolean
+  terminalPasteConfirmMaxChars: number
+  terminalCommandSuggestEnabled: boolean
+  downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
+  dirTransferConcurrency: number
+  dirTransferFailPolicy: 'continue' | 'stop'
+  dbFontFamily: string
+  dbFontSize: number
+  dbPageSize: number
+  dbConfirmDangerousSql: boolean
+  dbDefaultMaxRows: number
+  dbDefaultQueryTimeoutSec: number
+  dbDefaultRunScope: string
+  latencyEnabled: boolean
+  latencyIntervalMs: number
+  connectionUsageStatsEnabled: boolean
+  fancyCursorEnabled: boolean
+  fancyCursorStyle: string
+  appBackground: {
+    fileName: string
+    fit: 'cover' | 'contain' | 'fill'
+    overlay: number
+    imageUrl: string
+  }
+  monitorEnabled: boolean
+  monitorIntervalMs: number
+  autoReconnectEnabled: boolean
+  workspaceRestoreEnabled: boolean
+  autoReconnectMaxRetries: number
+  x11AutoStartEnabled: boolean
+  x11ServerPath: string
+  recentDownloadPaths: string[]
+}
+
+export type AppSettingsAllPatch = Partial<Omit<AppSettingsAll, 'appBackground' | 'configuredDownloadPath' | 'defaultDownloadPath' | 'recentDownloadPaths'>> & {
+  appBackground?: {
+    token?: string
+    clear?: boolean
+    fileName?: string
+    fit?: 'cover' | 'contain' | 'fill'
+    overlay?: number
+  }
+}
+
 export interface AppBootstrapData {
   encryptionAvailable: boolean
   connections: Connection[]
@@ -886,6 +1037,14 @@ export interface AppBootstrapData {
   latencyIntervalMs: number
   monitorEnabled: boolean
   monitorIntervalMs: number
+  fancyCursorEnabled: boolean
+  fancyCursorStyle: string
+  appBackground: {
+    fileName: string
+    fit: 'cover' | 'contain' | 'fill'
+    overlay: number
+    imageUrl: string
+  }
 }
 
 export interface Group {
@@ -916,6 +1075,36 @@ export interface FileEntry {
 
 export type TransferConflictStrategy = 'overwrite' | 'skip' | 'rename'
 
+export type SshMcpToolDefinition = {
+  name: string
+  title: string
+  description: string
+  inputSchema: Record<string, unknown>
+  annotations: {
+    readOnlyHint: boolean
+    destructiveHint: boolean
+    openWorldHint: boolean
+    idempotentHint?: boolean
+  }
+}
+
+export type SshMcpToolCallResult = {
+  isError: boolean
+  content: string
+  structuredContent: unknown
+}
+
+export type McpHttpStatus = {
+  enabled: boolean
+  listening: boolean
+  host: '127.0.0.1'
+  port: number
+  url: string
+  token: string
+  lastError: string | null
+  snippets: { generic: string }
+}
+
 export interface TransferItem {
   id: string
   sessionId: string
@@ -935,12 +1124,18 @@ export interface TransferItem {
   batchId?: string
 }
 
+export interface AiModel {
+  id: string
+  /** Full context window in tokens. Unset / 0 = models.dev default, else 300000. */
+  contextWindowTokens?: number
+}
+
 export interface AiProvider {
   id: string
   name: string
   baseUrl: string
   apiKey: string
-  models: string[]
+  models: AiModel[]
 }
 
 export interface AiSettings {
@@ -950,6 +1145,8 @@ export interface AiSettings {
   systemPrompt: string
   /** 0–2, default 0.7 (matches README) */
   temperature?: number
+  /** @deprecated Prefer per-model contextWindowTokens. Kept as fallback when a model has none. */
+  contextWindowTokens?: number
 }
 
 export interface AiResolvedConfig {
@@ -958,6 +1155,7 @@ export interface AiResolvedConfig {
   apiKey: string
   systemPrompt: string
   temperature: number
+  contextWindowTokens?: number
 }
 
 export interface AiChatMessage {
@@ -972,10 +1170,19 @@ export interface AiUsage {
   reasoningTokens?: number
 }
 
+export interface AiToolRun {
+  id: string
+  name: string
+  args: string
+  content: string
+  isError: boolean
+}
+
 export interface AiChatResult {
   content: string
   reasoningContent?: string
   usage?: AiUsage
+  toolRuns?: AiToolRun[]
 }
 
 export interface AiHistoryRecord {
@@ -986,6 +1193,7 @@ export interface AiHistoryRecord {
   usage?: AiUsage
   error?: boolean
   createdAt: number
+  toolRuns?: AiToolRun[]
 }
 
 export interface AiConversationThread {
@@ -1018,6 +1226,17 @@ export type AiChatStreamPayload =
   | { type: 'content'; value: string }
   | { type: 'reasoning'; value: string }
   | { type: 'usage'; value: AiUsage }
+  | {
+      type: 'tool'
+      value: {
+        phase: 'start' | 'done'
+        id: string
+        name: string
+        args?: string
+        content?: string
+        isError?: boolean
+      }
+    }
   | { type: 'done' }
 
 export interface UpdateStatus {

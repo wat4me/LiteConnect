@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 
-export type SettingsTabId = 'appearance' | 'terminal' | 'files' | 'database' | 'network' | 'shortcuts'
+export type SettingsTabId = 'appearance' | 'terminal' | 'files' | 'database' | 'network' | 'mcp' | 'shortcuts'
 
 /**
  * Top-level module navigation: SSH / database / settings.

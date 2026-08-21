@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
 import { getTerminalColors, type TerminalPaletteId } from '@/composables/app/useTheme'
+import { withWallpaperTerminalTheme } from '@/composables/app/useAppBackground'
 import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import {
   PASTE_CONFIRM_MAX_CHARS,
@@ -59,10 +60,19 @@ export function useXtermInstance(deps: {
     })
   }
 
+  /** Full local repaint (cross-monitor DPI / sub-row shrink without cols change). */
+  function refreshTerminalPaint() {
+    if (!terminal) return
+    try {
+      const rows = terminal.rows
+      if (rows > 0) terminal.refresh(0, rows - 1)
+    } catch {}
+  }
+
   /**
    * Propose dims first; only fit/clearSelection when geometry changes.
    * Docker↔terminal with unchanged cols/rows: no fit, no clearSelection, no sshResize
-   * (local refresh/focus still runs via scheduleTerminalRefresh).
+   * (local refresh still runs so canvas stays sharp after display moves).
    */
   function performResize(options?: { forceSshResize?: boolean; skipSshResize?: boolean }) {
     if (!canFitTerminal() || !terminal || !fitAddon) return
@@ -80,12 +90,17 @@ export function useXtermInstance(deps: {
         skipSshResize: options?.skipSshResize,
       })
 
-      if (plan.kind === 'noop') return
+      if (plan.kind === 'noop') {
+        // Same cols/rows: still repaint (window may have moved across DPI scales).
+        refreshTerminalPaint()
+        return
+      }
 
       if (plan.kind === 'ssh-only') {
         window.LiteConnect.sshResize(deps.getSessionId(), plan.cols, plan.rows)
         lastSentCols = plan.cols
         lastSentRows = plan.rows
+        refreshTerminalPaint()
         return
       }
 
@@ -111,6 +126,7 @@ export function useXtermInstance(deps: {
     resizeDebounceTimer = setTimeout(() => {
       resizeDebounceTimer = null
       if (!canFitTerminal()) return
+      // ResizeObserver / window resize (incl. multi-monitor move): fit + paint.
       deps.getFlushRenderBatch()(() => performResize())
     }, 80)
   }
@@ -158,9 +174,8 @@ export function useXtermInstance(deps: {
         const afterWrite = () => {
           if (gen !== refreshGeneration || !workspaceVisible()) return
           performResize({ forceSshResize: options?.forceSshResize })
-          try {
-            terminal!.refresh(0, terminal!.rows - 1)
-          } catch {}
+          // performResize already paints on noop/ssh-only; fit path needs an extra refresh.
+          refreshTerminalPaint()
           if (shouldFocus && gen === refreshGeneration && workspaceVisible()) {
             try {
               terminal!.focus()
@@ -172,6 +187,11 @@ export function useXtermInstance(deps: {
     })
   }
 
+  function onWindowGeometryChange() {
+    // Multi-monitor drag: element size may be unchanged while DPR / work area shifts.
+    syncTerminalSize()
+  }
+
   function attachResizeObserver() {
     if (!deps.terminalRef.value || resizeObserver) return
     if (!workspaceVisible()) return
@@ -179,11 +199,13 @@ export function useXtermInstance(deps: {
       syncTerminalSize()
     })
     resizeObserver.observe(deps.terminalRef.value)
+    window.addEventListener('resize', onWindowGeometryChange)
   }
 
   function detachResizeObserver() {
     resizeObserver?.disconnect()
     resizeObserver = null
+    window.removeEventListener('resize', onWindowGeometryChange)
     if (resizeDebounceTimer) {
       clearTimeout(resizeDebounceTimer)
       resizeDebounceTimer = null
@@ -191,9 +213,19 @@ export function useXtermInstance(deps: {
     cancelScheduledTerminalRefresh()
   }
 
+  function resolveTerminalTheme() {
+    const base = getTerminalColors(
+      deps.theme.value,
+      deps.customColors.value,
+      terminalPalette.value,
+    )
+    // Wallpaper on → semi-transparent terminal bg so the image shows in session area
+    return withWallpaperTerminalTheme(base)
+  }
+
   function applyTerminalTheme() {
     if (!terminal) return
-    const nextTheme = getTerminalColors(deps.theme.value, deps.customColors.value, terminalPalette.value)
+    const nextTheme = resolveTerminalTheme()
     // xterm needs both options.theme assignment and a refresh to repaint existing cells
     terminal.options.theme = nextTheme
     try {
@@ -201,6 +233,10 @@ export function useXtermInstance(deps: {
       if (rows > 0) terminal.refresh(0, rows - 1)
     } catch {}
     scheduleTerminalRefresh(false)
+  }
+
+  function onAppBackgroundChange() {
+    applyTerminalTheme()
   }
 
   function onTerminalFontSettingsChange(e: Event) {
@@ -243,12 +279,14 @@ export function useXtermInstance(deps: {
     window.addEventListener('terminal-font-settings-change', onTerminalFontSettingsChange)
     window.addEventListener('terminal-palette-change', onTerminalPaletteChange)
     window.addEventListener('terminal-behavior-settings-change', onTerminalBehaviorChange)
+    window.addEventListener('app-background-settings-change', onAppBackgroundChange)
   }
 
   function detachSettingsListeners() {
     window.removeEventListener('terminal-font-settings-change', onTerminalFontSettingsChange)
     window.removeEventListener('terminal-palette-change', onTerminalPaletteChange)
     window.removeEventListener('terminal-behavior-settings-change', onTerminalBehaviorChange)
+    window.removeEventListener('app-background-settings-change', onAppBackgroundChange)
   }
 
   async function loadTerminalSettings() {
@@ -279,7 +317,7 @@ export function useXtermInstance(deps: {
       cursorBlink: true,
       fontSize: fontSize.value,
       fontFamily: fontFamily.value,
-      theme: getTerminalColors(deps.theme.value, deps.customColors.value, terminalPalette.value),
+      theme: resolveTerminalTheme(),
       allowProposedApi: true,
       scrollback: scrollbackLines.value,
     })

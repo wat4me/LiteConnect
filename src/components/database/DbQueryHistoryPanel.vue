@@ -80,7 +80,7 @@ const rows = computed((): RowView[] =>
         {{ t('database.query.onlyCurrent') }}
       </label>
       <select
-        class="ui-input ui-input-sm history-status-select"
+        class="ui-select ui-input-sm history-status-select"
         :value="historyStatusFilter"
         @change="emit('update:historyStatusFilter', ($event.target as HTMLSelectElement).value as HistoryStatusFilter)"
       >

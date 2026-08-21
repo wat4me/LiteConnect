@@ -277,7 +277,7 @@ defineExpose({
         </label>
         <label class="settings-field">
           <span>{{ t('database.query.settingsDefaultScope') }}</span>
-          <select v-model="draftScope" class="ui-input ui-input-sm">
+          <select v-model="draftScope" class="ui-select ui-input-sm">
             <option v-for="opt in scopeOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>

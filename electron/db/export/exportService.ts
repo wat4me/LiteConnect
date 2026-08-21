@@ -106,12 +106,12 @@ export class DbExportService {
         : [{ name: 'CSV', extensions: ['csv'] }]
     const result = mainWindow
       ? await dialog.showSaveDialog(mainWindow, {
-          title: t('dialog.exportDbConnections') || 'Export',
+          title: t('dialog.exportTable'),
           defaultPath: defaultName,
           filters,
         })
       : await dialog.showSaveDialog({
-          title: 'Export',
+          title: t('dialog.exportTable'),
           defaultPath: defaultName,
           filters,
         })

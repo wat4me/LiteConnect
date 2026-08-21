@@ -146,7 +146,7 @@ async function copyOracleSql() {
         <template v-if="engine === 'postgres'">
           <label class="cdb-field">
             <span class="cdb-label">{{ t('database.msg.createDatabaseEncodingLabel') }}</span>
-            <select v-model="encoding" class="ui-input">
+            <select v-model="encoding" class="ui-select">
               <option value="">（默认）</option>
               <option v-for="enc in PG_ENCODINGS" :key="enc" :value="enc">{{ enc }}</option>
             </select>
@@ -155,14 +155,14 @@ async function copyOracleSql() {
         <template v-else>
           <label class="cdb-field">
             <span class="cdb-label">{{ t('database.msg.createDatabaseCharsetLabel') }}</span>
-            <select v-model="charset" class="ui-input">
+            <select v-model="charset" class="ui-select">
               <option value="">（默认）</option>
               <option v-for="cs in MYSQL_CHARSETS" :key="cs" :value="cs">{{ cs }}</option>
             </select>
           </label>
           <label class="cdb-field">
             <span class="cdb-label">{{ t('database.msg.createDatabaseCollateLabel') }}</span>
-            <select v-model="collate" class="ui-input" :disabled="!charset">
+            <select v-model="collate" class="ui-select" :disabled="!charset">
               <option value="">（默认）</option>
               <option v-for="col in mysqlCollateOptions" :key="col" :value="col">{{ col }}</option>
             </select>

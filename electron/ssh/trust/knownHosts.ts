@@ -1,6 +1,7 @@
 import { app } from 'electron'
-import { readFile, writeFile, mkdir } from 'fs/promises'
-import { join, dirname } from 'path'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { writeJsonAtomic } from '../../utils/atomicWrite'
 import { createHash } from 'crypto'
 
 export interface HostKeyEntry {
@@ -40,12 +41,7 @@ export class KnownHostsStore {
   }
 
   private async save(): Promise<void> {
-    try {
-      await mkdir(dirname(this.hostsPath), { recursive: true })
-      await writeFile(this.hostsPath, JSON.stringify(this.hosts, null, 2), 'utf-8')
-    } catch (err) {
-      console.error('Failed to save known hosts:', err)
-    }
+    await writeJsonAtomic(this.hostsPath, this.hosts)
   }
 
   private getKey(host: string, port: number): string {

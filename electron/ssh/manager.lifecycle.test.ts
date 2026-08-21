@@ -138,6 +138,25 @@ describe('SSHManager host-key confirm + generation', () => {
     expect(manager.getPendingHostKey(connection.id)).toBeUndefined()
   })
 
+  it('discardDeadSession removes a zombie session without bumping generation', () => {
+    const sid = 'dead-session-id'
+    const epoch = (manager as any).bumpSessionEpoch(sid)
+    const stream = { writable: false, close: vi.fn() }
+    const client = { destroy: vi.fn(), end: vi.fn() }
+    ;(manager as any).sessions.set(sid, {
+      id: sid,
+      client,
+      stream,
+      connectionId: 'c',
+      connectionName: 'n',
+    })
+    expect(manager.discardDeadSession(sid)).toBe(true)
+    expect(manager.hasSession(sid)).toBe(false)
+    expect((manager as any).getSessionEpoch(sid)).toBe(epoch)
+    expect(client.destroy).toHaveBeenCalled()
+    expect(manager.discardDeadSession(sid)).toBe(false)
+  })
+
   it('disconnect bumps generation so old epoch is dead', () => {
     const sid = 'dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee'
     const e1 = (manager as any).bumpSessionEpoch(sid)

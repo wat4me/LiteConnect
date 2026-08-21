@@ -2,10 +2,11 @@
  * Composition root (main process).
  *
  * Construction order (do not casually reorder):
- * 1. Stores + domain services (SSH interactive sessions, Docker host adapter, DB manager)
- * 2. Register IPC handlers early so the renderer can call before stores finish init
- * 3. Init settings (theme) before first window; other stores init after show
- * 4. Quit / window-close teardown: monitors → docker → ssh sessions → db
+ * 1. Core stores + SSH/DB services needed for the first window
+ * 2. Register first-window IPC (store / window / SSH / DB / updater stubs)
+ * 3. Parse settings.json for theme; open window. Other stores init in parallel.
+ * 4. After show: AI key migrations, X11 options, Docker/MCP/AI handler modules
+ * 5. Quit / window-close teardown: monitors → docker → ssh sessions → db → MCP HTTP
  *
  * Three intentional SSH-related modes (keep separate):
  * - Interactive: SSHManager (shell / SFTP / transfer / X11 / monitor)
@@ -15,6 +16,9 @@
  * See ARCHITECTURE.md.
  */
 import { app, BrowserWindow } from 'electron'
+import { registerAppBackgroundScheme, installAppBackgroundProtocol } from './window/appBackgroundProtocol'
+
+registerAppBackgroundScheme()
 import { CredentialStore } from './store/credentialStore'
 import { SettingsStore } from './store/settingsStore'
 import { DbConnectionStore } from './store/dbConnectionStore'
@@ -22,24 +26,22 @@ import { DbQueryHistoryStore } from './store/dbQueryHistoryStore'
 import { ShellCommandHistoryStore } from './store/shellCommandHistoryStore'
 import { DatabaseManager } from './db/manager'
 import { SSHManager } from './ssh/manager'
-import { DockerService } from './docker/service'
-import { DockerSshSessionHost } from './docker/sshSessionHost'
 import { MonitorCollector } from './ssh/monitor/monitor'
 import { KnownHostsStore } from './ssh/trust/knownHosts'
 import { createWindow } from './window/createWindow'
 import { registerStoreHandlers } from './ipc/registerStoreHandlers'
 import { registerShellCommandHistoryHandlers } from './ipc/registerShellCommandHistoryHandlers'
 import { registerSshHandlers, clearLatencyTimers } from './ipc/registerSshHandlers'
-import { registerDockerHandlers } from './ipc/registerDockerHandlers'
 import { registerDbHandlers } from './ipc/registerDbHandlers'
-import { registerAiHandlers } from './ipc/registerAiHandlers'
 import { registerUpdaterHandlers } from './ipc/registerUpdaterHandlers'
 import { registerWindowHandlers } from './ipc/registerWindowHandlers'
+import { join } from 'path'
 import {
   broadcast,
   clearOwnersForWebContents,
   getPrimaryWindow,
 } from './window/windowRegistry'
+import type { McpHttpGateway } from './mcp/httpGateway'
 
 const getMainWindow = () => getPrimaryWindow()
 const knownHosts = new KnownHostsStore()
@@ -50,16 +52,23 @@ const dbQueryHistoryStore = new DbQueryHistoryStore()
 const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
-const dockerSessionHost = new DockerSshSessionHost(sshManager)
-const dockerService = new DockerService(dockerSessionHost)
 const monitorCollector = new MonitorCollector(sshManager, (sessionId: string, data: any) => {
   broadcast(`monitor:data:${sessionId}`, data)
 })
 
-function openMainWindow() {
-  const theme = settingsStore.getTheme()
-  const customColors = theme === 'custom' ? settingsStore.getCustomColors() : null
-  createWindow({ theme, customColors, primary: true })
+let dockerCloser: { closeAll: () => void } | null = null
+let mcpHttpGateway: McpHttpGateway | null = null
+let deferredMain: Promise<void> | null = null
+
+function openMainWindow(theme?: string, customColors?: { fontColor: string; bgColor: string } | null) {
+  const resolvedTheme = theme ?? settingsStore.getTheme()
+  const resolvedColors =
+    customColors !== undefined
+      ? customColors
+      : resolvedTheme === 'custom'
+        ? settingsStore.getCustomColors()
+        : null
+  createWindow({ theme: resolvedTheme, customColors: resolvedColors, primary: true })
 }
 
 function cleanupSessionsForClosedWindow(webContentsId: number) {
@@ -73,13 +82,78 @@ function cleanupSessionsForClosedWindow(webContentsId: number) {
   }
 }
 
+function startDeferredMain(): Promise<void> {
+  if (!deferredMain) {
+    deferredMain = loadDeferredMain().catch((err) => {
+      console.error('[Main Deferred]', err)
+    })
+  }
+  return deferredMain
+}
+
+async function loadDeferredMain(): Promise<void> {
+  try {
+    await settingsStore.initMigrations()
+  } catch (err) {
+    console.error('[Main Settings Migration]', err)
+  }
+
+  const x11P = (async () => {
+    try {
+      const { configureX11ServerOptions } = await import('./ssh/x11/x11Server')
+      configureX11ServerOptions({
+        autoStart: settingsStore.getX11AutoStartEnabled(),
+        executablePath: settingsStore.getX11ServerPath(),
+      })
+    } catch (err) {
+      console.error('[Main X11 Config]', err)
+    }
+  })()
+
+  const dockerP = (async () => {
+    const { DockerSshSessionHost } = await import('./docker/sshSessionHost')
+    const { DockerService } = await import('./docker/service')
+    const { registerDockerHandlers } = await import('./ipc/registerDockerHandlers')
+    const dockerService = new DockerService(new DockerSshSessionHost(sshManager))
+    dockerCloser = dockerService
+    registerDockerHandlers(dockerService)
+  })()
+
+  const mcpAiP = (async () => {
+    const { bindSshMcpRuntime } = await import('./mcp/bind')
+    const { createMcpAuditLog } = await import('./mcp/auditLog')
+    const { McpHttpGateway } = await import('./mcp/httpGateway')
+    const { registerMcpHandlers } = await import('./ipc/registerMcpHandlers')
+    const { registerAiHandlers } = await import('./ipc/registerAiHandlers')
+
+    const sshMcpRuntime = bindSshMcpRuntime(sshManager, credentialStore, monitorCollector)
+    const gateway = new McpHttpGateway(
+      sshMcpRuntime,
+      settingsStore,
+      { name: 'liteconnect-ssh', version: app.getVersion() || '1.0.5' },
+      createMcpAuditLog(join(app.getPath('userData'), 'mcp-audit.jsonl')),
+    )
+    mcpHttpGateway = gateway
+    registerMcpHandlers(sshMcpRuntime, gateway)
+    registerAiHandlers(settingsStore, sshMcpRuntime)
+
+    try {
+      await gateway.applyFromSettings()
+    } catch (err) {
+      console.error('[Main MCP HTTP]', err)
+    }
+  })()
+
+  await Promise.all([x11P, dockerP, mcpAiP])
+}
+
 app.whenReady().then(async () => {
-  // IPC first so renderer can call handlers as soon as the window loads.
+  installAppBackgroundProtocol(() => settingsStore.getAppBackgroundDir())
+  // First-window IPC so the renderer can call as soon as the window loads.
   registerStoreHandlers(getMainWindow, credentialStore, settingsStore)
   registerWindowHandlers(credentialStore, settingsStore)
   registerShellCommandHistoryHandlers(shellCommandHistoryStore)
   registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts)
-  registerDockerHandlers(dockerService)
   dbManager.setTunnelDeps(credentialStore, knownHosts)
   registerDbHandlers(
     dbConnectionStore,
@@ -88,25 +162,16 @@ app.whenReady().then(async () => {
     credentialStore,
     getMainWindow,
   )
-  registerAiHandlers(settingsStore)
   registerUpdaterHandlers(getMainWindow, settingsStore)
 
-  // Theme only blocks first paint; remaining stores init in parallel after show.
-  try {
-    await settingsStore.init()
-  } catch (err) {
-    console.error('[Main Settings Init]', err)
-  }
-
-  try {
-    const { configureX11ServerOptions } = await import('./ssh/x11/x11Server')
-    configureX11ServerOptions({
-      autoStart: settingsStore.getX11AutoStartEnabled(),
-      executablePath: settingsStore.getX11ServerPath(),
-    })
-  } catch (err) {
-    console.error('[Main X11 Config]', err)
-  }
+  const themeReady = settingsStore.readThemeForWindow()
+  const storesReady = Promise.all([
+    knownHosts.init(),
+    credentialStore.init(),
+    dbConnectionStore.init(),
+    dbQueryHistoryStore.init(),
+    shellCommandHistoryStore.init(),
+  ])
 
   app.on('browser-window-created', (_e, win) => {
     const webContentsId = win.webContents.id
@@ -115,17 +180,21 @@ app.whenReady().then(async () => {
     })
   })
 
-  openMainWindow()
+  let theme = 'dark'
+  let customColors: { fontColor: string; bgColor: string } | null = null
+  try {
+    const peeked = await themeReady
+    theme = peeked.theme
+    customColors = peeked.customColors
+  } catch (err) {
+    console.error('[Main Settings Init]', err)
+  }
 
-  void Promise.all([
-    knownHosts.init(),
-    credentialStore.init(),
-    dbConnectionStore.init(),
-    dbQueryHistoryStore.init(),
-    shellCommandHistoryStore.init(),
-  ]).catch((err) => {
+  openMainWindow(theme, customColors)
+  void storesReady.catch((err) => {
     console.error('[Main Store Init]', err)
   })
+  void startDeferredMain()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -137,9 +206,10 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   clearLatencyTimers()
   monitorCollector.stopAll()
-  dockerService.closeAll()
+  dockerCloser?.closeAll()
   sshManager.forceDisconnectAll()
   dbManager.disconnectAll()
+  void mcpHttpGateway?.stop()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -152,9 +222,10 @@ app.on('browser-window-blur', () => {
 app.on('before-quit', () => {
   clearLatencyTimers()
   monitorCollector.stopAll()
-  dockerService.closeAll()
+  dockerCloser?.closeAll()
   sshManager.forceDisconnectAll()
   dbManager.disconnectAll()
+  void mcpHttpGateway?.stop()
 })
 
 process.on('unhandledRejection', (reason) => {

@@ -1,4 +1,4 @@
-import { Client } from 'ssh2'
+import type { Client } from 'ssh2'
 import * as net from 'net'
 import type { Connection, SSHCallbacks } from './types'
 import { t } from '../i18n'

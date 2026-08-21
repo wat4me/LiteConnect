@@ -1,6 +1,8 @@
 import { app, safeStorage } from 'electron'
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { join, dirname } from 'path'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { writeJsonAtomic } from '../utils/atomicWrite'
+import { sealSecret } from '../utils/secretCrypto'
 import { v4 as uuidv4 } from 'uuid'
 import type { DbConnection, DbEngine, DbSslOptions } from '../db/types'
 import { DEFAULT_DB_PORT, normalizeDbEngine } from '../db/types'
@@ -53,10 +55,11 @@ export class DbConnectionStore {
 
   private encrypt(value: string): string {
     if (!value) return value
-    if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.encryptString(value).toString('base64')
-    }
-    return value
+    return sealSecret(value, {
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
+      unavailableMessage: t('crypto.encryptionUnavailable'),
+    }).value
   }
 
   private decrypt(value: string, encrypted?: boolean): string {
@@ -110,8 +113,7 @@ export class DbConnectionStore {
   }
 
   private async persist(): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true })
-    await writeFile(this.filePath, JSON.stringify(this.connections, null, 2), 'utf-8')
+    await writeJsonAtomic(this.filePath, this.connections)
   }
 
   private toPublic(conn: DbConnection): DbConnection {

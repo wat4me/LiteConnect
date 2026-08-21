@@ -64,25 +64,25 @@ defineExpose({ searchInputRef })
             {{ props.batchTesting ? t('connections.batchTesting') : t('connections.batchTest') }}
           </button>
         </el-tooltip>
-        <el-tooltip :content="t('connections.import')" placement="bottom">
+        <el-tooltip :content="t('connections.importTooltip')" placement="bottom">
           <button
-            class="ui-icon-btn ui-icon-btn-ghost"
+            class="ui-btn"
             type="button"
             :disabled="props.importing"
             :aria-label="t('connections.import')"
             @click="emit('import')"
           >
-            <AppIcon name="download" size="md" />
+            {{ t('connections.import') }}
           </button>
         </el-tooltip>
-        <el-tooltip :content="t('connections.export')" placement="bottom">
+        <el-tooltip :content="t('connections.exportTooltip')" placement="bottom">
           <button
-            class="ui-icon-btn ui-icon-btn-ghost"
+            class="ui-btn"
             type="button"
             :aria-label="t('connections.export')"
             @click="emit('export')"
           >
-            <AppIcon name="upload" size="md" />
+            {{ t('connections.export') }}
           </button>
         </el-tooltip>
         <button

@@ -1,6 +1,11 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { homedir } from 'os'
+import { join } from 'path'
+import { readFile } from 'fs/promises'
 import { CredentialStore } from '../store/credentialStore'
-import { isValidHost, isLoopbackHost, isValidX11Display } from '../utils/validation'
+import { KnownHostsStore } from '../ssh/trust/knownHosts'
+import { parseKnownHosts } from '../ssh/openssh/parseSshConfig'
+import { importParsedHosts, readSshConfigFile } from '../ssh/openssh/importSshConfig'
 import { t } from '../i18n'
 
 type MainWindowGetter = () => BrowserWindow | null
@@ -8,14 +13,15 @@ type MainWindowGetter = () => BrowserWindow | null
 export function registerConnectionsExportHandlers(
   getMainWindow: MainWindowGetter,
   credentialStore: CredentialStore,
-  ensureCredentialStoreReady: () => Promise<void>
+  ensureCredentialStoreReady: () => Promise<void>,
 ): void {
-  ipcMain.handle('store:exportConnections', async () => {
+  ipcMain.handle('store:exportConnections', async (_event, includeSecrets = false) => {
     await ensureCredentialStoreReady()
     const exportData = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      connections: credentialStore.getConnectionsForExport(),
+      includeSecrets: !!includeSecrets,
+      connections: credentialStore.getConnectionsForExport(!!includeSecrets),
       groups: credentialStore.getGroups(),
     }
     const mainWindow = getMainWindow()
@@ -57,35 +63,47 @@ export function registerConnectionsExportHandlers(
       if (!parsed.connections || !Array.isArray(parsed.connections)) {
         throw new Error('Invalid import format')
       }
-      let imported = 0
-      for (const conn of parsed.connections) {
-        if (!conn.name || !conn.host || !conn.username) continue
-        const existing = credentialStore.getConnections().find(
-          (c: any) => c.host === conn.host && c.username === conn.username && c.port === (conn.port || 22)
-        )
-        if (existing) continue
-        const x11Forwarding = conn.x11Forwarding === true
-        const x11Host = typeof conn.x11Host === 'string' && isValidHost(conn.x11Host) && isLoopbackHost(conn.x11Host)
-          ? conn.x11Host
-          : undefined
-        const x11Display = isValidX11Display(conn.x11Display) ? conn.x11Display : undefined
-        await credentialStore.saveConnection({
-          name: conn.name,
-          host: conn.host,
-          port: conn.port || 22,
-          username: conn.username,
-          password: conn.password || '',
-          group: conn.group || undefined,
-          keepaliveInterval: conn.keepaliveInterval,
-          x11Forwarding,
-          x11Host: x11Forwarding ? x11Host : undefined,
-          x11Display: x11Forwarding ? x11Display : undefined,
-          createdAt: conn.createdAt,
-          updatedAt: conn.updatedAt,
-        })
-        imported++
+      const stats = await credentialStore.importConnections(parsed.connections)
+      return stats
+    } catch (err: any) {
+      throw new Error(t('common.importFailed', { error: err.message }))
+    }
+  })
+
+  ipcMain.handle('store:importSshConfig', async () => {
+    await ensureCredentialStoreReady()
+    const mainWindow = getMainWindow()
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: t('dialog.importSshConfig'),
+      defaultPath: join(homedir(), '.ssh', 'config'),
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    try {
+      const hosts = await readSshConfigFile(result.filePaths[0])
+      const stats = await importParsedHosts(hosts, credentialStore)
+      let knownHostsImported = 0
+      let knownHostsHashedSkipped = 0
+      try {
+        const khPath = join(homedir(), '.ssh', 'known_hosts')
+        const text = await readFile(khPath, 'utf-8')
+        const parsed = parseKnownHosts(text)
+        knownHostsHashedSkipped = parsed.hashedSkipped
+        const store = new KnownHostsStore()
+        await store.init()
+        for (const entry of parsed.entries) {
+          try {
+            await store.updateHostKey(entry.host, entry.port, Buffer.from(entry.keyBase64, 'base64'))
+            knownHostsImported++
+          } catch {
+            // skip bad keys
+          }
+        }
+      } catch {
+        // no known_hosts is fine
       }
-      return { imported, total: parsed.connections.length }
+      return { ...stats, knownHostsImported, knownHostsHashedSkipped }
     } catch (err: any) {
       throw new Error(t('common.importFailed', { error: err.message }))
     }

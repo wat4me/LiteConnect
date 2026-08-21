@@ -1,10 +1,68 @@
 import { app, ipcMain, shell } from 'electron'
+import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
-import { join } from 'path'
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'fs/promises'
+import { basename, extname, join } from 'path'
 import { t } from '../i18n'
 import { CredentialStore } from '../store/credentialStore'
-import { SettingsStore } from '../store/settingsStore'
+import { SettingsStore, type SettingsAllPatch } from '../store/settingsStore'
 import { isValidUUID } from '../utils/validation'
+import {
+  BG_EXTS,
+  BG_MAX_BYTES,
+  mimeForWallpaperExt,
+  wallpaperStoredName,
+} from '../window/appBackgroundProtocol'
+
+const pendingWallpaperPicks = new Map<string, { path: string; expires: number }>()
+const WALLPAPER_TOKEN_TTL_MS = 10 * 60 * 1000
+
+function putWallpaperPick(filePath: string): string {
+  const token = randomBytes(16).toString('hex')
+  pendingWallpaperPicks.set(token, { path: filePath, expires: Date.now() + WALLPAPER_TOKEN_TTL_MS })
+  return token
+}
+
+function takeWallpaperPick(token: string): string | null {
+  const entry = pendingWallpaperPicks.get(token)
+  pendingWallpaperPicks.delete(token)
+  if (!entry || entry.expires < Date.now()) return null
+  return entry.path
+}
+
+async function clearWallpaperDir(dir: string): Promise<void> {
+  try {
+    const files = await readdir(dir)
+    for (const f of files) {
+      await unlink(join(dir, f)).catch(() => {})
+    }
+  } catch {
+    // dir may not exist yet
+  }
+}
+
+async function readImageFileCapped(src: string): Promise<Buffer> {
+  const st = await stat(src)
+  if (!st.isFile() || st.size > BG_MAX_BYTES) {
+    throw new Error(t('appBackground.tooLarge'))
+  }
+  const buf = await readFile(src)
+  if (buf.length > BG_MAX_BYTES) throw new Error(t('appBackground.tooLarge'))
+  return buf
+}
+
+async function persistWallpaperFromToken(dir: string, token: string): Promise<string> {
+  const src = takeWallpaperPick(token)
+  if (!src) throw new Error(t('appBackground.invalidType'))
+  const ext = extname(src).toLowerCase()
+  const fileName = wallpaperStoredName(ext)
+  if (!fileName) throw new Error(t('appBackground.invalidType'))
+  const buf = await readImageFileCapped(src)
+  await mkdir(dir, { recursive: true })
+  await clearWallpaperDir(dir)
+  await writeFile(join(dir, fileName), buf)
+  return fileName
+}
 
 const BUNDLED_VCXSRV_INSTALLER = 'vcxsrv-64.1.20.14.0.installer.exe'
 
@@ -46,8 +104,10 @@ export function registerSettingsHandlers(
     }
     if (credentialStore.getConnection(connectionId)) {
       await settingsStore.recordRecentConnection(connectionId)
-      // Bump useCount / lastConnectedAt for list sorting & stats
-      await credentialStore.recordConnectionUsage(connectionId)
+      // Bump useCount / lastConnectedAt when usage stats are enabled
+      if (settingsStore.getConnectionUsageStatsEnabled()) {
+        await credentialStore.recordConnectionUsage(connectionId)
+      }
     }
   })
 
@@ -231,6 +291,151 @@ export function registerSettingsHandlers(
       throw new Error('Invalid value')
     }
     await settingsStore.setLatencyEnabled(enabled)
+  })
+
+  ipcMain.handle('settings:getConnectionUsageStatsEnabled', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getConnectionUsageStatsEnabled()
+  })
+
+  ipcMain.handle('settings:setConnectionUsageStatsEnabled', async (_event, enabled: boolean) => {
+    await ensureSettingsStoreReady()
+    if (typeof enabled !== 'boolean') {
+      throw new Error('Invalid value')
+    }
+    await settingsStore.setConnectionUsageStatsEnabled(enabled)
+  })
+
+  ipcMain.handle('settings:getAll', async () => {
+    await ensureSettingsStoreReady()
+    await settingsStore.initMigrations()
+    return settingsStore.getAll()
+  })
+
+  ipcMain.handle('settings:setMany', async (_event, patch: SettingsAllPatch & { appBackground?: { token?: string; clear?: boolean; fit?: 'cover' | 'contain' | 'fill'; overlay?: number; fileName?: string } }) => {
+    await ensureSettingsStoreReady()
+    await settingsStore.initMigrations()
+    if (!patch || typeof patch !== 'object') throw new Error('Invalid settings')
+
+    const nextPatch: SettingsAllPatch = { ...patch }
+    if (patch.appBackground && typeof patch.appBackground === 'object') {
+      const dir = settingsStore.getAppBackgroundDir()
+      const bg = patch.appBackground
+      if (bg.clear) {
+        await mkdir(dir, { recursive: true })
+        await clearWallpaperDir(dir)
+        nextPatch.appBackground = { fileName: '', fit: bg.fit, overlay: bg.overlay }
+      } else if (typeof bg.token === 'string' && bg.token) {
+        const fileName = await persistWallpaperFromToken(dir, bg.token)
+        nextPatch.appBackground = { fileName, fit: bg.fit, overlay: bg.overlay }
+      } else {
+        nextPatch.appBackground = { fit: bg.fit, overlay: bg.overlay }
+      }
+    }
+
+    const saved = await settingsStore.applyMany(nextPatch)
+    if (patch.x11AutoStartEnabled !== undefined || patch.x11ServerPath !== undefined) {
+      const { configureX11ServerOptions } = await import('../ssh/x11/x11Server')
+      configureX11ServerOptions({
+        autoStart: settingsStore.getX11AutoStartEnabled(),
+        executablePath: settingsStore.getX11ServerPath(),
+      })
+    }
+    return saved
+  })
+
+  ipcMain.handle('settings:getAppBackground', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getAll().appBackground
+  })
+
+  ipcMain.handle('settings:selectAppBackgroundImage', async () => {
+    await ensureSettingsStoreReady()
+    const { dialog, BrowserWindow } = await import('electron')
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+    if (!win) return null
+    const result = await dialog.showOpenDialog(win, {
+      title: t('appBackground.pickTitle'),
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    const src = result.filePaths[0]
+    const ext = extname(src).toLowerCase()
+    if (!BG_EXTS.has(ext)) {
+      throw new Error(t('appBackground.invalidType'))
+    }
+    const buf = await readImageFileCapped(src)
+    const token = putWallpaperPick(src)
+    const imageUrl = `data:${mimeForWallpaperExt(ext)};base64,${buf.toString('base64')}`
+    return {
+      token,
+      fileName: basename(src),
+      imageUrl,
+    }
+  })
+
+  ipcMain.handle(
+    'settings:setAppBackgroundImage',
+    async (
+      _event,
+      payload: {
+        token?: string
+        fit?: 'cover' | 'contain' | 'fill'
+        overlay?: number
+        clear?: boolean
+      },
+    ) => {
+      await ensureSettingsStoreReady()
+      const dir = settingsStore.getAppBackgroundDir()
+      if (payload?.clear) {
+        await mkdir(dir, { recursive: true })
+        await clearWallpaperDir(dir)
+        await settingsStore.clearAppBackgroundFile()
+        if (payload.fit != null || payload.overlay != null) {
+          await settingsStore.setAppBackground({ fit: payload.fit, overlay: payload.overlay })
+        }
+        return settingsStore.getAll().appBackground
+      }
+      let fileName = settingsStore.getAppBackground().fileName
+      if (payload?.token) {
+        fileName = await persistWallpaperFromToken(dir, payload.token)
+      }
+      await settingsStore.setAppBackground({
+        fileName,
+        fit: payload?.fit,
+        overlay: payload?.overlay,
+      })
+      return settingsStore.getAll().appBackground
+    },
+  )
+
+  ipcMain.handle('settings:getFancyCursorEnabled', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getFancyCursorEnabled()
+  })
+
+  ipcMain.handle('settings:setFancyCursorEnabled', async (_event, enabled: boolean) => {
+    await ensureSettingsStoreReady()
+    if (typeof enabled !== 'boolean') {
+      throw new Error('Invalid value')
+    }
+    await settingsStore.setFancyCursorEnabled(enabled)
+  })
+
+  ipcMain.handle('settings:getFancyCursorStyle', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getFancyCursorStyle()
+  })
+
+  ipcMain.handle('settings:setFancyCursorStyle', async (_event, style: string) => {
+    await ensureSettingsStoreReady()
+    if (typeof style !== 'string') {
+      throw new Error('Invalid value')
+    }
+    await settingsStore.setFancyCursorStyle(style)
   })
 
   ipcMain.handle('settings:getLatencyIntervalMs', async () => {
@@ -465,5 +670,30 @@ export function registerSettingsHandlers(
       throw new Error('Invalid version')
     }
     await settingsStore.setSkippedUpdateVersion(version)
+  })
+
+  ipcMain.handle('settings:getWorkspaceRestoreEnabled', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getWorkspaceRestoreEnabled()
+  })
+
+  ipcMain.handle('settings:setWorkspaceRestoreEnabled', async (_event, enabled: boolean) => {
+    await ensureSettingsStoreReady()
+    await settingsStore.setWorkspaceRestoreEnabled(!!enabled)
+  })
+
+  ipcMain.handle('settings:getWorkspaceTabs', async () => {
+    await ensureSettingsStoreReady()
+    return settingsStore.getWorkspaceTabs()
+  })
+
+  ipcMain.handle('settings:setWorkspaceTabs', async (_event, state: unknown) => {
+    await ensureSettingsStoreReady()
+    if (state == null) {
+      await settingsStore.setWorkspaceTabs(null)
+      return
+    }
+    if (!state || typeof state !== 'object') throw new Error('Invalid workspace')
+    await settingsStore.setWorkspaceTabs(state as any)
   })
 }

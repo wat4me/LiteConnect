@@ -227,7 +227,7 @@ onMounted(() => {
             <label class="dbeaver-name-field">
               <span>{{ t('database.connection.engine') }}</span>
               <select
-                class="ui-input"
+                class="ui-select"
                 :value="form.engine"
                 :disabled="editing"
                 @change="onEngineChange(($event.target as HTMLSelectElement).value as DbEngine)"
@@ -408,7 +408,7 @@ onMounted(() => {
               <label class="dbeaver-field full">
                 <span>{{ t('database.connection.sshConnection') }}</span>
                 <select
-                  class="ui-input"
+                  class="ui-select"
                   :value="form.sshConnectionId"
                   @change="patch('sshConnectionId', ($event.target as HTMLSelectElement).value)"
                 >
@@ -511,7 +511,7 @@ onMounted(() => {
               <label class="dbeaver-field full">
                 <span>{{ t('database.connection.extraOptionsPreset') }}</span>
                 <select
-                  class="ui-input"
+                  class="ui-select"
                   value=""
                   @change="
                     applyPresetKey(($event.target as HTMLSelectElement).value);

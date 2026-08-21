@@ -382,7 +382,7 @@ const cellMenuPreview = computed(() => {
             ›
           </button>
           <select
-            class="ui-input ui-input-sm page-size-select"
+            class="ui-select ui-input-sm page-size-select"
             :value="tab.pageSize"
             :disabled="tab.loading"
             @change="emit('pageSize', Number(($event.target as HTMLSelectElement).value))"

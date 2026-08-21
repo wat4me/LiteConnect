@@ -1,9 +1,10 @@
-import { Client, type ConnectConfig } from 'ssh2'
+import type { Client, ConnectConfig } from 'ssh2'
 import * as net from 'net'
 import type { Connection } from '../../store/credentialStore'
 import { buildAuthFields } from '../../ssh/auth'
 import { createHostVerifier, type HostKeyRejectInfo } from '../../ssh/trust/hostKeyVerify'
 import type { KnownHostsStore } from '../../ssh/trust/knownHosts'
+import { loadSsh2 } from '../../ssh/loadSsh2'
 
 export type DbTunnelCloseReason = 'ssh_tunnel_closed' | 'ssh_tunnel_error' | 'local_close'
 
@@ -32,7 +33,7 @@ export async function openDbSshTunnel(
     throw new Error('Invalid tunnel remote port')
   }
 
-  await knownHosts.init()
+  const [, { Client }] = await Promise.all([knownHosts.init(), loadSsh2()])
 
   const client = new Client()
   let jumpClient: Client | undefined

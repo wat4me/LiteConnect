@@ -6,10 +6,11 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
     "strict": true,
     "downlevelIteration": true,
     "outDir": "dist-electron"
   },
-  "include": ["electron/**/*.ts", "vite.config.ts", "shared/**/*.ts"],
+  "include": ["electron/**/*.ts", "vite.config.ts", "shared/**/*.ts", "shared/**/*.json"],
   "exclude": ["shared/**/*.test.ts", "electron/**/*.test.ts"]
 }

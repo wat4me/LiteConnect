@@ -54,15 +54,19 @@ export function registerStoreHandlers(
   ipcMain.handle('app:getBootstrap', async () => {
     await ensureStoresReady()
     const recentConnections = await getRecentConnectionsSnapshot()
+    const all = settingsStore.getAll()
     return {
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
       connections: credentialStore.getConnections(),
       groups: credentialStore.getGroups(),
       recentConnections,
-      latencyEnabled: settingsStore.getLatencyEnabled(),
-      latencyIntervalMs: settingsStore.getLatencyIntervalMs(),
-      monitorEnabled: settingsStore.getMonitorEnabled(),
-      monitorIntervalMs: settingsStore.getMonitorIntervalMs(),
+      latencyEnabled: all.latencyEnabled,
+      latencyIntervalMs: all.latencyIntervalMs,
+      monitorEnabled: all.monitorEnabled,
+      monitorIntervalMs: all.monitorIntervalMs,
+      fancyCursorEnabled: all.fancyCursorEnabled,
+      fancyCursorStyle: all.fancyCursorStyle,
+      appBackground: all.appBackground,
     }
   })
 
@@ -149,6 +153,14 @@ export function registerStoreHandlers(
       throw new Error('Invalid connection id')
     }
     return credentialStore.getConnectionPassword(id) || ''
+  })
+
+  ipcMain.handle('store:getConnectionSecrets', async (_event, id: string) => {
+    await ensureCredentialStoreReady()
+    if (!isValidUUID(id)) {
+      throw new Error('Invalid connection id')
+    }
+    return credentialStore.getConnectionSecrets(id)
   })
 
   ipcMain.handle('store:getSavedCredentials', async () => {

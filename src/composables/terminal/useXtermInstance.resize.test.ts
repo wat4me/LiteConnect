@@ -85,7 +85,8 @@ describe('planTerminalResize selection preservation', () => {
   })
 
   it('local refresh path remains available when plan is noop (refresh/focus outside resize)', () => {
-    // scheduleTerminalRefresh still runs refresh+focus after performResize returns early
+    // performResize paints on noop; scheduleTerminalRefresh also refreshes after plan.
+    // Cross-monitor DPI: same cols/rows must still repaint so glyphs are not clipped/stale.
     const plan = planTerminalResize({
       proposed: { cols: 120, rows: 40 },
       current,

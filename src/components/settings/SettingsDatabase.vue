@@ -258,7 +258,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
   color: var(--accent);
 }
 
-.settings-select,
+/* .settings-select surface styles live in main.css (shared with .ui-select) */
 .settings-input {
   width: 100%;
   padding: 8px 10px;

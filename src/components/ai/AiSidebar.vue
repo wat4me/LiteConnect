@@ -13,6 +13,7 @@ import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'
+import { aiModelId, formatTokenCount, packAiMessages } from '@shared/aiContext'
 
 const { t } = useI18n()
 
@@ -35,6 +36,7 @@ const {
   settings,
   activeProvider,
   displayModelName,
+  activeContextWindowTokens,
   sendText,
   stopGeneration,
   clearMessages,
@@ -76,6 +78,71 @@ const hasApiConfigured = computed(() => {
 let initialLoadPromise: Promise<void> | null = null
 const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
 
+const currentThreadTitle = computed(() => {
+  const active = threadSummaries.value.find((t) => t.active)
+  const title = (active?.title || '').trim()
+  return title || t('ai.newConversationTitle')
+})
+
+const contextPack = computed(() => {
+  const conv = messages.value
+    .filter(
+      (m) =>
+        !m.error &&
+        !m.streaming &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        m.content.trim(),
+    )
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+  const draft = input.value.trim()
+  if (draft) conv.push({ role: 'user', content: draft })
+  return packAiMessages({
+    systemPrompt: settings.value.systemPrompt,
+    messages: conv,
+    model: settings.value.activeModel || displayModelName.value,
+    contextWindowTokens: activeContextWindowTokens.value,
+  })
+})
+
+const CONTEXT_RING = { size: 20, radius: 7 }
+
+const contextRatio = computed(() => {
+  const budget = contextPack.value.budgetTokens
+  if (budget <= 0) return 0
+  return Math.min(1, Math.max(0, contextPack.value.promptTokens / budget))
+})
+
+const contextTone = computed<'ok' | 'warn' | 'danger'>(() => {
+  if (contextPack.value.droppedCount > 0 || contextRatio.value >= 0.85) return 'danger'
+  if (contextRatio.value >= 0.6) return 'warn'
+  return 'ok'
+})
+
+const contextRingDash = computed(() => {
+  const circ = 2 * Math.PI * CONTEXT_RING.radius
+  const filled = circ * contextRatio.value
+  return { circ, filled }
+})
+
+/** Meter is a local estimate of the next send — never implies a request already went out. */
+const showContextMeter = computed(() => {
+  if (input.value.trim()) return true
+  return messages.value.some(
+    (m) =>
+      !m.error &&
+      !m.streaming &&
+      (m.role === 'user' || m.role === 'assistant') &&
+      m.content.trim(),
+  )
+})
+
+const contextMeterTitle = computed(() =>
+  t('ai.contextUsage', {
+    used: formatTokenCount(contextPack.value.promptTokens),
+    budget: formatTokenCount(contextPack.value.budgetTokens),
+  }),
+)
+
 /** History panel: only threads that actually have messages (hide empty active draft). */
 const historyItems = computed(() =>
   threadSummaries.value
@@ -97,12 +164,15 @@ const modelSwitcherGroups = computed(() => {
     .map((p) => ({
       providerId: p.id,
       providerName: p.name,
-      models: p.models.map((m) => ({
-        providerId: p.id,
-        model: m,
-        label: m,
-        active: p.id === settings.value.activeProviderId && m === settings.value.activeModel,
-      })),
+      models: p.models.map((m) => {
+        const id = aiModelId(m)
+        return {
+          providerId: p.id,
+          model: id,
+          label: id,
+          active: p.id === settings.value.activeProviderId && id === settings.value.activeModel,
+        }
+      }).filter((item) => item.model),
     }))
     .filter((g) => g.models.length > 0)
 })
@@ -499,7 +569,7 @@ function handleClearMessages() {
   <div class="ai-sidebar">
     <div class="ai-header">
       <div class="ai-header-title-area">
-        <div class="ai-title">{{ t('ai.title') }}</div>
+        <div class="ai-title" :title="currentThreadTitle">{{ currentThreadTitle }}</div>
       </div>
       <div class="ai-header-actions">
         <button
@@ -528,6 +598,7 @@ function handleClearMessages() {
         :messages="messages"
         :has-api-configured="hasApiConfigured"
         :loading="loading"
+        :context-dropped-count="contextPack.droppedCount"
         @open-settings="openSettingsCta"
         @fill-code="fillCodeToTerminal"
         @run-code="runCodeToTerminal"
@@ -542,18 +613,48 @@ function handleClearMessages() {
     <form class="composer" @submit.prevent="sendMessage">
       <textarea
         v-model="input"
-        class="ui-textarea ui-input-sm composer-input"
-        rows="3"
+        class="composer-input"
+        rows="2"
         :placeholder="t('ai.inputPlaceholder')"
+        :title="t('ai.inputHint')"
         @keydown.enter.exact.prevent="sendMessage"
         @keydown.shift.enter.stop
         @keydown.ctrl.enter.prevent="sendMessage"
         @keydown.meta.enter.prevent="sendMessage"
       />
       <div class="composer-actions">
-        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="handleClearMessages" :title="t('ai.clearChat')">
+        <button type="button" class="composer-clear" @click="handleClearMessages" :title="t('ai.clearChat')">
           {{ t('ai.clear') }}
         </button>
+        <span
+          v-if="showContextMeter"
+          class="context-ring"
+          :class="contextTone"
+          :aria-label="contextMeterTitle"
+        >
+          <svg
+            :width="CONTEXT_RING.size"
+            :height="CONTEXT_RING.size"
+            :viewBox="`0 0 ${CONTEXT_RING.size} ${CONTEXT_RING.size}`"
+            aria-hidden="true"
+          >
+            <circle
+              class="context-ring-track"
+              :cx="CONTEXT_RING.size / 2"
+              :cy="CONTEXT_RING.size / 2"
+              :r="CONTEXT_RING.radius"
+            />
+            <circle
+              class="context-ring-fill"
+              :cx="CONTEXT_RING.size / 2"
+              :cy="CONTEXT_RING.size / 2"
+              :r="CONTEXT_RING.radius"
+              :stroke-dasharray="`${contextRingDash.filled} ${contextRingDash.circ}`"
+              :transform="`rotate(-90 ${CONTEXT_RING.size / 2} ${CONTEXT_RING.size / 2})`"
+            />
+          </svg>
+          <span class="context-ring-tip" role="tooltip">{{ contextMeterTitle }}</span>
+        </span>
         <div class="composer-actions-right">
           <div class="model-switcher-wrap">
             <button
@@ -568,38 +669,6 @@ function handleClearMessages() {
               <span class="ai-model-switcher-name">{{ displayModelName }}</span>
               <AppIcon name="chevron-down" size="xs" />
             </button>
-            <Teleport to="body">
-              <div
-                v-if="showModelSwitcher && modelSwitcherGroups.length > 0"
-                ref="modelSwitcherDropdownRef"
-                class="model-switcher-dropdown"
-                :style="modelSwitcherStyle"
-              >
-                <div
-                  v-for="group in modelSwitcherGroups"
-                  :key="group.providerId"
-                  class="model-switcher-group"
-                >
-                  <div class="model-switcher-group-title">{{ group.providerName }}</div>
-                  <button
-                    v-for="item in group.models"
-                    :key="item.providerId + item.model"
-                    type="button"
-                    class="model-switcher-item"
-                    :class="{ active: item.active }"
-                    @click="switchModel(item.providerId, item.model)"
-                  >
-                    <span>{{ item.label }}</span>
-                    <AppIcon v-if="item.active" name="check" size="sm" />
-                  </button>
-                </div>
-              </div>
-              <div
-                v-if="showModelSwitcher"
-                class="model-switcher-overlay"
-                @click="showModelSwitcher = false"
-              ></div>
-            </Teleport>
           </div>
           <button
             v-if="loading"
@@ -616,6 +685,39 @@ function handleClearMessages() {
         </div>
       </div>
     </form>
+
+    <Teleport to="body">
+      <div
+        v-if="showModelSwitcher && modelSwitcherGroups.length > 0"
+        ref="modelSwitcherDropdownRef"
+        class="model-switcher-dropdown"
+        :style="modelSwitcherStyle"
+      >
+        <div
+          v-for="group in modelSwitcherGroups"
+          :key="group.providerId"
+          class="model-switcher-group"
+        >
+          <div class="model-switcher-group-title">{{ group.providerName }}</div>
+          <button
+            v-for="item in group.models"
+            :key="item.providerId + item.model"
+            type="button"
+            class="model-switcher-item"
+            :class="{ active: item.active }"
+            @click="switchModel(item.providerId, item.model)"
+          >
+            <span>{{ item.label }}</span>
+            <AppIcon v-if="item.active" name="check" size="sm" />
+          </button>
+        </div>
+      </div>
+      <div
+        v-if="showModelSwitcher"
+        class="model-switcher-overlay"
+        @click="showModelSwitcher = false"
+      ></div>
+    </Teleport>
 
   </div>
 
@@ -703,7 +805,7 @@ function handleClearMessages() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border-right: 1px solid var(--border-color);
   overflow: hidden;
 }
@@ -864,11 +966,12 @@ function handleClearMessages() {
 }
 
 .ai-header {
-  min-height: 48px;
-  padding: 8px 10px;
+  min-height: 44px;
+  padding: 6px 10px 6px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -878,20 +981,21 @@ function handleClearMessages() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 8px 8px 0;
+  padding: 0;
 }
 
 .ai-header-title-area {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex: 1;
 }
 
 .ai-title {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 650;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-switcher-wrap {
@@ -903,13 +1007,13 @@ function handleClearMessages() {
 .ai-model-switcher {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 160px;
+  gap: 3px;
+  max-width: 128px;
   min-height: 28px;
   padding: 2px 8px;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-tertiary);
+  border-radius: 8px;
+  background: var(--bg-primary);
   color: var(--text-secondary);
   font-size: 11px;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
@@ -1004,10 +1108,10 @@ function handleClearMessages() {
 }
 
 .send-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
   background: var(--accent);
   color: #fff;
   display: flex;
@@ -1016,10 +1120,110 @@ function handleClearMessages() {
   cursor: pointer;
 }
 
+.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
 .composer-input {
   resize: none;
-  min-height: 64px;
-  background: var(--bg-secondary);
+  min-height: 40px;
+  max-height: 140px;
+  border: none;
+  outline: none;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.composer-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.composer-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.composer-clear:hover {
+  color: var(--text-primary);
+}
+
+.context-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 -4px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.context-ring svg {
+  display: block;
+  pointer-events: none;
+}
+
+.context-ring:hover {
+  background: var(--hover-bg);
+}
+
+.context-ring-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.context-ring:hover .context-ring-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.context-ring-track,
+.context-ring-fill {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.context-ring-track {
+  stroke: var(--border-color);
+}
+
+.context-ring-fill {
+  stroke: var(--success);
+  transition: stroke-dasharray 0.2s ease, stroke 0.2s ease;
+}
+
+.context-ring.warn .context-ring-fill {
+  stroke: var(--warning);
+}
+
+.context-ring.danger .context-ring-fill {
+  stroke: var(--danger);
 }
 
 .stop-btn {
@@ -1037,11 +1241,18 @@ function handleClearMessages() {
 }
 
 .composer {
-  padding: 10px;
-  border-top: 1px solid var(--border-color);
+  margin: 4px 14px 14px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+}
+
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-color));
 }
 
 .composer-actions {

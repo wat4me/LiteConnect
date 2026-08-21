@@ -32,6 +32,8 @@ UI (components / views)
 | DB browse | `electron/db/browse/` | filter + pagination helpers |
 | IPC edge | `electron/ipc/` | thin `ipcMain` registration |
 | Persistence | `electron/store/` | credentials, settings, histories |
+| SSH MCP runtime | `electron/mcp/` | Tool runtime + policy over open `SSHManager` sessions |
+| SSH MCP HTTP | `electron/mcp/http*.ts` | Optional 127.0.0.1 Streamable HTTP gateway (Bearer, off by default) |
 
 Import the real subpath (e.g. `ssh/trust/knownHosts`, `db/tunnel/sshTunnel`). Root-level re-export shells were removed.
 
@@ -41,7 +43,7 @@ Import the real subpath (e.g. `ssh/trust/knownHosts`, `db/tunnel/sshTunnel`). Ro
 npm run lint   # architecture-focused ESLint (dependency zones)
 ```
 
-`import/no-restricted-paths` zones (see `eslint.config.js`):
+`import/no-restricted-paths` zones (see `eslint.config.mjs`):
 
 | Zone | Forbidden import | Why |
 |------|------------------|-----|
@@ -96,6 +98,7 @@ Do not merge these — they have different lifecycles and security boundaries:
 | `sqlReadOnly.ts` | Read-only SQL classification (main + renderer) |
 | `sqlRisk.ts` | Dangerous SQL risk assessment (main + renderer) |
 | `dbConnectionUrl.ts` | Connection URL / JDBC / Easy Connect parsing |
+| `mcp/*` | SSH tool schemas, command classification, output truncation |
 
 UI-only helpers stay in `src/utils/**`, never in `shared/`.
 
@@ -105,6 +108,8 @@ UI-only helpers stay in `src/utils/**`, never in `shared/`.
 - DB tunnel auth via injected stores + independent tunnel client
 - SFTP path follow via terminal PWD tracker / pause helpers
 - Window close → disconnect owned SSH sessions (composition root)
+- SSH MCP runtime → interactive `SSHManager` sessions only (not Docker sock, not DB tunnels)
+- MCP HTTP gateway (optional) → same runtime; loopback + Bearer only; default off
 
 ## Out of scope for casual refactors
 

@@ -22,7 +22,7 @@ export function useSessionActions(deps: {
   activeGroup: ComputedRef<ConnectionGroup | null>
   pwdTracker: TerminalPwdTracker
   getGroupBySessionId: (sessionId: string) => ConnectionGroup | null
-  createSession: (connectionId: string) => Promise<void>
+  createSession: (connectionId: string) => Promise<string | null>
   removeSessionFromState: (sessionId: string) => void
   onCloseSession: (sessionId: string) => Promise<void>
   onSessionClosed: (sessionId: string) => void
@@ -70,6 +70,8 @@ export function useSessionActions(deps: {
     try {
       if (typeof window.LiteConnect.sshReconnect === 'function') {
         await window.LiteConnect.sshReconnect(sessionId, connectionId)
+        const sess = group.sessions.find((s) => s.id === sessionId)
+        if (sess) sess.pending = false
         return
       }
     } catch (err: any) {
@@ -91,36 +93,6 @@ export function useSessionActions(deps: {
     } catch {}
     deps.removeSessionFromState(sessionId)
     await deps.createSession(connectionId)
-  }
-
-  /** Reconnect every open sub-session for a host (in-place, sequential). */
-  async function handleReconnectAll(connectionId: string) {
-    const group = deps.groups.value.find((g) => g.connectionId === connectionId)
-    if (!group || group.sessions.length === 0) return
-    const sessionIds = group.sessions.map((s) => s.id)
-    for (const sid of sessionIds) {
-      try {
-        if (typeof window.LiteConnect.sshReconnect === 'function') {
-          await window.LiteConnect.sshReconnect(sid, connectionId)
-        } else {
-          await window.LiteConnect.sshDisconnect(sid)
-          deps.removeSessionFromState(sid)
-          await deps.createSession(connectionId)
-        }
-      } catch (err: any) {
-        console.error('Reconnect failed for session', sid, err)
-        const message = err?.message || String(err)
-        window.dispatchEvent(
-          new CustomEvent('ssh-reconnect-failed', {
-            detail: {
-              sessionId: sid,
-              message,
-              nonRetryable: isNonRetryableSshError(message),
-            },
-          }),
-        )
-      }
-    }
   }
 
   function handleCloseSession(sessionId: string) {
@@ -170,7 +142,6 @@ export function useSessionActions(deps: {
     liveSessionIds,
     handleSessionClosed,
     handleReconnect,
-    handleReconnectAll,
     handleCloseSession,
     onCdCommand,
     onPwdOutput,

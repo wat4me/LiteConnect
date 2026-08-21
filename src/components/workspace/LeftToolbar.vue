@@ -143,8 +143,8 @@ const dockerTooltip = computed(() => {
 
 <style scoped>
 .left-toolbar {
-  width: calc(40px * var(--ui-scale, 1));
-  min-width: calc(40px * var(--ui-scale, 1));
+  width: var(--left-toolbar-width, 40px);
+  min-width: var(--left-toolbar-width, 40px);
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;

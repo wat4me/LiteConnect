@@ -9,11 +9,13 @@ const props = defineProps<{
   attempt: number
   maxRetries: number
   exhausted: boolean
+  neverConnected?: boolean
+  /** Short reason under the title (unresponsive / closed / timeout). */
+  detail?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'reconnect'): void
-  (e: 'reconnect-all'): void
   (e: 'cancel-auto'): void
   (e: 'keydown', event: KeyboardEvent): void
 }>()
@@ -50,20 +52,19 @@ watch(
         <template v-else-if="exhausted">
           {{ t('terminal.reconnectExhausted', { max: maxRetries }) }}
         </template>
+        <template v-else-if="neverConnected">
+          {{ t('terminal.clickToConnect') }}
+        </template>
         <template v-else>
           {{ t('terminal.disconnected') }}
         </template>
       </span>
+      <span
+        v-if="detail && !reconnecting && !neverConnected"
+        class="reconnect-detail"
+      >{{ detail }}</span>
       <button class="reconnect-btn" type="button" @click="emit('reconnect')">
-        {{ reconnecting ? t('terminal.reconnectNow') : t('terminal.reconnect') }}
-      </button>
-      <button
-        class="reconnect-btn ghost"
-        type="button"
-        :title="t('terminal.reconnectGroupTitle')"
-        @click="emit('reconnect-all')"
-      >
-        {{ t('terminal.reconnectGroup') }}
+        {{ reconnecting ? t('terminal.reconnectNow') : (neverConnected ? t('terminal.connectNow') : t('terminal.reconnect')) }}
       </button>
       <button
         v-if="reconnecting"
@@ -107,6 +108,11 @@ watch(
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.reconnect-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .reconnect-btn {

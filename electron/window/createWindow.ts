@@ -70,7 +70,7 @@ export function buildContentSecurityPolicy(): string {
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${devOrigin}`,
       `style-src 'self' 'unsafe-inline' ${devOrigin}`,
-      `img-src 'self' data: blob: ${devOrigin}`,
+      `img-src 'self' data: blob: liteconnect-bg: ${devOrigin}`,
       `font-src 'self' data: ${devOrigin}`,
       `connect-src 'self' ws: wss: ${devOrigin}`,
       "object-src 'none'",
@@ -83,7 +83,7 @@ export function buildContentSecurityPolicy(): string {
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: liteconnect-bg:",
     "font-src 'self' data:",
     "connect-src 'self'",
     "object-src 'none'",
@@ -170,6 +170,8 @@ export function createWindow(
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      spellcheck: false,
+      v8CacheOptions: 'code',
     },
   })
 

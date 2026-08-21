@@ -47,6 +47,7 @@ const props = withDefaults(
      * Keeps TerminalTab/xterm mounted; only freezes foreground paint/resize.
      */
     workspaceVisible?: boolean
+    disconnectedSessionIds?: Set<string>
   }>(),
   { workspaceVisible: true },
 )
@@ -57,7 +58,6 @@ const emit = defineEmits<{
   (e: 'add-session', connectionId: string): void
   (e: 'session-closed', sessionId: string): void
   (e: 'reconnect', sessionId: string): void
-  (e: 'reconnect-all', connectionId: string): void
   (e: 'cd-command', sessionId: string, command: string): void
   (e: 'pwd-output', sessionId: string, pwd: string): void
   (e: 'ai-selection', text: string, mode: 'send' | 'insert'): void
@@ -283,6 +283,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
       :active-session-id="activeGroup.activeSessionId"
       :connection-id="activeGroup.connectionId"
       :unread-sessions="unreadSessions"
+      :disconnected-session-ids="disconnectedSessionIds"
       :terminal-container="terminalContainerRef"
       @select="emit('select-session', $event)"
       @close="emit('close-session', $event)"
@@ -417,7 +418,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
           <div class="split-pane-info">
             <select
               v-if="isSecondarySession(session.id) && secondaryCandidates.length > 1"
-              class="split-session-select"
+              class="ui-select ui-input-sm split-session-select"
               :value="session.id"
               @change="emit('set-secondary-session', ($event.target as HTMLSelectElement).value)"
             >
@@ -447,13 +448,13 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
             :session-id="session.id"
             :connection-name="session.connectionName"
             :connection-id="session.connectionId"
+            :start-disconnected="session.pending === true"
             :active="isSessionVisible(session.id)"
             :workspace-visible="workspaceVisible !== false"
             @closed="emit('session-closed', $event)"
             @cd-command="(sid, cmd) => emit('cd-command', sid, cmd)"
             @pwd-output="(sid, pwd) => emit('pwd-output', sid, pwd)"
             @reconnect="emit('reconnect', $event)"
-            @reconnect-all="emit('reconnect-all', $event)"
             @ai-selection="(text, mode) => emit('ai-selection', text, mode)"
             @save-as-snippet="(cmd) => emit('save-as-snippet', cmd)"
           />
@@ -655,16 +656,17 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
 }
 
 .split-session-select {
-  max-width: 100px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--accent);
+  width: auto;
+  max-width: 110px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 22px 0 6px;
   font-size: 10px;
   font-weight: 600;
-  outline: none;
+  color: var(--accent);
   flex-shrink: 0;
+  background-position: right 6px center;
+  background-size: 10px;
 }
 
 .split-pane-name {

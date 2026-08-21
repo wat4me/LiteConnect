@@ -829,6 +829,7 @@ async function loadSshManager() {
   vi.doMock('../ssh/x11/x11Server', () => ({
     ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
   }))
+  vi.doMock('ssh2', () => ({ Client: class MockClient {} }))
   const { SSHManager } = await import('../ssh/manager')
   return SSHManager
 }
@@ -1228,6 +1229,7 @@ describe('SSHManager primitives and DockerSshSessionHost (unit)', () => {
     vi.doMock('../ssh/x11/x11Server', () => ({
       ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
     }))
+    vi.doMock('ssh2', () => ({ Client: class MockClient {} }))
 
     const { SSHManager } = await import('../ssh/manager')
     const manager = new SSHManager({
@@ -1309,6 +1311,7 @@ describe('SSHManager primitives and DockerSshSessionHost (unit)', () => {
     vi.doMock('../ssh/x11/x11Server', () => ({
       ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
     }))
+    vi.doMock('ssh2', () => ({ Client: class MockClient {} }))
 
     const { SSHManager } = await import('../ssh/manager')
     const manager = new SSHManager({

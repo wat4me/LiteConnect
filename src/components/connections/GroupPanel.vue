@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection, Group } from '../../env.d.ts'
@@ -8,6 +8,13 @@ import {
   getConnectionTagLabel,
   hasConnectionColorTag,
 } from '@/utils/connections/connectionTags'
+import { createDragAutoScroll } from '@/utils/shared/dragAutoScroll'
+import {
+  dataTransferHasConn,
+  getDataTransferConnId,
+} from '@/utils/shared/legacyStorageMigrate'
+import { clampPopupToViewport } from '@/utils/shared/popupPosition'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const { t } = useI18n()
 
@@ -21,7 +28,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', groupId: string): void
   (e: 'add'): void
-  (e: 'addConnection'): void
   (e: 'rename', group: Group): void
   (e: 'delete', groupId: string): void
   (e: 'setDefault', groupId: string | null): void
@@ -38,6 +44,120 @@ const dragConnId = ref<string | null>(null)
 const dropTargetGroupId = ref<string | null>(null)
 const groupSearchQuery = ref('')
 const collapsedGroupIds = ref<Set<string>>(new Set())
+const groupListRef = ref<HTMLElement | null>(null)
+const groupDragAutoScroll = createDragAutoScroll()
+
+/** Context menu target */
+type CtxMenu =
+  | { kind: 'group'; group: Group }
+  | { kind: 'conn'; conn: Connection }
+  | { kind: 'panel' }
+  | null
+
+const ctxMenu = ref<CtxMenu>(null)
+const ctxMenuRef = ref<HTMLElement | null>(null)
+const ctxMenuStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
+let ctxPoint: { x: number; y: number } | null = null
+
+const ctxMenuOpen = computed(() => ctxMenu.value != null)
+
+function clearDragUiState() {
+  dragIndex.value = null
+  dropIndex.value = null
+  dragConnId.value = null
+  dropTargetGroupId.value = null
+  groupDragAutoScroll.stop()
+}
+
+function closeCtxMenu() {
+  ctxMenu.value = null
+  ctxPoint = null
+}
+
+async function positionCtxMenu() {
+  await nextTick()
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+  const menu = ctxMenuRef.value
+  if (!menu || !ctxPoint) return
+  const size = {
+    width: menu.offsetWidth || 160,
+    height: menu.offsetHeight || 180,
+  }
+  const pos = clampPopupToViewport(ctxPoint, size)
+  ctxMenuStyle.value = {
+    left: `${pos.left}px`,
+    top: `${pos.top}px`,
+  }
+}
+
+function openCtxMenu(e: MouseEvent, menu: NonNullable<CtxMenu>) {
+  const el = e.target as HTMLElement | null
+  if (el?.closest('input, textarea, [contenteditable="true"]')) return
+  if (el?.closest('.group-drag-handle, .sidebar-conn-handle')) return
+  e.preventDefault()
+  e.stopPropagation()
+  ctxPoint = { x: e.clientX, y: e.clientY }
+  ctxMenu.value = menu
+  void positionCtxMenu()
+}
+
+function onGroupContextMenu(e: MouseEvent, group: Group) {
+  openCtxMenu(e, { kind: 'group', group })
+}
+
+function onConnContextMenu(e: MouseEvent, conn: Connection) {
+  openCtxMenu(e, { kind: 'conn', conn })
+}
+
+function onPanelContextMenu(e: MouseEvent) {
+  const el = e.target as HTMLElement | null
+  if (el?.closest('.group-item, .sidebar-conn, .group-actions, .add-group-btn, input, button')) return
+  openCtxMenu(e, { kind: 'panel' })
+}
+
+function onGroupMenuAction(
+  action: 'select' | 'rename' | 'setDefault' | 'toggleCollapse' | 'delete',
+  group: Group,
+) {
+  closeCtxMenu()
+  if (action === 'select') emit('select', group.id)
+  else if (action === 'rename') startRename(group)
+  else if (action === 'setDefault' && !group.isDefault) emit('setDefault', group.id)
+  else if (action === 'toggleCollapse') toggleGroupCollapsed(group.id)
+  else if (action === 'delete') emit('delete', group.id)
+}
+
+function onConnMenuAction(action: 'connect' | 'selectGroup', conn: Connection) {
+  closeCtxMenu()
+  if (action === 'connect') emit('connect', conn.id)
+  else if (action === 'selectGroup' && conn.group) emit('select', conn.group)
+}
+
+function onPanelMenuAction(action: 'add') {
+  closeCtxMenu()
+  if (action === 'add') emit('add')
+}
+
+watch(ctxMenu, (m) => {
+  if (m) void positionCtxMenu()
+})
+
+useOutsideDismiss(
+  ctxMenuOpen,
+  closeCtxMenu,
+  () => [ctxMenuRef.value],
+)
+
+/** Single cleanup path for local + main-list-originated drags */
+onMounted(() => {
+  document.addEventListener('dragend', clearDragUiState, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('dragend', clearDragUiState, true)
+  clearDragUiState()
+  closeCtxMenu()
+})
 
 const normalizedGroupSearchQuery = computed(() => groupSearchQuery.value.trim().toLowerCase())
 
@@ -106,42 +226,30 @@ function cancelRename() {
 function onDragStart(index: number) {
   if (dragConnId.value || index < 0) return
   dragIndex.value = index
+  groupDragAutoScroll.start(() => groupListRef.value)
 }
 
 function onDragOver(e: DragEvent, index: number) {
   if (dragConnId.value || index < 0) return
   // Connection drags (sidebar or main list) are not group reorder
-  const types = e.dataTransfer?.types ? Array.from(e.dataTransfer.types) : []
-  if (
-    types.includes('application/x-lite-connect-conn') ||
-    types.includes('application/x-lite-ssh-conn')
-  ) {
-    return
-  }
+  if (dataTransferHasConn(e.dataTransfer)) return
   e.preventDefault()
   dropIndex.value = index
 }
 
-function onDragLeave() {
-  dropIndex.value = null
-}
-
 function onDrop(e: DragEvent, index: number) {
   e.preventDefault()
-  if (dragConnId.value || index < 0) return
+  // Connection drop is handled by onGroupDropConn; don't treat as group reorder
+  if (dragConnId.value || dataTransferHasConn(e.dataTransfer) || index < 0) {
+    return
+  }
   if (dragIndex.value !== null && dragIndex.value !== index) {
     const ids = props.groups.map((g) => g.id)
     const [moved] = ids.splice(dragIndex.value, 1)
     ids.splice(index, 0, moved)
     emit('reorder', ids)
   }
-  dragIndex.value = null
-  dropIndex.value = null
-}
-
-function onDragEnd() {
-  dragIndex.value = null
-  dropIndex.value = null
+  clearDragUiState()
 }
 
 function onConnDragStart(e: DragEvent, connId: string) {
@@ -149,25 +257,21 @@ function onConnDragStart(e: DragEvent, connId: string) {
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('application/x-lite-connect-conn', connId)
+    e.dataTransfer.setData('text/plain', connId)
   }
+  groupDragAutoScroll.start(() => groupListRef.value)
 }
 
-function onConnDragEnd() {
-  dragConnId.value = null
-  dropTargetGroupId.value = null
+function isConnectionDrag(e: DragEvent): boolean {
+  return !!dragConnId.value || dataTransferHasConn(e.dataTransfer)
 }
 
 function onGroupDragOverConn(e: DragEvent, groupId: string) {
-  const types = e.dataTransfer?.types ? Array.from(e.dataTransfer.types) : []
-  if (
-    !dragConnId.value &&
-    !types.includes('application/x-lite-connect-conn') &&
-    !types.includes('application/x-lite-ssh-conn')
-  ) {
-    return
-  }
+  if (!isConnectionDrag(e)) return
   e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  // Also start when drag originates from the main list (no local dragstart)
+  groupDragAutoScroll.start(() => groupListRef.value)
   dropTargetGroupId.value = groupId
 }
 
@@ -183,39 +287,38 @@ function onGroupItemDragLeave(e: DragEvent) {
   const current = e.currentTarget as HTMLElement | null
   const related = e.relatedTarget as Node | null
   if (current && related && current.contains(related)) return
-  onDragLeave()
+  dropIndex.value = null
 }
 
 function onGroupItemDragOver(e: DragEvent, groupId: string) {
-  // Group reorder only (connection moves use the wrapping .group-block)
+  // Title row: group reorder indicators + connection drop highlight
   onDragOver(e, getGroupIndex(groupId))
   onGroupDragOverConn(e, groupId)
 }
 
 function onGroupItemDrop(e: DragEvent, groupId: string) {
+  // Prefer connection move when a connection is being dragged (including from main list)
+  if (isConnectionDrag(e)) {
+    onGroupDropConn(e, groupId)
+    return
+  }
   onDrop(e, getGroupIndex(groupId))
-  onGroupDropConn(e, groupId)
 }
 
 function onGroupDropConn(e: DragEvent, groupId: string) {
   e.preventDefault()
   // Title row also handles drop; stop bubbling so moveConnection fires once
   e.stopPropagation()
-  const connId =
-    dragConnId.value ||
-    e.dataTransfer?.getData('application/x-lite-connect-conn') ||
-    e.dataTransfer?.getData('application/x-lite-ssh-conn')
-  if (connId) {
-    emit('moveConnection', connId, groupId)
-  }
-  dragConnId.value = null
-  dropTargetGroupId.value = null
+  const connId = dragConnId.value || getDataTransferConnId(e.dataTransfer)
+  // Same-group no-op is enforced in onMoveConnection; always emit when we have an id
+  if (connId) emit('moveConnection', connId, groupId)
+  clearDragUiState()
 }
 
 </script>
 
 <template>
-  <div class="group-panel">
+  <div class="group-panel" @contextmenu="onPanelContextMenu">
     <div class="group-panel-title">{{ t('groups.title') }}</div>
     <div class="group-search">
       <input
@@ -224,7 +327,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         :placeholder="t('groups.searchPlaceholder')"
       />
     </div>
-    <div class="group-list">
+    <div ref="groupListRef" class="group-list">
       <template v-for="group in visibleGroups" :key="group.id">
         <!-- Whole block accepts connection drops (not only the thin title row) -->
         <div
@@ -243,6 +346,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               'drop-below': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id),
             }"
             @click="emit('select', group.id)"
+            @contextmenu="onGroupContextMenu($event, group)"
             @dragover="onGroupItemDragOver($event, group.id)"
             @dragleave="onGroupItemDragLeave"
             @drop="onGroupItemDrop($event, group.id)"
@@ -255,7 +359,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
                 :title="t('groups.dragSort')"
                 :aria-label="t('groups.dragSort')"
                 @dragstart.stop="onDragStart(getGroupIndex(group.id))"
-                @dragend="onDragEnd"
                 @click.stop
               >
                 <AppIcon name="grip" size="xs" />
@@ -314,13 +417,13 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               class="sidebar-conn"
               :class="{ dragging: dragConnId === conn.id }"
               @dblclick="emit('connect', conn.id)"
+              @contextmenu="onConnContextMenu($event, conn)"
             >
               <span
                 class="sidebar-conn-handle"
                 draggable="true"
                 :title="t('groups.dragToOther')"
                 @dragstart.stop="onConnDragStart($event, conn.id)"
-                @dragend="onConnDragEnd"
                 @click.stop
                 @dblclick.stop
               >
@@ -359,6 +462,115 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         <span>{{ t('groups.newGroup') }}</span>
       </button>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="ctxMenu"
+        ref="ctxMenuRef"
+        class="group-ctx-menu"
+        role="menu"
+        :style="ctxMenuStyle"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <!-- Group row -->
+        <template v-if="ctxMenu.kind === 'group'">
+          <button
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            @click="onGroupMenuAction('select', ctxMenu.group)"
+          >
+            <AppIcon name="folder" size="sm" class="group-ctx-icon" />
+            {{ t('groups.openGroup') }}
+          </button>
+          <button
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            @click="onGroupMenuAction('rename', ctxMenu.group)"
+          >
+            <AppIcon name="edit" size="sm" class="group-ctx-icon" />
+            {{ t('groups.rename') }}
+          </button>
+          <button
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            :disabled="ctxMenu.group.isDefault"
+            @click="onGroupMenuAction('setDefault', ctxMenu.group)"
+          >
+            <AppIcon
+              :name="ctxMenu.group.isDefault ? 'star-fill' : 'star'"
+              size="sm"
+              class="group-ctx-icon"
+            />
+            {{ ctxMenu.group.isDefault ? t('groups.defaultGroup') : t('groups.setDefault') }}
+          </button>
+          <button
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            @click="onGroupMenuAction('toggleCollapse', ctxMenu.group)"
+          >
+            <AppIcon
+              :name="isGroupCollapsed(ctxMenu.group.id) ? 'chevron-right' : 'chevron-down'"
+              size="sm"
+              class="group-ctx-icon"
+            />
+            {{
+              isGroupCollapsed(ctxMenu.group.id) ? t('groups.expand') : t('groups.collapse')
+            }}
+          </button>
+          <div class="group-ctx-divider" role="separator"></div>
+          <button
+            type="button"
+            class="group-ctx-item danger"
+            role="menuitem"
+            @click="onGroupMenuAction('delete', ctxMenu.group)"
+          >
+            <AppIcon name="delete" size="sm" class="group-ctx-icon" />
+            {{ t('groups.delete') }}
+          </button>
+        </template>
+
+        <!-- Sidebar connection -->
+        <template v-else-if="ctxMenu.kind === 'conn'">
+          <button
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            @click="onConnMenuAction('connect', ctxMenu.conn)"
+          >
+            <AppIcon name="link" size="sm" class="group-ctx-icon" />
+            {{ t('connections.connect') }}
+          </button>
+          <button
+            v-if="ctxMenu.conn.group"
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            @click="onConnMenuAction('selectGroup', ctxMenu.conn)"
+          >
+            <AppIcon name="folder" size="sm" class="group-ctx-icon" />
+            {{ t('groups.viewInGroup') }}
+          </button>
+        </template>
+
+        <!-- Empty panel area -->
+        <template v-else-if="ctxMenu.kind === 'panel'">
+          <button
+            type="button"
+            class="group-ctx-item"
+            role="menuitem"
+            @click="onPanelMenuAction('add')"
+          >
+            <AppIcon name="plus" size="sm" class="group-ctx-icon" />
+            {{ t('groups.newGroup') }}
+          </button>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -473,13 +685,14 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   flex-shrink: 0;
   border-radius: 3px;
   color: var(--text-secondary);
-  opacity: 0;
+  /* Always visible — the handle already reserves layout space */
+  opacity: 0.45;
   cursor: grab;
   transition: opacity 0.12s ease, background 0.12s ease;
 }
 
 .group-item:hover .group-drag-handle {
-  opacity: 0.5;
+  opacity: 0.7;
 }
 
 .group-drag-handle:hover {
@@ -667,13 +880,14 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   flex-shrink: 0;
   border-radius: 3px;
   color: var(--text-secondary);
-  opacity: 0;
+  /* Always visible — the handle already reserves layout space */
+  opacity: 0.45;
   cursor: grab;
   transition: opacity 0.12s ease, background 0.12s ease;
 }
 
 .sidebar-conn:hover .sidebar-conn-handle {
-  opacity: 0.45;
+  opacity: 0.7;
 }
 
 .sidebar-conn-handle:hover {
@@ -715,5 +929,76 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .sidebar-conn:hover .sidebar-conn-name {
   color: var(--text-primary);
+}
+</style>
+
+<style>
+/* Teleported menu — unscoped so fixed body portal inherits theme tokens */
+.group-ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.group-ctx-item:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.group-ctx-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.group-ctx-item.danger {
+  color: var(--danger);
+}
+
+.group-ctx-item.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.group-ctx-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+  color: var(--text-secondary);
+}
+
+.group-ctx-item:hover:not(:disabled) .group-ctx-icon {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.group-ctx-item.danger .group-ctx-icon {
+  color: var(--danger);
+}
+
+.group-ctx-divider {
+  height: 1px;
+  margin: 2px 6px;
+  background: var(--border-color);
 }
 </style>

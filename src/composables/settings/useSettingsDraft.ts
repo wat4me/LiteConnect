@@ -16,7 +16,7 @@ import {
   DEFAULT_DB_FONT_FAMILY,
   DEFAULT_DB_FONT_SIZE,
   DEFAULT_DB_PAGE_SIZE,
-  saveDbSettings,
+  dispatchDbSettingsChange,
   type DbPageSize,
 } from '@/composables/database/useDbSettings'
 import {
@@ -30,6 +30,18 @@ import {
   normalizePasteConfirmMaxChars,
   type PasteConfirmMaxChars,
 } from '@/utils/terminal/terminalPaste'
+import {
+  sanitizeFancyCursorStyle,
+  type FancyCursorStyle,
+} from '@/composables/app/useFancyCursor'
+import {
+  applyAppBackground,
+  clampBackgroundOverlay,
+  emptyAppBackgroundState,
+  sanitizeAppBackgroundFit,
+  type AppBackgroundFit,
+  type AppBackgroundState,
+} from '@/composables/app/useAppBackground'
 
 export interface SettingsDraft {
   theme: Theme
@@ -63,10 +75,20 @@ export interface SettingsDraft {
   dbDefaultRunScope: QueryDefaultRunScopePref
   latencyEnabled: boolean
   latencyIntervalSec: number
+  /** Record/show connection useCount & lastConnectedAt; sort by recent/frequent. Default on. */
+  connectionUsageStatsEnabled: boolean
+  /** Decorative cursor. Default off. */
+  fancyCursorEnabled: boolean
+  /** ring | dot | trail | cross */
+  fancyCursorStyle: FancyCursorStyle
+  /** Custom wallpaper (draft: imageUrl + picker token) */
+  appBackground: AppBackgroundState
   monitorEnabled: boolean
   monitorIntervalSec: number
   autoReconnectEnabled: boolean
   autoReconnectMaxRetries: number
+  /** Remember open SSH tabs after quit. Default off. */
+  workspaceRestoreEnabled: boolean
   x11AutoStartEnabled: boolean
   x11ServerPath: string
 }
@@ -97,17 +119,25 @@ export function createEmptyDraft(): SettingsDraft {
     dbDefaultRunScope: DEFAULT_DB_DEFAULT_RUN_SCOPE,
     latencyEnabled: true,
     latencyIntervalSec: 10,
+    connectionUsageStatsEnabled: true,
+    fancyCursorEnabled: false,
+    fancyCursorStyle: 'ring',
+    appBackground: emptyAppBackgroundState(),
     monitorEnabled: true,
     monitorIntervalSec: 5,
     autoReconnectEnabled: true,
     autoReconnectMaxRetries: 5,
+    workspaceRestoreEnabled: false,
     x11AutoStartEnabled: true,
     x11ServerPath: '',
   }
 }
 
 export function cloneDraft(d: SettingsDraft): SettingsDraft {
-  return { ...d }
+  return {
+    ...d,
+    appBackground: { ...d.appBackground },
+  }
 }
 
 function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
@@ -136,10 +166,20 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.dbDefaultRunScope === b.dbDefaultRunScope
     && a.latencyEnabled === b.latencyEnabled
     && a.latencyIntervalSec === b.latencyIntervalSec
+    && a.connectionUsageStatsEnabled === b.connectionUsageStatsEnabled
+    && a.fancyCursorEnabled === b.fancyCursorEnabled
+    && a.fancyCursorStyle === b.fancyCursorStyle
+    && a.appBackground.imageUrl === b.appBackground.imageUrl
+    && a.appBackground.fit === b.appBackground.fit
+    && a.appBackground.overlay === b.appBackground.overlay
+    && a.appBackground.fileName === b.appBackground.fileName
+    && a.appBackground.token === b.appBackground.token
+    && a.appBackground.cleared === b.appBackground.cleared
     && a.monitorEnabled === b.monitorEnabled
     && a.monitorIntervalSec === b.monitorIntervalSec
     && a.autoReconnectEnabled === b.autoReconnectEnabled
     && a.autoReconnectMaxRetries === b.autoReconnectMaxRetries
+    && a.workspaceRestoreEnabled === b.workspaceRestoreEnabled
     && a.x11AutoStartEnabled === b.x11AutoStartEnabled
     && a.x11ServerPath === b.x11ServerPath
   )
@@ -199,10 +239,15 @@ export function useSettingsDraft(): {
       dbDefaultRunScope: DEFAULT_DB_DEFAULT_RUN_SCOPE,
       latencyEnabled: true,
       latencyIntervalSec: 10,
+      connectionUsageStatsEnabled: true,
+      fancyCursorEnabled: false,
+      fancyCursorStyle: 'ring',
+      appBackground: emptyAppBackgroundState(),
       monitorEnabled: true,
       monitorIntervalSec: 5,
       autoReconnectEnabled: true,
       autoReconnectMaxRetries: 5,
+      workspaceRestoreEnabled: false,
       x11AutoStartEnabled: true,
       x11ServerPath: '',
     }
@@ -211,112 +256,64 @@ export function useSettingsDraft(): {
   async function loadSettings() {
     loading.value = true
     try {
-      const [
-        configuredDownloadPath,
-        defaultDownloadPath,
-        resolvedDownloadPath,
-        nextTerminalFontSize,
-        nextTerminalFontFamily,
-        nextTerminalPalette,
-        nextTerminalScrollback,
-        nextTerminalPasteConfirm,
-        nextTerminalPasteMaxChars,
-        nextTerminalCommandSuggest,
-        nextDownloadConflict,
-        nextDirConcurrency,
-        nextDirFailPolicy,
-        nextDbFontFamily,
-        nextDbFontSize,
-        nextDbPageSize,
-        nextDbConfirmDangerousSql,
-        nextDbDefaultMaxRows,
-        nextDbDefaultQueryTimeoutSec,
-        nextDbDefaultRunScope,
-        nextRecentDownloadPaths,
-        nextLatencyEnabled,
-        nextLatencyIntervalMs,
-        nextMonitorEnabled,
-        nextMonitorIntervalMs,
-        nextAutoReconnect,
-        nextAutoReconnectMax,
-        nextX11AutoStart,
-        nextX11ServerPath,
-      ] = await Promise.all([
-        window.LiteConnect.getConfiguredDownloadPath(),
-        window.LiteConnect.getDefaultDownloadPath(),
-        window.LiteConnect.getDownloadPath(),
-        window.LiteConnect.getTerminalFontSize(),
-        window.LiteConnect.getTerminalFontFamily(),
-        window.LiteConnect.getTerminalPalette(),
-        window.LiteConnect.getTerminalScrollback(),
-        window.LiteConnect.getTerminalPasteConfirmEnabled(),
-        window.LiteConnect.getTerminalPasteConfirmMaxChars().catch(() => PASTE_CONFIRM_MAX_CHARS),
-        window.LiteConnect.getTerminalCommandSuggestEnabled().catch(() => false),
-        window.LiteConnect.getDownloadConflictStrategy(),
-        window.LiteConnect.getDirTransferConcurrency().catch(() => 3),
-        window.LiteConnect.getDirTransferFailPolicy().catch(() => 'stop' as const),
-        window.LiteConnect.getDbFontFamily(),
-        window.LiteConnect.getDbFontSize(),
-        window.LiteConnect.getDbPageSize(),
-        window.LiteConnect.getDbConfirmDangerousSql().catch(() => true),
-        window.LiteConnect.getDbDefaultMaxRows().catch(() => DEFAULT_DB_DEFAULT_MAX_ROWS),
-        window.LiteConnect.getDbDefaultQueryTimeoutSec().catch(() => DEFAULT_DB_DEFAULT_QUERY_TIMEOUT_SEC),
-        window.LiteConnect.getDbDefaultRunScope().catch(() => DEFAULT_DB_DEFAULT_RUN_SCOPE),
-        window.LiteConnect.getRecentDownloadPaths(),
-        window.LiteConnect.getLatencyEnabled(),
-        window.LiteConnect.getLatencyIntervalMs(),
-        window.LiteConnect.getMonitorEnabled(),
-        window.LiteConnect.getMonitorIntervalMs(),
-        window.LiteConnect.getAutoReconnectEnabled(),
-        window.LiteConnect.getAutoReconnectMaxRetries(),
-        window.LiteConnect.getX11AutoStartEnabled(),
-        window.LiteConnect.getX11ServerPath(),
-      ])
-
-      systemDefaultDownloadPath.value = defaultDownloadPath
-      const useSystem = !configuredDownloadPath
-      const allowedPage = (DB_PAGE_SIZE_OPTIONS as readonly number[]).includes(nextDbPageSize)
-        ? (nextDbPageSize as DbPageSize)
+      const all = await window.LiteConnect.getAllSettings()
+      systemDefaultDownloadPath.value = all.defaultDownloadPath
+      const useSystem = !all.configuredDownloadPath
+      const allowedPage = (DB_PAGE_SIZE_OPTIONS as readonly number[]).includes(all.dbPageSize)
+        ? (all.dbPageSize as DbPageSize)
         : DEFAULT_DB_PAGE_SIZE
       const next: SettingsDraft = {
         theme: theme.value,
         bgColor: customColors.value.bgColor,
         fontColor: customColors.value.fontColor,
-        downloadPath: useSystem ? defaultDownloadPath : resolvedDownloadPath,
+        downloadPath: useSystem ? all.defaultDownloadPath : all.downloadPath,
         useSystemDownloadPath: useSystem,
-        terminalFontSize: nextTerminalFontSize,
-        // Only keep a face that is installed (settings UI hides missing fonts).
-        terminalFontFamily: pickInstalledFontFamily(nextTerminalFontFamily),
-        terminalPalette: (nextTerminalPalette as TerminalPaletteId) || 'auto',
-        terminalScrollback: Math.max(2000, Math.min(20000, Math.round(nextTerminalScrollback) || 5000)),
-        terminalPasteConfirmEnabled: nextTerminalPasteConfirm !== false,
-        terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(nextTerminalPasteMaxChars),
-        terminalCommandSuggestEnabled: nextTerminalCommandSuggest === true,
+        terminalFontSize: all.terminalFontSize,
+        terminalFontFamily: pickInstalledFontFamily(all.terminalFontFamily),
+        terminalPalette: (all.terminalPalette as TerminalPaletteId) || 'auto',
+        terminalScrollback: Math.max(2000, Math.min(20000, Math.round(all.terminalScrollback) || 5000)),
+        terminalPasteConfirmEnabled: all.terminalPasteConfirmEnabled !== false,
+        terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(all.terminalPasteConfirmMaxChars),
+        terminalCommandSuggestEnabled: all.terminalCommandSuggestEnabled === true,
         downloadConflictStrategy:
-          nextDownloadConflict === 'overwrite' || nextDownloadConflict === 'skip' || nextDownloadConflict === 'rename'
-            ? nextDownloadConflict
+          all.downloadConflictStrategy === 'overwrite'
+          || all.downloadConflictStrategy === 'skip'
+          || all.downloadConflictStrategy === 'rename'
+            ? all.downloadConflictStrategy
             : 'rename',
-        dirTransferConcurrency: Math.max(1, Math.min(8, Math.round(Number(nextDirConcurrency)) || 3)),
-        dirTransferFailPolicy: nextDirFailPolicy === 'continue' ? 'continue' : 'stop',
-        dbFontFamily: pickInstalledFontFamily(nextDbFontFamily?.trim() || DEFAULT_DB_FONT_FAMILY),
-        dbFontSize: Math.max(10, Math.min(24, Math.round(nextDbFontSize) || DEFAULT_DB_FONT_SIZE)),
+        dirTransferConcurrency: Math.max(1, Math.min(8, Math.round(Number(all.dirTransferConcurrency)) || 3)),
+        dirTransferFailPolicy: all.dirTransferFailPolicy === 'continue' ? 'continue' : 'stop',
+        dbFontFamily: pickInstalledFontFamily(all.dbFontFamily?.trim() || DEFAULT_DB_FONT_FAMILY),
+        dbFontSize: Math.max(10, Math.min(24, Math.round(all.dbFontSize) || DEFAULT_DB_FONT_SIZE)),
         dbPageSize: allowedPage,
-        dbConfirmDangerousSql: nextDbConfirmDangerousSql !== false,
-        dbDefaultMaxRows: clampQueryMaxRows(nextDbDefaultMaxRows),
-        dbDefaultQueryTimeoutSec: clampQueryTimeoutSec(nextDbDefaultQueryTimeoutSec),
-        dbDefaultRunScope: sanitizeDefaultRunScopePref(nextDbDefaultRunScope),
-        latencyEnabled: nextLatencyEnabled,
-        latencyIntervalSec: nextLatencyIntervalMs / 1000,
-        monitorEnabled: nextMonitorEnabled,
-        monitorIntervalSec: nextMonitorIntervalMs / 1000,
-        autoReconnectEnabled: nextAutoReconnect,
-        autoReconnectMaxRetries: nextAutoReconnectMax,
-        x11AutoStartEnabled: nextX11AutoStart !== false,
-        x11ServerPath: typeof nextX11ServerPath === 'string' ? nextX11ServerPath : '',
+        dbConfirmDangerousSql: all.dbConfirmDangerousSql !== false,
+        dbDefaultMaxRows: clampQueryMaxRows(all.dbDefaultMaxRows),
+        dbDefaultQueryTimeoutSec: clampQueryTimeoutSec(all.dbDefaultQueryTimeoutSec),
+        dbDefaultRunScope: sanitizeDefaultRunScopePref(all.dbDefaultRunScope),
+        latencyEnabled: all.latencyEnabled,
+        latencyIntervalSec: all.latencyIntervalMs / 1000,
+        connectionUsageStatsEnabled: all.connectionUsageStatsEnabled !== false,
+        fancyCursorEnabled: all.fancyCursorEnabled === true,
+        fancyCursorStyle: sanitizeFancyCursorStyle(all.fancyCursorStyle),
+        appBackground: {
+          imageUrl: typeof all.appBackground?.imageUrl === 'string' ? all.appBackground.imageUrl : '',
+          fit: sanitizeAppBackgroundFit(all.appBackground?.fit),
+          overlay: clampBackgroundOverlay(all.appBackground?.overlay),
+          fileName: typeof all.appBackground?.fileName === 'string' ? all.appBackground.fileName : '',
+          token: '',
+          cleared: false,
+        },
+        monitorEnabled: all.monitorEnabled,
+        monitorIntervalSec: all.monitorIntervalMs / 1000,
+        autoReconnectEnabled: all.autoReconnectEnabled,
+        autoReconnectMaxRetries: all.autoReconnectMaxRetries,
+        workspaceRestoreEnabled: all.workspaceRestoreEnabled === true,
+        x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
+        x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
       }
       draft.value = cloneDraft(next)
       saved.value = cloneDraft(next)
-      recentDownloadPaths.value = nextRecentDownloadPaths
+      recentDownloadPaths.value = all.recentDownloadPaths || []
     } finally {
       loading.value = false
     }
@@ -336,7 +333,11 @@ export function useSettingsDraft(): {
         confirmText: t('settings.restoreConfirm'),
         tone: 'info',
       })
-      draft.value = createSystemDefaultDraft()
+      const next = createSystemDefaultDraft()
+      // Explicit clear so save removes persisted wallpaper
+      next.appBackground = { ...emptyAppBackgroundState(), cleared: true }
+      draft.value = next
+      applyAppBackground({ imageUrl: '' })
       ElMessage.success(t('settings.restoreFilled'))
     } catch {
       // cancelled
@@ -354,35 +355,95 @@ export function useSettingsDraft(): {
     try {
       const d = draft.value
 
-      // Appearance
       if (d.theme === 'custom') {
         setCustomColors({ fontColor: d.fontColor, bgColor: d.bgColor })
       }
       setTheme(d.theme)
 
-      // Download path: empty string → store uses OS Downloads
-      const pathToSave = d.useSystemDownloadPath ? '' : d.downloadPath
-      await window.LiteConnect.setDownloadPath(pathToSave)
+      const bg = d.appBackground
+      const savedAll = await window.LiteConnect.setManySettings({
+        fancyCursorEnabled: d.fancyCursorEnabled,
+        fancyCursorStyle: d.fancyCursorStyle,
+        appBackground: {
+          token: bg.token || undefined,
+          clear: bg.cleared,
+          fit: bg.fit,
+          overlay: bg.overlay,
+        },
+        downloadPath: d.useSystemDownloadPath ? '' : d.downloadPath,
+        terminalFontSize: d.terminalFontSize,
+        terminalFontFamily: d.terminalFontFamily,
+        terminalPalette: d.terminalPalette,
+        terminalScrollback: d.terminalScrollback,
+        terminalPasteConfirmEnabled: d.terminalPasteConfirmEnabled,
+        terminalPasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
+        terminalCommandSuggestEnabled: d.terminalCommandSuggestEnabled,
+        downloadConflictStrategy: d.downloadConflictStrategy,
+        dirTransferConcurrency: d.dirTransferConcurrency,
+        dirTransferFailPolicy: d.dirTransferFailPolicy,
+        dbFontFamily: d.dbFontFamily,
+        dbFontSize: d.dbFontSize,
+        dbPageSize: d.dbPageSize,
+        dbConfirmDangerousSql: d.dbConfirmDangerousSql !== false,
+        dbDefaultMaxRows: clampQueryMaxRows(d.dbDefaultMaxRows),
+        dbDefaultQueryTimeoutSec: clampQueryTimeoutSec(d.dbDefaultQueryTimeoutSec),
+        dbDefaultRunScope: sanitizeDefaultRunScopePref(d.dbDefaultRunScope),
+        latencyEnabled: d.latencyEnabled,
+        latencyIntervalMs: d.latencyIntervalSec * 1000,
+        connectionUsageStatsEnabled: d.connectionUsageStatsEnabled,
+        monitorEnabled: d.monitorEnabled,
+        monitorIntervalMs: d.monitorIntervalSec * 1000,
+        autoReconnectEnabled: d.autoReconnectEnabled,
+        autoReconnectMaxRetries: d.autoReconnectMaxRetries,
+        workspaceRestoreEnabled: d.workspaceRestoreEnabled,
+        x11AutoStartEnabled: d.x11AutoStartEnabled,
+        x11ServerPath: d.x11ServerPath,
+      })
+
+      window.dispatchEvent(new CustomEvent('fancy-cursor-settings-change', {
+        detail: { enabled: d.fancyCursorEnabled, style: d.fancyCursorStyle },
+      }))
+
+      d.appBackground = {
+        imageUrl: savedAll.appBackground.imageUrl,
+        fit: savedAll.appBackground.fit,
+        overlay: savedAll.appBackground.overlay,
+        fileName: savedAll.appBackground.fileName,
+        token: '',
+        cleared: false,
+      }
+      applyAppBackground({
+        imageUrl: d.appBackground.imageUrl,
+        fit: d.appBackground.fit as AppBackgroundFit,
+        overlay: d.appBackground.overlay,
+      })
+      window.dispatchEvent(
+        new CustomEvent('app-background-settings-change', {
+          detail: {
+            imageUrl: d.appBackground.imageUrl,
+            fit: d.appBackground.fit,
+            overlay: d.appBackground.overlay,
+          },
+        }),
+      )
+
       if (!d.useSystemDownloadPath && d.downloadPath) {
         await window.LiteConnect.addRecentDownloadPath(d.downloadPath)
         recentDownloadPaths.value = await window.LiteConnect.getRecentDownloadPaths()
       }
-      const resolved = await window.LiteConnect.getDownloadPath()
-      const configured = await window.LiteConnect.getConfiguredDownloadPath()
-      d.downloadPath = resolved
-      d.useSystemDownloadPath = !configured
+      d.downloadPath = savedAll.downloadPath
+      d.useSystemDownloadPath = !savedAll.configuredDownloadPath
 
-      // Terminal
-      await window.LiteConnect.setTerminalFontSize(d.terminalFontSize)
-      await window.LiteConnect.setTerminalFontFamily(d.terminalFontFamily)
-      await window.LiteConnect.setTerminalPalette(d.terminalPalette)
-      await window.LiteConnect.setTerminalScrollback(d.terminalScrollback)
-      await window.LiteConnect.setTerminalPasteConfirmEnabled(d.terminalPasteConfirmEnabled)
-      await window.LiteConnect.setTerminalPasteConfirmMaxChars(d.terminalPasteConfirmMaxChars)
-      await window.LiteConnect.setTerminalCommandSuggestEnabled(d.terminalCommandSuggestEnabled)
-      await window.LiteConnect.setDownloadConflictStrategy(d.downloadConflictStrategy)
-      await window.LiteConnect.setDirTransferConcurrency(d.dirTransferConcurrency)
-      await window.LiteConnect.setDirTransferFailPolicy(d.dirTransferFailPolicy)
+      dispatchDbSettingsChange({
+        fontFamily: d.dbFontFamily,
+        fontSize: d.dbFontSize,
+        pageSize: d.dbPageSize,
+        confirmDangerousSql: d.dbConfirmDangerousSql !== false,
+        defaultMaxRows: clampQueryMaxRows(d.dbDefaultMaxRows),
+        defaultQueryTimeoutSec: clampQueryTimeoutSec(d.dbDefaultQueryTimeoutSec),
+        defaultRunScope: sanitizeDefaultRunScopePref(d.dbDefaultRunScope),
+      })
+
       window.dispatchEvent(new CustomEvent('download-conflict-settings-change', {
         detail: { strategy: d.downloadConflictStrategy },
       }))
@@ -406,34 +467,18 @@ export function useSettingsDraft(): {
           commandSuggestEnabled: d.terminalCommandSuggestEnabled,
         },
       }))
-
-      // Database client (independent of terminal font)
-      await saveDbSettings({
-        fontFamily: d.dbFontFamily,
-        fontSize: d.dbFontSize,
-        pageSize: d.dbPageSize,
-        confirmDangerousSql: d.dbConfirmDangerousSql !== false,
-        defaultMaxRows: clampQueryMaxRows(d.dbDefaultMaxRows),
-        defaultQueryTimeoutSec: clampQueryTimeoutSec(d.dbDefaultQueryTimeoutSec),
-        defaultRunScope: sanitizeDefaultRunScopePref(d.dbDefaultRunScope),
-      })
-
-      // Network
-      await window.LiteConnect.setLatencyEnabled(d.latencyEnabled)
-      await window.LiteConnect.setLatencyIntervalMs(d.latencyIntervalSec * 1000)
       window.dispatchEvent(new CustomEvent('latency-settings-change', {
         detail: { enabled: d.latencyEnabled, intervalMs: d.latencyIntervalSec * 1000 },
       }))
-      await window.LiteConnect.setMonitorEnabled(d.monitorEnabled)
-      await window.LiteConnect.setMonitorIntervalMs(d.monitorIntervalSec * 1000)
+      window.dispatchEvent(new CustomEvent('connection-usage-stats-settings-change', {
+        detail: { enabled: d.connectionUsageStatsEnabled },
+      }))
+      window.dispatchEvent(new CustomEvent('workspace-restore-settings-change', {
+        detail: { enabled: d.workspaceRestoreEnabled },
+      }))
       window.dispatchEvent(new CustomEvent('monitor-settings-change', {
         detail: { enabled: d.monitorEnabled, intervalMs: d.monitorIntervalSec * 1000 },
       }))
-
-      await window.LiteConnect.setAutoReconnectEnabled(d.autoReconnectEnabled)
-      await window.LiteConnect.setAutoReconnectMaxRetries(d.autoReconnectMaxRetries)
-      await window.LiteConnect.setX11AutoStartEnabled(d.x11AutoStartEnabled)
-      await window.LiteConnect.setX11ServerPath(d.x11ServerPath)
 
       saved.value = cloneDraft(d)
       draft.value = cloneDraft(d)

@@ -7,6 +7,8 @@
    * Sizes are semantic tokens; --ui-scale lets density / accessibility scale all icons.
    */
   --ui-scale: 1;
+  /** Left icon rail + TabBar home zone share this so vertical borders line up */
+  --left-toolbar-width: calc(40px * var(--ui-scale));
   --icon-xs: calc(12px * var(--ui-scale));
   --icon-sm: calc(14px * var(--ui-scale));
   --icon-md: calc(16px * var(--ui-scale));
@@ -17,6 +19,7 @@
   --icon-stroke: 1.8;
   --icon-btn-sm: calc(28px * var(--ui-scale));
   --icon-btn-md: calc(32px * var(--ui-scale));
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
 /* Compact / comfortable density hooks (optional: set on <html data-ui-density>) */
@@ -38,6 +41,7 @@ html[data-ui-density='comfortable'] {
 html:not([data-theme]),
 [data-theme="dark"],
 [data-theme="custom"] {
+  color-scheme: dark;
   --bg-primary: #0d1117;
   --bg-secondary: #161b22;
   --bg-tertiary: #21262d;
@@ -57,9 +61,12 @@ html:not([data-theme]),
   --selection-bg: rgba(88, 166, 255, 0.3);
   --titlebar-bg: #0d1117;
   --titlebar-symbol: #8b949e;
+  /* native <select> chevron (matches --text-secondary) */
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --bg-primary: #ffffff;
   --bg-secondary: #f6f8fa;
   --bg-tertiary: #eaeef2;
@@ -79,9 +86,11 @@ html:not([data-theme]),
   --selection-bg: rgba(9, 105, 218, 0.2);
   --titlebar-bg: #ffffff;
   --titlebar-symbol: #656d76;
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23656d76' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
 [data-theme="eyecare"] {
+  color-scheme: light;
   --bg-primary: #f5f0e8;
   --bg-secondary: #ece5d8;
   --bg-tertiary: #e0d8c8;
@@ -101,6 +110,7 @@ html:not([data-theme]),
   --selection-bg: rgba(91, 140, 90, 0.2);
   --titlebar-bg: #f5f0e8;
   --titlebar-symbol: #8a7f70;
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238a7f70' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
 * {
@@ -133,6 +143,127 @@ body {
   /* 桌面端 UI：默认禁止划选文字，避免鼠标经过时出现「选中/变粗变大」感 */
   user-select: none;
   -webkit-user-select: none;
+}
+
+/*
+ * Custom wallpaper (settings → appearance).
+ * Layer lives inside .app-container (.app-bg-layer) so it sits under every route
+ * (connections home + SSH workspace + settings), not only transparent body gaps.
+ */
+html.has-app-bg,
+html.has-app-bg body,
+html.has-app-bg #app {
+  background-color: transparent !important;
+}
+
+html.has-app-bg .app-container {
+  background: transparent;
+}
+
+/* Wallpaper + veil — painted under titlebar / workspace */
+html.has-app-bg .app-bg-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--app-bg-image);
+  background-size: var(--app-bg-size, cover);
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+html.has-app-bg .app-bg-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Higher overlay % = more theme color = more readable UI */
+  background: color-mix(in srgb, var(--bg-primary) var(--app-bg-overlay, 55%), transparent);
+}
+
+.app-bg-layer {
+  display: none;
+}
+
+/* Keep shell chrome above the wallpaper layer */
+html.has-app-bg .app-container > .app-titlebar,
+html.has-app-bg .app-container > .workspace,
+html.has-app-bg .app-container > .settings-view,
+html.has-app-bg .app-container > :not(.app-bg-layer) {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * Frosted / translucent chrome so wallpaper peeks through on SSH & DB pages.
+ * Terminal canvas uses a high theme-color alpha (see --app-bg-terminal-alpha)
+ * so wallpaper shows through without washing out ANSI text.
+ */
+html.has-app-bg .app-titlebar,
+html.has-app-bg .workspace-top,
+html.has-app-bg .tab-bar,
+html.has-app-bg .left-toolbar,
+html.has-app-bg .group-panel,
+html.has-app-bg .sub-tab-bar,
+html.has-app-bg .split-mode-bar,
+html.has-app-bg .split-pane-header,
+html.has-app-bg .split-tip,
+html.has-app-bg .batch-panel-wrapper,
+html.has-app-bg .monitor-panel-wrapper,
+html.has-app-bg .monitor-dock,
+html.has-app-bg .sidebar-panel,
+html.has-app-bg .file-sidebar,
+html.has-app-bg .ai-sidebar,
+html.has-app-bg .settings-page,
+html.has-app-bg .settings-nav,
+html.has-app-bg .filter-bar {
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent) !important;
+  backdrop-filter: blur(12px) saturate(1.05);
+  -webkit-backdrop-filter: blur(12px) saturate(1.05);
+}
+
+html.has-app-bg .app-titlebar,
+html.has-app-bg .settings-page,
+html.has-app-bg .sub-tab-bar,
+html.has-app-bg .split-mode-bar {
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent) !important;
+}
+
+html.has-app-bg .workspace,
+html.has-app-bg .app-main-body,
+html.has-app-bg .home-module,
+html.has-app-bg .workspace-content,
+html.has-app-bg .workspace-main,
+html.has-app-bg .terminal-host,
+html.has-app-bg .terminal-section,
+html.has-app-bg .terminal-container,
+html.has-app-bg .docker-workspace,
+html.has-app-bg .connections-page,
+html.has-app-bg .connections-main,
+html.has-app-bg .settings-main {
+  background: transparent !important;
+}
+
+/*
+ * Terminal area: let xterm rgba background show the wallpaper through.
+ * xterm canvas cells use theme.background with alpha (see withWallpaperTerminalTheme).
+ */
+html.has-app-bg .terminal-wrapper,
+html.has-app-bg .terminal-pane,
+html.has-app-bg .terminal-pane-body,
+html.has-app-bg .xterm,
+html.has-app-bg .xterm-viewport,
+html.has-app-bg .xterm-screen {
+  background: transparent !important;
+}
+
+/* Slight darken under terminal only if needed for contrast — keep subtle */
+html.has-app-bg .terminal-pane-body {
+  background: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--app-bg-terminal-alpha, 0.78) * 35%),
+    transparent
+  ) !important;
 }
 
 /* 需要复制/编辑的区域重新允许选中 */
@@ -458,7 +589,8 @@ select:focus:not(:focus-visible) {
 /* Inputs */
 .ui-input,
 .ui-textarea,
-.ui-select {
+.ui-select,
+.settings-select {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -484,16 +616,47 @@ select:focus:not(:focus-visible) {
   resize: vertical;
 }
 
+/*
+ * Native <select> — same surface as .ui-input, custom chevron, theme color-scheme.
+ * Prefer class "ui-select"; "select.ui-input" and ".settings-select" kept for legacy call sites.
+ * Open popup is still OS-drawn; color-scheme helps it match dark/light.
+ */
+select.ui-input,
+select.ui-select,
+.ui-select,
+.settings-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--bg-primary);
+  background-image: var(--ui-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  padding-right: 30px;
+  cursor: pointer;
+}
+
+select.ui-input option,
+select.ui-select option,
+.ui-select option,
+.settings-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 .ui-input:focus,
 .ui-textarea:focus,
-.ui-select:focus {
+.ui-select:focus,
+.settings-select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-bg);
 }
 
 .ui-input:disabled,
 .ui-textarea:disabled,
-.ui-select:disabled {
+.ui-select:disabled,
+.settings-select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -504,11 +667,14 @@ select:focus:not(:focus-visible) {
 }
 
 .ui-input-sm,
-.ui-select.ui-input-sm {
+.ui-select.ui-input-sm,
+select.ui-input.ui-input-sm,
+.settings-select.ui-input-sm {
   height: var(--control-h-sm);
-  padding: 0 10px;
+  padding: 0 28px 0 10px;
   font-size: var(--font-ui-sm);
   border-radius: var(--radius-sm);
+  background-position: right 8px center;
 }
 
 .ui-textarea.ui-input-sm {
@@ -776,4 +942,192 @@ select:focus:not(:focus-visible) {
 @keyframes ui-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+/* ── Fancy cursor (opt-in appearance setting, default off) ── */
+html.fancy-cursor-on,
+html.fancy-cursor-on * {
+  cursor: none !important;
+}
+
+/* Precision surfaces keep the native cursor even when fancy mode is on */
+html.fancy-cursor-on input,
+html.fancy-cursor-on textarea,
+html.fancy-cursor-on select,
+html.fancy-cursor-on [contenteditable='true'],
+html.fancy-cursor-on .xterm,
+html.fancy-cursor-on .xterm *,
+html.fancy-cursor-on .cm-editor,
+html.fancy-cursor-on .cm-editor * {
+  cursor: auto !important;
+}
+
+html.fancy-cursor-on input,
+html.fancy-cursor-on textarea,
+html.fancy-cursor-on [contenteditable='true'],
+html.fancy-cursor-on .xterm,
+html.fancy-cursor-on .xterm-helper-textarea {
+  cursor: text !important;
+}
+
+.fancy-cursor-host {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.fancy-cursor-host.is-visible {
+  opacity: 1;
+}
+
+.fancy-cursor-ring,
+.fancy-cursor-core,
+.fancy-cursor-cross,
+.fancy-cursor-trail-dot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* ring style (default) */
+.fancy-cursor-ring {
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 75%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+  transition: width 0.15s ease, height 0.15s ease, margin 0.15s ease, background 0.15s ease;
+  display: none;
+}
+
+.fancy-cursor-host[data-style='ring'] .fancy-cursor-ring {
+  display: block;
+}
+
+.fancy-cursor-host[data-style='ring'].is-interactive .fancy-cursor-ring {
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.fancy-cursor-host[data-style='ring'].is-pressed .fancy-cursor-ring {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.fancy-cursor-core {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
+  display: none;
+}
+
+.fancy-cursor-host[data-style='ring'] .fancy-cursor-core,
+.fancy-cursor-host[data-style='trail'] .fancy-cursor-core {
+  display: block;
+}
+
+.fancy-cursor-host[data-style='ring'].is-pressed .fancy-cursor-core {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+}
+
+/* soft following dot */
+.fancy-cursor-host[data-style='dot'] .fancy-cursor-core {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+  filter: blur(0.3px);
+}
+
+.fancy-cursor-host[data-style='dot'].is-interactive .fancy-cursor-core {
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+}
+
+.fancy-cursor-host[data-style='dot'].is-pressed .fancy-cursor-core {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+}
+
+/* trail ghosts */
+.fancy-cursor-trail-dot {
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: none;
+}
+
+.fancy-cursor-host[data-style='trail'] .fancy-cursor-trail-dot {
+  display: block;
+}
+
+/* crosshair */
+.fancy-cursor-cross {
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  display: none;
+}
+
+.fancy-cursor-host[data-style='cross'] .fancy-cursor-cross {
+  display: block;
+}
+
+.fancy-cursor-cross i {
+  position: absolute;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.fancy-cursor-cross i:first-child {
+  left: 50%;
+  top: 0;
+  width: 1.5px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+.fancy-cursor-cross i:last-child {
+  top: 50%;
+  left: 0;
+  height: 1.5px;
+  width: 100%;
+  transform: translateY(-50%);
+}
+
+.fancy-cursor-host[data-style='cross'].is-interactive .fancy-cursor-cross {
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+}
+
+.fancy-cursor-host[data-style='cross'].is-pressed .fancy-cursor-cross {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  opacity: 0.85;
 }

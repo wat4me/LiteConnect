@@ -217,15 +217,7 @@ function updateFontSize(delta: number) {
   color: var(--accent);
 }
 
-.settings-select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-}
+/* .settings-select surface styles live in main.css (shared with .ui-select) */
 
 .font-size-row {
   display: flex;

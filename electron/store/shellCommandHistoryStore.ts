@@ -1,6 +1,7 @@
 import { app } from 'electron'
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { join, dirname } from 'path'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 
 export type ShellCommandHistoryItem = {
   command: string
@@ -72,9 +73,8 @@ export class ShellCommandHistoryStore {
 
   private async save(): Promise<void> {
     try {
-      await mkdir(dirname(this.filePath), { recursive: true })
       const payload: FileShape = { version: 1, byConnection: this.byConnection }
-      await writeFile(this.filePath, JSON.stringify(payload), 'utf-8')
+      await writeJsonAtomic(this.filePath, payload, undefined)
     } catch (err) {
       console.error('[ShellCommandHistory] save failed:', err)
     }

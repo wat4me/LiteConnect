@@ -1,10 +1,15 @@
-import { Client, ClientChannel, ConnectConfig } from 'ssh2'
+import type { Client, ClientChannel, ConnectConfig } from 'ssh2'
 import * as net from 'net'
 import { v4 as uuidv4 } from 'uuid'
 import { KnownHostsStore } from './trust/knownHosts'
 import { buildAuthFields } from './auth'
 import { createHostVerifier, type HostKeyRejectInfo } from './trust/hostKeyVerify'
 import { closeLocalForwardServers, setupLocalForwards } from './localForwards'
+import { setupDynamicForwards } from './dynamicForwards'
+import { closeRemoteForwards, setupRemoteForwards, type RemoteForwardHandle } from './remoteForwards'
+import { autoAnswerKeyboardPrompts } from './keyboardInteractive'
+import { applySocketKeepalive, resolveSshKeepalive } from './keepalive'
+import { clientCloseOutcome } from './connectLifecycle'
 import {
   attachX11Forwarding,
   destroyX11Sockets,
@@ -13,7 +18,7 @@ import {
   isX11ShellRequestError,
   probeX11Port,
 } from './x11/x11'
-import { ensureX11ServerReady } from './x11/x11Server'
+import { loadSsh2 } from './loadSsh2'
 import { t } from '../i18n'
 import type { Connection, PendingHostKey, Session, SSHCallbacks } from './types'
 
@@ -97,6 +102,7 @@ export class ConnectionService {
     }
     const host = getX11Host(connection)
     const display = getX11Display(connection)
+    const { ensureX11ServerReady } = await import('./x11/x11Server')
     const result = await ensureX11ServerReady(host, display)
     if (result.ready) {
       const note = result.started
@@ -116,7 +122,7 @@ export class ConnectionService {
     return this.deps.getSessionEpoch(sessionId) === epoch
   }
 
-  private openConnection(
+  private async openConnection(
     sessionId: string,
     connection: Connection,
     callbacks: SSHCallbacks,
@@ -124,6 +130,7 @@ export class ConnectionService {
     x11Notice: string | undefined,
     epoch: number,
   ): Promise<string> {
+    const { Client } = await loadSsh2()
     const hasJump = !!(connection.jumpHost && connection.jumpHost.trim())
     const { sessions, decoders, knownHosts, pendingHostKeys, cleanupSession } = this.deps
 
@@ -140,11 +147,20 @@ export class ConnectionService {
       }
       // Local forwards set up after client ready; cleaned on all abort paths
       let localForwardServers: ReturnType<typeof setupLocalForwards> | undefined
+      let remoteForwardHandles: RemoteForwardHandle[] | undefined
+      let jumpForwardTimeout: ReturnType<typeof setTimeout> | null = null
+      const keepalive = resolveSshKeepalive(connection.keepaliveInterval)
 
       const abortPendingResources = () => {
+        if (jumpForwardTimeout) {
+          clearTimeout(jumpForwardTimeout)
+          jumpForwardTimeout = null
+        }
         destroyX11Sockets(x11Sockets)
         closeLocalForwardServers(localForwardServers)
         localForwardServers = undefined
+        closeRemoteForwards(remoteForwardHandles)
+        remoteForwardHandles = undefined
         try {
           jumpClient?.end()
         } catch {}
@@ -179,6 +195,52 @@ export class ConnectionService {
         })
       }
 
+      const attachKeyboard = (sshClient: Client, role: 'target' | 'jump', password: string) => {
+        sshClient.on(
+          'keyboard-interactive',
+          (
+            name: string,
+            instructions: string,
+            _lang: string,
+            prompts: Array<{ prompt: string; echo: boolean }>,
+            finish: (responses: string[]) => void,
+          ) => {
+            const list = (prompts || []).map((p) => ({
+              prompt: String(p?.prompt || ''),
+              echo: p?.echo !== false,
+            }))
+            const auto = autoAnswerKeyboardPrompts(list, password)
+            if (auto.complete) {
+              finish(auto.answers)
+              return
+            }
+            if (!callbacks.onKeyboardInteractive) {
+              finish(list.map(() => ''))
+              return
+            }
+            void callbacks
+              .onKeyboardInteractive({
+                requestId: uuidv4(),
+                sessionId,
+                name: String(name || ''),
+                instructions: String(instructions || ''),
+                prompts: list,
+                role,
+              })
+              .then((answers) => {
+                if (!answers || answers.length === 0) {
+                  finish(list.map(() => ''))
+                  return
+                }
+                finish(list.map((_, i) => String(answers[i] ?? '')))
+              })
+              .catch(() => finish(list.map(() => '')))
+          },
+        )
+      }
+
+      attachKeyboard(client, 'target', connection.password || '')
+
       const targetConfig = (sock?: import('stream').Duplex): ConnectConfig => ({
         ...(sock
           ? { sock }
@@ -190,7 +252,7 @@ export class ConnectionService {
           useAgent: connection.useAgent,
         }),
         readyTimeout: 20000,
-        keepaliveInterval: connection.keepaliveInterval ?? 30000,
+        ...keepalive,
         hostVerifier: createHostVerifier(
           knownHosts,
           connection.host,
@@ -216,7 +278,12 @@ export class ConnectionService {
         try {
           client.setNoDelay(true)
         } catch {}
-        localForwardServers = setupLocalForwards(client, connection, sessionId, callbacks)
+        applySocketKeepalive(client, keepalive.keepaliveInterval)
+        localForwardServers = [
+          ...setupLocalForwards(client, connection, sessionId, callbacks),
+          ...setupDynamicForwards(client, connection, sessionId, callbacks),
+        ]
+        remoteForwardHandles = setupRemoteForwards(client, connection, sessionId, callbacks)
 
         const ptyOptions = {
           term: 'xterm-256color',
@@ -368,6 +435,7 @@ export class ConnectionService {
             x11Sockets,
             jumpClient,
             localForwardServers,
+            remoteForwardHandles,
           })
 
           const decoder = new TextDecoder('utf-8', { fatal: false })
@@ -378,10 +446,11 @@ export class ConnectionService {
             callbacks.onData(sessionId, decoded)
           })
 
-          stream.on('close', () => {
+          const dropLiveShell = (reason?: string) => {
             if (!this.isLiveEpoch(sessionId, epoch)) return
             const current = sessions.get(sessionId)
             if (current && current.stream !== stream) return
+            if (!sessions.has(sessionId)) return
             cleanupSession(sessionId)
             try {
               client.end()
@@ -389,7 +458,14 @@ export class ConnectionService {
             try {
               jumpClient?.end()
             } catch {}
-            callbacks.onClose(sessionId)
+            if (reason) callbacks.onError(sessionId, reason)
+            else callbacks.onClose(sessionId)
+          }
+
+          stream.on('close', () => dropLiveShell())
+          stream.on('end', () => dropLiveShell())
+          stream.on('error', (streamErr: Error) => {
+            dropLiveShell(streamErr?.message || 'Shell error')
           })
 
           stream.stderr.on('data', (data: Buffer) => {
@@ -462,11 +538,18 @@ export class ConnectionService {
           abortPendingResources()
           return
         }
-        if (sessions.has(sessionId)) {
+        const outcome = clientCloseOutcome({
+          hasSession: sessions.has(sessionId),
+          settled,
+        })
+        if (outcome === 'notify-close') {
           cleanupSession(sessionId)
           callbacks.onClose(sessionId)
-        } else {
-          abortPendingResources()
+          return
+        }
+        abortPendingResources()
+        if (outcome === 'reject-handshake') {
+          safeReject(new Error('Connection closed'))
         }
       })
 
@@ -476,6 +559,11 @@ export class ConnectionService {
       }
 
       jumpClient = new Client()
+      attachKeyboard(
+        jumpClient,
+        'jump',
+        connection.jumpPassword || connection.password || '',
+      )
       const jumpHost = connection.jumpHost!.trim()
       const jumpPort = connection.jumpPort || 22
       const jumpUser = connection.jumpUsername || connection.username
@@ -490,12 +578,28 @@ export class ConnectionService {
           try {
             jumpClient!.setNoDelay(true)
           } catch {}
+          applySocketKeepalive(jumpClient!, keepalive.keepaliveInterval)
+          if (jumpForwardTimeout) clearTimeout(jumpForwardTimeout)
+          jumpForwardTimeout = setTimeout(() => {
+            jumpForwardTimeout = null
+            try {
+              jumpClient?.end()
+            } catch {}
+            try {
+              client.end()
+            } catch {}
+            safeReject(new Error('Jump host forward timeout'))
+          }, 20000)
           jumpClient!.forwardOut(
             '127.0.0.1',
             0,
             connection.host,
             connection.port || 22,
             (err, stream) => {
+              if (jumpForwardTimeout) {
+                clearTimeout(jumpForwardTimeout)
+                jumpForwardTimeout = null
+              }
               if (err) {
                 try {
                   jumpClient?.end()
@@ -531,6 +635,24 @@ export class ConnectionService {
           const errorMsg = hostKeyError || err.message
           safeReject(new Error(`Jump host error: ${errorMsg}`))
         })
+        .on('close', () => {
+          if (!this.isLiveEpoch(sessionId, epoch)) return
+          if (!settled) {
+            try {
+              client.end()
+            } catch {}
+            safeReject(new Error('Jump host connection closed'))
+            return
+          }
+          const current = sessions.get(sessionId)
+          if (current && current.jumpClient && current.jumpClient !== jumpClient) return
+          if (!sessions.has(sessionId)) return
+          cleanupSession(sessionId)
+          try {
+            client.end()
+          } catch {}
+          callbacks.onClose(sessionId)
+        })
         .connect({
           host: jumpHost,
           port: jumpPort,
@@ -541,7 +663,7 @@ export class ConnectionService {
             useAgent: connection.useAgent,
           }),
           readyTimeout: 20000,
-          keepaliveInterval: connection.keepaliveInterval ?? 30000,
+          ...keepalive,
           hostVerifier: createHostVerifier(
             knownHosts,
             jumpHost,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection } from '../../env.d.ts'
@@ -8,7 +8,7 @@ import {
   getConnectionTagLabel,
   hasConnectionColorTag,
 } from '@/utils/connections/connectionTags'
-import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
+import { clampPopupToViewport, placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const { t } = useI18n()
@@ -26,9 +26,12 @@ const props = withDefaults(defineProps<{
   reorderDisabled?: boolean
   /** Keyboard focus highlight from parent list */
   keyboardActive?: boolean
+  /** Show useCount / lastConnected on the meta line (settings). Default on. */
+  showUsageStats?: boolean
 }>(), {
   reorderDisabled: false,
   keyboardActive: false,
+  showUsageStats: true,
 })
 
 const emit = defineEmits<{
@@ -45,6 +48,7 @@ const emit = defineEmits<{
 
 /** Compact stats on the same line as user@host (avoid a cramped 3rd text line). */
 const statsInline = computed(() => {
+  if (!props.showUsageStats) return ''
   const c = props.connection
   const parts: string[] = []
   if (c.useCount && c.useCount > 0) {
@@ -72,9 +76,16 @@ const metaTitle = computed(() => {
 })
 
 const menuOpen = ref(false)
+/** 'more' = under ··· button; 'context' = right-click at cursor */
+const menuMode = ref<'more' | 'context'>('more')
 const menuRef = ref<HTMLElement | null>(null)
 const moreBtnRef = ref<HTMLElement | null>(null)
+const rowRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+/** Temporary full-row clone used as HTML5 drag image; removed on dragend. */
+let dragGhostEl: HTMLElement | null = null
+/** Cursor point when opened via contextmenu */
+let contextPoint: { x: number; y: number } | null = null
 const menuStyle = ref<Record<string, string>>({
   left: '0px',
   top: '0px',
@@ -96,6 +107,58 @@ function onDoubleClick() {
   emit('connect', props.connection.id)
 }
 
+function clearDragGhost() {
+  if (dragGhostEl) {
+    dragGhostEl.remove()
+    dragGhostEl = null
+  }
+}
+
+/**
+ * Build a floating full-row drag image (like VS Code / Notion list reorder)
+ * instead of the browser default tiny grip-icon ghost.
+ */
+function setRowDragImage(e: DragEvent) {
+  const row = rowRef.value
+  const dt = e.dataTransfer
+  if (!row || !dt) return
+
+  clearDragGhost()
+  const rect = row.getBoundingClientRect()
+  const ghost = row.cloneNode(true) as HTMLElement
+  ghost.classList.add('connection-row-drag-ghost')
+  ghost.style.cssText = [
+    'position: fixed',
+    `top: ${rect.top}px`,
+    `left: ${rect.left}px`,
+    `width: ${rect.width}px`,
+    `height: ${rect.height}px`,
+    'margin: 0',
+    'z-index: 100000',
+    'pointer-events: none',
+    'box-sizing: border-box',
+    'opacity: 0.92',
+    'transform: scale(1.02)',
+    'transform-origin: left center',
+    'box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.12)',
+  ].join(';')
+  // Keep in document for browsers that snapshot only after layout
+  document.body.appendChild(ghost)
+  dragGhostEl = ghost
+
+  const offsetX = Math.max(0, Math.min(rect.width, e.clientX - rect.left))
+  const offsetY = Math.max(0, Math.min(rect.height, e.clientY - rect.top))
+  dt.setDragImage(ghost, offsetX, offsetY)
+
+  // Hide the live clone after the browser has captured the drag bitmap
+  requestAnimationFrame(() => {
+    if (dragGhostEl === ghost) {
+      ghost.style.opacity = '0'
+      ghost.style.pointerEvents = 'none'
+    }
+  })
+}
+
 function onDragStart(e: DragEvent) {
   if (props.reorderDisabled) {
     e.preventDefault()
@@ -107,25 +170,46 @@ function onDragStart(e: DragEvent) {
     e.dataTransfer.setData('application/x-lite-connect-conn', props.connection.id)
     // Also store plain text for broader drop-target compatibility
     e.dataTransfer.setData('text/plain', props.connection.id)
+    setRowDragImage(e)
   }
   emit('drag-start', props.connection.id, e)
 }
 
 function onDragEnd() {
   isDragging.value = false
+  clearDragGhost()
   emit('drag-end')
 }
 
-async function positionMoreMenu() {
+onBeforeUnmount(() => {
+  clearDragGhost()
+})
+
+async function positionMenu() {
   await nextTick()
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
   })
-  const btn = moreBtnRef.value
   const menu = menuRef.value
-  if (!btn || !menu) return
+  if (!menu) return
+  const size = {
+    width: menu.offsetWidth || 160,
+    height: menu.offsetHeight || 220,
+  }
+
+  if (menuMode.value === 'context' && contextPoint) {
+    const pos = clampPopupToViewport(contextPoint, size)
+    menuStyle.value = {
+      left: `${pos.left}px`,
+      top: `${pos.top}px`,
+      maxHeight: 'none',
+    }
+    return
+  }
+
+  const btn = moreBtnRef.value
+  if (!btn) return
   const anchor = btn.getBoundingClientRect()
-  const size = { width: menu.offsetWidth || 140, height: menu.offsetHeight || 80 }
   const pos = placePopupNearAnchor(anchor, size, { align: 'end', gap: 4 })
   menuStyle.value = {
     left: `${pos.left}px`,
@@ -134,17 +218,42 @@ async function positionMoreMenu() {
   }
 }
 
-function toggleMenu(e: MouseEvent) {
+function toggleMoreMenu(e: MouseEvent) {
   e.stopPropagation()
-  menuOpen.value = !menuOpen.value
+  if (menuOpen.value && menuMode.value === 'more') {
+    closeMenu()
+    return
+  }
+  menuMode.value = 'more'
+  contextPoint = null
+  menuOpen.value = true
+}
+
+function onContextMenu(e: MouseEvent) {
+  // Keep browser menu on form-like targets if any appear later
+  const el = e.target as HTMLElement | null
+  if (el?.closest('input, textarea, [contenteditable="true"]')) return
+  // Don't steal drag handle interactions
+  if (el?.closest('.drag-handle')) return
+  e.preventDefault()
+  e.stopPropagation()
+  menuMode.value = 'context'
+  contextPoint = { x: e.clientX, y: e.clientY }
+  // Force re-position even if already open
+  if (menuOpen.value) {
+    void positionMenu()
+  } else {
+    menuOpen.value = true
+  }
 }
 
 function closeMenu() {
   menuOpen.value = false
+  contextPoint = null
 }
 
 watch(menuOpen, (open) => {
-  if (open) void positionMoreMenu()
+  if (open) void positionMenu()
 })
 
 useOutsideDismiss(
@@ -153,17 +262,40 @@ useOutsideDismiss(
   () => [menuRef.value, moreBtnRef.value],
 )
 
-function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
+type MenuAction = 'connect' | 'window' | 'test' | 'copy' | 'edit' | 'pin' | 'delete'
+
+function onMenuAction(action: MenuAction) {
   closeMenu()
-  if (action === 'test') emit('test', props.connection.id)
-  else if (action === 'delete') emit('delete', props.connection.id)
-  else if (action === 'pin') emit('pin', props.connection.id)
-  else if (action === 'window') emit('open-window', props.connection.id)
+  const c = props.connection
+  switch (action) {
+    case 'connect':
+      emit('connect', c.id)
+      break
+    case 'window':
+      emit('open-window', c.id)
+      break
+    case 'test':
+      emit('test', c.id)
+      break
+    case 'copy':
+      emit('copy', c)
+      break
+    case 'edit':
+      emit('edit', c)
+      break
+    case 'pin':
+      emit('pin', c.id)
+      break
+    case 'delete':
+      emit('delete', c.id)
+      break
+  }
 }
 </script>
 
 <template>
   <div
+    ref="rowRef"
     class="connection-row"
     :class="{
       dragging: isDragging,
@@ -174,6 +306,7 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
     }"
     :style="{ '--tag-color': tagColor }"
     @dblclick="onDoubleClick"
+    @contextmenu="onContextMenu"
   >
     <div
       class="drag-handle"
@@ -286,7 +419,8 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
             :aria-label="t('connections.moreAria')"
             :aria-expanded="menuOpen"
             aria-haspopup="menu"
-            @click="toggleMenu"
+            @click="toggleMoreMenu"
+            @contextmenu.stop.prevent="onContextMenu"
           >
             <AppIcon name="more" size="sm" />
           </button>
@@ -299,7 +433,16 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
             role="menu"
             :style="menuStyle"
             @click.stop
+            @contextmenu.prevent
           >
+            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('connect')">
+              <AppIcon name="link" size="sm" class="more-item-icon" />
+              {{ t('connections.connect') }}
+            </button>
+            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('window')">
+              <AppIcon name="terminal" size="sm" class="more-item-icon" />
+              {{ t('connections.openInNewWindow') }}
+            </button>
             <button
               type="button"
               class="more-item"
@@ -307,16 +450,25 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
               :disabled="testStatus.state === 'testing'"
               @click="onMenuAction('test')"
             >
+              <AppIcon name="crosshair" size="sm" class="more-item-icon" />
               {{ t('connections.testConnection') }}
             </button>
-            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('window')">
-              {{ t('connections.openInNewWindow') }}
+            <div class="more-divider" role="separator"></div>
+            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('copy')">
+              <AppIcon name="copy" size="sm" class="more-item-icon" />
+              {{ t('connections.copyConnection') }}
+            </button>
+            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('edit')">
+              <AppIcon name="edit" size="sm" class="more-item-icon" />
+              {{ t('connections.edit') }}
             </button>
             <button type="button" class="more-item" role="menuitem" @click="onMenuAction('pin')">
+              <AppIcon :name="connection.pinned ? 'star-fill' : 'star'" size="sm" class="more-item-icon" />
               {{ connection.pinned ? t('connections.unpin') : t('connections.pin') }}
             </button>
             <div class="more-divider" role="separator"></div>
             <button type="button" class="more-item danger" role="menuitem" @click="onMenuAction('delete')">
+              <AppIcon name="delete" size="sm" class="more-item-icon" />
               {{ t('common.delete') }}
             </button>
           </div>
@@ -336,13 +488,16 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
   padding: 11px 12px 11px 8px;
   border-radius: 8px;
   cursor: default;
-  transition: background 0.12s ease, border-color 0.12s ease;
-  /* Solid left accent (no transparent mix) — sharp scan strip in long lists */
-  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  /*
+   * Each row is its own rounded card.
+   * Left accent + outer border; dividers on the wrap still meet the left strip.
+   */
+  border: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
   border-left: 3px solid color-mix(in srgb, var(--tag-color) 55%, var(--border-color));
-  /* Spacing handled by wrap; divider lives on .connection-row-wrap */
   margin-bottom: 0;
-  background: transparent;
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
   user-select: none;
 }
 
@@ -351,7 +506,7 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 }
 
 .connection-row.pinned {
-  background: color-mix(in srgb, var(--warning, #e3b341) 6%, transparent);
+  background: color-mix(in srgb, var(--warning, #e3b341) 8%, var(--bg-secondary));
 }
 
 .pin-icon {
@@ -359,32 +514,38 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
   flex-shrink: 0;
 }
 
-/* 轻量 hover：仅微弱背景，不改边框、不改手型 */
+/* 轻量 hover：抬升一层背景，保留边框骨架 */
 .connection-row:hover {
-  background: var(--hover-bg);
+  background: color-mix(in srgb, var(--hover-bg) 80%, var(--bg-secondary));
+  border-right-color: color-mix(in srgb, var(--border-color) 75%, transparent);
 }
 
 .connection-row.pinned:hover {
-  background: color-mix(in srgb, var(--warning, #e3b341) 10%, var(--hover-bg));
+  background: color-mix(in srgb, var(--warning, #e3b341) 12%, var(--hover-bg));
 }
 
 .connection-row.menu-open,
 .connection-row:focus-within,
 .connection-row.keyboard-active {
-  background: var(--hover-bg);
+  background: color-mix(in srgb, var(--hover-bg) 80%, var(--bg-secondary));
 }
 
 .connection-row.keyboard-active {
-  /* Keep left tag strip; only highlight the other three edges */
+  /* Keep left tag strip; accent the other three edges */
   border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
   border-right-color: color-mix(in srgb, var(--accent) 45%, transparent);
   border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+/* Source row becomes a placeholder slot while the full-row ghost follows the cursor */
 .connection-row.dragging {
-  opacity: 0.55;
-  background: var(--accent-bg);
+  opacity: 0.4;
+  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+  border-style: dashed;
+  box-shadow: none;
 }
 
 .drag-handle {
@@ -396,7 +557,8 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
   flex-shrink: 0;
   border-radius: 4px;
   color: var(--text-secondary);
-  opacity: 0;
+  /* Always visible — the handle already reserves layout space */
+  opacity: 0.45;
   cursor: grab;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
@@ -404,7 +566,7 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 .connection-row:hover .drag-handle,
 .connection-row.menu-open .drag-handle,
 .connection-row:focus-within .drag-handle {
-  opacity: 0.55;
+  opacity: 0.7;
 }
 
 .drag-handle:hover {
@@ -419,7 +581,7 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 
 .drag-handle.disabled {
   cursor: not-allowed;
-  opacity: 0 !important;
+  opacity: 0.2 !important;
   pointer-events: none;
 }
 
@@ -622,7 +784,7 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 .more-menu {
   position: fixed;
   z-index: 10000;
-  min-width: 140px;
+  min-width: 168px;
   padding: 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -635,7 +797,9 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
 }
 
 .more-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   padding: 7px 10px;
@@ -646,6 +810,21 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
   font-size: 12px;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
+}
+
+.more-item-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+  color: var(--text-secondary);
+}
+
+.more-item:hover:not(:disabled) .more-item-icon {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.more-item.danger .more-item-icon {
+  color: var(--danger);
 }
 
 .more-item:hover:not(:disabled) {
@@ -695,8 +874,5 @@ function onMenuAction(action: 'test' | 'delete' | 'pin' | 'window') {
     padding-inline: 0;
   }
 
-  .drag-handle {
-    opacity: 0.4;
-  }
 }
 </style>

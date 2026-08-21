@@ -116,12 +116,20 @@ export function useDockerWorkspaceMode(deps: {
     connectedBySession.value = next
   }
 
-  function ensureSessionTracked(sessionId: string): void {
+  function ensureSessionTracked(sessionId: string, opts?: { connected?: boolean }): void {
     if (!connectedBySession.value.has(sessionId)) {
-      markSessionConnected(sessionId, true)
+      markSessionConnected(sessionId, opts?.connected !== false)
     }
     getEntry(sessionId)
   }
+
+  const disconnectedSessionIds = computed(() => {
+    const ids = new Set<string>()
+    for (const [id, connected] of connectedBySession.value) {
+      if (!connected) ids.add(id)
+    }
+    return ids
+  })
 
   function setModeForSession(sessionId: string, mode: WorkspaceMode): void {
     const entry = getEntry(sessionId)
@@ -211,6 +219,7 @@ export function useDockerWorkspaceMode(deps: {
     applyModeForActiveSession,
     markSessionConnected,
     ensureSessionTracked,
+    disconnectedSessionIds,
     forgetSession,
     withTerminalModeGuard,
     /** test helpers */

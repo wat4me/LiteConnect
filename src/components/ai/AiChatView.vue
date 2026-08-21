@@ -11,6 +11,7 @@ const props = defineProps<{
   messages: ChatItem[]
   hasApiConfigured: boolean
   loading?: boolean
+  contextDroppedCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -168,7 +169,15 @@ onBeforeUnmount(() => {
   if (scrollRaf) cancelAnimationFrame(scrollRaf)
 })
 
-function formatUsage(usage?: AiUsage): string {
+const lastAssistantId = computed(() => {
+  for (let i = props.messages.length - 1; i >= 0; i--) {
+    const m = props.messages[i]
+    if (m.role === 'assistant' && !m.streaming) return m.id
+  }
+  return ''
+})
+
+function formatUsageDetail(usage?: AiUsage): string {
   if (!usage) return ''
   const parts: string[] = []
   if (usage.promptTokens !== undefined) parts.push(t('ai.usageInput', { n: usage.promptTokens }))
@@ -176,6 +185,13 @@ function formatUsage(usage?: AiUsage): string {
   if (usage.reasoningTokens !== undefined) parts.push(t('ai.usageReasoning', { n: usage.reasoningTokens }))
   if (usage.totalTokens !== undefined) parts.push(t('ai.usageTotal', { n: usage.totalTokens }))
   return parts.join(' · ')
+}
+
+function formatUsage(usage?: AiUsage): string {
+  if (!usage) return ''
+  if (usage.totalTokens !== undefined) return t('ai.usageCompact', { n: usage.totalTokens })
+  const n = (usage.promptTokens || 0) + (usage.completionTokens || 0) + (usage.reasoningTokens || 0)
+  return n > 0 ? t('ai.usageCompact', { n }) : ''
 }
 
 async function copyText(text: string, key: string) {
@@ -197,21 +213,11 @@ async function copyText(text: string, key: string) {
 
 <template>
   <div class="chat-shell">
-    <div class="chat-follow-bar">
-      <button
-        type="button"
-        class="follow-toggle"
-        :class="{ on: followLatest }"
-        :aria-pressed="followLatest"
-        :title="followLatest ? t('ai.followLatestOn') : t('ai.followLatestOff')"
-        @click="toggleFollowLatest"
-      >
-        <span class="follow-toggle-dot" aria-hidden="true" />
-        <span>{{ t('ai.followLatest') }}</span>
-      </button>
-    </div>
     <div ref="listRef" class="chat-list" @scroll.passive="onListScroll">
       <div v-if="messages.length === 0" class="empty-state">
+        <div class="empty-mark" aria-hidden="true">
+          <AppIcon name="ai-chat" size="xl" />
+        </div>
         <div class="empty-title">{{ t('ai.emptyTitle') }}</div>
         <div class="empty-text">
           {{ hasApiConfigured ? t('ai.emptyConfigured') : t('ai.emptyNoKey') }}
@@ -235,13 +241,19 @@ async function copyText(text: string, key: string) {
         </div>
       </div>
       <div
+        v-if="messages.length > 0 && (contextDroppedCount || 0) > 0"
+        class="context-omit"
+        role="status"
+      >
+        {{ t('ai.contextOmitted', { n: contextDroppedCount }) }}
+      </div>
+      <div
         v-for="message in messages"
         :key="message.id"
-        class="chat-message"
-        :class="[message.role, { error: message.error }]"
+        class="chat-row"
+        :class="[message.role, { error: message.error, streaming: message.streaming }]"
       >
-      <div class="message-role-row">
-        <div class="message-role">{{ message.role === 'user' ? t('ai.roleYou') : t('ai.roleAi') }}</div>
+      <div class="message-stack">
         <div v-if="!message.streaming && !loading" class="message-actions">
           <template v-if="message.role === 'user'">
             <button
@@ -300,6 +312,21 @@ async function copyText(text: string, key: string) {
             </button>
           </template>
         </div>
+      <div v-if="message.toolRuns?.length" class="tool-runs">
+        <div
+          v-for="run in message.toolRuns"
+          :key="run.id"
+          class="tool-run"
+          :class="{ error: run.isError, pending: message.streaming && !run.content }"
+        >
+          <div class="tool-run-head">
+            <span class="tool-run-name">{{ run.name }}</span>
+            <span v-if="message.streaming && !run.content" class="tool-run-state">{{ t('ai.toolRunning') }}</span>
+            <span v-else-if="run.isError" class="tool-run-state">{{ t('ai.toolFailed') }}</span>
+          </div>
+          <pre v-if="run.args" class="tool-run-args">{{ run.args }}</pre>
+          <pre v-if="run.content" class="tool-run-out">{{ run.content }}</pre>
+        </div>
       </div>
       <details v-if="message.reasoningContent" class="reasoning-box">
         <summary>{{ t('ai.reasoning') }}</summary>
@@ -349,13 +376,30 @@ async function copyText(text: string, key: string) {
             <div v-else class="markdown-block" v-html="block.content"></div>
           </template>
         </template>
-        <span v-else>{{ t('ai.thinking') }}</span>
+        <span v-else class="thinking">
+          <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+          {{ t('ai.thinking') }}
+        </span>
       </div>
-      <div v-if="formatUsage(message.usage)" class="usage-line">
-        Token: {{ formatUsage(message.usage) }}
+      <div
+        v-if="message.id === lastAssistantId && formatUsage(message.usage)"
+        class="usage-line"
+        :title="formatUsageDetail(message.usage)"
+      >
+        {{ formatUsage(message.usage) }}
+      </div>
       </div>
     </div>
     </div>
+    <button
+      v-if="messages.length > 0 && !followLatest"
+      type="button"
+      class="jump-latest"
+      :title="t('ai.followLatestOff')"
+      @click="toggleFollowLatest"
+    >
+      {{ t('ai.jumpToLatest') }}
+    </button>
   </div>
 </template>
 
@@ -366,119 +410,118 @@ async function copyText(text: string, key: string) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.chat-follow-bar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding: 0 2px 6px;
-}
-
-.follow-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  user-select: none;
-  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
-}
-
-.follow-toggle:hover {
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
-}
-
-.follow-toggle.on {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.follow-toggle-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  opacity: 0.55;
-  flex: 0 0 auto;
-}
-
-.follow-toggle.on .follow-toggle-dot {
-  background: var(--accent);
-  opacity: 1;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  position: relative;
 }
 
 .chat-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px;
+  padding: 16px 18px 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 22px;
 }
 
 .empty-state {
   margin: auto 0;
   color: var(--text-secondary);
   text-align: center;
-  padding: 16px 8px;
+  padding: 28px 12px;
+}
+
+.empty-mark {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .empty-title {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .empty-text {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.45;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .empty-actions {
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   justify-content: center;
   gap: 8px;
 }
 
 .empty-examples {
-  margin-top: 14px;
+  margin-top: 16px;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
 }
 
 .empty-example-chip {
   max-width: 100%;
-  padding: 5px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--border-color);
-  border-radius: 999px;
-  background: var(--bg-tertiary);
+  border-radius: 10px;
+  background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.4;
   cursor: pointer;
   text-align: left;
 }
 
 .empty-example-chip:hover {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
   color: var(--text-primary);
   background: var(--accent-bg);
+}
+
+.context-omit {
+  align-self: center;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 2;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+}
+
+.jump-latest:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .code-actions {
@@ -506,44 +549,44 @@ async function copyText(text: string, key: string) {
   color: var(--accent);
 }
 
-.chat-message {
+.chat-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  max-width: 100%;
 }
 
-.chat-message.user {
+.chat-row.user {
   align-items: flex-end;
 }
 
-.message-role-row {
+.chat-row.assistant {
+  align-items: stretch;
+}
+
+.message-stack {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 18px;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
 }
 
-.chat-message.user .message-role-row {
-  flex-direction: row-reverse;
-}
-
-.message-role {
-  font-size: 10px;
-  color: var(--text-secondary);
+.chat-row.user .message-stack {
+  max-width: 82%;
+  align-items: flex-end;
 }
 
 .message-actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  order: 2;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 
-.chat-message:hover .message-actions,
-.chat-message:focus-within .message-actions {
+.chat-row:hover .message-actions,
+.chat-row:focus-within .message-actions {
   opacity: 1;
 }
 
@@ -554,7 +597,7 @@ async function copyText(text: string, key: string) {
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -569,23 +612,64 @@ async function copyText(text: string, key: string) {
   position: relative;
   max-width: 100%;
   word-break: break-word;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
   color: var(--text-primary);
-  border-radius: 8px;
-  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chat-row.user .message-content {
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 16px 16px 6px 16px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.chat-row.assistant .message-content {
+  background: transparent;
+  border: none;
+  padding: 2px 0 0;
+  line-height: 1.7;
+}
+
+.chat-row.error .message-content {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--danger);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.chat-message.user .message-content {
-  background: var(--accent-bg);
-  border-color: var(--accent);
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
-.chat-message.error .message-content {
-  border-color: var(--danger);
-  color: var(--danger);
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.thinking-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.35;
+  animation: ai-think 1s ease-in-out infinite;
+}
+
+.thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes ai-think {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
 }
 
 .markdown-block + .markdown-block,
@@ -787,20 +871,76 @@ async function copyText(text: string, key: string) {
   white-space: pre;
 }
 
-.reasoning-box {
-  width: 100%;
+.tool-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.tool-run {
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.tool-run.error {
+  border-color: color-mix(in srgb, var(--danger, #f85149) 45%, var(--border-color));
+}
+
+.tool-run.pending {
+  opacity: 0.85;
+}
+
+.tool-run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.tool-run-state {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.tool-run-args,
+.tool-run-out {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.reasoning-box {
+  width: fit-content;
+  max-width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
   color: var(--text-secondary);
   font-size: 11px;
 }
 
 .reasoning-box summary {
-  padding: 6px 8px;
+  padding: 4px 10px;
   cursor: pointer;
   color: var(--text-secondary);
   font-weight: 600;
+  list-style: none;
+}
+
+.reasoning-box summary::-webkit-details-marker {
+  display: none;
 }
 
 .reasoning-content {
@@ -810,6 +950,11 @@ async function copyText(text: string, key: string) {
 .usage-line {
   font-size: 10px;
   color: var(--text-secondary);
-  opacity: 0.8;
+  opacity: 0.75;
+  order: 3;
+}
+
+.code-block {
+  border-radius: 8px;
 }
 </style>

@@ -23,6 +23,10 @@ export interface Connection {
   useAgent?: boolean
   /** Local port forwards: listen locally and tunnel to remoteHost:remotePort via SSH */
   localForwards?: Array<{ localPort: number; remoteHost: string; remotePort: number }>
+  /** Remote forwards: remote listens and tunnels back to a local host:port */
+  remoteForwards?: Array<{ remoteHost?: string; remotePort: number; localHost: string; localPort: number }>
+  /** SOCKS5 dynamic forward on a local port */
+  dynamicForwards?: Array<{ localPort: number }>
 }
 
 export interface Session {
@@ -36,6 +40,16 @@ export interface Session {
   /** Bastion client when using jump host */
   jumpClient?: Client
   localForwardServers?: net.Server[]
+  remoteForwardHandles?: Array<{ close: () => void }>
+}
+
+export type KeyboardInteractiveRequest = {
+  requestId: string
+  sessionId: string
+  name: string
+  instructions: string
+  prompts: Array<{ prompt: string; echo: boolean }>
+  role: 'target' | 'jump'
 }
 
 export interface SSHCallbacks {
@@ -44,6 +58,7 @@ export interface SSHCallbacks {
   onNotice?: (sessionId: string, message: string) => void
   onClose: (sessionId: string) => void
   onError: (sessionId: string, error: string) => void
+  onKeyboardInteractive?: (req: KeyboardInteractiveRequest) => Promise<string[] | null>
 }
 
 export interface FileEntry {
@@ -54,6 +69,15 @@ export interface FileEntry {
   size: number
   modifyTime: number
   permissions: string
+}
+
+/** Public snapshot for main-process integrations (MCP / monitor). No secrets. */
+export type SessionSnapshot = {
+  sessionId: string
+  connectionId: string
+  connectionName: string
+  generation: number
+  hasSftp: boolean
 }
 
 export interface ActiveTransfer {

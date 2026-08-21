@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('window:openConnection', connectionId),
   isEncryptionAvailable: () => ipcRenderer.invoke('store:isEncryptionAvailable'),
   getConnectionPassword: (id: string) => ipcRenderer.invoke('store:getConnectionPassword', id),
+  getConnectionSecrets: (id: string) => ipcRenderer.invoke('store:getConnectionSecrets', id),
   getSavedCredentials: () => ipcRenderer.invoke('store:getSavedCredentials'),
   getSavedCredentialPassword: (id: string) => ipcRenderer.invoke('store:getSavedCredentialPassword', id),
   saveSavedCredential: (credential: any) => ipcRenderer.invoke('store:saveSavedCredential', credential),
@@ -112,7 +113,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   switchAiModel: (providerId: string, model: string) => ipcRenderer.invoke('settings:switchAiModel', providerId, model),
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => ipcRenderer.invoke('ai:testProvider', provider),
   aiChat: (messages: any[]) => ipcRenderer.invoke('ai:chat', messages),
-  aiChatStream: (requestId: string, messages: any[]) => ipcRenderer.invoke('ai:chatStream', requestId, messages),
+  aiChatStream: (requestId: string, messages: any[], opts?: { sessionId?: string }) =>
+    ipcRenderer.invoke('ai:chatStream', requestId, messages, opts),
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
   aiGenerateConversationTitle: (payload: {
     userText: string
@@ -145,11 +147,35 @@ contextBridge.exposeInMainWorld('LiteConnect', {
 
   getLatencyEnabled: () => ipcRenderer.invoke('settings:getLatencyEnabled'),
   setLatencyEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setLatencyEnabled', enabled),
+  getConnectionUsageStatsEnabled: () => ipcRenderer.invoke('settings:getConnectionUsageStatsEnabled'),
+  setConnectionUsageStatsEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('settings:setConnectionUsageStatsEnabled', enabled),
+  getFancyCursorEnabled: () => ipcRenderer.invoke('settings:getFancyCursorEnabled'),
+  setFancyCursorEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setFancyCursorEnabled', enabled),
+  getFancyCursorStyle: () => ipcRenderer.invoke('settings:getFancyCursorStyle'),
+  setFancyCursorStyle: (style: string) => ipcRenderer.invoke('settings:setFancyCursorStyle', style),
+  getWorkspaceRestoreEnabled: () => ipcRenderer.invoke('settings:getWorkspaceRestoreEnabled'),
+  setWorkspaceRestoreEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('settings:setWorkspaceRestoreEnabled', enabled),
+  getWorkspaceTabs: () => ipcRenderer.invoke('settings:getWorkspaceTabs'),
+  setWorkspaceTabs: (state: any) => ipcRenderer.invoke('settings:setWorkspaceTabs', state),
+  getAllSettings: () => ipcRenderer.invoke('settings:getAll'),
+  setManySettings: (patch: any) => ipcRenderer.invoke('settings:setMany', patch),
+  getAppBackground: () => ipcRenderer.invoke('settings:getAppBackground'),
+  selectAppBackgroundImage: () => ipcRenderer.invoke('settings:selectAppBackgroundImage'),
+  setAppBackgroundImage: (payload: {
+    token?: string
+    fit?: 'cover' | 'contain' | 'fill'
+    overlay?: number
+    clear?: boolean
+  }) => ipcRenderer.invoke('settings:setAppBackgroundImage', payload),
   getLatencyIntervalMs: () => ipcRenderer.invoke('settings:getLatencyIntervalMs'),
   setLatencyIntervalMs: (intervalMs: number) => ipcRenderer.invoke('settings:setLatencyIntervalMs', intervalMs),
 
-  exportConnections: () => ipcRenderer.invoke('store:exportConnections'),
+  exportConnections: (includeSecrets = false) =>
+    ipcRenderer.invoke('store:exportConnections', includeSecrets),
   importConnections: () => ipcRenderer.invoke('store:importConnections'),
+  importSshConfig: () => ipcRenderer.invoke('store:importSshConfig'),
 
   sshConnect: (connectionId: string) => ipcRenderer.invoke('ssh:connect', connectionId),
   /** Reuse sessionId: tear down old transport and open a new shell in place */
@@ -199,6 +225,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   sshGetHostKeyFingerprint: (host: string, port: number) => ipcRenderer.invoke('ssh:getHostKeyFingerprint', host, port),
   sshConfirmHostKey: (connectionId: string) => ipcRenderer.invoke('ssh:confirmHostKey', connectionId),
   sshRejectHostKey: (connectionId: string) => ipcRenderer.invoke('ssh:rejectHostKey', connectionId),
+  sshReplyKeyboardInteractive: (requestId: string, answers: string[] | null) =>
+    ipcRenderer.invoke('ssh:replyKeyboardInteractive', requestId, answers),
   onSshHostKeyMismatch: (callback: (data: {
     connectionId: string
     host: string
@@ -218,6 +246,20 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.on('ssh:hostKeyMismatch', listener)
     return () => ipcRenderer.removeListener('ssh:hostKeyMismatch', listener)
   },
+  onSshKeyboardInteractive: (
+    callback: (data: {
+      requestId: string
+      sessionId: string
+      name: string
+      instructions: string
+      prompts: Array<{ prompt: string; echo: boolean }>
+      role: 'target' | 'jump'
+    }) => void,
+  ) => {
+    const listener = (_event: any, data: any) => callback(data)
+    ipcRenderer.on('ssh:keyboardInteractive', listener)
+    return () => ipcRenderer.removeListener('ssh:keyboardInteractive', listener)
+  },
   onSshDecryptionFailed: (callback: (data: { connectionId: string; field: 'password' | 'privateKey' | 'apiKey'; message: string }) => void) => {
     const listener = (_event: any, data: { connectionId: string; field: 'password' | 'privateKey' | 'apiKey'; message: string }) => callback(data)
     ipcRenderer.on('ssh:decryptionFailed', listener)
@@ -228,6 +270,30 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   sshStopLatencyMonitor: (sessionId: string) => ipcRenderer.invoke('ssh:stopLatencyMonitor', sessionId),
   sshMeasureLatency: (sessionId: string) => ipcRenderer.invoke('ssh:measureLatency', sessionId),
   sshExec: (sessionId: string, command: string, timeoutMs?: number) => ipcRenderer.invoke('ssh:exec', sessionId, command, timeoutMs),
+  mcpListTools: () => ipcRenderer.invoke('mcp:listTools'),
+  mcpCallTool: (name: string, args?: Record<string, unknown>) =>
+    ipcRenderer.invoke('mcp:callTool', name, args ?? {}),
+  mcpGetHttpStatus: () => ipcRenderer.invoke('mcp:getHttpStatus'),
+  mcpSetHttpEnabled: (enabled: boolean) => ipcRenderer.invoke('mcp:setHttpEnabled', enabled),
+  mcpSetHttpPort: (port: number) => ipcRenderer.invoke('mcp:setHttpPort', port),
+  mcpRotateHttpToken: () => ipcRenderer.invoke('mcp:rotateHttpToken'),
+  mcpReportConnectResult: (requestId: string, result: { sessionId?: string; error?: string }) =>
+    ipcRenderer.invoke('mcp:connectResult', requestId, result),
+  onMcpConnectRequest: (callback: (payload: { requestId: string; connectionId: string }) => void) => {
+    const channel = 'mcp:connectRequest'
+    const listener = (
+      _event: unknown,
+      payload: { requestId: string; connectionId: string },
+    ) => callback(payload)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  },
+  onMcpCloseSession: (callback: (sessionId: string) => void) => {
+    const channel = 'mcp:closeSession'
+    const listener = (_event: unknown, sessionId: string) => callback(sessionId)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  },
 
   /** Docker availability probe for an SSH session (sessionId only; no socket/path/API). */
   dockerProbe: (sessionId: string) => ipcRenderer.invoke('docker:probe', sessionId),

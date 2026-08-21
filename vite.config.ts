@@ -32,6 +32,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            emptyOutDir: true,
             rollupOptions: {
               // Native / complex Node drivers must not be rolled into main.js
               // (bundling `pg` causes TDZ: Cannot access 'Bt' before initialization).
@@ -59,6 +60,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            emptyOutDir: false,
           },
         },
       },

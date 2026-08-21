@@ -9,9 +9,12 @@ import type {
   AiSessionStore,
   AiSettings,
   AiThreadSummary,
+  AiToolRun,
   AiUsage,
 } from '../../env.d'
 import { t } from '../../i18n'
+import { firstAiModelId, packAiMessages, resolveModelContextWindow } from '@shared/aiContext'
+import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
 
 export type ChatItem = AiChatMessage & {
   id: string
@@ -20,6 +23,7 @@ export type ChatItem = AiChatMessage & {
   reasoningContent?: string
   usage?: AiUsage
   streaming?: boolean
+  toolRuns?: AiToolRun[]
 }
 
 type AiSessionState = {
@@ -33,19 +37,8 @@ type AiSessionState = {
 }
 
 const aiSessionStates = new Map<string, AiSessionState>()
-const replyCompleteListeners = new Set<(sessionId: string) => void>()
 /** Prevent concurrent title jobs per session+thread */
 const titleGenerationInFlight = new Set<string>()
-
-function notifyReplyComplete(sessionId: string) {
-  for (const listener of replyCompleteListeners) {
-    try {
-      listener(sessionId)
-    } catch (err) {
-      console.warn('[AI] reply complete listener error:', err)
-    }
-  }
-}
 
 function createThreadId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -92,17 +85,23 @@ export function useAiChat() {
 
   const displayModelName = computed(() => {
     if (!activeProvider.value) return ''
-    const model = settings.value.activeModel || activeProvider.value.models[0] || ''
-    return model
+    return settings.value.activeModel || firstAiModelId(activeProvider.value.models)
   })
+
+  const activeContextWindowTokens = computed(() =>
+    resolveModelContextWindow({
+      model: displayModelName.value,
+      models: activeProvider.value?.models,
+      fallback: settings.value.contextWindowTokens,
+    }),
+  )
 
   let activeStreamUnsubscribe: (() => void) | null = null
   let activeRequestId: string | null = null
   let activeStreamSessionId: string | null = null
 
   function onReplyComplete(cb: (sessionId: string) => void): () => void {
-    replyCompleteListeners.add(cb)
-    return () => replyCompleteListeners.delete(cb)
+    return onAiReplyComplete(cb)
   }
 
   async function stopGeneration(sessionId?: string): Promise<boolean> {
@@ -114,6 +113,13 @@ export function useAiChat() {
     } catch {
       return false
     }
+  }
+
+  function sanitizeAiErrorMessage(raw: string): string {
+    return String(raw || '')
+      .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+      .replace(/^Error:\s*/i, '')
+      .trim()
   }
 
   function createMessage(
@@ -162,6 +168,7 @@ export function useAiChat() {
     const usage = plainUsage(message.usage)
     if (usage) record.usage = usage
     if (message.error === true) record.error = true
+    if (message.toolRuns?.length) record.toolRuns = plainToolRuns(message.toolRuns)
     return record
   }
 
@@ -174,7 +181,29 @@ export function useAiChat() {
       usage: record.usage,
       error: record.error,
       createdAt: record.createdAt,
+      toolRuns: record.toolRuns,
     }
+  }
+
+  function plainToolRuns(runs: AiToolRun[] | undefined): AiToolRun[] | undefined {
+    if (!runs?.length) return undefined
+    return runs.map((run) => ({
+      id: String(run.id || ''),
+      name: String(run.name || ''),
+      args: String(run.args || ''),
+      content: String(run.content || ''),
+      isError: run.isError === true,
+    }))
+  }
+
+  function contentForModel(message: ChatItem): string {
+    if (!message.toolRuns?.length) return message.content
+    const lines = message.toolRuns.map((run) => {
+      const args = run.args ? ` ${run.args.replace(/\s+/g, ' ').slice(0, 160)}` : ''
+      const out = run.content.replace(/\s+/g, ' ').slice(0, 1200)
+      return `- ${run.name}${args}: ${run.isError ? 'ERROR ' : ''}${out}`
+    })
+    return `【已在当前 SSH 会话执行】\n${lines.join('\n')}\n\n${message.content || ''}`
   }
 
   function setSessionLoading(sessionId: string, value: boolean) {
@@ -431,13 +460,23 @@ export function useAiChat() {
     }
 
     const chatMessages = state.messages
-      .filter((message) => !message.error && !message.streaming && message.content.trim())
-      .map(({ role, content }) => ({ role, content }))
+      .filter((message) => !message.error && !message.streaming && (message.content.trim() || message.toolRuns?.length))
+      .map((message) => ({ role: message.role, content: contentForModel(message) }))
 
     if (chatMessages.length === 0) {
       ElMessage.warning(t('ai.needUserMessage'))
       return false
     }
+
+    // System prompt is attached only here (and in main-process pack), never when
+    // the sidebar is merely opened.
+    const packed = packAiMessages({
+      systemPrompt: settings.value.systemPrompt,
+      messages: chatMessages.filter((m) => m.role !== 'system'),
+      model: settings.value.activeModel,
+      contextWindowTokens: activeContextWindowTokens.value,
+    })
+    const requestMessages = packed.messages.filter((m) => m.role !== 'system')
 
     setSessionLoading(sessionId, true)
 
@@ -488,17 +527,49 @@ export function useAiChat() {
         } else if (payload.type === 'usage') {
           // Store a plain copy — reactive() would wrap nested objects as Proxies
           updateAssistantMessage({ usage: plainUsage(payload.value) })
+        } else if (payload.type === 'tool') {
+          const runs = [...(current.toolRuns || [])]
+          const incoming = payload.value
+          const idx = runs.findIndex((r) => r.id === incoming.id)
+          if (incoming.phase === 'start') {
+            const nextRun: AiToolRun = {
+              id: incoming.id,
+              name: incoming.name,
+              args: incoming.args || '',
+              content: '',
+              isError: false,
+            }
+            if (idx >= 0) runs[idx] = { ...runs[idx], ...nextRun }
+            else runs.push(nextRun)
+          } else if (idx >= 0) {
+            runs[idx] = {
+              ...runs[idx],
+              args: incoming.args ?? runs[idx].args,
+              content: incoming.content ?? runs[idx].content,
+              isError: incoming.isError === true,
+            }
+          } else {
+            runs.push({
+              id: incoming.id,
+              name: incoming.name,
+              args: incoming.args || '',
+              content: incoming.content || '',
+              isError: incoming.isError === true,
+            })
+          }
+          updateAssistantMessage({ toolRuns: runs })
         }
       })
 
       try {
-        const reply = await window.LiteConnect.aiChatStream(requestId, chatMessages)
+        const reply = await window.LiteConnect.aiChatStream(requestId, requestMessages, { sessionId })
         const current = getAssistantMessage()
         const aborted = !!(reply as any)?.aborted
         updateAssistantMessage({
           content: reply.content || current.content || (aborted ? t('ai.stopped') : ''),
           reasoningContent: reply.reasoningContent || current.reasoningContent,
           usage: plainUsage(reply.usage || current.usage),
+          toolRuns: plainToolRuns(reply.toolRuns || current.toolRuns),
           error: aborted && !reply.content && !current.content ? false : current.error,
         })
       } finally {
@@ -516,7 +587,7 @@ export function useAiChat() {
         })
       } else if (!current.content && !current.reasoningContent) {
         try {
-          const reply = await window.LiteConnect.aiChat(chatMessages)
+          const reply = await window.LiteConnect.aiChat(requestMessages)
           updateAssistantMessage({
             content: reply.content,
             reasoningContent: reply.reasoningContent,
@@ -524,13 +595,13 @@ export function useAiChat() {
           })
         } catch (fallbackErr: any) {
           updateAssistantMessage({
-            content: fallbackErr?.message || err?.message || t('ai.requestFailed'),
+            content: sanitizeAiErrorMessage(fallbackErr?.message || err?.message || t('ai.requestFailed')),
             error: true,
           })
         }
       } else {
         updateAssistantMessage({
-          content: `${current.content}\n\n${err?.message || t('ai.requestInterrupted')}`,
+          content: `${current.content}\n\n${sanitizeAiErrorMessage(err?.message || t('ai.requestInterrupted'))}`,
           error: true,
         })
       }
@@ -555,7 +626,7 @@ export function useAiChat() {
     if (finalAssistant && !finalAssistant.error && finalAssistant.content.trim()) {
       void maybeGenerateThreadTitle(sessionId)
     }
-    notifyReplyComplete(sessionId)
+    notifyAiReplyComplete(sessionId)
     return true
   }
 
@@ -892,6 +963,7 @@ export function useAiChat() {
     settings,
     activeProvider,
     displayModelName,
+    activeContextWindowTokens,
     createMessage,
     sendText,
     stopGeneration,

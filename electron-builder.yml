@@ -3,9 +3,14 @@ productName: LiteConnect
 directories:
   buildResources: build
   output: release
+electronLanguages:
+  - zh-CN
+  - en-US
 files:
   - dist/**/*
   - dist-electron/**/*
+  - "!dist-electron/**/*.tsbuildinfo"
+  - "!dist-electron/**/*.map"
   - "!node_modules/**/*"
   # Externalized native/Node drivers (must match vite main external)
   # Full transitive trees of: ssh2, mysql2, pg, oracledb

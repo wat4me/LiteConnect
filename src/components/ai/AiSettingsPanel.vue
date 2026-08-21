@@ -2,8 +2,9 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiProvider, AiSettings } from '../../env.d.ts'
+import type { AiModel, AiProvider, AiSettings } from '../../env.d.ts'
 import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
+import { firstAiModelId, inferContextWindowTokens, parseAiModels } from '@shared/aiContext'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
@@ -17,17 +18,24 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const draftSettings = ref<AiSettings>(
-  props.modelValue
-    ? JSON.parse(JSON.stringify(props.modelValue))
+function cloneSettings(settings?: AiSettings | null): AiSettings {
+  const raw = settings
+    ? (JSON.parse(JSON.stringify(settings)) as AiSettings)
     : {
-        providers: [],
+        providers: [] as AiProvider[],
         activeProviderId: null,
         activeModel: '',
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
         temperature: 0.7,
-      },
-)
+      }
+  raw.providers = (raw.providers || []).map((p) => ({
+    ...p,
+    models: parseAiModels(p.models),
+  }))
+  return raw
+}
+
+const draftSettings = ref<AiSettings>(cloneSettings(props.modelValue))
 
 const editingProviderId = ref<string | null>(null)
 const testingProvider = ref(false)
@@ -60,7 +68,7 @@ function deleteProvider(id: string) {
   if (draftSettings.value.activeProviderId === id) {
     draftSettings.value.activeProviderId = draftSettings.value.providers[0]?.id || null
     const firstP = draftSettings.value.providers[0]
-    draftSettings.value.activeModel = firstP?.models[0] || ''
+    draftSettings.value.activeModel = firstAiModelId(firstP?.models)
   }
   if (editingProviderId.value === id) {
     editingProviderId.value = null
@@ -68,7 +76,29 @@ function deleteProvider(id: string) {
 }
 
 function addModelToProvider(provider: AiProvider) {
-  provider.models.push('')
+  provider.models.push({ id: '' })
+}
+
+function modelWindowValue(model: AiModel): string {
+  return model.contextWindowTokens ? String(model.contextWindowTokens) : ''
+}
+
+function modelWindowPlaceholder(model: AiModel): string {
+  return String(inferContextWindowTokens(model.id))
+}
+
+function setModelWindowValue(model: AiModel, raw: string) {
+  const n = Number(raw)
+  if (!raw.trim() || !Number.isFinite(n) || n <= 0) {
+    model.contextWindowTokens = undefined
+    return
+  }
+  model.contextWindowTokens = Math.round(n)
+}
+
+function setActiveProvider(provider: AiProvider) {
+  draftSettings.value.activeProviderId = provider.id
+  draftSettings.value.activeModel = firstAiModelId(provider.models)
 }
 
 function removeModelFromProvider(provider: AiProvider, index: number) {
@@ -78,7 +108,7 @@ function removeModelFromProvider(provider: AiProvider, index: number) {
 async function testProvider() {
   const provider = editingProvider.value
   if (!provider || testingProvider.value) return
-  const model = provider.models.find((item) => item.trim())?.trim() || ''
+  const model = firstAiModelId(provider.models)
   if (!model) {
     ElMessage.warning(t('ai.testProviderNeedModel'))
     return
@@ -105,7 +135,7 @@ async function saveSettings() {
       name: p.name.trim() || t('ai.unnamedProvider'),
       baseUrl: p.baseUrl.trim(),
       apiKey: p.apiKey,
-      models: p.models.filter((m) => m.trim()).map((m) => m.trim()),
+      models: parseAiModels(p.models),
     })),
     activeProviderId: draftSettings.value.activeProviderId,
     activeModel: draftSettings.value.activeModel.trim(),
@@ -125,7 +155,7 @@ async function saveSettings() {
     return
   }
   if (!next.activeModel && activeP && activeP.models.length > 0) {
-    next.activeModel = activeP.models[0]
+    next.activeModel = firstAiModelId(activeP.models)
   }
 
   await window.LiteConnect.setAiSettings(next)
@@ -137,7 +167,7 @@ async function saveSettings() {
 
 /** Sync draft when parent reloads settings (e.g. after model switch) */
 function applyExternal(settings: AiSettings) {
-  draftSettings.value = JSON.parse(JSON.stringify(settings))
+  draftSettings.value = cloneSettings(settings)
 }
 
 defineExpose({ applyExternal })
@@ -180,7 +210,7 @@ defineExpose({ applyExternal })
             type="button"
             class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
             :title="t('ai.setActiveProvider')"
-            @click="draftSettings.activeProviderId = provider.id; draftSettings.activeModel = provider.models[0] || ''"
+            @click="setActiveProvider(provider)"
           >
             <AppIcon name="check" size="xs" />
           </button>
@@ -211,7 +241,7 @@ defineExpose({ applyExternal })
       <input v-model="editingProvider.apiKey" class="ui-input ui-input-sm" type="password" placeholder="sk-..." />
 
       <div class="provider-models-header">
-        <span class="field-label">{{ t('ai.modelList') }}</span>
+        <span class="field-label">{{ t('ai.modelList') }} · {{ t('ai.contextWindow') }}</span>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="addModelToProvider(editingProvider)" :title="t('ai.addModel')">
           <AppIcon name="plus" size="sm" />
         </button>
@@ -224,7 +254,18 @@ defineExpose({ applyExternal })
         :key="index"
         class="model-input-row"
       >
-        <input v-model="editingProvider.models[index]" class="ui-input ui-input-sm model-input" placeholder="gpt-4o-mini" />
+        <input v-model="model.id" class="ui-input ui-input-sm model-input" placeholder="gpt-4o-mini" />
+        <input
+          class="ui-input ui-input-sm model-window-input"
+          type="number"
+          min="4096"
+          max="4000000"
+          step="1000"
+          :value="modelWindowValue(model)"
+          :placeholder="modelWindowPlaceholder(model)"
+          :title="t('ai.contextWindowHint')"
+          @input="setModelWindowValue(model, ($event.target as HTMLInputElement).value)"
+        />
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.deleteModel')" @click="removeModelFromProvider(editingProvider, index)">
           <AppIcon name="close" size="xs" />
         </button>
@@ -360,6 +401,14 @@ defineExpose({ applyExternal })
 
 .model-input {
   flex: 1;
+  min-width: 0;
+}
+
+.model-window-input {
+  width: 88px;
+  flex: 0 0 88px;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .field-label {
@@ -367,4 +416,6 @@ defineExpose({ applyExternal })
   color: var(--text-secondary);
   font-weight: 600;
 }
+
+
 </style>

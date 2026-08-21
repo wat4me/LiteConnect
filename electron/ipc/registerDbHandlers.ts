@@ -124,12 +124,12 @@ export function registerDbHandlers(
     const mainWindow = getMainWindow()
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, {
-          title: '选择 SQL 文件',
+          title: t('dialog.selectSqlScript'),
           filters: [{ name: 'SQL', extensions: ['sql'] }],
           properties: ['openFile'],
         })
       : await dialog.showOpenDialog({
-          title: '选择 SQL 文件',
+          title: t('dialog.selectSqlScript'),
           filters: [{ name: 'SQL', extensions: ['sql'] }],
           properties: ['openFile'],
         })

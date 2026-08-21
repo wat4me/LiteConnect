@@ -11,12 +11,23 @@ const DatabaseView = defineAsyncComponent(() => import('./views/DatabaseView.vue
 const SshWorkspace = defineAsyncComponent(() => import('@/components/workspace/SshWorkspace.vue'))
 const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
+const KeyboardInteractiveDialog = defineAsyncComponent(() => import('@/components/app/KeyboardInteractiveDialog.vue'))
 const OnboardingTips = defineAsyncComponent(() => import('@/components/app/OnboardingTips.vue'))
 const GlobalJumpPalette = defineAsyncComponent(() => import('@/components/app/GlobalJumpPalette.vue'))
 const ShortcutsHelpOverlay = defineAsyncComponent(() => import('@/components/app/ShortcutsHelpOverlay.vue'))
 import type { AppBootstrapData } from './env.d'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { useTheme } from '@/composables/app/useTheme'
+import {
+  sanitizeFancyCursorStyle,
+  useFancyCursor,
+  type FancyCursorStyle,
+} from '@/composables/app/useFancyCursor'
+import {
+  applyAppBackground,
+  sanitizeAppBackgroundFit,
+  clampBackgroundOverlay,
+} from '@/composables/app/useAppBackground'
 import { useTerminalPwd } from './composables/terminal/useTerminalPwd'
 import { useSessionManager, HOME_ID } from './composables/session/useSessionManager'
 import { useSidebarState } from '@/composables/workspace/useSidebarState'
@@ -24,7 +35,7 @@ import { useLatencyState } from './composables/session/useLatencyState'
 import { useAppKeyboard } from '@/composables/app/useAppKeyboard'
 import { useSplitTerminal } from './composables/terminal/useSplitTerminal'
 import { useAiReplyBadge } from './composables/ai/useAiReplyBadge'
-import { useAiChat } from './composables/ai/useAiChat'
+import { onAiReplyComplete } from './composables/ai/aiReplyEvents'
 import { useSecurityDialogs } from '@/composables/app/useSecurityDialogs'
 import { useAppNavigation } from '@/composables/app/useAppNavigation'
 import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
@@ -42,8 +53,57 @@ import { useTitlebarConnection } from '@/composables/app/useTitlebarConnection'
 
 const { t } = useI18n()
 const { theme, customColors } = useTheme()
+const fancyCursorEnabled = ref(false)
+const fancyCursorStyle = ref<FancyCursorStyle>('ring')
+useFancyCursor(fancyCursorEnabled, fancyCursorStyle)
 const pwdTracker = useTerminalPwd()
 const { dbConnectionLabel } = useTitlebarConnection()
+
+function onFancyCursorSettingsChange(e: Event) {
+  const detail = (e as CustomEvent<{ enabled?: boolean; style?: string }>).detail
+  if (typeof detail?.enabled === 'boolean') {
+    fancyCursorEnabled.value = detail.enabled
+  }
+  if (detail?.style != null) {
+    fancyCursorStyle.value = sanitizeFancyCursorStyle(detail.style)
+  }
+}
+
+async function loadFancyCursorSettings() {
+  try {
+    const [enabled, style] = await Promise.all([
+      window.LiteConnect.getFancyCursorEnabled(),
+      window.LiteConnect.getFancyCursorStyle(),
+    ])
+    fancyCursorEnabled.value = enabled === true
+    fancyCursorStyle.value = sanitizeFancyCursorStyle(style)
+  } catch {
+    fancyCursorEnabled.value = false
+    fancyCursorStyle.value = 'ring'
+  }
+}
+
+async function loadAppBackgroundSettings() {
+  try {
+    const bg = await window.LiteConnect.getAppBackground()
+    applyAppBackground({
+      imageUrl: bg?.imageUrl || '',
+      fit: sanitizeAppBackgroundFit(bg?.fit),
+      overlay: clampBackgroundOverlay(bg?.overlay),
+    })
+  } catch {
+    applyAppBackground({ imageUrl: '' })
+  }
+}
+
+function onAppBackgroundSettingsChange(e: Event) {
+  const detail = (e as CustomEvent<{ imageUrl?: string; dataUrl?: string; fit?: string; overlay?: number }>).detail
+  applyAppBackground({
+    imageUrl: detail?.imageUrl || detail?.dataUrl || '',
+    fit: sanitizeAppBackgroundFit(detail?.fit),
+    overlay: clampBackgroundOverlay(detail?.overlay),
+  })
+}
 
 const session = useSessionManager({ pwdTracker })
 const {
@@ -75,6 +135,7 @@ const {
   loadConnections,
   loadRecentConnections,
   hydrateConnectionData,
+  restoreWorkspaceTabs,
 } = session
 
 const connectionsBootstrap = ref<Pick<AppBootstrapData, 'connections' | 'groups'> | null>(null)
@@ -214,6 +275,7 @@ const {
   applyModeForActiveSession,
   markSessionConnected,
   ensureSessionTracked,
+  disconnectedSessionIds,
   forgetSession,
   withTerminalModeGuard,
 } = useDockerWorkspaceMode({
@@ -253,6 +315,9 @@ const {
   handleHostKeyReject,
   handleDecryptionFailedGoEdit,
   handleDecryptionFailedDismiss,
+  keyboardPrompt,
+  handleKeyboardSubmit,
+  handleKeyboardCancel,
 } = useSecurityDialogs({
   connections,
   onSelectHome: () => enterSsh(true),
@@ -267,14 +332,12 @@ const {
 })
 
 const { unreadSessions, markUnread, clearUnread, hasUnread } = useAiReplyBadge()
-const { onReplyComplete } = useAiChat()
 
 const {
   batchSessions,
   liveSessionIds,
   handleSessionClosed,
   handleReconnect,
-  handleReconnectAll,
   handleCloseSession,
   onCdCommand,
   onPwdOutput,
@@ -385,10 +448,15 @@ const { handleKeydown } = useAppKeyboard({
 })
 
 let prevDockerSessionId: string | null = null
+function trackSessionConnection(sessionId: string) {
+  const sess = allSessions.value.find((s) => s.id === sessionId)
+  ensureSessionTracked(sessionId, { connected: sess?.pending !== true })
+}
+
 watch(
   activeSessionId,
   (next) => {
-    if (next) ensureSessionTracked(next)
+    if (next) trackSessionConnection(next)
     applyModeForActiveSession(prevDockerSessionId, next)
     prevDockerSessionId = next
   },
@@ -404,7 +472,7 @@ watch(
 watch(
   allSessions,
   (sessions) => {
-    for (const s of sessions) ensureSessionTracked(s.id)
+    for (const s of sessions) trackSessionConnection(s.id)
   },
   { immediate: true },
 )
@@ -428,6 +496,11 @@ function attachDockerSshListeners(sessionId: string) {
       markSessionConnected(sessionId, false)
     }),
   )
+  offs.push(
+    window.LiteConnect.onSshError(sessionId, () => {
+      markSessionConnected(sessionId, false)
+    }),
+  )
   if (typeof window.LiteConnect.onSshReconnected === 'function') {
     offs.push(
       window.LiteConnect.onSshReconnected(sessionId, () => {
@@ -445,7 +518,7 @@ watch(
   (ids) => {
     const live = new Set(ids)
     for (const id of ids) {
-      ensureSessionTracked(id)
+      trackSessionConnection(id)
       attachDockerSshListeners(id)
     }
     for (const id of [...dockerSshUnsubs.keys()]) {
@@ -472,6 +545,8 @@ provide('customColors', customColors)
 provide('pwdTracker', pwdTracker)
 
 let unsubReplyComplete: (() => void) | null = null
+let unsubMcpConnect: (() => void) | null = null
+let unsubMcpClose: (() => void) | null = null
 
 watch(
   [activeSessionId, aiSidebarVisible],
@@ -580,13 +655,37 @@ const launchParams = readLaunchParams()
 const isDetachedWindow = launchParams.detached && !!launchParams.connectionId
 
 onMounted(async () => {
-  unsubReplyComplete = onReplyComplete((sessionId) => {
+  unsubReplyComplete = onAiReplyComplete((sessionId) => {
     if (sessionId === activeSessionId.value && aiSidebarVisible.value) return
     markUnread(sessionId)
+  })
+  if (typeof window.LiteConnect.onMcpCloseSession === 'function') {
+    unsubMcpClose = window.LiteConnect.onMcpCloseSession((sessionId) => {
+      void handleCloseSession(sessionId)
+    })
+  }
+  unsubMcpConnect = window.LiteConnect.onMcpConnectRequest((payload) => {
+    void (async () => {
+      try {
+        enterSsh()
+        ensureSshWorkspaceMounted()
+        const sessionId = await createSession(payload.connectionId)
+        await window.LiteConnect.mcpReportConnectResult(payload.requestId, {
+          sessionId: sessionId || undefined,
+          error: sessionId ? undefined : 'CONNECT_FAILED',
+        })
+      } catch (err: any) {
+        await window.LiteConnect.mcpReportConnectResult(payload.requestId, {
+          error: err?.message || 'CONNECT_FAILED',
+        })
+      }
+    })()
   })
   document.addEventListener('keydown', handleKeydown)
   window.addEventListener('latency-settings-change', handleLatencySettingsChange)
   window.addEventListener('monitor-settings-change', handleMonitorSettingsChange)
+  window.addEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
+  window.addEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
   window.addEventListener('sftp-transfer-finished', onTransferFinished)
   window.addEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
   window.addEventListener('batch-command-finished', onBatchFinished)
@@ -604,12 +703,23 @@ onMounted(async () => {
     latencyEnabled.value = bootstrap.latencyEnabled
     latencyIntervalMs.value = bootstrap.latencyIntervalMs
     monitorEnabled.value = bootstrap.monitorEnabled
+    fancyCursorEnabled.value = bootstrap.fancyCursorEnabled === true
+    fancyCursorStyle.value = sanitizeFancyCursorStyle(bootstrap.fancyCursorStyle)
+    applyAppBackground({
+      imageUrl: bootstrap.appBackground?.imageUrl || '',
+      fit: sanitizeAppBackgroundFit(bootstrap.appBackground?.fit),
+      overlay: clampBackgroundOverlay(bootstrap.appBackground?.overlay),
+    })
 
     if (!bootstrap.encryptionAvailable) {
       ElMessage.warning({
         message: t('app.bootstrapEncryptionWarn'),
         duration: 8000,
       })
+    }
+
+    if (!isDetachedWindow) {
+      await restoreWorkspaceTabs()
     }
 
     bootstrapPending.value = false
@@ -637,16 +747,26 @@ onMounted(async () => {
   latencyEnabled.value = await window.LiteConnect.getLatencyEnabled()
   latencyIntervalMs.value = await window.LiteConnect.getLatencyIntervalMs()
   monitorEnabled.value = await window.LiteConnect.getMonitorEnabled()
+  await Promise.all([loadFancyCursorSettings(), loadAppBackgroundSettings()])
   await Promise.all([loadConnections(), loadRecentConnections()])
+  if (!isDetachedWindow) {
+    await restoreWorkspaceTabs()
+  }
   bootstrapPending.value = false
 })
 
 onBeforeUnmount(() => {
   unsubReplyComplete?.()
   unsubReplyComplete = null
+  unsubMcpConnect?.()
+  unsubMcpConnect = null
+  unsubMcpClose?.()
+  unsubMcpClose = null
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('latency-settings-change', handleLatencySettingsChange)
   window.removeEventListener('monitor-settings-change', handleMonitorSettingsChange)
+  window.removeEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
+  window.removeEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
   window.removeEventListener('sftp-transfer-finished', onTransferFinished)
   window.removeEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
   window.removeEventListener('batch-command-finished', onBatchFinished)
@@ -658,6 +778,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-container">
+    <!-- Wallpaper under all routes (connections / SSH / settings); toggled via html.has-app-bg -->
+    <div class="app-bg-layer" aria-hidden="true"></div>
+
     <AppTitlebar
       :app-mode="appMode"
       :show-settings-page="showSettingsPage"
@@ -678,6 +801,7 @@ onBeforeUnmount(() => {
           :latency-map="latencyEnabled ? latencyMap : null"
           :latency-enabled="latencyEnabled"
           :unread-sessions="unreadSessions"
+          :disconnected-session-ids="disconnectedSessionIds"
           :home-active="isHomeActive"
           @select="(id) => { showSettingsPage = false; appMode = 'ssh'; onSelectGroup(id) }"
           @close="onCloseGroup"
@@ -745,6 +869,7 @@ onBeforeUnmount(() => {
           :docker-mode="isDockerMode"
           :docker-button-enabled="dockerButtonEnabled"
           :active-session-ssh-disconnected="!!activeSessionId && !isActiveSessionConnected"
+          :disconnected-session-ids="disconnectedSessionIds"
           @toggle-ai="guardedToggleAiSidebar"
           @toggle-files="guardedToggleSidebar"
           @toggle-monitor="guardedToggleMonitorPanel"
@@ -766,7 +891,6 @@ onBeforeUnmount(() => {
           @add-session="createSession"
           @session-closed="handleSessionClosed"
           @reconnect="handleReconnect"
-          @reconnect-all="handleReconnectAll"
           @cd-command="onCdCommand"
           @pwd-output="onPwdOutput"
           @ai-selection="(text, mode) => withTerminalModeGuard(() => handleAiSelection(text, mode))"
@@ -800,6 +924,13 @@ onBeforeUnmount(() => {
       @dismiss="handleDecryptionFailedDismiss"
     />
 
+    <KeyboardInteractiveDialog
+      v-if="keyboardPrompt"
+      :data="keyboardPrompt"
+      @submit="handleKeyboardSubmit"
+      @cancel="handleKeyboardCancel"
+    />
+
     <AppDialogHost />
 
     <OnboardingTips />
@@ -829,6 +960,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
+  background: transparent;
 }
 
 .workspace {
@@ -839,7 +972,9 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  z-index: 1;
   border-top: 1px solid var(--border-color);
+  background: transparent;
 }
 
 .workspace-top {
@@ -848,14 +983,14 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   height: var(--tab-height);
   min-height: var(--tab-height);
+  max-height: var(--tab-height);
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
 }
 
 .workspace-top :deep(.tab-bar) {
   flex: 1;
   min-width: 0;
-  border-bottom: none;
 }
 
 .app-main-body {

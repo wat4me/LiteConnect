@@ -10,6 +10,7 @@ import SettingsTerminal from '../components/settings/SettingsTerminal.vue'
 import SettingsFiles from '../components/settings/SettingsFiles.vue'
 import SettingsDatabase from '../components/settings/SettingsDatabase.vue'
 import SettingsNetwork from '../components/settings/SettingsNetwork.vue'
+import SettingsMcp from '../components/settings/SettingsMcp.vue'
 import SettingsShortcuts from '../components/settings/SettingsShortcuts.vue'
 
 const props = defineProps<{
@@ -53,6 +54,7 @@ const tabs = computed(() => [
   { id: 'files' as const, label: t('settings.tabs.files'), desc: t('settings.tabs.filesDesc') },
   { id: 'database' as const, label: t('settings.tabs.database'), desc: t('settings.tabs.databaseDesc') },
   { id: 'network' as const, label: t('settings.tabs.network'), desc: t('settings.tabs.networkDesc') },
+  { id: 'mcp' as const, label: t('settings.tabs.mcp'), desc: t('settings.tabs.mcpDesc') },
   { id: 'shortcuts' as const, label: t('settings.tabs.shortcuts'), desc: t('settings.tabs.shortcutsDesc') },
 ])
 
@@ -71,6 +73,25 @@ async function handleClose() {
       danger: true,
     })
     draft.value = cloneDraft(saved.value)
+    // Revert live previews if user discarded
+    window.dispatchEvent(
+      new CustomEvent('fancy-cursor-settings-change', {
+        detail: {
+          enabled: saved.value.fancyCursorEnabled,
+          style: saved.value.fancyCursorStyle,
+        },
+      }),
+    )
+    // Re-apply saved wallpaper (import applyAppBackground lazily via event consumed in App)
+    window.dispatchEvent(
+      new CustomEvent('app-background-settings-change', {
+        detail: {
+          imageUrl: saved.value.appBackground.cleared ? '' : saved.value.appBackground.imageUrl,
+          fit: saved.value.appBackground.fit,
+          overlay: saved.value.appBackground.overlay,
+        },
+      }),
+    )
     emit('close')
   } catch {
     // stay on settings
@@ -164,6 +185,7 @@ defineExpose({ requestClose: handleClose })
           v-else-if="activeTab === 'network'"
           :draft="draft"
         />
+        <SettingsMcp v-else-if="activeTab === 'mcp'" />
         <SettingsShortcuts v-else />
       </template>
     </main>

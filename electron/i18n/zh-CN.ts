@@ -47,6 +47,11 @@ export default {
     installerOpenFailed: '无法启动 VcXsrv 安装程序。请检查系统权限或稍后重试。',
     installerCancelled: '已取消安装 VcXsrv。',
   },
+  appBackground: {
+    pickTitle: '选择背景图片',
+    invalidType: '仅支持 PNG / JPG / WebP / GIF / BMP',
+    tooLarge: '图片不能超过 8MB',
+  },
   sftp: {
     sessionNotFound: '会话未找到',
     notInitialized: 'SFTP 未初始化',
@@ -67,6 +72,12 @@ export default {
       '本地端口转发 {localPort}→{remoteHost}:{remotePort} 失败: {error}',
     localForwardOk: '本地转发 127.0.0.1:{localPort} → {remoteHost}:{remotePort}',
     localForwardListenFailed: '无法监听本地端口 {localPort}: {error}',
+    dynamicForwardOk: 'SOCKS5 代理 127.0.0.1:{localPort}',
+    dynamicForwardListenFailed: '无法监听 SOCKS 端口 {localPort}: {error}',
+    remoteForwardOk:
+      '远程转发 {remoteHost}:{remotePort} → {localHost}:{localPort}',
+    remoteForwardFailed:
+      '远程转发 {remoteHost}:{remotePort}→{localHost}:{localPort} 失败: {error}',
   },
   ai: {
     defaultSystemPrompt: [
@@ -87,16 +98,21 @@ export default {
   dialog: {
     exportConnections: '导出连接配置',
     importConnections: '导入连接配置',
+    importSshConfig: '导入 OpenSSH 配置',
     exportSnippets: '导出命令片段',
     importSnippets: '导入命令片段',
     exportDbConnections: '导出数据库连接',
     importDbConnections: '导入数据库连接',
     selectPrivateKey: '选择私钥文件',
+    selectSqlScript: '选择 SQL 文件',
+    exportTable: '导出表数据',
   },
   snippet: {
     noImportable: '未找到可导入的命令片段',
   },
   crypto: {
+    encryptionUnavailable:
+      '系统加密不可用，拒绝以明文保存密码或密钥。请检查系统凭据保护后重试。',
     passwordDecryptFailed:
       '密码解密失败，可能是系统账户或环境变更导致。请重新输入密码并保存。',
     privateKeyDecryptFailed:

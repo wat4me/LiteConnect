@@ -3,13 +3,16 @@ import { ConnectionService } from './connectionService'
 import { SftpSession } from './sftp/sftpSession'
 import { TransferRunner } from './transfer/transferRunner'
 import { closeLocalForwardServers } from './localForwards'
+import { closeRemoteForwards } from './remoteForwards'
 import { destroyX11Sockets } from './x11/x11'
 import { t } from '../i18n'
+import { collectExecChannel, type SessionExecResult } from './sessionExec'
 import type {
   Connection,
   FileEntry,
   PendingHostKey,
   Session,
+  SessionSnapshot,
   DirTransferOptions,
   DirTransferProgressStats,
   DirTransferResult,
@@ -28,7 +31,15 @@ export type {
   HostKeyVerifyResult,
   HostKeyVerifier,
   PendingHostKey,
+  SessionSnapshot,
 } from './types'
+export type { SessionExecResult } from './sessionExec'
+
+export type McpShellChannel = NodeJS.ReadWriteStream & {
+  setWindow?: (rows: number, cols: number, height?: number, width?: number) => void
+  close?: () => void
+  destroy?: () => void
+}
 
 export class SSHManager {
   private sessions: Map<string, Session> = new Map()
@@ -133,6 +144,48 @@ export class SSHManager {
   }
 
   /**
+   * Extra interactive PTY shell on an existing SSH client (MCP agent channel).
+   * Does not replace the user-visible terminal stream.
+   */
+  openShellChannel(
+    sessionId: string,
+    generation: number,
+    opts: { term?: string; cols: number; rows: number },
+  ): Promise<McpShellChannel> {
+    const cols = opts.cols
+    const rows = opts.rows
+    const term = opts.term || 'xterm-256color'
+    if (this.getSessionEpoch(sessionId) !== generation) {
+      return Promise.reject(new Error('SSH session generation changed'))
+    }
+    const session = this.sessions.get(sessionId)
+    if (!session?.client) return Promise.reject(new Error('SSH session not connected'))
+    return new Promise((resolve, reject) => {
+      if (this.getSessionEpoch(sessionId) !== generation || this.sessions.get(sessionId) !== session) {
+        reject(new Error('SSH session generation changed'))
+        return
+      }
+      try {
+        session.client.shell({ term, cols, rows }, (err, channel) => {
+          if (this.getSessionEpoch(sessionId) !== generation || this.sessions.get(sessionId) !== session) {
+            try { channel?.destroy?.() } catch {}
+            try { channel?.close?.() } catch {}
+            reject(new Error('SSH session generation changed'))
+            return
+          }
+          if (err || !channel) {
+            reject(err instanceof Error ? err : new Error(err ? String(err) : 'Shell channel open failed'))
+            return
+          }
+          resolve(channel as McpShellChannel)
+        })
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
+    })
+  }
+
+  /**
    * Open a non-PTY exec channel for a command selected by trusted main-process code.
    * This primitive is not exposed through renderer IPC. It verifies session generation
    * before and after channel creation and destroys a late stale channel.
@@ -191,6 +244,98 @@ export class SSHManager {
     }
     return output
   }
+
+  /**
+   * Non-PTY exec that returns stdout/stderr/exitCode. Used by the SSH tool runtime.
+   * Rejects if the session generation changes before or after the command.
+   */
+  async executeSessionExec(
+    sessionId: string,
+    command: string,
+    generation: number,
+    timeoutMs = 30000,
+    opts?: { stdin?: string },
+  ): Promise<SessionExecResult> {
+    const started = await this.beginSessionExec(sessionId, command, generation, timeoutMs, opts)
+    return started.promise
+  }
+
+  /**
+   * Start a cancellable non-PTY exec. Used for MCP background jobs.
+   * `cancel` destroys the channel; the promise then rejects.
+   */
+  async beginSessionExec(
+    sessionId: string,
+    command: string,
+    generation: number,
+    timeoutMs = 30000,
+    opts?: { stdin?: string },
+  ): Promise<{ promise: Promise<SessionExecResult>; cancel: () => void }> {
+    let channel: NodeJS.ReadWriteStream | undefined
+    let collector: Promise<SessionExecResult> | undefined
+    let cancelled = false
+    const channelP = this.openExecChannel(sessionId, command, generation, (opened) => {
+      if (cancelled) {
+        try {
+          opened.destroy?.()
+        } catch {}
+        try {
+          (opened as { close?: () => void }).close?.()
+        } catch {}
+        return
+      }
+      channel = opened
+      collector = collectExecChannel(opened, timeoutMs, opts)
+    })
+    const promise = (async () => {
+      const opened = await channelP
+      if (cancelled) throw new Error('Exec cancelled')
+      const result = await (collector ?? collectExecChannel(opened, timeoutMs, opts))
+      if (this.getSessionEpoch(sessionId) !== generation || !this.sessions.has(sessionId)) {
+        throw new Error('SSH session generation changed')
+      }
+      return result
+    })()
+    return {
+      promise,
+      cancel: () => {
+        cancelled = true
+        try {
+          channel?.destroy?.()
+        } catch {}
+        try {
+          (channel as { close?: () => void } | undefined)?.close?.()
+        } catch {}
+      },
+    }
+  }
+
+  getSessionSnapshot(sessionId: string): SessionSnapshot | undefined {
+    const session = this.sessions.get(sessionId)
+    if (!session?.client) return undefined
+    return {
+      sessionId: session.id,
+      connectionId: session.connectionId,
+      connectionName: session.connectionName,
+      generation: this.getSessionEpoch(sessionId),
+      hasSftp: !!session.sftp,
+    }
+  }
+
+  listSessionSnapshots(): SessionSnapshot[] {
+    const out: SessionSnapshot[] = []
+    for (const session of this.sessions.values()) {
+      if (!session.client) continue
+      out.push({
+        sessionId: session.id,
+        connectionId: session.connectionId,
+        connectionName: session.connectionName,
+        generation: this.getSessionEpoch(session.id),
+        hasSftp: !!session.sftp,
+      })
+    }
+    return out
+  }
   constructor(knownHosts?: KnownHostsStore) {
     this.knownHosts = knownHosts ?? new KnownHostsStore()
     this.connection = new ConnectionService({
@@ -231,6 +376,9 @@ export class SSHManager {
     }
     if (session?.localForwardServers) {
       closeLocalForwardServers(session.localForwardServers as any)
+    }
+    if (session?.remoteForwardHandles) {
+      closeRemoteForwards(session.remoteForwardHandles)
     }
     if (session?.jumpClient) {
       try {
@@ -294,6 +442,23 @@ export class SSHManager {
       return true
     }
     return false
+  }
+
+  /**
+   * Tear down a session that is no longer writable without bumping epoch,
+   * so the renderer still receives the matching close/error from IPC.
+   */
+  discardDeadSession(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    this.cleanupSession(sessionId)
+    try {
+      session.stream.close()
+    } catch {}
+    try {
+      session.client.destroy()
+    } catch {}
+    return true
   }
 
   resize(sessionId: string, cols: number, rows: number): boolean {
@@ -385,6 +550,15 @@ export class SSHManager {
     return this.sftp.sftpReadFile(sessionId, remotePath, maxBytes)
   }
 
+  async sftpReadFileRange(
+    sessionId: string,
+    remotePath: string,
+    offset: number,
+    length: number,
+  ): Promise<{ buffer: Buffer; size: number; eof: boolean }> {
+    return this.sftp.sftpReadFileRange(sessionId, remotePath, offset, length)
+  }
+
   async sftpWriteFile(
     sessionId: string,
     remotePath: string,
@@ -392,6 +566,15 @@ export class SSHManager {
     maxBytes = 5 * 1024 * 1024,
   ): Promise<void> {
     return this.sftp.sftpWriteFile(sessionId, remotePath, content, maxBytes)
+  }
+
+  async sftpWriteBuffer(
+    sessionId: string,
+    remotePath: string,
+    buffer: Buffer,
+    maxBytes = 5 * 1024 * 1024,
+  ): Promise<void> {
+    return this.sftp.sftpWriteBuffer(sessionId, remotePath, buffer, maxBytes)
   }
 
   async sftpRename(sessionId: string, oldPath: string, newPath: string): Promise<void> {

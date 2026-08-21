@@ -4,7 +4,7 @@ import type { ConnectionGroup, Session } from '@/domain/session/types'
 const SIDEBAR_WIDTH_KEY = 'liteconnect-sftp-sidebar-width'
 const SIDEBAR_MIN_WIDTH = 280
 const SIDEBAR_MAX_WIDTH = 600
-const SIDEBAR_DEFAULT_WIDTH = 330
+const SIDEBAR_DEFAULT_WIDTH = 360
 
 function getInitialSidebarWidth(): number {
   try {
@@ -100,7 +100,11 @@ export function useSidebarState(deps: SessionDeps) {
 
   function toggleAiSidebar() {
     aiSidebarVisible.value = !aiSidebarVisible.value
-    if (aiSidebarVisible.value) sidebarVisible.value = false
+    if (aiSidebarVisible.value) {
+      sidebarVisible.value = false
+      // Chat needs more than the SFTP minimum or the composer/header collide.
+      if (sidebarWidth.value < 360) sidebarWidth.value = 360
+    }
   }
 
   function toggleMonitor() {

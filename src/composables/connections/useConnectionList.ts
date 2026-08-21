@@ -3,6 +3,11 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Connection, Group } from '@/env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
+import { createDragAutoScroll } from '@/utils/shared/dragAutoScroll'
+import {
+  dataTransferHasConn,
+  getDataTransferConnId,
+} from '@/utils/shared/legacyStorageMigrate'
 import { t } from '@/i18n'
 
 export function useConnectionList(options: {
@@ -12,6 +17,8 @@ export function useConnectionList(options: {
   } | null | undefined>
   initialDataPending?: Ref<boolean | undefined>
   pageRootRef: Ref<HTMLElement | null>
+  /** Scrollable main connection list (for drag auto-scroll) */
+  connectionsListRef?: Ref<HTMLElement | null>
   getSearchInput: () => HTMLInputElement | null
   isModalOpen: () => boolean
   onConnect: (connectionId: string) => void
@@ -30,6 +37,7 @@ export function useConnectionList(options: {
 
   const dragConnId = ref<string | null>(null)
   const dropInsertIndex = ref<number | null>(null)
+  const listDragAutoScroll = createDragAutoScroll()
 
   const connectionCounts = computed(() => {
     const counts: Record<string, number> = {}
@@ -225,26 +233,62 @@ export function useConnectionList(options: {
     await loadData()
   }
 
+  function resolveTargetGroupId(groupId: string | null | undefined): string | null {
+    if (groupId && groups.value.some((g) => g.id === groupId)) return groupId
+    return groups.value.find((g) => g.isDefault)?.id || groups.value[0]?.id || null
+  }
+
   async function onMoveConnection(connectionId: string, groupId: string | null) {
-    // Store maps empty to the real default group (no virtual ungrouped)
-    await window.LiteConnect.updateConnectionGroup(connectionId, groupId || undefined)
-    ElMessage.success(t('connections.moved'))
-    await loadData()
+    const conn = connections.value.find((c) => c.id === connectionId)
+    if (!conn) return
+
+    // Store maps empty / unknown → real default group (no virtual ungrouped)
+    const targetGroupId = resolveTargetGroupId(groupId)
+    if (!targetGroupId) return
+
+    // Same group: no-op (avoid false "已移动" when drop lands on current group)
+    if (conn.group === targetGroupId) return
+
+    const prevGroup = conn.group
+    // Optimistic UI so sidebar + main list update immediately
+    connections.value = connections.value.map((c) =>
+      c.id === connectionId ? { ...c, group: targetGroupId, updatedAt: Date.now() } : c,
+    )
+
+    try {
+      await window.LiteConnect.updateConnectionGroup(connectionId, targetGroupId)
+      ElMessage.success(t('connections.moved'))
+      // Refresh from store (order / other fields); optimistic group already applied
+      await loadData()
+    } catch (err: any) {
+      connections.value = connections.value.map((c) =>
+        c.id === connectionId ? { ...c, group: prevGroup } : c,
+      )
+      ElMessage.error(err?.message || t('connections.reorderFailed'))
+    }
   }
 
   function onConnDragStart(connectionId: string) {
     dragConnId.value = connectionId
+    listDragAutoScroll.start(() => options.connectionsListRef?.value ?? null)
   }
 
   function onConnDragEnd() {
     dragConnId.value = null
     dropInsertIndex.value = null
+    listDragAutoScroll.stop()
   }
 
   function onConnRowDragOver(e: DragEvent, index: number) {
-    if (!dragConnId.value) return
+    // dragConnId: main-list drag; dataTransfer types: cross-panel (getData empty in dragover)
+    if (!dragConnId.value && !dataTransferHasConn(e.dataTransfer)) return
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    // Keep auto-scroll alive when re-entering the list mid-drag
+    listDragAutoScroll.start(() => options.connectionsListRef?.value ?? null)
+
+    // Insert marker only for in-list reorder (sidebar → list is a group move, not reorder)
+    if (!dragConnId.value) return
 
     const el = e.currentTarget as HTMLElement
     const rect = el.getBoundingClientRect()
@@ -261,14 +305,11 @@ export function useConnectionList(options: {
 
   async function onConnRowDrop(e: DragEvent) {
     e.preventDefault()
-    const connId =
-      dragConnId.value ||
-      e.dataTransfer?.getData('application/x-lite-connect-conn') ||
-      e.dataTransfer?.getData('application/x-lite-ssh-conn') ||
-      ''
+    const connId = dragConnId.value || getDataTransferConnId(e.dataTransfer)
     const insertAt = dropInsertIndex.value
     dragConnId.value = null
     dropInsertIndex.value = null
+    listDragAutoScroll.stop()
     if (!connId || insertAt === null) return
 
     // Filtered views would only reshuffle the subset — keep order edits scoped & clear
@@ -305,19 +346,51 @@ export function useConnectionList(options: {
 
   async function handleExport() {
     try {
-      const ok = await window.LiteConnect.exportConnections()
+      const action = await appConfirm({
+        title: t('connections.exportIncludeSecretsTitle'),
+        message: t('connections.exportIncludeSecretsMessage'),
+        detail: t('connections.exportIncludeSecretsDetail'),
+        confirmText: t('connections.exportWithSecrets'),
+        tertiaryText: t('connections.exportWithoutSecrets'),
+        cancelText: t('common.cancel'),
+        tone: 'warning',
+      })
+      const includeSecrets = action === 'confirm'
+      const ok = await window.LiteConnect.exportConnections(includeSecrets)
       if (ok) ElMessage.success(t('connections.exported'))
     } catch (err: any) {
+      if (err === 'cancel') return
       ElMessage.error(err.message || t('connections.exportFailed'))
     }
   }
 
-  async function handleImport() {
+  async function importSshConfig() {
+    importing.value = true
+    try {
+      const result = await window.LiteConnect.importSshConfig()
+      if (result) {
+        ElMessage.success(
+          t('connections.importedSshConfig', {
+            imported: result.imported,
+            skipped: result.skipped,
+            hosts: result.knownHostsImported,
+          }),
+        )
+        await loadData()
+      }
+    } catch (err: any) {
+      ElMessage.error(err.message || t('connections.importFailed'))
+    } finally {
+      importing.value = false
+    }
+  }
+
+  async function importLiteConnectJson() {
     importing.value = true
     try {
       const result = await window.LiteConnect.importConnections()
       if (result) {
-        ElMessage.success(t('connections.imported', { imported: result.imported, total: result.total }))
+        ElMessage.success(t('connections.imported', { imported: result.imported, skipped: result.skipped ?? 0, total: result.total }))
         await loadData()
         if (activeGroupId.value && !groups.value.some((group) => group.id === activeGroupId.value)) {
           selectInitialGroup()
@@ -327,6 +400,25 @@ export function useConnectionList(options: {
       ElMessage.error(err.message || t('connections.importFailed'))
     } finally {
       importing.value = false
+    }
+  }
+
+  async function handleImport() {
+    try {
+      const action = await appConfirm({
+        title: t('connections.importTitle'),
+        message: t('connections.importMessage'),
+        detail: t('connections.importDetail'),
+        confirmText: t('connections.importJson'),
+        tertiaryText: t('connections.importSshConfig'),
+        cancelText: t('common.cancel'),
+        tone: 'info',
+      })
+      if (action === 'tertiary') await importSshConfig()
+      else await importLiteConnectJson()
+    } catch (err: any) {
+      if (err === 'cancel') return
+      ElMessage.error(err.message || t('connections.importFailed'))
     }
   }
 
@@ -431,6 +523,7 @@ export function useConnectionList(options: {
 
   onBeforeUnmount(() => {
     document.removeEventListener('keydown', onListKeydown)
+    listDragAutoScroll.stop()
   })
 
   return {

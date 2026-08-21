@@ -45,3 +45,6 @@ tsconfig.tsbuildinfo
 # Accidental Grok CLI installer drop
 install.ps1
 
+# Local Playwright / automation scratch
+.playwright-cli/
+

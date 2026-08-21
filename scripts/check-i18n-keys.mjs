@@ -101,3 +101,4 @@ function report(label, roots, localePath, skipI18nDir = false) {
 const r1 = report('renderer (src)', ['src'], 'src/i18n/locales/zh-CN.ts')
 const r2 = report('main (electron)', ['electron'], 'electron/i18n/zh-CN.ts', true)
 console.log(`\nTotal missing: ${r1 + r2}`)
+if (r1 + r2 > 0) process.exit(1)

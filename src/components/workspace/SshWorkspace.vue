@@ -79,6 +79,7 @@ const props = defineProps<{
   dockerButtonEnabled?: boolean
   /** SSH closed for active session (still open tab). */
   activeSessionSshDisconnected?: boolean
+  disconnectedSessionIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
@@ -106,7 +107,6 @@ const emit = defineEmits<{
   (e: 'add-session', connectionId: string): void
   (e: 'session-closed', sessionId: string): void
   (e: 'reconnect', sessionId: string): void
-  (e: 'reconnect-all', connectionId: string): void
   (e: 'cd-command', sessionId: string, command: string): void
   (e: 'pwd-output', sessionId: string, pwd: string): void
   (e: 'ai-selection', text: string, mode: 'send' | 'insert'): void
@@ -252,12 +252,12 @@ watch(
           :secondary-session-id="secondarySessionId"
           :secondary-side="secondarySide"
           :workspace-visible="!dockerMode"
+          :disconnected-session-ids="disconnectedSessionIds"
           @select-session="emit('select-session', $event)"
           @close-session="emit('close-session', $event)"
           @add-session="emit('add-session', $event)"
           @session-closed="emit('session-closed', $event)"
           @reconnect="emit('reconnect', $event)"
-          @reconnect-all="emit('reconnect-all', $event)"
           @cd-command="(sid, cmd) => emit('cd-command', sid, cmd)"
           @pwd-output="(sid, pwd) => emit('pwd-output', sid, pwd)"
           @ai-selection="(text, mode) => emit('ai-selection', text, mode)"

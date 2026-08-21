@@ -19,6 +19,7 @@ const props = defineProps<{
   activeSessionId: string | null
   connectionId: string
   unreadSessions?: Set<string>
+  disconnectedSessionIds?: Set<string>
   /** Terminal container element used to compute the drop side during tab drag */
   terminalContainer?: HTMLElement | null
 }>()
@@ -167,14 +168,23 @@ function onTabClick(sessionId: string) {
           v-for="session in sessions"
           :key="session.id"
           class="sub-tab"
-          :class="{ active: session.id === activeSessionId, dragging }"
+          :class="{
+            active: session.id === activeSessionId,
+            dragging,
+            disconnected: disconnectedSessionIds?.has(session.id),
+          }"
           :title="sessions.length >= 2 ? t('terminal.dragSplitTitle') : undefined"
           @mousedown="onTabDragStart($event, session.id)"
           @click="onTabClick(session.id)"
         >
           <span class="sub-tab-label">{{ t('terminal.tabLabel', { n: session.tabNumber }) }}</span>
           <span
-            v-if="unreadSessions && session.id !== activeSessionId && unreadSessions.has(session.id)"
+            v-if="disconnectedSessionIds?.has(session.id)"
+            class="sub-tab-disconnected-dot"
+            :title="t('terminal.disconnected')"
+          ></span>
+          <span
+            v-else-if="unreadSessions && session.id !== activeSessionId && unreadSessions.has(session.id)"
             class="sub-tab-unread-dot"
           ></span>
           <button class="sub-tab-close" @click.stop="emit('close', session.id)">
@@ -288,6 +298,14 @@ function onTabClick(sessionId: string) {
   background: var(--danger, #f85149);
   flex-shrink: 0;
   animation: sub-tab-unread-pulse 1.6s ease-in-out infinite;
+}
+
+.sub-tab-disconnected-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger, #f85149);
+  flex-shrink: 0;
 }
 
 @keyframes sub-tab-unread-pulse {
