@@ -1,0 +1,28 @@
+export default {
+  settingsTerminal: {
+    title: '终端',
+    intro:
+      '配色、字体、回滚缓冲与粘贴确认。保存后同步已打开终端（缓冲行数对新输出生效）；下方为真实 xterm 草稿预览。',
+    palette: '终端配色',
+    fontFamily: '等宽字体',
+    fontSize: '字体大小',
+    fontSizeHint: '终端内 Ctrl+= / Ctrl+- 仍可临时调节字号（与设置页独立）',
+    scrollback: '回滚缓冲行数',
+    scrollbackDefault: '5000（默认）',
+    scrollbackHint: '越大越占内存；右键菜单可「清除回滚缓冲」',
+    pasteConfirm: '多行 / 超长粘贴前确认',
+    pasteConfirmHint: '关闭后完全不确认；开启时多行始终确认，单行超过下方阈值才确认',
+    pasteConfirmThreshold: '单行粘贴确认阈值（字符）',
+    pasteConfirmThresholdDefault: '{n}（默认）',
+    pasteConfirmThresholdHint: '多行始终确认；仅单行文本超过该字符数时弹出确认',
+    commandSuggest: '命令行提示',
+    commandSuggestHint: '根据当前连接的命令历史和常用参数显示候选；默认关闭。',
+    sessionLog: '会话日志',
+    sessionLogToggle: '记录远端输出到本地日志文件',
+    sessionLogHint: '按会话写入 userData/session-logs/ 目录（仅远端输出，不记录键盘输入，避免泄露密码）。对新打开的会话生效。',
+    preview: '终端预览（真实 xterm）',
+    draftBadge: '草稿',
+    previewHint: '与工作区终端共用同一套配色 / 字体 API；未保存前不会改动已打开的会话。',
+    sessionLogOpenDir: '打开日志目录',
+  },
+} as const

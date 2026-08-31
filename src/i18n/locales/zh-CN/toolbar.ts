@@ -1,0 +1,22 @@
+export default {
+  toolbar: {
+    aria: '工作区工具',
+    ai: 'AI 助手',
+    aiShortcut: 'AI 助手 (Ctrl+Shift+A)',
+    aiUnread: '有未读 AI 回复',
+    sftp: 'SFTP 文件 (Ctrl+B)',
+    sftpActive: 'SFTP 文件 (Ctrl+B) · 传输中 {count}',
+    sftpAria: 'SFTP 文件浏览',
+    sftpAriaActive: 'SFTP 文件浏览，传输中 {count}',
+    transferring: '传输中 {count}',
+    monitor: '服务器监控',
+    monitorShortcut: '服务器监控 (Ctrl+Shift+M)',
+    batch: '批量执行',
+    batchShortcut: '批量执行 (Ctrl+Shift+B)',
+    snippets: '命令片段',
+    snippetsShortcut: '命令片段 (Ctrl+Shift+S)',
+    docker: 'Docker 工作区',
+    dockerDisabled: '需要已连接的 SSH 会话才能打开 Docker',
+    dockerActive: 'Docker 工作区（点击返回终端）',
+  },
+} as const
