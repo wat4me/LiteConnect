@@ -100,8 +100,8 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: var(--font-ui-sm, 12px);
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: var(--db-font-size, 13px);
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
 }
 
 .sheet th,
@@ -181,6 +181,6 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
 .grid-empty {
   padding: 24px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 </style>

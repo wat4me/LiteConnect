@@ -352,7 +352,7 @@ const cellMenuPreview = computed(() => {
         <div class="tool-group pager">
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :disabled="prevPageDisabled"
             :title="t('database.data.prevPage')"
             @click="emit('pageDelta', -1)"
@@ -360,7 +360,7 @@ const cellMenuPreview = computed(() => {
             ‹
           </button>
           <span class="page-info page-jump">
-            {{ t('database.data.pageOf') }}
+            <span class="page-of-label">{{ t('database.data.pageOf') }}</span>
             <input
               class="ui-input ui-input-sm page-input"
               type="number"
@@ -374,7 +374,7 @@ const cellMenuPreview = computed(() => {
           </span>
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :disabled="nextDisabled"
             :title="t('database.data.nextPage')"
             @click="emit('pageDelta', 1)"
@@ -394,7 +394,7 @@ const cellMenuPreview = computed(() => {
           </select>
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :disabled="tab.loading || tab.saving"
             :title="t('database.data.refreshTitle')"
             @click="emit('refresh')"
@@ -423,7 +423,7 @@ const cellMenuPreview = computed(() => {
         <div class="tool-group edit" :class="{ 'has-dirty': dirtyCount !== 0 }">
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :disabled="!tab.result || tab.saving || tab.pkColumns.length === 0"
             :title="t('database.data.addRowTitle')"
             @click="emit('startInsert')"
@@ -432,7 +432,7 @@ const cellMenuPreview = computed(() => {
           </button>
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :class="{ 'is-dirty-action': dirtyCount !== 0 }"
             :disabled="dirtyCount === 0 || tab.saving"
             :title="t('database.data.saveTitle')"
@@ -442,7 +442,7 @@ const cellMenuPreview = computed(() => {
           </button>
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :disabled="dirtyCount === 0 || tab.saving"
             @click="emit('discardDirty')"
           >
@@ -450,7 +450,7 @@ const cellMenuPreview = computed(() => {
           </button>
           <button
             type="button"
-            class="ui-btn ui-btn-sm ui-btn-danger"
+            class="ui-btn ui-btn-xs ui-btn-danger"
             :disabled="tab.selected.length === 0 || tab.saving || tab.pkColumns.length === 0"
             @click="emit('deleteSelected')"
           >
@@ -463,7 +463,7 @@ const cellMenuPreview = computed(() => {
           <button
             ref="moreBtnRef"
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-xs"
             :title="t('database.data.moreActions')"
             :disabled="!tab.result && !tab.loading"
             @click="toggleMore"
@@ -636,6 +636,7 @@ const cellMenuPreview = computed(() => {
 .table-view {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -645,16 +646,19 @@ const cellMenuPreview = computed(() => {
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
 .toolbar-row.single {
+  --tb-h: 26px;
+  --tb-fs: 11px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .meta-strip {
@@ -662,9 +666,10 @@ const cellMenuPreview = computed(() => {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex: 0 1 auto;
-  font-size: 11px;
+  overflow: hidden;
+  font-size: 12px;
 }
 
 .meta-strip .bc-conn {
@@ -695,7 +700,7 @@ const cellMenuPreview = computed(() => {
 
 .row-total {
   opacity: 0.8;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -703,25 +708,24 @@ const cellMenuPreview = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1 1 220px;
-  min-width: 0;
+  flex: 1 1 140px;
+  min-width: 72px;
 }
 
 .where-input {
-  flex: 1 1 220px;
+  flex: 1 1 140px;
   width: auto;
-  min-width: 160px;
+  min-width: 72px;
   max-width: 480px;
-  height: 26px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
 }
 
 .tool-group {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .tool-group + .tool-group {
@@ -732,36 +736,60 @@ const cellMenuPreview = computed(() => {
 .page-jump {
   display: inline-flex;
   align-items: center;
+  height: var(--tb-h);
   gap: 3px;
 }
 
-.page-input {
-  width: 44px;
-  height: 26px;
-  text-align: center;
-  padding-left: 2px;
-  padding-right: 2px;
-  font-size: 11px;
-}
-
-.page-size-select {
-  width: auto;
-  min-width: 68px;
-  height: 26px;
-  font-size: 11px;
-}
-
 .page-info {
-  font-size: 11px;
+  font-size: 12px;
+  line-height: var(--tb-h);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
-.toolbar-row :deep(.ui-btn-sm) {
-  height: 26px;
-  min-height: 26px;
+/* One metric for buttons / number / native <select> — global .ui-input
+ * line-height is tied to --control-h (36px) and makes 100/页 sit off the
+ * 刷新 baseline. Beat .ui-select.ui-input-sm (32px) with higher specificity.
+ * Toolbar actions use ui-btn-xs (26px / 11px) like the query result bar. */
+.toolbar-row :deep(.ui-btn-xs),
+.toolbar-row :deep(.ui-input-sm),
+.toolbar-row :deep(select.ui-select.ui-input-sm) {
+  box-sizing: border-box;
+  height: var(--tb-h);
+  min-height: var(--tb-h);
+  max-height: var(--tb-h);
+  font-size: var(--tb-fs);
+  font-weight: 500;
+  line-height: calc(var(--tb-h) - 2px);
+  flex-shrink: 0;
+}
+
+.toolbar-row :deep(.ui-btn-xs) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 7px;
-  font-size: 11px;
+  line-height: 1;
+}
+
+.page-input {
+  width: 44px;
+  text-align: center;
+  padding: 0 2px;
+}
+
+.page-input::-webkit-outer-spin-button,
+.page-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.toolbar-row select.ui-select.ui-input-sm.page-size-select {
+  width: auto;
+  min-width: 4.75em;
+  padding: 0 22px 0 8px;
+  background-position: right 6px center;
+  vertical-align: middle;
 }
 
 .tool-group.edit.has-dirty .is-dirty-action {
@@ -812,14 +840,43 @@ const cellMenuPreview = computed(() => {
   cursor: not-allowed;
 }
 
-@media (max-width: 900px) {
-  .tool-group + .tool-group {
-    padding-left: 0;
+@container db-table (max-width: 880px) {
+  .row-total {
+    display: none;
+  }
+  .search-group,
+  .where-input {
+    flex-basis: 80px;
+    min-width: 56px;
+    max-width: 220px;
+  }
+}
+
+@container db-table (max-width: 720px) {
+  .meta-strip {
+    display: none;
+  }
+  .page-of-label {
+    display: none;
+  }
+  .page-size-select {
+    display: none;
+  }
+  .tool-group + .tool-group,
+  .more-wrap {
+    padding-left: 4px;
     border-left: none;
   }
-  .more-wrap {
-    border-left: none;
-    padding-left: 0;
+}
+
+@container db-table (max-width: 560px) {
+  .search-group,
+  .where-input {
+    flex-basis: 48px;
+    min-width: 48px;
+  }
+  .toolbar-row :deep(.ui-btn-xs) {
+    padding: 0 5px;
   }
 }
 
@@ -834,8 +891,8 @@ const cellMenuPreview = computed(() => {
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 11px;
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: var(--db-font-size, 13px);
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
   table-layout: fixed;
 }
 
@@ -861,7 +918,6 @@ const cellMenuPreview = computed(() => {
   font-family: inherit;
   user-select: none;
   letter-spacing: 0.01em;
-  font-size: 11px;
   /* sticky + resizer handle */
   overflow: visible;
 }
@@ -987,8 +1043,8 @@ const cellMenuPreview = computed(() => {
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 11px;
-  font-family: var(--font-mono, inherit);
+  font-size: var(--db-font-size, 13px);
+  font-family: var(--db-font-family, var(--font-mono, inherit));
   box-sizing: border-box;
   outline: none;
   box-shadow: 0 0 0 2px var(--accent-bg);
@@ -1077,7 +1133,7 @@ const cellMenuPreview = computed(() => {
   margin-top: 2px;
   font-weight: 500;
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
   overflow: hidden;
   text-overflow: ellipsis;
 }

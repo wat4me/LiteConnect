@@ -99,14 +99,17 @@ export function getCachedQueryTabDefaults(): QueryTabExecOptions {
   }
 }
 
+/**
+ * Editor / result-grid tokens only. Never overwrite --font-ui / --font-ui-sm:
+ * those size the chrome (toolbar buttons). Leaking editor size makes CJK
+ * labels overflow a 26px row and wrap.
+ */
 export function applyDbSettingsToElement(el: HTMLElement | null, settings: DbSettingsSnapshot) {
   if (!el) return
   const size = clampFontSize(settings.fontSize)
   el.style.setProperty('--font-mono', settings.fontFamily)
   el.style.setProperty('--db-font-family', settings.fontFamily)
   el.style.setProperty('--db-font-size', `${size}px`)
-  el.style.setProperty('--font-ui', `${size}px`)
-  el.style.setProperty('--font-ui-sm', `${Math.max(10, size - 1)}px`)
 }
 
 export function dispatchDbSettingsChange(settings: DbSettingsSnapshot) {

@@ -35,7 +35,7 @@ const emit = defineEmits<{
       <div v-else class="breadcrumb">
         <span class="tag">{{ t('database.structure.tagDetail') }}</span>
       </div>
-      <button type="button" class="ui-btn ui-btn-sm" :disabled="tab.loading" @click="emit('refresh')">{{ t('database.structure.refresh') }}</button>
+      <button type="button" class="ui-btn ui-btn-xs" :disabled="tab.loading" @click="emit('refresh')">{{ t('database.structure.refresh') }}</button>
     </div>
     <div v-if="tab.loading" class="grid-empty">{{ t('database.structure.loading') }}</div>
     <div v-else-if="tab.error" class="err-panel">{{ tab.error }}</div>
@@ -114,6 +114,7 @@ const emit = defineEmits<{
 .struct-view {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -131,7 +132,14 @@ const emit = defineEmits<{
   font-size: 12px;
   color: var(--text-secondary);
   flex-shrink: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+@container db-table (max-width: 560px) {
+  .table-view-bar .breadcrumb .tag {
+    display: none;
+  }
 }
 
 .breadcrumb {
@@ -141,7 +149,8 @@ const emit = defineEmits<{
   color: var(--text-secondary);
   font-size: 12px;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .breadcrumb .bc-conn {
@@ -203,8 +212,8 @@ const emit = defineEmits<{
 .sheet {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
-  font-family: var(--font-mono, Consolas, monospace);
+  font-size: var(--db-font-size, 13px);
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
 }
 
 .sheet th,
@@ -221,6 +230,9 @@ const emit = defineEmits<{
   top: 0;
   z-index: 1;
   font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
 }
 
 .col-name {
@@ -245,11 +257,11 @@ const emit = defineEmits<{
   border-radius: 6px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  font-size: 12px;
+  font-size: var(--db-font-size, 13px);
   line-height: 1.45;
   overflow: auto;
   white-space: pre-wrap;
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
 }
 
 .grid-empty {

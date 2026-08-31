@@ -465,8 +465,11 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
 .query-split {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
+  container-name: db-query;
 }
 
 .editor-main {
@@ -642,6 +645,7 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
 .query-bottom {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);

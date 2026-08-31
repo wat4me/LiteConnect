@@ -112,7 +112,7 @@ function editorTheme(): Extension {
     {
       '&': {
         height: '100%',
-        fontSize: 'var(--db-font-size, var(--font-ui, 13px))',
+        fontSize: 'var(--db-font-size, 13px)',
         fontFamily:
           'var(--db-font-family, var(--font-mono, Cascadia Code, Fira Code, Consolas, monospace))',
         backgroundColor: 'var(--bg-primary)',

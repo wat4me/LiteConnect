@@ -132,9 +132,12 @@ const structureTab = computed((): StructureTab => ({
 .table-workspace {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  container-type: inline-size;
+  container-name: db-table;
 }
 
 .table-panel-tabs {
@@ -142,7 +145,7 @@ const structureTab = computed((): StructureTab => ({
   align-items: center;
   gap: 2px;
   padding: 0 8px;
-  height: 30px;
+  height: 32px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
   flex-shrink: 0;
@@ -152,14 +155,14 @@ const structureTab = computed((): StructureTab => ({
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 10px;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
   border: none;
+  border-bottom: 2px solid transparent;
   background: none;
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -169,17 +172,8 @@ const structureTab = computed((): StructureTab => ({
 
 .panel-tab.active {
   color: var(--accent);
-}
-
-.panel-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 .panel-path {
@@ -188,12 +182,18 @@ const structureTab = computed((): StructureTab => ({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
 .panel-path strong {
   color: var(--text-primary);
   font-weight: 600;
+}
+
+@container db-table (max-width: 560px) {
+  .panel-path {
+    display: none;
+  }
 }
 </style>

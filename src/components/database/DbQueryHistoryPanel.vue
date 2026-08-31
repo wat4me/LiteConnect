@@ -148,7 +148,7 @@ const rows = computed((): RowView[] =>
   gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border-color);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -164,6 +164,11 @@ const rows = computed((): RowView[] =>
 
 .history-status-select {
   max-width: 110px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  font-size: 11px;
+  padding: 0 22px 0 8px;
 }
 
 .history-list {
@@ -249,9 +254,9 @@ const rows = computed((): RowView[] =>
   font-weight: 600;
 }
 
-      .history-sql {
-  font-size: 12px;
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+.history-sql {
+  font-size: var(--db-font-size, 13px);
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -253,13 +253,35 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
           <span v-else class="bk-top-meta">{{ t('database.navTitle') }}</span>
         </div>
         <div class="bk-topbar-right">
-          <button type="button" class="ui-btn ui-btn-sm" :disabled="!session" @click="openQueryTab()">
-            <AppIcon name="sql" size="sm" /> {{ t('database.newQuery') }}
+          <button
+            type="button"
+            class="ui-btn ui-btn-sm"
+            :disabled="!session"
+            :title="t('database.newQuery')"
+            @click="openQueryTab()"
+          >
+            <AppIcon name="sql" size="sm" />
+            <span class="btn-text">{{ t('database.newQuery') }}</span>
           </button>
-          <button type="button" class="ui-btn ui-btn-sm" :disabled="!session || !!scriptJobId" @click="importSqlScript">
-            <AppIcon name="upload" size="sm" /> 导入 SQL
+          <button
+            type="button"
+            class="ui-btn ui-btn-sm"
+            :disabled="!session || !!scriptJobId"
+            :title="t('database.importSql')"
+            @click="importSqlScript"
+          >
+            <AppIcon name="upload" size="sm" />
+            <span class="btn-text">{{ t('database.importSql') }}</span>
           </button>
-          <button v-if="scriptJobId" type="button" class="ui-btn ui-btn-sm ui-btn-danger" @click="cancelSqlScript">取消导入</button>
+          <button
+            v-if="scriptJobId"
+            type="button"
+            class="ui-btn ui-btn-sm ui-btn-danger"
+            :title="t('database.cancelImport')"
+            @click="cancelSqlScript"
+          >
+            {{ t('database.cancelImport') }}
+          </button>
           <button
             v-if="session"
             type="button"
@@ -267,7 +289,8 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
             :title="t('database.disconnectCurrentTitle', { name: session.connectionName })"
             @click="disconnectSession()"
           >
-            {{ t('database.disconnectCurrent') }}
+            <span class="btn-text">{{ t('database.disconnectCurrent') }}</span>
+            <span class="btn-text-short" aria-hidden="true">{{ t('database.disconnectShort') }}</span>
           </button>
         </div>
       </header>
@@ -520,8 +543,12 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   flex-direction: column;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: var(--db-font-size, 13px);
+  /* Chrome stays on the UI stack (12px tabs / 11px compact controls).
+   * Editor, grids, DDL and SQL errors opt into --db-font-size / --db-font-family. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: var(--db-font-family, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  container-type: inline-size;
+  container-name: db-shell;
 }
 
 .bk-tab-empty.welcome {
@@ -591,6 +618,8 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   padding: 0 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .bk-topbar-left,
@@ -599,6 +628,40 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.bk-topbar-right {
+  flex-shrink: 0;
+}
+
+.bk-topbar-right .ui-btn-sm {
+  flex-shrink: 0;
+}
+
+.bk-topbar-right .btn-text-short {
+  display: none;
+}
+
+@container db-shell (max-width: 860px) {
+  .bk-top-meta {
+    display: none;
+  }
+}
+
+@container db-shell (max-width: 720px) {
+  .bk-conn-name {
+    display: none;
+  }
+  .bk-topbar-right .btn-text {
+    display: none;
+  }
+  .bk-topbar-right .btn-text-short {
+    display: inline;
+  }
+  .bk-topbar-right .ui-btn-sm {
+    padding: 0 8px;
+  }
 }
 
 .bk-script-status {

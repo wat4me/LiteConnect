@@ -310,7 +310,7 @@ defineExpose({
         @click.stop="toggleSavedPicker"
       >
         <AppIcon name="folder" size="xs" />
-        <span>{{ t('database.query.savedScriptsBtn') }}</span>
+        <span class="saved-picker-text">{{ t('database.query.savedScriptsBtn') }}</span>
         <span class="saved-badge-count" v-if="savedQueries.length > 0">{{ savedQueries.length }}</span>
         <span class="db-picker-caret" aria-hidden="true">▾</span>
       </button>
@@ -388,7 +388,7 @@ defineExpose({
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
   overflow: visible;
   position: relative;
@@ -432,6 +432,7 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .ctx-sep {
@@ -620,6 +621,28 @@ defineExpose({
 .saved-picker-wrap {
   position: relative;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+@container db-query (max-width: 820px) {
+  .query-conn-label,
+  .db-picker-label,
+  .ctx-sep,
+  .query-ctx-sep {
+    display: none;
+  }
+}
+
+@container db-query (max-width: 640px) {
+  .query-conn-chip {
+    display: none;
+  }
+  .saved-picker-text {
+    display: none;
+  }
+  .saved-picker-btn {
+    padding: 0 6px;
+  }
 }
 
 .saved-picker-btn {

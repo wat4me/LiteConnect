@@ -246,10 +246,20 @@ function toggleMenu() {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
   /* Do not clip descendants; menu itself is teleported */
   overflow: visible;
+}
+
+.query-action-bar :deep(.ui-btn-sm) {
+  flex-shrink: 0;
+}
+
+@container db-query (max-width: 700px) {
+  .query-hotkey {
+    display: none;
+  }
 }
 
 .query-toolbar-spacer {

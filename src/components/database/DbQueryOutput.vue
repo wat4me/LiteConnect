@@ -231,10 +231,8 @@ watch(
             type="search"
             :placeholder="t('database.query.filterPlaceholder')"
             :title="t('database.query.localFilterTitle')"
+            :aria-label="t('database.query.localFilter')"
           />
-          <span class="local-filter-tag" :title="t('database.query.localFilterTitle')">
-            {{ t('database.query.localFilter') }}
-          </span>
           <button type="button" class="ui-btn ui-btn-xs" :title="t('database.query.copyTitle')" @click="emit('copyResult')">
             {{ t('database.query.copy') }}
           </button>
@@ -457,7 +455,8 @@ watch(
   font-size: 12px;
   color: var(--text-secondary);
   flex-shrink: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .result-actions {
@@ -465,19 +464,42 @@ watch(
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.result-actions :deep(.ui-btn-xs) {
+  flex-shrink: 0;
+}
+
+.result-toolbar :deep(.grid-filter-input.ui-input-sm) {
+  box-sizing: border-box;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 24px;
 }
 
 .grid-filter-input {
   width: 160px;
+  min-width: 72px;
+  flex: 1 1 72px;
 }
 
-.local-filter-tag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  white-space: nowrap;
+@container db-query (max-width: 720px) {
+  .grid-filter-input {
+    width: 100px;
+    min-width: 56px;
+  }
+}
+
+@container db-query (max-width: 520px) {
+  .grid-filter-input {
+    width: 72px;
+    min-width: 48px;
+  }
 }
 
 .plan-label {
@@ -495,7 +517,7 @@ watch(
 .ok-panel {
   padding: 24px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .err-panel {
@@ -505,9 +527,9 @@ watch(
   border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border-color));
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
-  font-size: var(--font-ui-sm, 12px);
+  font-size: var(--db-font-size, 13px);
   white-space: pre-wrap;
-  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
 }
 
 .err-summary {
@@ -516,7 +538,7 @@ watch(
 
 .err-detail {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--db-font-size, 13px);
 }
 
 .err-detail pre {
