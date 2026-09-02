@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 
 const props = defineProps<{
@@ -161,9 +162,57 @@ function clearX11Path() {
   props.draft.x11ServerPath = ''
 }
 
+type HostKeyRow = { host: string; port: number; fingerprint: string; firstSeen: number }
+
+const knownHosts = ref<HostKeyRow[]>([])
+const knownHostsLoading = ref(false)
+
+async function refreshKnownHosts() {
+  knownHostsLoading.value = true
+  try {
+    knownHosts.value = await window.LiteConnect.sshListHostKeys()
+  } catch {
+    knownHosts.value = []
+  } finally {
+    knownHostsLoading.value = false
+  }
+}
+
+async function removeKnownHost(entry: HostKeyRow) {
+  try {
+    await appConfirm({
+      title: t('settingsNetwork.knownHostsRemoveTitle'),
+      message: t('settingsNetwork.knownHostsRemoveMessage', { host: entry.host, port: entry.port }),
+      detail: entry.fingerprint,
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      tone: 'warning',
+      danger: true,
+    })
+  } catch {
+    return
+  }
+  try {
+    await window.LiteConnect.sshRemoveHostKey(entry.host, entry.port)
+    ElMessage.success(t('settingsNetwork.knownHostsRemoved'))
+    await refreshKnownHosts()
+  } catch (err: any) {
+    ElMessage.error(err?.message || t('settingsNetwork.knownHostsRemoveFailed'))
+  }
+}
+
+function formatFirstSeen(ts: number): string {
+  try {
+    return new Date(ts).toLocaleString()
+  } catch {
+    return String(ts)
+  }
+}
+
 onMounted(() => {
   void refreshX11Status()
   void refreshBundledInstallerStatus()
+  void refreshKnownHosts()
   window.addEventListener('focus', refreshX11Status)
 })
 
@@ -178,13 +227,13 @@ watch(
 </script>
 
 <template>
-  <section class="settings-content">
+  <section class="settings-content" data-setting="network">
     <header class="content-header">
       <h3>{{ t('settingsNetwork.title') }}</h3>
       <p>{{ t('settingsNetwork.intro') }}</p>
     </header>
     <div class="settings-card narrow">
-      <div class="settings-label">{{ t('settingsNetwork.latency') }}</div>
+      <div class="settings-label" data-setting="network.latency">{{ t('settingsNetwork.latency') }}</div>
       <div class="toggle-row">
         <span>{{ draft.latencyEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
         <button
@@ -203,7 +252,7 @@ watch(
         <button type="button" class="font-size-btn" @click="draft.latencyIntervalSec = Math.min(60, draft.latencyIntervalSec + 1)">+</button>
       </div>
 
-      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.usageStats') }}</div>
+      <div class="settings-label" style="margin-top: 18px" data-setting="network.usageStats">{{ t('settingsNetwork.usageStats') }}</div>
       <div class="toggle-row">
         <span>{{ draft.connectionUsageStatsEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
         <button
@@ -217,7 +266,7 @@ watch(
       </div>
       <p class="settings-hint">{{ t('settingsNetwork.usageStatsHint') }}</p>
 
-      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.monitor') }}</div>
+      <div class="settings-label" style="margin-top: 18px" data-setting="network.monitor">{{ t('settingsNetwork.monitor') }}</div>
       <div class="toggle-row">
         <span>{{ draft.monitorEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
         <button
@@ -236,7 +285,7 @@ watch(
         <button type="button" class="font-size-btn" @click="draft.monitorIntervalSec = Math.min(30, draft.monitorIntervalSec + 1)">+</button>
       </div>
 
-      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.autoReconnect') }}</div>
+      <div class="settings-label" style="margin-top: 18px" data-setting="network.autoReconnect">{{ t('settingsNetwork.autoReconnect') }}</div>
       <div class="toggle-row">
         <span>{{ draft.autoReconnectEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
         <button
@@ -258,7 +307,7 @@ watch(
         {{ t('settingsNetwork.autoReconnectHint') }}
       </div>
 
-      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.workspaceRestore') }}</div>
+      <div class="settings-label" style="margin-top: 18px" data-setting="network.workspaceRestore">{{ t('settingsNetwork.workspaceRestore') }}</div>
       <div class="toggle-row">
         <span>{{ draft.workspaceRestoreEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
         <button
@@ -274,7 +323,7 @@ watch(
         {{ t('settingsNetwork.workspaceRestoreHint') }}
       </div>
 
-      <div class="settings-label" style="margin-top: 18px">{{ t('settingsNetwork.graphical') }}</div>
+      <div class="settings-label" style="margin-top: 18px" data-setting="network.x11">{{ t('settingsNetwork.graphical') }}</div>
       <div class="toggle-row">
         <span>{{ draft.x11AutoStartEnabled ? t('settingsNetwork.autoStartOn') : t('settingsNetwork.autoStartOff') }}</span>
         <button
@@ -356,51 +405,35 @@ watch(
         </div>
       </div>
     </div>
+
+    <div class="settings-card narrow known-hosts-card">
+      <div class="settings-label" data-setting="network.knownHosts">{{ t('settingsNetwork.knownHostsTitle') }}</div>
+      <p class="settings-hint">{{ t('settingsNetwork.knownHostsHint') }}</p>
+      <div v-if="knownHostsLoading" class="settings-hint">{{ t('common.loading') }}</div>
+      <div v-else-if="knownHosts.length === 0" class="settings-hint">{{ t('settingsNetwork.knownHostsEmpty') }}</div>
+      <ul v-else class="known-hosts-list">
+        <li v-for="entry in knownHosts" :key="`${entry.host}:${entry.port}`" class="known-host-item">
+          <div class="known-host-info">
+            <span class="known-host-addr">{{ entry.host }}:{{ entry.port }}</span>
+            <span class="known-host-fp">{{ entry.fingerprint }}</span>
+            <span class="known-host-date">{{ t('settingsNetwork.knownHostsFirstSeen', { time: formatFirstSeen(entry.firstSeen) }) }}</span>
+          </div>
+          <button type="button" class="ui-btn ui-btn-sm" @click="removeKnownHost(entry)">
+            {{ t('common.delete') }}
+          </button>
+        </li>
+      </ul>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.content-header {
-  margin-bottom: 20px;
-  max-width: 720px;
-}
-
-.content-header h3 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  color: var(--text-primary);
-}
-
-.content-header p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.settings-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 16px;
-}
-
-.settings-card.narrow {
-  max-width: 520px;
-}
-
-.settings-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
 .x11-install-help {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
   margin-top: 10px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -410,17 +443,6 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.ui-btn-primary {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg-primary));
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.ui-btn-primary:not(:disabled):hover {
-  background: color-mix(in srgb, var(--accent) 28%, var(--bg-primary));
 }
 
 .x11-test-result {
@@ -433,14 +455,14 @@ watch(
 }
 
 .x11-test-result.ok {
-  border-color: color-mix(in srgb, var(--success, #3fb950) 45%, var(--border-color));
-  background: color-mix(in srgb, var(--success, #3fb950) 10%, transparent);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
   color: var(--text-primary);
 }
 
 .x11-test-result.fail {
-  border-color: color-mix(in srgb, var(--warning, #d29922) 50%, var(--border-color));
-  background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border-color));
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
   color: var(--text-primary);
 }
 
@@ -464,135 +486,54 @@ watch(
   flex-wrap: wrap;
 }
 
-.ui-btn-sm {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 11px;
+.known-hosts-card {
+  margin-top: 16px;
 }
 
-.font-size-btn {
-  width: 32px;
-  height: 32px;
+.known-hosts-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.known-host-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 16px;
-  cursor: pointer;
-  line-height: 1;
+  background: var(--bg-tertiary);
 }
 
-.font-size-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.known-host-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.font-size-value {
-  min-width: 48px;
-  text-align: center;
-  font-size: 14px;
+.known-host-addr {
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.settings-hint {
-  margin-top: 8px;
+.known-host-fp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   color: var(--text-secondary);
-  line-height: 1.45;
+  word-break: break-all;
 }
 
-.settings-hint.warn {
-  color: var(--warning, #d29922);
-}
-
-.path-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.settings-input {
-  flex: 1;
-  min-width: 180px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
-.ui-btn {
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ui-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ui-btn:not(:disabled):hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.toggle-btn {
-  width: 40px;
-  height: 22px;
-  border-radius: 11px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  position: relative;
-  cursor: pointer;
-  padding: 0;
-}
-
-.toggle-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.toggle-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s ease;
-}
-
-.toggle-btn.active .toggle-knob {
-  transform: translateX(18px);
-}
-
-.interval-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-primary);
-  margin-bottom: 4px;
+.known-host-date {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.85;
 }
 
 </style>

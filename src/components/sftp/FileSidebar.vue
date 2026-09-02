@@ -14,7 +14,7 @@ import {
   clearSftpFollowPausedByContainer,
   isSftpFollowPausedByContainer,
 } from '../../composables/sftp/sftpFollowPause'
-import type { TerminalPwdTracker } from '../../composables/terminal/useTerminalPwd'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import SftpDirTree from './SftpDirTree.vue'
 import SftpToolbar from './SftpToolbar.vue'
 import SftpPathBar from './SftpPathBar.vue'
@@ -83,12 +83,31 @@ const actionBusy = ref(false)
 /** Click lock only — do not drive toolbar opacity (that made the whole bar flash). */
 const actionLocked = computed(() => loading.value || actionBusy.value)
 
-/** Ignore re-entrant clicks while an SFTP action is still running. */
+/** Latest queued toolbar action while one is in flight (do not drop locate/follow). */
+let pendingExclusive: (() => Promise<void>) | null = null
+
+async function waitWhileLoading(): Promise<void> {
+  while (loading.value) {
+    await new Promise((r) => setTimeout(r, 20))
+  }
+}
+
+/** Serialize toolbar actions; coalesce extra clicks to the latest instead of no-op. */
 async function runExclusive(fn: () => Promise<void>): Promise<void> {
-  if (actionBusy.value || loading.value) return
+  if (actionBusy.value) {
+    pendingExclusive = fn
+    return
+  }
   actionBusy.value = true
   try {
+    await waitWhileLoading()
     await fn()
+    while (pendingExclusive) {
+      const next = pendingExclusive
+      pendingExclusive = null
+      await waitWhileLoading()
+      await next()
+    }
   } finally {
     actionBusy.value = false
   }
@@ -544,8 +563,15 @@ async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
   if (!sftpReady.value || !followTerminalPath.value) return false
 
   const cleanTracked = cleanRemotePath(trackedPwd)
-  terminalPath.value = cleanTracked
-  if (cleanTracked === currentPath.value) return true
+  let target = cleanTracked
+  try {
+    const resolved = await window.LiteConnect.sftpRealpath(props.sessionId, cleanTracked)
+    if (resolved) target = cleanRemotePath(resolved)
+  } catch {
+    // Fall through and try the tracked path as-is.
+  }
+  terminalPath.value = target
+  if (target === currentPath.value) return true
 
   // Save the current known-good path before attempting to load the new one.
   // This is more reliable than pwdTracker.revertCd() because previousPwd can be
@@ -554,7 +580,7 @@ async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
 
   // Use isFallback=true to prevent loadDirectory's internal revert logic
   // (which relies on previousPwd). We handle the revert ourselves here.
-  const ok = await loadDirectory(cleanTracked, true)
+  const ok = await loadDirectory(target, true)
   if (ok) {
     saveCurrentState()
     return true

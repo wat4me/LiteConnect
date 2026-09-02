@@ -1,11 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('@/composables/app/useTheme', () => ({
-  terminalFontFamilyPresets: [
-    { id: 'cascadia', label: 'Cascadia Code', value: '"Cascadia Code", monospace' },
-  ],
-}))
-
+import { describe, expect, it } from 'vitest'
 import { applyDbSettingsToElement, getCachedDbSettings } from './useDbSettings'
 
 function fakeEl() {

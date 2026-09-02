@@ -45,7 +45,7 @@ export default {
     editPath: '编辑路径',
     go: '跳转',
     syncCwd: '定位到终端目录',
-    locateTerminalCwd: '定位到终端目录：跳转到当前 SSH 所在路径并展开',
+    locateTerminalCwd: '定位到终端目录：向 SSH 查询当前 pwd 并跳转、展开',
     actionBusy: '正在加载，请稍候…',
     refresh: '刷新',
     collapseToCurrent: '折叠其它目录：只保留当前跟随/锁定路径',

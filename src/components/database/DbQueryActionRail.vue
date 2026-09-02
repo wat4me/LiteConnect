@@ -356,8 +356,8 @@ onBeforeUnmount(() => {
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: var(--warning, #d29922);
-  border: 1px solid var(--warning, #d29922);
+  color: var(--warning);
+  border: 1px solid var(--warning);
   border-radius: 3px;
   padding: 1px 3px;
 }

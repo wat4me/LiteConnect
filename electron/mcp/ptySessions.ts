@@ -12,7 +12,7 @@ import {
   MCP_PTY_WAIT_IDLE_MAX_MS,
   MCP_PTY_WRITE_MAX_CHARS,
 } from '../../shared/mcp/limits'
-import type { McpShellChannel } from '../ssh/manager'
+import type { McpShellChannel } from '../ssh/types'
 
 export type PtyOpenOpts = {
   sessionId: string

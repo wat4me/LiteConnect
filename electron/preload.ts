@@ -116,6 +116,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   aiChatStream: (requestId: string, messages: any[], opts?: { sessionId?: string }) =>
     ipcRenderer.invoke('ai:chatStream', requestId, messages, opts),
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
+  aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) =>
+    ipcRenderer.invoke('ai:resolveToolApproval', requestId, callId, approved),
   aiGenerateConversationTitle: (payload: {
     userText: string
     assistantText?: string
@@ -218,6 +220,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   }) => ipcRenderer.invoke('ssh:diagnoseConnectionParams', params),
 
   sshRemoveHostKey: (host: string, port: number) => ipcRenderer.invoke('ssh:removeHostKey', host, port),
+  sshListHostKeys: () => ipcRenderer.invoke('ssh:listHostKeys'),
   sshUpdateHostKey: (host: string, port: number, keyBuffer: Buffer) => ipcRenderer.invoke('ssh:updateHostKey', host, port, keyBuffer),
   /** Trust host key from test/diagnose result (public key base64). */
   sshTrustHostKey: (host: string, port: number, keyBase64: string) =>
@@ -798,4 +801,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.on('updater:status', listener)
     return () => ipcRenderer.removeListener('updater:status', listener)
   },
+
+  // App info / session logs
+  getAppInfo: () => ipcRenderer.invoke('app:getInfo'),
+  openSessionLogDir: () => ipcRenderer.invoke('sessionLog:openDir'),
 })

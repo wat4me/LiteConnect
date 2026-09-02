@@ -830,6 +830,8 @@ async function loadSshManager() {
     ensureX11ServerReady: vi.fn(async () => ({ ready: false, message: 'skip' })),
   }))
   vi.doMock('ssh2', () => ({ Client: class MockClient {} }))
+  // Integration fixture: SSHManager is structurally a DockerSshBackend.
+  // eslint-disable-next-line import/no-restricted-paths -- test harness only
   const { SSHManager } = await import('../ssh/manager')
   return SSHManager
 }
@@ -1231,6 +1233,7 @@ describe('SSHManager primitives and DockerSshSessionHost (unit)', () => {
     }))
     vi.doMock('ssh2', () => ({ Client: class MockClient {} }))
 
+    // eslint-disable-next-line import/no-restricted-paths -- test harness only
     const { SSHManager } = await import('../ssh/manager')
     const manager = new SSHManager({
       init: vi.fn(async () => {}),
@@ -1313,6 +1316,7 @@ describe('SSHManager primitives and DockerSshSessionHost (unit)', () => {
     }))
     vi.doMock('ssh2', () => ({ Client: class MockClient {} }))
 
+    // eslint-disable-next-line import/no-restricted-paths -- test harness only
     const { SSHManager } = await import('../ssh/manager')
     const manager = new SSHManager({
       init: vi.fn(async () => {}),

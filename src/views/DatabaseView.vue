@@ -830,14 +830,14 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   letter-spacing: 0.04em;
   padding: 1px 5px;
   border-radius: 4px;
-  border: 1px solid var(--warning, #d29922);
-  color: var(--warning, #d29922);
-  background: color-mix(in srgb, var(--warning, #d29922) 14%, transparent);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
 }
 
 .bk-tab-dirty {
   flex-shrink: 0;
-  color: var(--warning, #d29922);
+  color: var(--warning);
   font-weight: 800;
   font-size: 14px;
   line-height: 1;

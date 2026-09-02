@@ -32,7 +32,7 @@ const { t } = useI18n()
     <input
       :ref="(el) => emit('set-input-ref', el as HTMLInputElement | null)"
       :value="searchQuery"
-      class="search-input"
+      class="ui-input ui-input-sm ui-input-mono search-input"
       :placeholder="t('terminal.searchPlaceholder')"
       @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value); emit('input')"
       @keydown="emit('keydown', $event)"
@@ -82,14 +82,8 @@ const { t } = useI18n()
 
 .search-input {
   flex: 1;
-  padding: 4px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  outline: none;
+  width: auto;
+  min-width: 0;
 }
 
 .search-nav-btn {
@@ -107,7 +101,7 @@ const { t } = useI18n()
 
 .search-nav-btn:hover {
   color: var(--text-primary);
-  border-color: var(--accent, #58a6ff);
+  border-color: var(--accent);
 }
 
 .search-count {
@@ -137,10 +131,6 @@ const { t } = useI18n()
 .search-opt input {
   margin: 0;
   cursor: pointer;
-}
-
-.search-input:focus {
-  border-color: var(--accent);
 }
 
 .search-hint {

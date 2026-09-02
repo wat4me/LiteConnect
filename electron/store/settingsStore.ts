@@ -1,3 +1,8 @@
+/**
+ * Persisted app settings. Public API stays on this class so IPC callers do not change.
+ * New keys: add to AppSettingsAll, then getAll() + applyMany(). Prefer settings:setMany
+ * over a new one-off getter/setter IPC pair.
+ */
 import { app, safeStorage } from 'electron'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
@@ -15,6 +20,7 @@ import {
 } from '../../shared/aiContext'
 import { t } from '../i18n'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
+import { sanitizeAiToolPermission, type AiToolPermissionMode } from '../../shared/aiToolPolicy'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -28,6 +34,15 @@ import {
   sanitizeDbDefaultRunScope,
   type DbDefaultRunScope,
 } from './dbQueryTabDefaults'
+import type {
+  AppSettingsAll,
+  AppSettingsAllPatch,
+  WorkspaceTabsState,
+} from '../../shared/types/settings'
+
+export type SettingsAll = AppSettingsAll
+export type SettingsAllPatch = AppSettingsAllPatch
+export type { WorkspaceTabsState }
 
 export class SettingsStore {
   private settingsPath: string
@@ -726,6 +741,36 @@ export class SettingsStore {
     return this.settings.workspaceRestoreEnabled === true
   }
 
+  /** Hide to tray on window close instead of quitting. Default off. */
+  getCloseToTrayEnabled(): boolean {
+    return this.settings.closeToTrayEnabled === true
+  }
+
+  async setCloseToTrayEnabled(enabled: boolean): Promise<void> {
+    this.settings.closeToTrayEnabled = !!enabled
+    await this.save()
+  }
+
+  /** Global hotkey (Alt+Shift+L) to show/hide the window. Default off. */
+  getGlobalHotkeyEnabled(): boolean {
+    return this.settings.globalHotkeyEnabled === true
+  }
+
+  async setGlobalHotkeyEnabled(enabled: boolean): Promise<void> {
+    this.settings.globalHotkeyEnabled = !!enabled
+    await this.save()
+  }
+
+  /** Append remote shell output to per-session log files. Default off. */
+  getSessionLogEnabled(): boolean {
+    return this.settings.sessionLogEnabled === true
+  }
+
+  async setSessionLogEnabled(enabled: boolean): Promise<void> {
+    this.settings.sessionLogEnabled = !!enabled
+    await this.save()
+  }
+
   async setWorkspaceRestoreEnabled(enabled: boolean): Promise<void> {
     this.settings.workspaceRestoreEnabled = !!enabled
     if (!enabled) delete this.settings.workspaceTabs
@@ -888,6 +933,7 @@ export class SettingsStore {
     systemPrompt: string
     temperature: number
     contextWindowTokens?: number
+    toolPermission: AiToolPermissionMode
   } {
     const ai = this.settings.ai
     if (!ai || !Array.isArray(ai.providers) || ai.providers.length === 0) {
@@ -910,6 +956,7 @@ export class SettingsStore {
         : getDefaultAiSystemPrompt(),
       temperature: this.clampAiTemperature(ai.temperature),
       contextWindowTokens: clampContextWindowTokens(ai.contextWindowTokens),
+      toolPermission: sanitizeAiToolPermission(ai.toolPermission),
     }
   }
 
@@ -926,6 +973,7 @@ export class SettingsStore {
       activeModel: '',
       systemPrompt: getDefaultAiSystemPrompt(),
       temperature: 0.7,
+      toolPermission: sanitizeAiToolPermission(undefined),
     }
   }
 
@@ -958,6 +1006,9 @@ export class SettingsStore {
       temperature: this.clampAiTemperature(settings.temperature),
       // Keep reading leftover global value; new saves omit it when unset.
       contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
+      toolPermission: sanitizeAiToolPermission(
+        settings.toolPermission ?? this.settings.ai?.toolPermission,
+      ),
     }
     await this.save()
   }
@@ -980,6 +1031,7 @@ export class SettingsStore {
     systemPrompt: string
     temperature: number
     contextWindowTokens?: number
+    toolPermission: AiToolPermissionMode
   } {
     const settings = this.getAiSettings()
     const provider = settings.providers.find((p: any) => p.id === settings.activeProviderId) || settings.providers[0]
@@ -991,6 +1043,7 @@ export class SettingsStore {
         systemPrompt: settings.systemPrompt,
         temperature: settings.temperature,
         contextWindowTokens: settings.contextWindowTokens,
+        toolPermission: settings.toolPermission,
       }
     }
     const model = settings.activeModel || firstAiModelId(provider.models)
@@ -1005,6 +1058,7 @@ export class SettingsStore {
         models: provider.models,
         fallback: settings.contextWindowTokens,
       }),
+      toolPermission: settings.toolPermission,
     }
   }
 
@@ -1048,6 +1102,9 @@ export class SettingsStore {
       monitorIntervalMs: this.getMonitorIntervalMs(),
       autoReconnectEnabled: this.getAutoReconnectEnabled(),
       workspaceRestoreEnabled: this.getWorkspaceRestoreEnabled(),
+      closeToTrayEnabled: this.getCloseToTrayEnabled(),
+      globalHotkeyEnabled: this.getGlobalHotkeyEnabled(),
+      sessionLogEnabled: this.getSessionLogEnabled(),
       autoReconnectMaxRetries: this.getAutoReconnectMaxRetries(),
       x11AutoStartEnabled: this.getX11AutoStartEnabled(),
       x11ServerPath: this.getX11ServerPath(),
@@ -1158,6 +1215,15 @@ export class SettingsStore {
       this.settings.workspaceRestoreEnabled = !!patch.workspaceRestoreEnabled
       if (!this.settings.workspaceRestoreEnabled) delete this.settings.workspaceTabs
     }
+    if (patch.closeToTrayEnabled !== undefined) {
+      this.settings.closeToTrayEnabled = !!patch.closeToTrayEnabled
+    }
+    if (patch.globalHotkeyEnabled !== undefined) {
+      this.settings.globalHotkeyEnabled = !!patch.globalHotkeyEnabled
+    }
+    if (patch.sessionLogEnabled !== undefined) {
+      this.settings.sessionLogEnabled = !!patch.sessionLogEnabled
+    }
     if (patch.autoReconnectMaxRetries !== undefined) {
       this.settings.autoReconnectMaxRetries = Math.max(0, Math.min(20, Math.round(patch.autoReconnectMaxRetries)))
     }
@@ -1170,66 +1236,4 @@ export class SettingsStore {
     await this.save()
     return this.getAll()
   }
-}
-
-export type SettingsAll = {
-  theme: string
-  customColors: { fontColor: string; bgColor: string } | null
-  downloadPath: string
-  configuredDownloadPath: string
-  defaultDownloadPath: string
-  terminalFontSize: number
-  terminalFontFamily: string
-  terminalPalette: string
-  terminalScrollback: number
-  terminalPasteConfirmEnabled: boolean
-  terminalPasteConfirmMaxChars: number
-  terminalCommandSuggestEnabled: boolean
-  downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
-  dirTransferConcurrency: number
-  dirTransferFailPolicy: 'continue' | 'stop'
-  dbFontFamily: string
-  dbFontSize: number
-  dbPageSize: number
-  dbConfirmDangerousSql: boolean
-  dbDefaultMaxRows: number
-  dbDefaultQueryTimeoutSec: number
-  dbDefaultRunScope: string
-  latencyEnabled: boolean
-  latencyIntervalMs: number
-  connectionUsageStatsEnabled: boolean
-  fancyCursorEnabled: boolean
-  fancyCursorStyle: string
-  appBackground: {
-    fileName: string
-    fit: 'cover' | 'contain' | 'fill'
-    overlay: number
-    imageUrl: string
-  }
-  monitorEnabled: boolean
-  monitorIntervalMs: number
-  autoReconnectEnabled: boolean
-  workspaceRestoreEnabled: boolean
-  autoReconnectMaxRetries: number
-  x11AutoStartEnabled: boolean
-  x11ServerPath: string
-  recentDownloadPaths: string[]
-}
-
-export type WorkspaceTabsState = {
-  version: 1
-  homeActive: boolean
-  activeConnectionId: string | null
-  groups: Array<{ connectionId: string; sessionCount: number; activeIndex: number }>
-}
-
-export type SettingsAllPatch = Partial<
-  Omit<SettingsAll, 'appBackground' | 'configuredDownloadPath' | 'defaultDownloadPath' | 'recentDownloadPaths'>
-> & {
-  appBackground?: {
-    fileName?: string
-    fit?: 'cover' | 'contain' | 'fill'
-    overlay?: number
-  }
-  downloadPath?: string
 }

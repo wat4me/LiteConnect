@@ -69,14 +69,14 @@ watch(
     <div
       v-if="visible && entry"
       ref="menuRef"
-      class="context-menu"
+      class="ui-menu"
       :style="{ left: left + 'px', top: top + 'px' }"
       @click.stop
     >
       <button
         v-if="entry.isDirectory"
         type="button"
-        class="context-menu-item"
+        class="ui-menu-item"
         @click="emit('open', entry)"
       >
         <AppIcon name="folder" size="xs" />
@@ -85,7 +85,7 @@ watch(
       <button
         v-if="!entry.isDirectory"
         type="button"
-        class="context-menu-item"
+        class="ui-menu-item"
         @click="emit('download', entry)"
       >
         <AppIcon name="download" size="xs" />
@@ -94,7 +94,7 @@ watch(
       <button
         v-if="!entry.isDirectory"
         type="button"
-        class="context-menu-item"
+        class="ui-menu-item"
         @click="emit('download-to', entry)"
       >
         <AppIcon name="folder" size="xs" />
@@ -103,7 +103,7 @@ watch(
       <button
         v-if="!entry.isDirectory && isArchive(entry.name)"
         type="button"
-        class="context-menu-item"
+        class="ui-menu-item"
         @click="emit('extract', entry)"
       >
         <AppIcon name="folder-up" size="xs" />
@@ -112,7 +112,7 @@ watch(
       <button
         v-if="entry.isDirectory"
         type="button"
-        class="context-menu-item"
+        class="ui-menu-item"
         @click="emit('download-dir', entry)"
       >
         <AppIcon name="download" size="xs" />
@@ -121,67 +121,24 @@ watch(
       <button
         v-if="!entry.isDirectory && canEdit(entry.name)"
         type="button"
-        class="context-menu-item"
+        class="ui-menu-item"
         @click="emit('edit', entry)"
       >
         <AppIcon name="edit" size="xs" />
         <span>{{ t('sftp.edit') }}</span>
       </button>
-      <button type="button" class="context-menu-item" @click="emit('rename', entry)">
+      <button type="button" class="ui-menu-item" @click="emit('rename', entry)">
         <AppIcon name="edit" size="xs" />
         <span>{{ t('sftp.rename') }}</span>
       </button>
-      <button type="button" class="context-menu-item" @click="emit('properties', entry)">
+      <button type="button" class="ui-menu-item" @click="emit('properties', entry)">
         <AppIcon name="settings" size="xs" />
         <span>{{ t('sftp.properties') }}</span>
       </button>
-      <button type="button" class="context-menu-item danger" @click="emit('delete', entry)">
+      <button type="button" class="ui-menu-item danger" @click="emit('delete', entry)">
         <AppIcon name="delete" size="xs" />
         <span>{{ t('sftp.delete') }}</span>
       </button>
     </div>
   </Teleport>
 </template>
-
-<style scoped>
-.context-menu {
-  position: fixed;
-  z-index: 10000;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  padding: 4px 0;
-  min-width: 140px;
-  max-height: calc(100vh - 16px);
-  overflow-y: auto;
-}
-
-.context-menu-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.context-menu-item svg {
-  flex-shrink: 0;
-  opacity: 0.85;
-}
-
-.context-menu-item.danger {
-  color: var(--danger);
-}
-
-.context-menu-item:hover {
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-</style>

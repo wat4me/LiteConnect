@@ -21,10 +21,11 @@ export function sshToolSystemAddendum(session: {
     '你可以使用 SSH 工具连接已保存的主机，并查看远端状态，不要空口猜测磁盘、进程、日志或配置。',
     '先 list_connections，再用 connect(connectionId) 连接。连接成功后，exec / read_file / write_file / list_dir 必须使用返回的 sessionId。',
     `当前侧栏会话已绑定 sessionId=${session.sessionId}${where ? `（${where}）` : ''}。若操作的就是这台机，可省略 sessionId。`,
-    '用完后必须 disconnect，不要留下未关闭的会话。多台机器可用 list_groups 再 exec(group=...)。长任务用 exec(background=true) 然后 get_job。',
+    '远端命令、写文件、PTY、断开会话默认要等用户在对话里点「允许」才会执行。删根目录、mkfs、灌盘、关机会被直接拦截，不要尝试绕过。',
+    '不要主动 disconnect 用户正在用的会话。多台机器可用 list_groups 再 exec(group=...)。长任务用 exec(background=true) 然后 get_job。',
     '需要安装向导、菜单、方向键时用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端。exec 仍是非交互命令。大文件用 upload_file / download_file。',
     'connect 只会使用 LiteConnect 里已保存的凭据，不要向用户索要密码。用户可能需要在应用里确认主机指纹。',
-    '破坏性命令和 sudo 会被拒绝。能用工具拿到的信息，不要让用户去终端复制。',
+    '工具结果已经显示在卡片里。回复只给简短结论和下一步，不要原样粘贴大段 stdout/JSON。能用工具拿到的信息，不要让用户去终端复制。',
   ].join('\n')
 }
 

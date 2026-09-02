@@ -208,7 +208,7 @@ const dockerTooltip = computed(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--danger, #f85149);
+  background: var(--danger);
   box-shadow: 0 0 0 2px var(--bg-secondary);
   animation: ai-reply-pulse 1.6s ease-in-out infinite;
 }

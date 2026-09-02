@@ -486,9 +486,9 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
   gap: 5px;
   height: 28px;
   padding: 0 9px;
-  border: 1px solid var(--danger, #f85149);
+  border: 1px solid var(--danger);
   border-radius: 6px;
-  background: var(--danger, #f85149);
+  background: var(--danger);
   color: #fff;
   font-size: 11px;
   font-weight: 600;

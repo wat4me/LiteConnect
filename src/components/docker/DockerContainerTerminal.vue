@@ -778,12 +778,12 @@ function onHostClick(): void {
 }
 
 .ct-state[data-state='attached'] {
-  color: var(--success-color, #3ecf8e);
+  color: var(--success);
 }
 
 .ct-state[data-state='error'],
 .ct-state[data-state='disconnected'] {
-  color: var(--danger-color, #f56c6c);
+  color: var(--danger);
 }
 
 .ct-exit {
@@ -813,8 +813,8 @@ function onHostClick(): void {
 }
 
 .ct-btn.primary {
-  border-color: var(--accent-color, #409eff);
-  color: var(--accent-color, #409eff);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .ct-banner {
@@ -824,7 +824,7 @@ function onHostClick(): void {
 }
 
 .ct-banner.warn {
-  background: color-mix(in srgb, var(--warning-color, #e6a23c) 15%, transparent);
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
   color: var(--text-primary);
 }
 

@@ -429,23 +429,23 @@ function onMenuAction(action: MenuAction) {
           <div
             v-if="menuOpen"
             ref="menuRef"
-            class="more-menu"
+            class="ui-menu"
             role="menu"
             :style="menuStyle"
             @click.stop
             @contextmenu.prevent
           >
-            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('connect')">
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('connect')">
               <AppIcon name="link" size="sm" class="more-item-icon" />
               {{ t('connections.connect') }}
             </button>
-            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('window')">
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('window')">
               <AppIcon name="terminal" size="sm" class="more-item-icon" />
               {{ t('connections.openInNewWindow') }}
             </button>
             <button
               type="button"
-              class="more-item"
+              class="ui-menu-item"
               role="menuitem"
               :disabled="testStatus.state === 'testing'"
               @click="onMenuAction('test')"
@@ -453,21 +453,21 @@ function onMenuAction(action: MenuAction) {
               <AppIcon name="crosshair" size="sm" class="more-item-icon" />
               {{ t('connections.testConnection') }}
             </button>
-            <div class="more-divider" role="separator"></div>
-            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('copy')">
+            <div class="ui-menu-sep" role="separator"></div>
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
               <AppIcon name="copy" size="sm" class="more-item-icon" />
               {{ t('connections.copyConnection') }}
             </button>
-            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('edit')">
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
               <AppIcon name="edit" size="sm" class="more-item-icon" />
               {{ t('connections.edit') }}
             </button>
-            <button type="button" class="more-item" role="menuitem" @click="onMenuAction('pin')">
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('pin')">
               <AppIcon :name="connection.pinned ? 'star-fill' : 'star'" size="sm" class="more-item-icon" />
               {{ connection.pinned ? t('connections.unpin') : t('connections.pin') }}
             </button>
-            <div class="more-divider" role="separator"></div>
-            <button type="button" class="more-item danger" role="menuitem" @click="onMenuAction('delete')">
+            <div class="ui-menu-sep" role="separator"></div>
+            <button type="button" class="ui-menu-item danger" role="menuitem" @click="onMenuAction('delete')">
               <AppIcon name="delete" size="sm" class="more-item-icon" />
               {{ t('common.delete') }}
             </button>
@@ -506,11 +506,11 @@ function onMenuAction(action: MenuAction) {
 }
 
 .connection-row.pinned {
-  background: color-mix(in srgb, var(--warning, #e3b341) 8%, var(--bg-secondary));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-secondary));
 }
 
 .pin-icon {
-  color: var(--warning, #e3b341);
+  color: var(--warning);
   flex-shrink: 0;
 }
 
@@ -521,7 +521,7 @@ function onMenuAction(action: MenuAction) {
 }
 
 .connection-row.pinned:hover {
-  background: color-mix(in srgb, var(--warning, #e3b341) 12%, var(--hover-bg));
+  background: color-mix(in srgb, var(--warning) 12%, var(--hover-bg));
 }
 
 .connection-row.menu-open,
@@ -779,75 +779,6 @@ function onMenuAction(action: MenuAction) {
 
 .more-wrap {
   position: relative;
-}
-
-.more-menu {
-  position: fixed;
-  z-index: 10000;
-  min-width: 168px;
-  padding: 4px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-}
-
-.more-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.more-item-icon {
-  flex-shrink: 0;
-  opacity: 0.85;
-  color: var(--text-secondary);
-}
-
-.more-item:hover:not(:disabled) .more-item-icon {
-  color: var(--text-primary);
-  opacity: 1;
-}
-
-.more-item.danger .more-item-icon {
-  color: var(--danger);
-}
-
-.more-item:hover:not(:disabled) {
-  background: var(--hover-bg);
-}
-
-.more-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.more-item.danger {
-  color: var(--danger);
-}
-
-.more-item.danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.more-divider {
-  height: 1px;
-  margin: 2px 6px;
-  background: var(--border-color);
 }
 
 .spinner {

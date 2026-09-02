@@ -1,11 +1,8 @@
 import { ref } from 'vue'
 import { t } from '../../i18n'
 import type { FileEntry } from '../../env.d.ts'
-import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
-
-function cleanRemotePath(path: string): string {
-  return path.replace(/\/+$/, '') || '/'
-}
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import { cleanRemotePath, planLocateCwd, sameRemotePath } from '@/utils/sftp/sftpCwdSync'
 
 /** Friendlier empty-dir / permission / not-found copy for SFTP readdir failures */
 function formatSftpError(raw: unknown, path: string): string {
@@ -51,7 +48,8 @@ function requestTerminalPwd(sessionId: string): Promise<string> {
       resolve,
       reject,
     }
-    globalThis.dispatchEvent(new CustomEvent<TerminalPwdRequestDetail>('request-terminal-pwd', { detail }))
+    const target = typeof window !== 'undefined' ? window : globalThis
+    target.dispatchEvent(new CustomEvent<TerminalPwdRequestDetail>('request-terminal-pwd', { detail }))
     if (!detail.handled) {
       reject(new Error('No active terminal for pwd request'))
     }
@@ -206,35 +204,42 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
   }
 
   async function syncCwd(): Promise<boolean> {
+    if (pwdTracker) {
+      const fromTracker = pwdTracker.getPwd(sessionId())
+      if (fromTracker) terminalPath.value = cleanRemotePath(fromTracker)
+    }
     return syncTrackedPath(false)
   }
 
   /**
-   * Toolbar "locate": jump SFTP to the terminal cwd and re-read the tree.
-   *
-   * Important: do **not** inject a live `pwd` into the interactive shell when we
-   * already know the path. That always makes the shell print a fresh prompt
-   * line (and can flash the probe command), which looks like "extra # lines".
-   *
-   * Live interactive pwd is only a last resort when tracking has no path yet.
+   * Toolbar "locate": always query the live shell `pwd`.
+   * Clicking this means follow did not catch up; do not trust local cd tracking.
+   * Tracker / last known path is only a fallback if the probe fails.
    */
   async function syncCwdForce(): Promise<boolean> {
-    if (!terminalPath.value && pwdTracker) {
-      const fromTracker = pwdTracker.getPwd(sessionId())
-      if (fromTracker) terminalPath.value = cleanRemotePath(fromTracker)
-    }
-    if (terminalPath.value) {
-      return syncTrackedPath(false)
-    }
+    const plan = planLocateCwd({
+      terminalPath: terminalPath.value,
+      trackerPwd: pwdTracker?.getPwd(sessionId()) ?? null,
+    })
+    if (plan.tracked) terminalPath.value = plan.tracked
     return syncTrackedPath(true)
+  }
+
+  async function resolveRemotePath(candidate: string): Promise<string | null> {
+    const clean = cleanRemotePath(candidate)
+    try {
+      const resolved = await window.LiteConnect.sftpRealpath(sessionId(), clean)
+      if (resolved) return cleanRemotePath(resolved)
+    } catch {
+      // Some servers fail realpath on a path readdir can still open.
+    }
+    return clean
   }
 
   async function syncTrackedPath(useLiveShellPwd: boolean): Promise<boolean> {
     const tracked = terminalPath.value
     let livePwd = ''
 
-    // Live shell `pwd` is expensive and visible (new prompt line). Only when
-    // we have no tracked cwd at all.
     if (useLiveShellPwd) {
       try {
         livePwd = cleanRemotePath((await requestTerminalPwd(sessionId())).trim())
@@ -255,21 +260,20 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     if (useLiveShellPwd) candidates.push('.')
 
     for (const candidate of [...new Set(candidates)]) {
-      try {
-        const resolved = await window.LiteConnect.sftpRealpath(sessionId(), candidate)
-        if (!resolved) continue
+      const resolved = await resolveRemotePath(candidate)
+      if (!resolved) continue
 
-        previousTerminalPath.value = terminalPath.value
-        terminalPath.value = resolved
-        if (pwdTracker) pwdTracker.setPwd(sessionId(), resolved)
+      previousTerminalPath.value = terminalPath.value
+      terminalPath.value = resolved
+      if (pwdTracker) pwdTracker.setPwd(sessionId(), resolved)
 
-        // Already browsing this path: skip readdir so locate does not flash the tree.
-        // (Refresh button is the intentional full reload.)
-        if (cleanRemotePath(resolved) === cleanRemotePath(currentPath.value) && sftpReady.value) {
-          return true
-        }
-        return await loadDirectory(resolved)
-      } catch {}
+      // Already browsing this path: skip readdir so locate does not flash the tree.
+      // (Refresh button is the intentional full reload.)
+      if (sameRemotePath(resolved, currentPath.value) && sftpReady.value) {
+        return true
+      }
+      const ok = await loadDirectory(resolved)
+      if (ok) return true
     }
 
     if (useLiveShellPwd) {

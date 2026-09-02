@@ -105,8 +105,8 @@ onBeforeUnmount(() => {
 }
 
 .tx-bar.active {
-  background: color-mix(in srgb, var(--warning, #d29922) 10%, var(--bg-secondary));
-  border-bottom-color: color-mix(in srgb, var(--warning, #d29922) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-secondary));
+  border-bottom-color: color-mix(in srgb, var(--warning) 35%, var(--border-color));
 }
 
 .tx-badge {
@@ -119,16 +119,16 @@ onBeforeUnmount(() => {
 }
 
 .tx-badge.active {
-  border-color: var(--warning, #d29922);
-  color: var(--warning, #d29922);
-  background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent);
+  border-color: var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
   font-weight: 700;
 }
 
 .tx-duration {
   font-size: 11px;
   font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 
 .tx-actions {

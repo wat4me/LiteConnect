@@ -41,15 +41,10 @@ import { useAppNavigation } from '@/composables/app/useAppNavigation'
 import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
-import {
-  formatSnippetPayloadForWrite,
-  matchSnippetHotkey,
-  pendingSnippetVars,
-  resolveDynamicBuiltins,
-  resolveSnippetCommand,
-} from '@/utils/snippets/commandSnippets'
-import { getSnippetContext } from '@/utils/session/sessionDisplay'
 import { useTitlebarConnection } from '@/composables/app/useTitlebarConnection'
+import { useSnippetHotkeys } from '@/composables/snippets/useSnippetHotkeys'
+import { useDockerSshBridge } from '@/composables/docker/useDockerSshBridge'
+import { useTransferToasts } from '@/composables/app/useTransferToasts'
 
 const { t } = useI18n()
 const { theme, customColors } = useTheme()
@@ -372,58 +367,12 @@ const allSessions = computed(() => {
   return list
 })
 
-let snippetHotkeyCache: Array<{
-  id: string
-  hotkey?: string
-  command: string
-  name: string
-  sendMode?: 'run' | 'fill'
-}> | null = null
-let snippetHotkeyCacheAt = 0
-
-async function refreshSnippetHotkeyCache() {
-  try {
-    const list = await window.LiteConnect.getCommandSnippets()
-    snippetHotkeyCache = list
-      .filter((s) => s.hotkey)
-      .map((s) => ({
-        id: s.id,
-        hotkey: s.hotkey,
-        command: s.command,
-        name: s.name,
-        sendMode: s.sendMode,
-      }))
-    snippetHotkeyCacheAt = Date.now()
-  } catch {
-    snippetHotkeyCache = []
-  }
-}
-
-function tryRunSnippetHotkey(e: KeyboardEvent): boolean {
-  if (!snippetHotkeyCache || Date.now() - snippetHotkeyCacheAt > 5000) {
-    void refreshSnippetHotkeyCache()
-  }
-  const list = snippetHotkeyCache || []
-  const hit = list.find((s) => matchSnippetHotkey(e, s.hotkey))
-  if (!hit) return false
-  const sid = activeSessionId.value
-  if (!sid) return true
-  void (async () => {
-    const session = activeSession.value
-    const ctx = session ? getSnippetContext(connections.value, session.connectionId) : null
-    const dynamic = await resolveDynamicBuiltins()
-    const merged = { ...(ctx || {}), ...dynamic }
-    const pending = pendingSnippetVars(hit.command, merged)
-    if (pending.length > 0) {
-      openSnippetPalette()
-      return
-    }
-    const resolved = resolveSnippetCommand(hit.command, merged, dynamic)
-    const mode = hit.sendMode === 'fill' ? 'fill' : 'run'
-    window.LiteConnect.sshWrite(sid, formatSnippetPayloadForWrite(resolved, mode))
-  })()
-  return true
-}
+const { tryRunSnippetHotkey } = useSnippetHotkeys({
+  activeSessionId,
+  activeSession,
+  connections,
+  openSnippetPalette,
+})
 
 const { handleKeydown } = useAppKeyboard({
   isHomeActive,
@@ -477,59 +426,12 @@ watch(
   { immediate: true },
 )
 
-/** Per-session SSH closed/reconnected listeners for Docker button + workspace. */
-const dockerSshUnsubs = new Map<string, () => void>()
-
-function detachDockerSshListeners(sessionId: string) {
-  const off = dockerSshUnsubs.get(sessionId)
-  if (off) {
-    off()
-    dockerSshUnsubs.delete(sessionId)
-  }
-}
-
-function attachDockerSshListeners(sessionId: string) {
-  if (dockerSshUnsubs.has(sessionId)) return
-  const offs: Array<() => void> = []
-  offs.push(
-    window.LiteConnect.onSshClosed(sessionId, () => {
-      markSessionConnected(sessionId, false)
-    }),
-  )
-  offs.push(
-    window.LiteConnect.onSshError(sessionId, () => {
-      markSessionConnected(sessionId, false)
-    }),
-  )
-  if (typeof window.LiteConnect.onSshReconnected === 'function') {
-    offs.push(
-      window.LiteConnect.onSshReconnected(sessionId, () => {
-        markSessionConnected(sessionId, true)
-      }),
-    )
-  }
-  dockerSshUnsubs.set(sessionId, () => {
-    for (const off of offs) off()
-  })
-}
-
-watch(
+useDockerSshBridge({
   liveSessionIds,
-  (ids) => {
-    const live = new Set(ids)
-    for (const id of ids) {
-      trackSessionConnection(id)
-      attachDockerSshListeners(id)
-    }
-    for (const id of [...dockerSshUnsubs.keys()]) {
-      if (!live.has(id)) {
-        detachDockerSshListeners(id)
-        forgetSession(id)
-      }
-    }
-  },
-  { immediate: true },
-)
+  trackSessionConnection,
+  markSessionConnected,
+  forgetSession,
+})
 
 watch(
   () => (activeGroup.value ? activeGroup.value.sessions.map((s) => s.id) : null),
@@ -556,87 +458,7 @@ watch(
   { immediate: true },
 )
 
-function onTransferFinished(e: Event) {
-  const d = (e as CustomEvent).detail as {
-    fileName?: string
-    direction?: string
-    status?: string
-    error?: string
-  } | undefined
-  if (!d) return
-  // Per-file toast (single downloads / uploads). Batch multi-file uses onBatchTransferFinished.
-  const name = d.fileName || t('common.file')
-  const dirLabel = d.direction === 'upload' ? t('common.upload') : t('common.download')
-  if (d.status === 'completed') {
-    ElMessage.success(t('app.transferComplete', { direction: dirLabel, name }))
-  } else if (d.status === 'error') {
-    ElMessage.error(
-      d.error
-        ? t('app.transferFailedWithError', { direction: dirLabel, name, error: d.error })
-        : t('app.transferFailed', { direction: dirLabel, name }),
-    )
-  }
-}
-
-function onBatchTransferFinished(e: Event) {
-  const d = (e as CustomEvent).detail as {
-    direction?: string
-    success?: number
-    error?: number
-    skipped?: number
-    partial?: number
-    total?: number
-  } | undefined
-  if (!d) return
-  const success = d.success || 0
-  const error = d.error || 0
-  const skipped = d.skipped || 0
-  const total = d.total || 0
-  if (d.direction === 'download') {
-    if (error > 0) {
-      ElMessage.warning(
-        t('app.batchDownloadDoneWithError', { success, error, total }),
-      )
-    } else if (skipped > 0 && success === 0) {
-      ElMessage.info(t('app.batchDownloadSkipped', { skipped, total }))
-    } else {
-      ElMessage.success(t('app.batchDownloadComplete', { count: success || total }))
-    }
-    return
-  }
-  // Future multi-file upload batch
-  if (error > 0) {
-    ElMessage.warning(t('app.batchUploadDoneWithError', { success, error, total }))
-  } else {
-    ElMessage.success(t('app.batchUploadComplete', { count: success || total }))
-  }
-}
-
-function onBatchFinished(e: Event) {
-  const d = (e as CustomEvent).detail as {
-    success?: number
-    error?: number
-    cancelled?: number
-    total?: number
-    cancelledByUser?: boolean
-  } | undefined
-  if (!d) return
-  if (d.cancelledByUser) {
-    ElMessage.info(
-      t('app.batchCancelled', {
-        success: d.success || 0,
-        error: d.error || 0,
-        cancelled: d.cancelled || 0,
-      }),
-    )
-    return
-  }
-  if ((d.error || 0) > 0) {
-    ElMessage.warning(t('app.batchDoneWithError', { success: d.success || 0, error: d.error || 0 }))
-  } else {
-    ElMessage.success(t('app.batchDoneAll', { success: d.success || 0, total: d.total || 0 }))
-  }
-}
+useTransferToasts()
 
 /** Detached multi-window launch: ?detached=1&connectionId=uuid */
 function readLaunchParams() {
@@ -686,10 +508,6 @@ onMounted(async () => {
   window.addEventListener('monitor-settings-change', handleMonitorSettingsChange)
   window.addEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
   window.addEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
-  window.addEventListener('sftp-transfer-finished', onTransferFinished)
-  window.addEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
-  window.addEventListener('batch-command-finished', onBatchFinished)
-  void refreshSnippetHotkeyCache()
   try {
     const bootstrap = await window.LiteConnect.getAppBootstrap()
     hydrateConnectionData({
@@ -767,12 +585,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('monitor-settings-change', handleMonitorSettingsChange)
   window.removeEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
   window.removeEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
-  window.removeEventListener('sftp-transfer-finished', onTransferFinished)
-  window.removeEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
-  window.removeEventListener('batch-command-finished', onBatchFinished)
-  for (const id of [...dockerSshUnsubs.keys()]) {
-    detachDockerSshListeners(id)
-  }
 })
 </script>
 

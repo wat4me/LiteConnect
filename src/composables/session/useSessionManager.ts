@@ -2,7 +2,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref, type Comput
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Connection } from '../../env.d'
 import { t } from '../../i18n'
-import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 import type { Session, ConnectionGroup } from '@/domain/session/types'

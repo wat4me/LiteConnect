@@ -396,7 +396,7 @@ defineExpose({
 }
 
 .query-context-bar.tx {
-  background: color-mix(in srgb, var(--warning, #d29922) 8%, var(--bg-secondary));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-secondary));
 }
 
 .ctx-chip {
@@ -413,8 +413,8 @@ defineExpose({
 }
 
 .ctx-chip.mode.active {
-  border-color: var(--warning, #d29922);
-  color: var(--warning, #d29922);
+  border-color: var(--warning);
+  color: var(--warning);
   font-weight: 700;
 }
 
@@ -423,9 +423,9 @@ defineExpose({
 }
 
 .ctx-chip.ro.on {
-  border-color: var(--warning, #d29922);
-  color: var(--warning, #d29922);
-  background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent);
+  border-color: var(--warning);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .ctx-tx-actions {
@@ -479,7 +479,7 @@ defineExpose({
 }
 
 .session-dot.alive {
-  background: var(--success, #3fb950);
+  background: var(--success);
   opacity: 1;
 }
 

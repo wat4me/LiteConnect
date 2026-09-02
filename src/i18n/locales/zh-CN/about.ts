@@ -1,13 +1,25 @@
 export default {
   about: {
     title: '关于',
-    intro: '应用版本与运行环境信息',
+    intro: '版本信息与应用更新。自动更新开关立即生效，不必再点保存。',
     desc: '轻量级多协议连接管理客户端：SSH 终端、SFTP、服务器监控、Docker 管理与数据库工具。',
     version: '应用版本',
     electron: 'Electron 版本',
     platform: '运行平台',
     license: '开源许可',
     licenseValue: 'MIT',
-    updateHint: '更新检查可在网络设置中开启；安装版会在退出时自动安装已下载的更新。',
+    updates: '应用更新',
+    autoUpdate: '启动时自动检查更新',
+    autoUpdateHint:
+      '默认关闭：不少网络访问不了 GitHub Releases。开启后，安装版启动约 8 秒会检查一次；发现新版本会自动下载，退出应用时安装。开发运行或解压便携版通常检查不到更新。',
+    checkNow: '检查更新',
+    checking: '正在检查…',
+    available: '发现新版本 {version}',
+    notAvailable: '当前已是最新版本',
+    downloading: '正在下载更新… {progress}%',
+    downloaded: '更新已下载，退出应用后会自动安装',
+    installNow: '退出并安装',
+    error: '检查失败：{message}',
+    checkFailed: '检查更新失败',
   },
 } as const

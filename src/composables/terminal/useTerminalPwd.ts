@@ -1,12 +1,7 @@
 import { reactive } from 'vue'
+import type { PwdState } from '@/domain/terminal/types'
 
-export interface PwdState {
-  pwd: string
-  homePath: string
-  previousPwd: string
-}
-
-export type TerminalPwdTracker = ReturnType<typeof useTerminalPwd>
+export type { PwdState, TerminalPwdTracker } from '@/domain/terminal/types'
 
 export function useTerminalPwd() {
   const state = reactive<Record<string, PwdState>>({})

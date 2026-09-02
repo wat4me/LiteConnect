@@ -253,9 +253,11 @@ watch(
         @sort="emit('sort', $event)"
         @copy-cell="emit('copyCell', $event)"
       />
-      <div v-else class="output-empty-container">
-        <AppIcon name="database" size="hero" class="empty-icon" />
-        <span class="empty-title">{{ t('database.query.resultEmpty') }}</span>
+      <div v-else class="ui-empty output-empty-container">
+        <div class="ui-empty-icon empty-icon" aria-hidden="true">
+          <AppIcon name="database" size="hero" />
+        </div>
+        <span class="ui-empty-title">{{ t('database.query.resultEmpty') }}</span>
         <div class="empty-tips">
           <div class="tip-item">
             <span class="tip-label">执行选区/语句:</span>
@@ -421,8 +423,8 @@ watch(
 }
 
 .badge.trunc {
-  background: color-mix(in srgb, var(--warning, #d29922) 18%, transparent);
-  color: var(--warning, #d29922);
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
 }
 
 .badge.trunc.inline {
@@ -434,7 +436,7 @@ watch(
   height: 7px;
   padding: 0;
   border-radius: 50%;
-  background: var(--danger, #f85149);
+  background: var(--danger);
 }
 
 .output-body {
@@ -551,25 +553,11 @@ watch(
 
 .output-empty-container {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   padding: 40px 20px;
-  color: var(--text-secondary);
 }
 
 .empty-icon {
-  color: var(--text-secondary);
-  opacity: 0.45;
-  margin-bottom: 12px;
-}
-
-.empty-title {
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 20px;
-  opacity: 0.8;
+  opacity: 0.7;
 }
 
 .empty-tips {

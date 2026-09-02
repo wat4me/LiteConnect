@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiUsage } from '../../env.d.ts'
+import type { AiChatSegment, AiToolRun, AiUsage } from '../../env.d.ts'
 import { useMarkdownRenderer, type MarkdownBlock } from '@/composables/ai/useMarkdownRenderer'
+import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import type { ChatItem } from '../../composables/ai/useAiChat'
+import {
+  formatToolRunDisplay,
+  toolRunDefaultOpen,
+  type ToolRunSummary,
+} from '@shared/aiToolRunDisplay'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -33,11 +39,11 @@ const examplePrompts = computed(() => [
 
 const { t } = useI18n()
 const { parseMarkdown } = useMarkdownRenderer()
+const toolNameLabel = useAiToolNameLabel()
 
 const markdownCache = new Map<string, { content: string; blocks: MarkdownBlock[] }>()
-function parseMarkdownCached(message: ChatItem, field: 'content' | 'reasoningContent'): MarkdownBlock[] {
-  const text = (message[field] as string) || ''
-  const key = `${message.id}-${field}`
+function parseSegmentMarkdown(message: ChatItem, segIndex: number, text: string): MarkdownBlock[] {
+  const key = `${message.id}::seg${segIndex}`
   const cached = markdownCache.get(key)
   if (cached && cached.content === text) return cached.blocks
   const blocks = parseMarkdown(text)
@@ -46,11 +52,34 @@ function parseMarkdownCached(message: ChatItem, field: 'content' | 'reasoningCon
 }
 
 watch(() => props.messages, (msgs) => {
-  const validKeys = new Set(msgs.map((m) => `${m.id}-content`).concat(msgs.map((m) => `${m.id}-reasoningContent`)))
+  const ids = new Set(msgs.map((m) => m.id))
   for (const key of markdownCache.keys()) {
-    if (!validKeys.has(key)) markdownCache.delete(key)
+    const sep = key.indexOf('::')
+    if (sep < 0 || !ids.has(key.slice(0, sep))) markdownCache.delete(key)
   }
 }, { deep: false })
+
+type DisplayItem = { seg: AiChatSegment; run?: AiToolRun }
+
+/**
+ * Render timeline in true streaming order. New messages carry `segments`
+ * recorded as deltas arrived; legacy history (no segments) is synthesized
+ * in the only order it could have happened: 思考过程 → 工具执行 → 正文.
+ */
+function displayItems(message: ChatItem): DisplayItem[] {
+  let segments = message.segments
+  if (!segments?.length) {
+    const synthesized: AiChatSegment[] = []
+    if (message.reasoningContent) synthesized.push({ kind: 'reasoning', text: message.reasoningContent })
+    for (const run of message.toolRuns || []) synthesized.push({ kind: 'tool', runId: run.id })
+    if (message.content) synthesized.push({ kind: 'content', text: message.content })
+    segments = synthesized
+  }
+  return segments.map((seg) => ({
+    seg,
+    run: seg.kind === 'tool' ? (message.toolRuns || []).find((r) => r.id === seg.runId) : undefined,
+  }))
+}
 
 const copiedKey = ref('')
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
@@ -131,10 +160,98 @@ const messagesSignature = computed(() =>
   props.messages
     .map(
       (m) =>
-        `${m.id}:${m.content.length}:${(m.reasoningContent || '').length}:${m.streaming ? 1 : 0}`,
+        `${m.id}:${m.content.length}:${(m.reasoningContent || '').length}:${m.streaming ? 1 : 0}:${(m.segments || [])
+          .map((s) => (s.kind === 'tool' ? `t${s.runId}` : `${s.kind}${s.text.length}`))
+          .join(',')}:${(m.toolRuns || [])
+          .map((r) => `${r.id}:${r.content.length}:${r.isError ? 1 : 0}:${r.status || ''}`)
+          .join(',')}`,
     )
     .join('|'),
 )
+
+const toolOpenState = reactive(new Map<string, boolean>())
+
+function toolRunKey(message: ChatItem, run: AiToolRun): string {
+  return `${message.id}:${run.id}`
+}
+
+function toolView(run: AiToolRun) {
+  return formatToolRunDisplay(run)
+}
+
+function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
+  return toolOpenState.get(toolRunKey(message, run)) === true
+}
+
+function onToolRunToggle(message: ChatItem, run: AiToolRun, event: Event) {
+  const el = event.currentTarget as HTMLDetailsElement
+  if (!el || el.tagName !== 'DETAILS') return
+  toolOpenState.set(toolRunKey(message, run), el.open)
+}
+
+watch(
+  () =>
+    props.messages
+      .flatMap((m) => (m.toolRuns || []).map((r) => `${m.id}:${r.id}`))
+      .join('|'),
+  () => {
+    for (const message of props.messages) {
+      for (const run of message.toolRuns || []) {
+        const key = toolRunKey(message, run)
+        if (toolOpenState.has(key)) continue
+        toolOpenState.set(key, toolRunDefaultOpen())
+      }
+    }
+  },
+  { immediate: true },
+)
+
+function toolRiskLabel(risk?: AiToolRun['risk']): string {
+  if (risk === 'read') return t('ai.toolRiskRead')
+  if (risk === 'write') return t('ai.toolRiskWrite')
+  if (risk === 'destructive') return t('ai.toolRiskDestructive')
+  if (risk === 'privileged') return t('ai.toolRiskPrivileged')
+  if (risk === 'forbidden') return t('ai.toolRiskForbidden')
+  return ''
+}
+
+function toolRunStateLabel(message: ChatItem, run: AiToolRun): string {
+  if (run.status === 'ask') return t('ai.toolWaitingApproval')
+  if (run.status === 'running' || (message.streaming && !run.content && run.status !== 'done')) {
+    return t('ai.toolRunning')
+  }
+  if (run.status === 'denied') return t('ai.toolDenied')
+  if (run.status === 'blocked') return t('ai.toolBlocked')
+  if (run.isError) return t('ai.toolFailed')
+  return toolRunSummaryLabel(toolView(run).summary)
+}
+
+function toolRunSummaryLabel(summary: ToolRunSummary): string {
+  switch (summary.kind) {
+    case 'ok':
+      return t('ai.toolSummaryOk')
+    case 'text':
+      return summary.text
+    case 'exit':
+      return summary.truncated
+        ? t('ai.toolSummaryExitTruncated', { code: summary.code })
+        : t('ai.toolSummaryExit', { code: summary.code })
+    case 'sessions':
+      return t('ai.toolSummarySessions', { n: summary.count })
+    case 'connections':
+      return t('ai.toolSummaryConnections', { n: summary.count })
+    case 'groups':
+      return t('ai.toolSummaryGroups', { n: summary.count })
+    case 'jobs':
+      return t('ai.toolSummaryJobs', { n: summary.count })
+    case 'entries':
+      return t('ai.toolSummaryEntries', { n: summary.count })
+    case 'ptys':
+      return t('ai.toolSummaryPtys', { n: summary.count })
+    default:
+      return ''
+  }
+}
 
 watch(
   [messagesSignature, () => props.loading, () => props.messages.length],
@@ -214,15 +331,15 @@ async function copyText(text: string, key: string) {
 <template>
   <div class="chat-shell">
     <div ref="listRef" class="chat-list" @scroll.passive="onListScroll">
-      <div v-if="messages.length === 0" class="empty-state">
-        <div class="empty-mark" aria-hidden="true">
+      <div v-if="messages.length === 0" class="ui-empty empty-state">
+        <div class="ui-empty-icon empty-mark" aria-hidden="true">
           <AppIcon name="ai-chat" size="xl" />
         </div>
-        <div class="empty-title">{{ t('ai.emptyTitle') }}</div>
-        <div class="empty-text">
+        <div class="ui-empty-title">{{ t('ai.emptyTitle') }}</div>
+        <div class="ui-empty-desc">
           {{ hasApiConfigured ? t('ai.emptyConfigured') : t('ai.emptyNoKey') }}
         </div>
-        <div class="empty-actions">
+        <div class="ui-empty-actions">
           <button v-if="!hasApiConfigured" type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="emit('open-settings')">
             {{ t('ai.openSettings') }}
           </button>
@@ -312,36 +429,21 @@ async function copyText(text: string, key: string) {
             </button>
           </template>
         </div>
-      <div v-if="message.toolRuns?.length" class="tool-runs">
-        <div
-          v-for="run in message.toolRuns"
-          :key="run.id"
-          class="tool-run"
-          :class="{ error: run.isError, pending: message.streaming && !run.content }"
-        >
-          <div class="tool-run-head">
-            <span class="tool-run-name">{{ run.name }}</span>
-            <span v-if="message.streaming && !run.content" class="tool-run-state">{{ t('ai.toolRunning') }}</span>
-            <span v-else-if="run.isError" class="tool-run-state">{{ t('ai.toolFailed') }}</span>
-          </div>
-          <pre v-if="run.args" class="tool-run-args">{{ run.args }}</pre>
-          <pre v-if="run.content" class="tool-run-out">{{ run.content }}</pre>
-        </div>
-      </div>
-      <details v-if="message.reasoningContent" class="reasoning-box">
+      <template v-for="(item, segIndex) in displayItems(message)" :key="segIndex">
+      <details v-if="item.seg.kind === 'reasoning'" class="reasoning-box">
         <summary>{{ t('ai.reasoning') }}</summary>
         <div class="reasoning-content">
-          <template v-for="(block, index) in parseMarkdownCached(message, 'reasoningContent')" :key="index">
+          <template v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'reasoning' ? item.seg.text : '')" :key="index">
             <div v-if="block.type === 'code'" class="code-block">
               <div class="code-block-header">
                 <span class="code-language">{{ block.language || 'text' }}</span>
                 <button
                   type="button"
                   class="copy-btn"
-                  :title="copiedKey === `${message.id}-reasoning-code-${index}` ? t('common.copied') : t('ai.copyCode')"
-                  @click="copyText(block.content, `${message.id}-reasoning-code-${index}`)"
+                  :title="copiedKey === `${message.id}-seg${segIndex}-rcode-${index}` ? t('common.copied') : t('ai.copyCode')"
+                  @click="copyText(block.content, `${message.id}-seg${segIndex}-rcode-${index}`)"
                 >
-                  <AppIcon v-if="copiedKey === `${message.id}-reasoning-code-${index}`" name="check" size="sm" />
+                  <AppIcon v-if="copiedKey === `${message.id}-seg${segIndex}-rcode-${index}`" name="check" size="sm" />
                   <AppIcon v-else name="copy" size="sm" />
                 </button>
               </div>
@@ -351,32 +453,55 @@ async function copyText(text: string, key: string) {
           </template>
         </div>
       </details>
-      <div v-if="message.content || (!message.reasoningContent && message.streaming)" class="message-content">
-        <template v-if="message.content">
-          <template v-for="(block, index) in parseMarkdownCached(message, 'content')" :key="index">
-            <div v-if="block.type === 'code'" class="code-block">
-              <div class="code-block-header">
-                <span class="code-language">{{ block.language || 'text' }}</span>
-                <div class="code-actions">
-                  <button type="button" class="code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
-                  <button type="button" class="code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
-                  <button
-                    type="button"
-                    class="copy-btn"
-                    :title="copiedKey === `${message.id}-code-${index}` ? t('common.copied') : t('ai.copyCode')"
-                    @click="copyText(block.content, `${message.id}-code-${index}`)"
-                  >
-                    <AppIcon v-if="copiedKey === `${message.id}-code-${index}`" name="check" size="sm" />
-                    <AppIcon v-else name="copy" size="sm" />
-                  </button>
-                </div>
+      <details
+        v-else-if="item.seg.kind === 'tool' && item.run"
+        class="tool-run"
+        :class="{
+          error: item.run.isError || item.run.status === 'denied' || item.run.status === 'blocked',
+          pending: item.run.status === 'running',
+          ask: item.run.status === 'ask',
+          danger: item.run.risk === 'destructive' || item.run.risk === 'privileged' || item.run.risk === 'forbidden',
+        }"
+        :open="isToolRunOpen(message, item.run)"
+        @toggle="onToolRunToggle(message, item.run!, $event)"
+      >
+        <summary class="tool-run-head">
+          <span class="tool-run-name">{{ toolNameLabel(item.run.name) }}</span>
+          <span v-if="toolRiskLabel(item.run.risk)" class="tool-run-risk" :data-risk="item.run.risk">{{ toolRiskLabel(item.run.risk) }}</span>
+          <span v-if="toolView(item.run).hint" class="tool-run-hint" :title="toolView(item.run).hint">{{ toolView(item.run).hint }}</span>
+          <span class="tool-run-state">{{ toolRunStateLabel(message, item.run) }}</span>
+        </summary>
+        <p v-if="item.run.status === 'blocked'" class="tool-ask-copy">{{ t('ai.toolAskForbidden') }}</p>
+        <pre v-if="toolView(item.run).hint && item.run.status !== 'denied'" class="tool-run-args">{{ toolView(item.run).hint }}</pre>
+        <pre v-if="toolView(item.run).body && item.run.status !== 'denied' && item.run.status !== 'blocked'" class="tool-run-out">{{ toolView(item.run).body }}</pre>
+      </details>
+      <div v-else-if="item.seg.kind === 'content'" class="message-content">
+        <template v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'content' ? item.seg.text : '')" :key="index">
+          <div v-if="block.type === 'code'" class="code-block">
+            <div class="code-block-header">
+              <span class="code-language">{{ block.language || 'text' }}</span>
+              <div class="code-actions">
+                <button type="button" class="code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
+                <button type="button" class="code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
+                <button
+                  type="button"
+                  class="copy-btn"
+                  :title="copiedKey === `${message.id}-seg${segIndex}-code-${index}` ? t('common.copied') : t('ai.copyCode')"
+                  @click="copyText(block.content, `${message.id}-seg${segIndex}-code-${index}`)"
+                >
+                  <AppIcon v-if="copiedKey === `${message.id}-seg${segIndex}-code-${index}`" name="check" size="sm" />
+                  <AppIcon v-else name="copy" size="sm" />
+                </button>
               </div>
-              <pre class="markdown-code"><code>{{ block.content }}</code></pre>
             </div>
-            <div v-else class="markdown-block" v-html="block.content"></div>
-          </template>
+            <pre class="markdown-code"><code>{{ block.content }}</code></pre>
+          </div>
+          <div v-else class="markdown-block" v-html="block.content"></div>
         </template>
-        <span v-else class="thinking">
+      </div>
+      </template>
+      <div v-if="message.streaming && !message.content && !message.reasoningContent" class="message-content">
+        <span class="thinking">
           <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
           {{ t('ai.thinking') }}
         </span>
@@ -425,41 +550,12 @@ async function copyText(text: string, key: string) {
 
 .empty-state {
   margin: auto 0;
-  color: var(--text-secondary);
-  text-align: center;
   padding: 28px 12px;
 }
 
 .empty-mark {
-  width: 44px;
-  height: 44px;
-  margin: 0 auto 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
   background: var(--accent-bg);
   color: var(--accent);
-}
-
-.empty-title {
-  font-size: 15px;
-  color: var(--text-primary);
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.empty-text {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.empty-actions {
-  margin-top: 14px;
-  display: flex;
-  justify-content: center;
-  gap: 8px;
 }
 
 .empty-examples {
@@ -879,45 +975,132 @@ async function copyText(text: string, key: string) {
 }
 
 .tool-run {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
-  padding: 6px 8px;
+  padding: 1px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   font-size: 11px;
+  color: var(--text-secondary);
 }
 
-.tool-run.error {
-  border-color: color-mix(in srgb, var(--danger, #f85149) 45%, var(--border-color));
+.tool-run.error .tool-run-head {
+  color: var(--danger);
 }
 
-.tool-run.pending {
-  opacity: 0.85;
+.tool-run.danger.ask .tool-run-name {
+  color: var(--danger);
+}
+
+.tool-run.ask .tool-run-name {
+  color: var(--accent);
+}
+
+.tool-run.pending .tool-run-state {
+  color: var(--accent);
+}
+
+.tool-run > summary {
+  cursor: pointer;
+  list-style: none;
+  border-radius: 5px;
+}
+
+.tool-run > summary:hover {
+  background: var(--hover-bg);
+}
+
+.tool-run > summary::-webkit-details-marker,
+.tool-run > summary::marker {
+  display: none;
+  content: '';
 }
 
 .tool-run-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-weight: 650;
+  gap: 6px;
+  padding: 2px 4px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.tool-run-name {
+  flex-shrink: 0;
   color: var(--text-primary);
 }
 
-.tool-run-state {
+.tool-run-name::before {
+  content: '▸';
+  display: inline-block;
+  width: 1em;
   color: var(--text-secondary);
   font-weight: 500;
 }
 
+.tool-run[open] .tool-run-name::before {
+  content: '▾';
+}
+
+.tool-run-risk {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+}
+
+.tool-run-risk[data-risk='destructive'],
+.tool-run-risk[data-risk='privileged'],
+.tool-run-risk[data-risk='forbidden'] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.tool-run-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.tool-run-state {
+  margin-left: auto;
+  flex-shrink: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.tool-ask-copy {
+  margin: 2px 0 0 20px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 .tool-run-args,
 .tool-run-out {
-  margin: 4px 0 0;
+  margin: 2px 0 2px 20px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   line-height: 1.4;
-  max-height: 180px;
+  max-height: 280px;
   overflow: auto;
 }
 

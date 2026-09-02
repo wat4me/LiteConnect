@@ -24,13 +24,13 @@ function handleResetTips() {
 </script>
 
 <template>
-  <section class="settings-content">
+  <section class="settings-content" data-setting="shortcuts">
     <header class="content-header">
       <h3>{{ t('settingsShortcuts.title') }}</h3>
       <p>{{ t('settingsShortcuts.intro') }}</p>
       <p class="content-header-extra">{{ t('settingsShortcuts.overlayIntro') }}</p>
     </header>
-    <div class="settings-card narrow tips-card">
+    <div class="settings-card narrow tips-card" data-setting="shortcuts.resetTips">
       <div class="tips-card-text">
         <div class="shortcut-desc">{{ t('settingsShortcuts.resetTipsTitle') }}</div>
         <div class="shortcut-scope">{{ t('settingsShortcuts.resetTipsDesc') }}</div>
@@ -52,39 +52,6 @@ function handleResetTips() {
 </template>
 
 <style scoped>
-.content-header {
-  margin-bottom: 20px;
-  max-width: 720px;
-}
-
-.content-header h3 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  color: var(--text-primary);
-}
-
-.content-header p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.content-header-extra {
-  margin-top: 6px !important;
-}
-
-.settings-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 16px;
-}
-
-.settings-card.narrow {
-  max-width: 520px;
-}
-
 .tips-card {
   display: flex;
   align-items: center;

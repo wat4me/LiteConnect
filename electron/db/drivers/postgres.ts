@@ -1,4 +1,4 @@
-import { Client, Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg'
+import { Client, Pool, type PoolClient } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 import {
   assertIdent,
@@ -12,12 +12,7 @@ import {
 } from '../common'
 import { isPostgresCursorSafe, planSqlRowLimit } from '../sql/sqlLimit'
 import { buildWhereClausePg } from '../browse/browseFilter'
-import {
-  BrowseCountCache,
-  browseCountCacheKey,
-  browseHasFilter,
-  finalizeBrowsePage,
-} from '../browse/browsePagination'
+import { BrowseCountCache } from '../browse/browsePagination'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
 import type {
   DbBrowseOptions,
@@ -37,62 +32,20 @@ import type {
 } from '../types'
 import { resolveSslConfig } from '../types'
 import { mapPostgresExtraOptions } from '../../../shared/dbConnectionUrl'
+import {
+  CONTROL_CONNECT_TIMEOUT_MS,
+  CONTROL_STATEMENT_TIMEOUT_MS,
+  POOL_IDLE_EVICT_MS,
+  type ActiveQuery,
+  type LiveSession,
+  type PinnedClient,
+  type PostgresBrowseHost,
+  type PostgresControlClient,
+} from './postgresTypes'
+import { parseTableRef, withStatementTimeout } from './postgresHelpers'
+import * as pgBrowse from './postgresBrowse'
 
-interface LiveSession {
-  id: string
-  connectionId: string
-  connectionName: string
-  host: string
-  port: number
-  username: string
-  /** Default / last-selected database for session info / footer */
-  database: string | null
-  serverVersion: string
-  password: string
-  ssl: boolean
-  sslOptions?: DbConnection['sslOptions']
-  extraOptions?: DbConnection['extraOptions']
-  /**
-   * Pools isolated by database name (sessionId + database).
-   * Concurrent tabs must not replace a shared pool.
-   */
-  pools: Map<string, Pool>
-  /** Last activity per database pool for idle eviction */
-  poolLastUsed: Map<string, number>
-}
-
-interface ActiveQuery {
-  sessionId: string
-  /** Database this query runs against (for cancel pool selection) */
-  database: string
-  /** PostgreSQL backend pid for pg_cancel_backend */
-  pid: number
-  cancelled: boolean
-  client: PoolClient | null
-}
-
-/** Sticky PoolClient for a query tab transaction (DB-009). */
-interface PinnedClient {
-  sessionId: string
-  clientKey: string
-  client: PoolClient
-  inTransaction: boolean
-  database: string
-}
-
-const POOL_IDLE_EVICT_MS = 5 * 60_000
-/** Short-lived cancel control client — must not share saturated business pools. */
-const CONTROL_CONNECT_TIMEOUT_MS = 5_000
-const CONTROL_STATEMENT_TIMEOUT_MS = 5_000
-
-/** Minimal surface for cancel control client (mockable in tests). */
-export type PostgresControlClient = {
-  query: <T extends QueryResultRow = QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ) => Promise<QueryResult<T>>
-  end: () => Promise<void>
-}
+export type { PostgresControlClient } from './postgresTypes'
 
 /**
  * Postgres driver.
@@ -123,6 +76,15 @@ export class PostgresDriver implements DbDriver {
     }, 60_000)
     if (typeof this.idleTimer === 'object' && this.idleTimer && 'unref' in this.idleTimer) {
       ;(this.idleTimer as NodeJS.Timeout).unref?.()
+    }
+  }
+
+  private browseHost(): PostgresBrowseHost {
+    return {
+      sessions: this.sessions,
+      countCache: this.countCache,
+      countWarmInflight: this.countWarmInflight,
+      getPool: (sessionId, database) => this.getPool(sessionId, database),
     }
   }
 
@@ -574,14 +536,7 @@ export class PostgresDriver implements DbDriver {
   }
 
   async listDatabases(sessionId: string): Promise<string[]> {
-    const { pool } = await this.getPool(sessionId)
-    const res = await pool.query<{ name: string }>(
-      `SELECT datname AS name
-       FROM pg_database
-       WHERE datistemplate = false
-       ORDER BY datname`,
-    )
-    return res.rows.map((r) => String(r.name || '')).filter(Boolean)
+    return pgBrowse.listDatabases(this.browseHost(), sessionId)
   }
 
   async listTables(sessionId: string, database?: string): Promise<string[]> {
@@ -590,107 +545,11 @@ export class PostgresDriver implements DbDriver {
   }
 
   async listTableInfos(sessionId: string, database?: string): Promise<DbTableInfo[]> {
-    const { pool } = await this.getPool(sessionId, database)
-
-    const res = await pool.query<{
-      schema: string
-      name: string
-      tableType: string
-      comment: string | null
-    }>(
-      `SELECT n.nspname AS schema,
-              c.relname AS name,
-              CASE c.relkind
-                WHEN 'v' THEN 'VIEW'
-                WHEN 'm' THEN 'VIEW'
-                ELSE 'BASE TABLE'
-              END AS "tableType",
-              COALESCE(obj_description(c.oid, 'pg_class'), '') AS comment
-       FROM pg_class c
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE c.relkind IN ('r', 'p', 'v', 'm')
-         AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-         AND n.nspname NOT LIKE 'pg_temp_%'
-         AND n.nspname NOT LIKE 'pg_toast_temp_%'
-       ORDER BY CASE c.relkind WHEN 'v' THEN 1 WHEN 'm' THEN 1 ELSE 0 END, n.nspname, c.relname`,
-    )
-
-    return res.rows
-      .map((r) => {
-        const schema = String(r.schema || 'public')
-        const name = String(r.name || '')
-        if (!name) return null
-        const display = schema === 'public' ? name : `${schema}.${name}`
-        const typeRaw = String(r.tableType || '').toUpperCase()
-        return {
-          name: display,
-          type: typeRaw.includes('VIEW') ? ('view' as const) : ('table' as const),
-          engine: null,
-          rows: null,
-          comment: r.comment != null ? String(r.comment) : '',
-        }
-      })
-      .filter((t): t is DbTableInfo => !!t)
+    return pgBrowse.listTableInfos(this.browseHost(), sessionId, database)
   }
 
   async getTableColumns(sessionId: string, database: string, table: string): Promise<DbColumnInfo[]> {
-    const { pool } = await this.getPool(sessionId, database)
-    const { schema, table: tableName } = parseTableRef(table)
-
-    const res = await pool.query<{
-      name: string
-      type: string
-      nullable: string
-      colKey: string
-      defaultValue: string | null
-      extra: string
-      comment: string
-    }>(
-      `SELECT
-         a.attname AS name,
-         pg_catalog.format_type(a.atttypid, a.atttypmod) AS type,
-         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS nullable,
-         CASE
-           WHEN EXISTS (
-             SELECT 1
-             FROM pg_index i
-             WHERE i.indrelid = a.attrelid
-               AND i.indisprimary
-               AND a.attnum = ANY (i.indkey)
-           ) THEN 'PRI'
-           WHEN EXISTS (
-             SELECT 1
-             FROM pg_constraint c
-             WHERE c.conrelid = a.attrelid
-               AND c.contype = 'u'
-               AND a.attnum = ANY (c.conkey)
-           ) THEN 'UNI'
-           ELSE ''
-         END AS "colKey",
-         pg_get_expr(ad.adbin, ad.adrelid) AS "defaultValue",
-         CASE WHEN a.attidentity <> '' THEN 'identity' ELSE '' END AS extra,
-         COALESCE(col_description(a.attrelid, a.attnum), '') AS comment
-       FROM pg_attribute a
-       JOIN pg_class c ON c.oid = a.attrelid
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-       LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
-       WHERE n.nspname = $1
-         AND c.relname = $2
-         AND a.attnum > 0
-         AND NOT a.attisdropped
-       ORDER BY a.attnum`,
-      [schema, tableName],
-    )
-
-    return res.rows.map((r) => ({
-      name: String(r.name || ''),
-      type: String(r.type || ''),
-      nullable: String(r.nullable || '').toUpperCase() === 'YES',
-      key: String(r.colKey || ''),
-      defaultValue: r.defaultValue === undefined ? null : (r.defaultValue as string | null),
-      extra: String(r.extra || ''),
-      comment: String(r.comment || ''),
-    }))
+    return pgBrowse.getTableColumns(this.browseHost(), sessionId, database, table)
   }
 
   async getTableIndexes(
@@ -698,83 +557,11 @@ export class PostgresDriver implements DbDriver {
     database: string,
     table: string,
   ): Promise<DbIndexInfo[]> {
-    const { pool } = await this.getPool(sessionId, database)
-    const { schema, table: tableName } = parseTableRef(table)
-    const res = await pool.query<{
-      name: string
-      columns: string[] | null
-      isUnique: boolean
-      isPrimary: boolean
-      amName: string
-      comment: string | null
-    }>(
-      `SELECT
-         i.relname AS name,
-         ARRAY(
-           SELECT a.attname
-           FROM unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord)
-           JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
-           ORDER BY k.ord
-         ) AS columns,
-         ix.indisunique AS "isUnique",
-         ix.indisprimary AS "isPrimary",
-         am.amname AS "amName",
-         COALESCE(obj_description(i.oid, 'pg_class'), '') AS comment
-       FROM pg_index ix
-       JOIN pg_class t ON t.oid = ix.indrelid
-       JOIN pg_namespace n ON n.oid = t.relnamespace
-       JOIN pg_class i ON i.oid = ix.indexrelid
-       JOIN pg_am am ON am.oid = i.relam
-       WHERE n.nspname = $1 AND t.relname = $2
-       ORDER BY ix.indisprimary DESC, i.relname`,
-      [schema, tableName],
-    )
-    return res.rows.map((r) => ({
-      name: String(r.name || ''),
-      columns: Array.isArray(r.columns) ? r.columns.map(String) : [],
-      unique: !!r.isUnique,
-      primary: !!r.isPrimary,
-      type: String(r.amName || ''),
-      comment: r.comment != null ? String(r.comment) : '',
-    }))
+    return pgBrowse.getTableIndexes(this.browseHost(), sessionId, database, table)
   }
 
   async getCreateTable(sessionId: string, database: string, table: string): Promise<string> {
-    const cols = await this.getTableColumns(sessionId, database, table)
-    const indexes = await this.getTableIndexes(sessionId, database, table)
-    const { schema, table: tableName } = parseTableRef(table)
-    const fq = `${quoteIdentPostgres(schema)}.${quoteIdentPostgres(tableName)}`
-    if (cols.length === 0) return `-- No columns found for ${fq}`
-
-    const lines = cols.map((c) => {
-      const nullSql = c.nullable ? '' : ' NOT NULL'
-      const defSql = c.defaultValue != null ? ` DEFAULT ${c.defaultValue}` : ''
-      return `  ${quoteIdentPostgres(c.name)} ${c.type}${nullSql}${defSql}`
-    })
-
-    const pk = indexes.find((i) => i.primary)
-    if (pk && pk.columns.length) {
-      lines.push(
-        `  PRIMARY KEY (${pk.columns.map((c) => quoteIdentPostgres(c)).join(', ')})`,
-      )
-    }
-    for (const idx of indexes) {
-      if (idx.primary) continue
-      if (idx.unique) {
-        lines.push(
-          `  CONSTRAINT ${quoteIdentPostgres(idx.name)} UNIQUE (${idx.columns.map((c) => quoteIdentPostgres(c)).join(', ')})`,
-        )
-      }
-    }
-
-    const ddl = [`CREATE TABLE ${fq} (`, lines.join(',\n'), ');']
-    for (const idx of indexes) {
-      if (idx.primary || idx.unique) continue
-      ddl.push(
-        `CREATE INDEX ${quoteIdentPostgres(idx.name)} ON ${fq} USING ${idx.type || 'btree'} (${idx.columns.map((c) => quoteIdentPostgres(c)).join(', ')});`,
-      )
-    }
-    return ddl.join('\n')
+    return pgBrowse.getCreateTable(this.browseHost(), sessionId, database, table)
   }
 
   async browseTable(
@@ -785,101 +572,7 @@ export class PostgresDriver implements DbDriver {
     pageSize = 100,
     options?: DbBrowseOptions,
   ): Promise<DbTableBrowseResult> {
-    const { session, pool } = await this.getPool(sessionId, database)
-    const { schema, table: tableName } = parseTableRef(table)
-    assertIdent(schema)
-    assertIdent(tableName)
-
-    const safePage = Math.max(1, Math.floor(page) || 1)
-    const safeSize = Math.min(Math.max(Math.floor(pageSize) || 100, 1), 500)
-    const offset = (safePage - 1) * safeSize
-    const fq = `${quoteIdentPostgres(schema)}.${quoteIdentPostgres(tableName)}`
-
-    const where = buildWhereClausePg(options)
-
-    let orderClause = ''
-    if (options?.orderBy) {
-      assertIdent(options.orderBy)
-      const dir = options.orderDir === 'desc' ? 'DESC' : 'ASC'
-      orderClause = ` ORDER BY ${quoteIdentPostgres(options.orderBy)} ${dir}`
-    }
-
-    const start = Date.now()
-    const hasFilter = browseHasFilter(options)
-    const cacheKey = browseCountCacheKey(sessionId, database, table, options)
-    let exactTotal = this.countCache.get(cacheKey)
-
-    // pageSize+1 so hasNext is known without a full COUNT
-    const limitIdx = where.params.length + 1
-    const offsetIdx = where.params.length + 2
-    const dataRes = await withStatementTimeout(pool, DEFAULT_QUERY_TIMEOUT_MS, async (client) => {
-      return client.query(
-        `SELECT * FROM ${fq}${where.clause}${orderClause} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-        [...where.params, safeSize + 1, offset],
-      )
-    })
-    const durationMs = Date.now() - start
-    const columns = dataRes.fields.map((f) => f.name)
-    const mapped = dataRes.rows.map((row) => {
-      const out: Record<string, unknown> = {}
-      for (const col of columns) out[col] = serializeCell((row as any)[col], { column: col })
-      return out
-    })
-
-    if (exactTotal == null && !hasFilter) {
-      let estimatedTotal: number | null = null
-      try {
-        const estRes = await pool.query<{ c: string | number }>(
-          `SELECT GREATEST(c.reltuples, 0)::bigint AS c
-           FROM pg_class c
-           JOIN pg_namespace n ON n.oid = c.relnamespace
-           WHERE n.nspname = $1 AND c.relname = $2
-           LIMIT 1`,
-          [schema, tableName],
-        )
-        if (estRes.rows[0]?.c != null && estRes.rows[0].c !== '') {
-          estimatedTotal = Number(estRes.rows[0].c)
-        }
-      } catch {
-        estimatedTotal = null
-      }
-      void this.warmExactCount(session, pool, cacheKey, fq, where.clause, where.params)
-      return finalizeBrowsePage({
-        rows: mapped,
-        columns,
-        page: safePage,
-        pageSize: safeSize,
-        durationMs,
-        exactTotal: null,
-        estimatedTotal,
-        hasFilter: false,
-      })
-    }
-
-    if (exactTotal == null && hasFilter) {
-      void this.warmExactCount(session, pool, cacheKey, fq, where.clause, where.params)
-      return finalizeBrowsePage({
-        rows: mapped,
-        columns,
-        page: safePage,
-        pageSize: safeSize,
-        durationMs,
-        exactTotal: null,
-        estimatedTotal: null,
-        hasFilter: true,
-      })
-    }
-
-    return finalizeBrowsePage({
-      rows: mapped,
-      columns,
-      page: safePage,
-      pageSize: safeSize,
-      durationMs,
-      exactTotal,
-      estimatedTotal: null,
-      hasFilter,
-    })
+    return pgBrowse.browseTable(this.browseHost(), sessionId, database, table, page, pageSize, options)
   }
 
   private async warmExactCount(
@@ -890,33 +583,9 @@ export class PostgresDriver implements DbDriver {
     whereClause: string,
     whereParams: unknown[],
   ): Promise<void> {
-    if (this.countCache.get(cacheKey) != null) return
-    if (this.countWarmInflight.has(cacheKey)) return
-    this.countWarmInflight.add(cacheKey)
-    try {
-      if (!this.sessions.has(session.id) || this.sessions.get(session.id) !== session) return
-      const countRes = await withStatementTimeout(pool, DEFAULT_QUERY_TIMEOUT_MS, async (client) => {
-        return client.query<{ c: string }>(
-          `SELECT COUNT(*)::text AS c FROM ${fq}${whereClause}`,
-          whereParams,
-        )
-      })
-      if (!this.sessions.has(session.id) || this.sessions.get(session.id) !== session) return
-      const total = Number(countRes.rows[0]?.c ?? 0)
-      if (Number.isFinite(total) && total >= 0) {
-        this.countCache.set(cacheKey, total)
-      }
-    } catch {
-      // background count is best-effort
-    } finally {
-      this.countWarmInflight.delete(cacheKey)
-    }
+    return pgBrowse.warmExactCount(this.browseHost(), session, pool, cacheKey, fq, whereClause, whereParams)
   }
 
-  /**
-   * Explicit user default database selection (footer / session info only).
-   * Does not route other tabs; multi-db pools remain isolated.
-   */
   async useDatabase(sessionId: string, database: string): Promise<void> {
     assertIdent(database)
     const { session } = await this.getPool(sessionId, database)
@@ -1346,36 +1015,5 @@ export class PostgresDriver implements DbDriver {
       database: s.database,
       serverVersion: s.serverVersion,
     }
-  }
-}
-
-function parseTableRef(table: string): { schema: string; table: string } {
-  assertIdent(table)
-  const idx = table.indexOf('.')
-  if (idx <= 0) return { schema: 'public', table }
-  const schema = table.slice(0, idx)
-  const name = table.slice(idx + 1)
-  assertIdent(schema)
-  assertIdent(name)
-  return { schema, table: name }
-}
-
-async function withStatementTimeout<T>(
-  pool: Pool,
-  timeoutMs: number,
-  fn: (client: PoolClient) => Promise<T>,
-): Promise<T> {
-  const client = await pool.connect()
-  try {
-    await client.query(`SET statement_timeout = ${Math.floor(timeoutMs)}`)
-    try {
-      return await fn(client)
-    } finally {
-      try {
-        await client.query('SET statement_timeout = 0')
-      } catch {}
-    }
-  } finally {
-    client.release()
   }
 }

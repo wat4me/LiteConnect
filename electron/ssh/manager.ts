@@ -10,6 +10,7 @@ import { collectExecChannel, type SessionExecResult } from './sessionExec'
 import type {
   Connection,
   FileEntry,
+  McpShellChannel,
   PendingHostKey,
   Session,
   SessionSnapshot,
@@ -32,14 +33,9 @@ export type {
   HostKeyVerifier,
   PendingHostKey,
   SessionSnapshot,
+  McpShellChannel,
 } from './types'
 export type { SessionExecResult } from './sessionExec'
-
-export type McpShellChannel = NodeJS.ReadWriteStream & {
-  setWindow?: (rows: number, cols: number, height?: number, width?: number) => void
-  close?: () => void
-  destroy?: () => void
-}
 
 export class SSHManager {
   private sessions: Map<string, Session> = new Map()

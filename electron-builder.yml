@@ -57,6 +57,9 @@ extraResources:
     to: third-party/vcxsrv-64.1.20.14.0.installer.exe
   - from: build/third-party/VcXsrv-NOTICE.txt
     to: third-party/VcXsrv-NOTICE.txt
+  # Tray icon (read by electron/window/tray.ts from process.resourcesPath)
+  - from: build/LiteConnect.png
+    to: LiteConnect.png
 publish:
   provider: github
   owner: wat4me

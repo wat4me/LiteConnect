@@ -226,18 +226,18 @@ defineExpose({ resetSearch })
       </label>
       <button
         type="button"
-        class="docker-btn ghost"
+        class="ui-btn ui-btn-sm ui-btn-ghost"
         :disabled="!follow"
         @click="toggleLogAutoScroll"
       >
         {{ autoScroll ? t('docker.logs.pauseScroll') : t('docker.logs.resumeScroll') }}
       </button>
-      <button type="button" class="docker-btn ghost" @click="emit('clear')">
+      <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" @click="emit('clear')">
         {{ t('docker.logs.clear') }}
       </button>
       <button
         type="button"
-        class="docker-btn ghost"
+        class="ui-btn ui-btn-sm ui-btn-ghost"
         :disabled="!entries.length"
         @click="copyLogsAll"
       >
@@ -256,7 +256,7 @@ defineExpose({ resetSearch })
     </div>
     <div class="logs-search-row">
       <input
-        class="search-input logs-search"
+        class="ui-input ui-input-sm ui-grow logs-search"
         type="search"
         v-model="logSearch"
         :placeholder="t('docker.logs.search')"
@@ -275,7 +275,7 @@ defineExpose({ resetSearch })
         </span>
         <button
           type="button"
-          class="docker-btn ghost compact"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost"
           :disabled="!logMatchLineIndexes.length"
           :title="t('docker.logs.prevMatch')"
           :aria-label="t('docker.logs.prevMatch')"
@@ -285,7 +285,7 @@ defineExpose({ resetSearch })
         </button>
         <button
           type="button"
-          class="docker-btn ghost compact"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost"
           :disabled="!logMatchLineIndexes.length"
           :title="t('docker.logs.nextMatch')"
           :aria-label="t('docker.logs.nextMatch')"
@@ -393,7 +393,7 @@ defineExpose({ resetSearch })
 
 .logs-dropped {
   font-size: 11px;
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 
 .logs-scroll {
@@ -428,43 +428,6 @@ defineExpose({ resetSearch })
 }
 
 .log-hit {
-  background: color-mix(in srgb, var(--warning, #d29922) 35%, transparent);
-}
-
-.docker-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-radius: 8px;
-  padding: 5px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.docker-btn.ghost {
-  background: transparent;
-}
-
-.docker-btn.compact {
-  padding: 2px 8px;
-  min-width: 28px;
-  justify-content: center;
-}
-
-.docker-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.search-input {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 6px 10px;
-  font-size: 12px;
+  background: color-mix(in srgb, var(--warning) 35%, transparent);
 }
 </style>

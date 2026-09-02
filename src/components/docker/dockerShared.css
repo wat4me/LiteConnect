@@ -19,76 +19,23 @@
 }
 
 .tone-ok {
-  color: var(--success, #3fb950);
-  background: color-mix(in srgb, var(--success, #3fb950) 12%, transparent);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
 }
 
 .tone-warn {
-  color: var(--warning, #d29922);
-  background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .tone-danger {
-  color: var(--danger, #f85149);
-  background: color-mix(in srgb, var(--danger, #f85149) 12%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .tone-muted {
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-}
-
-.docker-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.docker-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.docker-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.docker-btn.ghost {
-  background: transparent;
-}
-
-.docker-btn.compact {
-  min-width: 28px;
-  padding: 0 6px;
-  justify-content: center;
-}
-
-.search-input {
-  flex: 1;
-  min-width: 140px;
-  max-width: 320px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-}
-
-.search-input:focus {
-  border-color: var(--accent);
 }
 
 .action-btn {
@@ -134,7 +81,7 @@
 }
 
 .detail-error {
-  color: var(--danger, #f85149);
+  color: var(--danger);
 }
 
 .list-error-detail {

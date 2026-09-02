@@ -209,6 +209,23 @@ describe('SshMcpRuntime', () => {
     expect(ssh.executeSessionExec).not.toHaveBeenCalled()
   })
 
+  it('allows a per-call auto override after the UI already confirmed', async () => {
+    const { runtime, ssh } = makeRuntime({
+      executeSessionExec: vi.fn(async () => ({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        truncated: false,
+      })),
+    })
+    const dest = await runtime.call('exec', { sessionId: SESSION_ID, command: 'rm -rf /tmp/x' }, { approvalMode: 'auto' })
+    expect(dest.isError).toBe(false)
+    expect(ssh.executeSessionExec).toHaveBeenCalled()
+    const forbidden = await runtime.call('exec', { sessionId: SESSION_ID, command: 'rm -rf /' }, { approvalMode: 'auto' })
+    expect(forbidden.isError).toBe(true)
+    expect((forbidden.structuredContent as { code: string }).code).toBe('FORBIDDEN')
+  })
+
   it('runs a destructive command after approval', async () => {
     const { runtime, ssh } = makeRuntime(
       {

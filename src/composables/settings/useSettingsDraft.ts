@@ -8,6 +8,7 @@ import {
   type TerminalPaletteId,
   type Theme,
 } from '@/composables/app/useTheme'
+import { dispatchDbSettingsChange } from '@/composables/database/useDbSettings'
 import {
   DB_PAGE_SIZE_OPTIONS,
   DEFAULT_DB_DEFAULT_MAX_ROWS,
@@ -16,9 +17,8 @@ import {
   DEFAULT_DB_FONT_FAMILY,
   DEFAULT_DB_FONT_SIZE,
   DEFAULT_DB_PAGE_SIZE,
-  dispatchDbSettingsChange,
   type DbPageSize,
-} from '@/composables/database/useDbSettings'
+} from '@/utils/database/dbSettingsDefaults'
 import {
   clampQueryMaxRows,
   clampQueryTimeoutSec,
@@ -89,6 +89,12 @@ export interface SettingsDraft {
   autoReconnectMaxRetries: number
   /** Remember open SSH tabs after quit. Default off. */
   workspaceRestoreEnabled: boolean
+  /** Hide to tray on window close instead of quitting. Default off. */
+  closeToTrayEnabled: boolean
+  /** Global hotkey (Alt+Shift+L) to show/hide the window. Default off. */
+  globalHotkeyEnabled: boolean
+  /** Append remote shell output to per-session log files. Default off. */
+  sessionLogEnabled: boolean
   x11AutoStartEnabled: boolean
   x11ServerPath: string
 }
@@ -128,6 +134,9 @@ export function createEmptyDraft(): SettingsDraft {
     autoReconnectEnabled: true,
     autoReconnectMaxRetries: 5,
     workspaceRestoreEnabled: false,
+    closeToTrayEnabled: false,
+    globalHotkeyEnabled: false,
+    sessionLogEnabled: false,
     x11AutoStartEnabled: true,
     x11ServerPath: '',
   }
@@ -180,6 +189,9 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.autoReconnectEnabled === b.autoReconnectEnabled
     && a.autoReconnectMaxRetries === b.autoReconnectMaxRetries
     && a.workspaceRestoreEnabled === b.workspaceRestoreEnabled
+    && a.closeToTrayEnabled === b.closeToTrayEnabled
+    && a.globalHotkeyEnabled === b.globalHotkeyEnabled
+    && a.sessionLogEnabled === b.sessionLogEnabled
     && a.x11AutoStartEnabled === b.x11AutoStartEnabled
     && a.x11ServerPath === b.x11ServerPath
   )
@@ -248,6 +260,9 @@ export function useSettingsDraft(): {
       autoReconnectEnabled: true,
       autoReconnectMaxRetries: 5,
       workspaceRestoreEnabled: false,
+      closeToTrayEnabled: false,
+      globalHotkeyEnabled: false,
+      sessionLogEnabled: false,
       x11AutoStartEnabled: true,
       x11ServerPath: '',
     }
@@ -308,6 +323,9 @@ export function useSettingsDraft(): {
         autoReconnectEnabled: all.autoReconnectEnabled,
         autoReconnectMaxRetries: all.autoReconnectMaxRetries,
         workspaceRestoreEnabled: all.workspaceRestoreEnabled === true,
+        closeToTrayEnabled: all.closeToTrayEnabled === true,
+        globalHotkeyEnabled: all.globalHotkeyEnabled === true,
+        sessionLogEnabled: all.sessionLogEnabled === true,
         x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
         x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
       }
@@ -396,6 +414,9 @@ export function useSettingsDraft(): {
         autoReconnectEnabled: d.autoReconnectEnabled,
         autoReconnectMaxRetries: d.autoReconnectMaxRetries,
         workspaceRestoreEnabled: d.workspaceRestoreEnabled,
+        closeToTrayEnabled: d.closeToTrayEnabled,
+        globalHotkeyEnabled: d.globalHotkeyEnabled,
+        sessionLogEnabled: d.sessionLogEnabled,
         x11AutoStartEnabled: d.x11AutoStartEnabled,
         x11ServerPath: d.x11ServerPath,
       })

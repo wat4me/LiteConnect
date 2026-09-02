@@ -220,11 +220,11 @@ function canResume(item: TransferItem): boolean {
 }
 
 .transfer-detail-partial {
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 
 .transfer-partial .transfer-name {
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 
 .transfer-detail-err {

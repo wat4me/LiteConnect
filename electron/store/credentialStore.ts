@@ -12,69 +12,9 @@ import {
   sanitizeRemoteForwards,
   stripSecretsFromExport,
 } from './connectionTransfer'
+import type { Connection, Group, SavedCredential } from '../../shared/types/connection'
 
-export interface Connection {
-  id: string
-  name: string
-  host: string
-  port: number
-  username: string
-  password: string
-  encrypted?: boolean
-  privateKey?: string
-  privateKeyEncrypted?: boolean
-  group?: string
-  /** Sort order within the connections list (lower first) */
-  order?: number
-  /** Optional free-text note for operators */
-  note?: string
-  /** Optional color tag: gray | blue | green | yellow | orange | red | purple */
-  colorTag?: string
-  keepaliveInterval?: number
-  x11Forwarding?: boolean
-  x11Host?: string
-  x11Display?: number
-  jumpHost?: string
-  jumpPort?: number
-  jumpUsername?: string
-  jumpPassword?: string
-  jumpPasswordEncrypted?: boolean
-  jumpPrivateKey?: string
-  jumpPrivateKeyEncrypted?: boolean
-  useAgent?: boolean
-  localForwards?: Array<{ localPort: number; remoteHost: string; remotePort: number }>
-  remoteForwards?: Array<{ remoteHost?: string; remotePort: number; localHost: string; localPort: number }>
-  dynamicForwards?: Array<{ localPort: number }>
-  /** Pin to top of connection list */
-  pinned?: boolean
-  /** Successful connect count (UI stats) */
-  useCount?: number
-  /** Last successful connect timestamp */
-  lastConnectedAt?: number
-  /** Public-only: secret material is never included in list payloads */
-  hasPrivateKey?: boolean
-  hasJumpPassword?: boolean
-  hasJumpPrivateKey?: boolean
-  createdAt: number
-  updatedAt: number
-}
-
-export interface Group {
-  id: string
-  name: string
-  order: number
-  isDefault: boolean
-}
-
-export interface SavedCredential {
-  id: string
-  name: string
-  username: string
-  password: string
-  encrypted?: boolean
-  createdAt: number
-  updatedAt: number
-}
+export type { Connection, Group, SavedCredential }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

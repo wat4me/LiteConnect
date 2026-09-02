@@ -470,17 +470,17 @@ const cellMenuPreview = computed(() => {
           >
             <AppIcon name="more" size="sm" />
           </button>
-          <div v-if="moreOpen" ref="moreMenuRef" class="more-menu" role="menu">
-            <button type="button" role="menuitem" :disabled="!tab.result" @click="runExport('copy')">
+          <div v-if="moreOpen" ref="moreMenuRef" class="ui-menu ui-menu-anchored" role="menu">
+            <button type="button" class="ui-menu-item" role="menuitem" :disabled="!tab.result" @click="runExport('copy')">
               {{ t('database.data.copy') }}
             </button>
-            <button type="button" role="menuitem" :disabled="!tab.result" @click="runExport('csv')">
+            <button type="button" class="ui-menu-item" role="menuitem" :disabled="!tab.result" @click="runExport('csv')">
               CSV
             </button>
-            <button type="button" role="menuitem" :disabled="!tab.result" @click="runExport('json')">
+            <button type="button" class="ui-menu-item" role="menuitem" :disabled="!tab.result" @click="runExport('json')">
               JSON
             </button>
-            <button type="button" role="menuitem" :disabled="tab.loading" @click="runExport('all')">
+            <button type="button" class="ui-menu-item" role="menuitem" :disabled="tab.loading" @click="runExport('all')">
               {{ t('database.data.exportAll') }}
             </button>
           </div>
@@ -793,8 +793,8 @@ const cellMenuPreview = computed(() => {
 }
 
 .tool-group.edit.has-dirty .is-dirty-action {
-  border-color: color-mix(in srgb, #ecc94b 55%, var(--border-color));
-  color: #d69e2e;
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border-color));
+  color: var(--warning);
   font-weight: 600;
 }
 
@@ -804,40 +804,10 @@ const cellMenuPreview = computed(() => {
   padding-left: 8px;
 }
 
-.more-menu {
-  position: absolute;
+.more-wrap .ui-menu-anchored {
   right: 0;
   top: calc(100% + 4px);
-  z-index: 40;
   min-width: 132px;
-  padding: 4px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.more-menu button {
-  text-align: left;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.more-menu button:hover:not(:disabled) {
-  background: var(--hover-bg);
-}
-
-.more-menu button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 @container db-table (max-width: 880px) {
@@ -1008,7 +978,7 @@ const cellMenuPreview = computed(() => {
 }
 
 .sheet tr.dirty td {
-  background: color-mix(in srgb, #ecc94b 12%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .sheet tr.selected td {
@@ -1016,7 +986,7 @@ const cellMenuPreview = computed(() => {
 }
 
 .sheet td.dirty {
-  box-shadow: inset 0 -2px 0 #ecc94b;
+  box-shadow: inset 0 -2px 0 var(--warning);
 }
 
 .sheet td.editing {
@@ -1068,8 +1038,8 @@ const cellMenuPreview = computed(() => {
 }
 
 .edit-hint.warn {
-  color: #d69e2e;
-  background: color-mix(in srgb, #ecc94b 10%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
 }
 
 .pk-tag {
@@ -1082,8 +1052,8 @@ const cellMenuPreview = computed(() => {
 }
 
 .warn-tag {
-  background: color-mix(in srgb, #ecc94b 20%, transparent);
-  color: #d69e2e;
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  color: var(--warning);
 }
 
 .grid-empty {

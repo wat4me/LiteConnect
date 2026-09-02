@@ -125,4 +125,8 @@ export default {
   db: {
     queryCancelled: '查询已取消',
   },
+  tray: {
+    showWindow: '显示主窗口',
+    quit: '退出 LiteConnect',
+  },
 } as const

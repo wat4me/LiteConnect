@@ -1,6 +1,5 @@
-import type { McpShellChannel } from '../ssh/manager'
 import type { SessionExecResult } from '../ssh/sessionExec'
-import type { FileEntry, SessionSnapshot } from '../ssh/types'
+import type { FileEntry, McpShellChannel, SessionSnapshot } from '../ssh/types'
 import type { ApprovalMode, CommandClass, SshMcpPublicConnection } from '../../shared/mcp/types'
 
 export type SshMcpSessionPort = {

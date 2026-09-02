@@ -106,6 +106,22 @@ export class KnownHostsStore {
     await this.save()
   }
 
+  /** All trusted host keys for the settings manager UI. */
+  async list(): Promise<Array<{ host: string; port: number; fingerprint: string; firstSeen: number }>> {
+    await this.init()
+    return Object.entries(this.hosts)
+      .map(([key, entry]) => {
+        const m = key.match(/^\[(.+)\]:(\d+)$/)
+        return {
+          host: m ? m[1] : key,
+          port: m ? Number(m[2]) : 22,
+          fingerprint: entry.fingerprint,
+          firstSeen: entry.firstSeen,
+        }
+      })
+      .sort((a, b) => a.host.localeCompare(b.host) || a.port - b.port)
+  }
+
   async updateHostKey(host: string, port: number, keyBuffer: Buffer): Promise<string> {
     await this.init()
     const key = this.getKey(host, port)

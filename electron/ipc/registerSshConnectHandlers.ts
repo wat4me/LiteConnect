@@ -8,6 +8,7 @@ import {
   safeWebContentsSend,
 } from '../utils/validation'
 import type { KeyboardInteractiveRequest } from '../ssh/types'
+import type { SessionLogManager } from '../ssh/sessionLog'
 import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
@@ -115,6 +116,7 @@ export function registerSshConnectHandlers(
   settingsStore: SettingsStore,
   credentialStore: CredentialStore,
   knownHosts: KnownHostsStore,
+  sessionLog?: SessionLogManager,
 ): void {
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
@@ -128,6 +130,11 @@ export function registerSshConnectHandlers(
   })
 
   // Host key management
+  ipcMain.handle('ssh:listHostKeys', async () => {
+    await ensureKnownHostsReady()
+    return knownHosts.list()
+  })
+
   ipcMain.handle('ssh:removeHostKey', async (_event, host: string, port: number) => {
     if (typeof host !== 'string' || !host.trim()) {
       throw new Error('Invalid host')
@@ -348,10 +355,14 @@ export function registerSshConnectHandlers(
       const sessionId = await sshManager.connect(connection, {
         onData: (sid, data) => {
           emitSshData(sid, data)
+          if (sessionLog && settingsStore.getSessionLogEnabled()) {
+            sessionLog.append(sid, { host: String(connection.host || ''), port: Number(connection.port) || 22 }, data)
+          }
         },
         onNotice: queueStartupNotice,
         onClose: (sid) => {
           clearSessionOwner(sid)
+          sessionLog?.endSession(sid)
           broadcast(`ssh:closed:${sid}`)
         },
         onError: (sid, err) => {
@@ -427,6 +438,7 @@ export function registerSshConnectHandlers(
     }
     startupNotices.delete(sessionId)
     clearSessionOwner(sessionId)
+    sessionLog?.endSession(sessionId)
     sshManager.disconnect(sessionId)
   })
 
@@ -461,10 +473,14 @@ export function registerSshConnectHandlers(
       const id = await sshManager.reconnect(sessionId, connection, {
         onData: (sid, data) => {
           emitSshData(sid, data)
+          if (sessionLog && settingsStore.getSessionLogEnabled()) {
+            sessionLog.append(sid, { host: String(connection.host || ''), port: Number(connection.port) || 22 }, data)
+          }
         },
         onNotice: queueStartupNotice,
         onClose: (sid) => {
           clearSessionOwner(sid)
+          sessionLog?.endSession(sid)
           broadcast(`ssh:closed:${sid}`)
         },
         onError: (sid, err) => {

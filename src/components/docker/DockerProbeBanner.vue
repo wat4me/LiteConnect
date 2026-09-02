@@ -165,20 +165,20 @@ const dockerAvailable = computed(() => props.availability?.status === 'available
       </span>
     </div>
     <div class="docker-header-actions">
-      <button type="button" class="docker-btn ghost" @click="emit('back-to-terminal')">
+      <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" @click="emit('back-to-terminal')">
         {{ t('docker.backToTerminal') }}
       </button>
       <button
         v-if="sshDisconnected && sessionId"
         type="button"
-        class="docker-btn"
+        class="ui-btn ui-btn-sm"
         @click="emit('reconnect')"
       >
         {{ t('docker.reconnect') }}
       </button>
       <button
         type="button"
-        class="docker-btn"
+        class="ui-btn ui-btn-sm"
         :disabled="!canRefresh"
         :aria-busy="busy"
         @click="emit('refresh')"
@@ -291,15 +291,15 @@ const dockerAvailable = computed(() => props.availability?.status === 'available
 }
 
 .status-card.tone-ok {
-  border-color: color-mix(in srgb, var(--success, #3fb950) 35%, var(--border-color));
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-color));
 }
 
 .status-card.tone-warn {
-  border-color: color-mix(in srgb, var(--warning, #d29922) 35%, var(--border-color));
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border-color));
 }
 
 .status-card.tone-danger {
-  border-color: color-mix(in srgb, var(--danger, #f85149) 35%, var(--border-color));
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-color));
 }
 
 .status-headline {

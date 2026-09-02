@@ -28,7 +28,9 @@ import { DatabaseManager } from './db/manager'
 import { SSHManager } from './ssh/manager'
 import { MonitorCollector } from './ssh/monitor/monitor'
 import { KnownHostsStore } from './ssh/trust/knownHosts'
+import { SessionLogManager } from './ssh/sessionLog'
 import { createWindow } from './window/createWindow'
+import { installCloseToTray, markQuitting, syncTrayFromSettings } from './window/tray'
 import { registerStoreHandlers } from './ipc/registerStoreHandlers'
 import { registerShellCommandHistoryHandlers } from './ipc/registerShellCommandHistoryHandlers'
 import { registerSshHandlers, clearLatencyTimers } from './ipc/registerSshHandlers'
@@ -45,6 +47,7 @@ import type { McpHttpGateway } from './mcp/httpGateway'
 
 const getMainWindow = () => getPrimaryWindow()
 const knownHosts = new KnownHostsStore()
+const sessionLog = new SessionLogManager()
 const credentialStore = new CredentialStore()
 const settingsStore = new SettingsStore()
 const dbConnectionStore = new DbConnectionStore()
@@ -153,7 +156,7 @@ app.whenReady().then(async () => {
   registerStoreHandlers(getMainWindow, credentialStore, settingsStore)
   registerWindowHandlers(credentialStore, settingsStore)
   registerShellCommandHistoryHandlers(shellCommandHistoryStore)
-  registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts)
+  registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog)
   dbManager.setTunnelDeps(credentialStore, knownHosts)
   registerDbHandlers(
     dbConnectionStore,
@@ -196,6 +199,14 @@ app.whenReady().then(async () => {
   })
   void startDeferredMain()
 
+  // Tray / close-to-tray / global hotkey (reacts to settings via syncTrayFromSettings)
+  installCloseToTray(settingsStore, () => openMainWindow())
+  void settingsStore.init().then(() => {
+    syncTrayFromSettings(settingsStore)
+  }).catch((err) => {
+    console.error('[Main Tray Init]', err)
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       openMainWindow()
@@ -209,6 +220,7 @@ app.on('window-all-closed', () => {
   dockerCloser?.closeAll()
   sshManager.forceDisconnectAll()
   dbManager.disconnectAll()
+  sessionLog.endAll()
   void mcpHttpGateway?.stop()
   if (process.platform !== 'darwin') {
     app.quit()
@@ -220,11 +232,13 @@ app.on('browser-window-blur', () => {
 })
 
 app.on('before-quit', () => {
+  markQuitting()
   clearLatencyTimers()
   monitorCollector.stopAll()
   dockerCloser?.closeAll()
   sshManager.forceDisconnectAll()
   dbManager.disconnectAll()
+  sessionLog.endAll()
   void mcpHttpGateway?.stop()
 })
 

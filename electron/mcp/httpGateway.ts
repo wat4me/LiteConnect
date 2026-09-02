@@ -3,6 +3,9 @@ import { buildMcpClientSnippets, mcpHttpUrl } from './clientConfig'
 import { createMcpHttpServer, type McpHttpHandle } from './httpServer'
 import type { McpAuditHook, McpServerInfo } from './httpProtocol'
 import type { SshMcpRuntime } from './runtime'
+import type { McpHttpStatus } from '../../shared/mcp/types'
+
+export type { McpHttpStatus }
 
 export type McpHttpSettingsPort = {
   getMcpHttpEnabled(): boolean
@@ -12,17 +15,6 @@ export type McpHttpSettingsPort = {
   setMcpHttpEnabled(enabled: boolean): Promise<void>
   setMcpHttpPort(port: number): Promise<void>
   rotateMcpHttpToken(): Promise<string>
-}
-
-export type McpHttpStatus = {
-  enabled: boolean
-  listening: boolean
-  host: '127.0.0.1'
-  port: number
-  url: string
-  token: string
-  lastError: string | null
-  snippets: { generic: string }
 }
 
 export class McpHttpGateway {

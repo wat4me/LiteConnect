@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { DecryptionFailedData } from '@/composables/app/useSecurityDialogs'
+import type { DecryptionFailedData } from '@/domain/app/security'
 import AppIcon from '@/components/icons/AppIcon.vue'
 
 defineProps<{

@@ -103,7 +103,7 @@ defineExpose({ resetSearch })
   <div class="detail-body inspect-body">
     <div class="inspect-toolbar">
       <input
-        class="search-input inspect-search"
+        class="ui-input ui-input-sm ui-grow inspect-search"
         type="search"
         v-model="inspectSearch"
         :placeholder="t('docker.detail.inspectSearch')"
@@ -122,7 +122,7 @@ defineExpose({ resetSearch })
         </span>
         <button
           type="button"
-          class="docker-btn ghost compact"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost"
           :disabled="!inspectMatches.length"
           :title="t('docker.detail.inspectPrevMatch')"
           :aria-label="t('docker.detail.inspectPrevMatch')"
@@ -132,7 +132,7 @@ defineExpose({ resetSearch })
         </button>
         <button
           type="button"
-          class="docker-btn ghost compact"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost"
           :disabled="!inspectMatches.length"
           :title="t('docker.detail.inspectNextMatch')"
           :aria-label="t('docker.detail.inspectNextMatch')"
@@ -143,7 +143,7 @@ defineExpose({ resetSearch })
       </div>
       <button
         type="button"
-        class="docker-btn"
+        class="ui-btn ui-btn-sm"
         :disabled="!inspectResult?.inspectJson"
         @click="copyInspectJson"
       >
@@ -229,7 +229,7 @@ defineExpose({ resetSearch })
 }
 
 .inspect-hit {
-  background: color-mix(in srgb, var(--warning, #d29922) 35%, transparent);
+  background: color-mix(in srgb, var(--warning) 35%, transparent);
 }
 
 .inspect-hit.active {
@@ -245,39 +245,6 @@ defineExpose({ resetSearch })
 }
 
 .detail-error {
-  color: var(--danger, #f85149);
-}
-
-.docker-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-radius: 8px;
-  padding: 5px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.docker-btn.ghost {
-  background: transparent;
-}
-
-.docker-btn.compact {
-  padding: 2px 8px;
-  min-width: 28px;
-}
-
-.docker-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.search-input {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 6px 10px;
-  font-size: 12px;
+  color: var(--danger);
 }
 </style>

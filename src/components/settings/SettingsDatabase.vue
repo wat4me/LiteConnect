@@ -5,7 +5,7 @@ import {
   listInstalledFontFamilyPresets,
   pickInstalledFontFamily,
 } from '@/composables/app/useTheme'
-import { DB_PAGE_SIZE_OPTIONS } from '@/composables/database/useDbSettings'
+import { DB_PAGE_SIZE_OPTIONS } from '@/utils/database/dbSettingsDefaults'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 import {
   QUERY_MAX_ROWS_MAX,
@@ -77,7 +77,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
 </script>
 
 <template>
-  <section class="settings-content">
+  <section class="settings-content" data-setting="database">
     <header class="content-header">
       <h3>{{ t('settingsDatabase.title') }}</h3>
       <p>{{ t('settingsDatabase.intro') }}</p>
@@ -85,21 +85,21 @@ function onDefaultTimeoutSecInput(ev: Event) {
 
     <div class="content-grid">
       <div class="settings-card">
-        <div class="settings-label">{{ t('settingsDatabase.fontFamily') }}</div>
+        <div class="settings-label" data-setting="database.fontFamily">{{ t('settingsDatabase.fontFamily') }}</div>
         <select v-model="draft.dbFontFamily" class="settings-select">
           <option v-for="item in availableFonts" :key="item.id" :value="item.value">
             {{ item.label }}
           </option>
         </select>
 
-        <div class="settings-label" style="margin-top: 14px">{{ t('settingsDatabase.fontSize') }}</div>
+        <div class="settings-label" style="margin-top: 14px" data-setting="database.fontSize">{{ t('settingsDatabase.fontSize') }}</div>
         <div class="font-size-row">
           <button type="button" class="font-size-btn" @click="updateDbFontSize(-1)">−</button>
           <span class="font-size-value">{{ draft.dbFontSize }}px</span>
           <button type="button" class="font-size-btn" @click="updateDbFontSize(1)">+</button>
         </div>
 
-        <div class="settings-label" style="margin-top: 14px">{{ t('settingsDatabase.pageSize') }}</div>
+        <div class="settings-label" style="margin-top: 14px" data-setting="database.pageSize">{{ t('settingsDatabase.pageSize') }}</div>
         <select v-model.number="draft.dbPageSize" class="settings-select">
           <option v-for="n in DB_PAGE_SIZE_OPTIONS" :key="n" :value="n">
             {{ t('settingsDatabase.rowsPerPage', { n }) }}
@@ -108,7 +108,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
         <div class="settings-hint">{{ t('settingsDatabase.pageSizeHint') }}</div>
 
         <div class="settings-label" style="margin-top: 14px">{{ t('settingsDatabase.queryDefaults') }}</div>
-        <div class="settings-label-sub">{{ t('settingsDatabase.defaultMaxRows') }}</div>
+        <div class="settings-label-sub" data-setting="database.defaultMaxRows">{{ t('settingsDatabase.defaultMaxRows') }}</div>
         <input
           type="number"
           class="settings-input"
@@ -119,7 +119,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
         />
         <div class="settings-hint">{{ t('settingsDatabase.defaultMaxRowsHint') }}</div>
 
-        <div class="settings-label-sub" style="margin-top: 12px">{{ t('settingsDatabase.defaultTimeoutSec') }}</div>
+        <div class="settings-label-sub" style="margin-top: 12px" data-setting="database.defaultTimeoutSec">{{ t('settingsDatabase.defaultTimeoutSec') }}</div>
         <input
           type="number"
           class="settings-input"
@@ -130,7 +130,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
         />
         <div class="settings-hint">{{ t('settingsDatabase.defaultTimeoutSecHint') }}</div>
 
-        <div class="settings-label-sub" style="margin-top: 12px">{{ t('settingsDatabase.defaultRunScope') }}</div>
+        <div class="settings-label-sub" style="margin-top: 12px" data-setting="database.defaultRunScope">{{ t('settingsDatabase.defaultRunScope') }}</div>
         <select v-model="draft.dbDefaultRunScope" class="settings-select">
           <option v-for="opt in runScopeOptions" :key="opt.value" :value="opt.value">
             {{ t(opt.labelKey) }}
@@ -138,7 +138,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
         </select>
         <div class="settings-hint">{{ t('settingsDatabase.defaultRunScopeHint') }}</div>
 
-        <div class="settings-label" style="margin-top: 14px">{{ t('settingsDatabase.safety') }}</div>
+        <div class="settings-label" style="margin-top: 14px" data-setting="database.confirmDangerousSql">{{ t('settingsDatabase.safety') }}</div>
         <label class="settings-check">
           <input v-model="draft.dbConfirmDangerousSql" type="checkbox" />
           {{ t('settingsDatabase.confirmDangerousSql') }}
@@ -186,144 +186,6 @@ function onDefaultTimeoutSecInput(ev: Event) {
 </template>
 
 <style scoped>
-.content-header {
-  margin-bottom: 20px;
-  max-width: 720px;
-}
-
-.content-header h3 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  color: var(--text-primary);
-}
-
-.content-header p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(280px, 1fr);
-  gap: 20px;
-  align-items: start;
-  max-width: 960px;
-}
-
-@media (max-width: 900px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.settings-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 16px;
-}
-
-.settings-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.preview-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 14px;
-}
-
-.preview-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
-}
-
-.preview-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-
-/* .settings-select surface styles live in main.css (shared with .ui-select) */
-.settings-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  box-sizing: border-box;
-}
-
-.settings-label-sub {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-
-.font-size-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.font-size-btn {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 16px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.font-size-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.font-size-value {
-  min-width: 48px;
-  text-align: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.settings-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.settings-hint {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.45;
-}
-
 .db-preview-sample {
   color: var(--text-secondary);
   opacity: 0.9;
@@ -351,7 +213,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
 }
 
 .db-str {
-  color: var(--success, #3fb950);
+  color: var(--success);
 }
 
 .db-preview-grid {

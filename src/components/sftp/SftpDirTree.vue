@@ -910,7 +910,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .file-selection-btn.danger {
-  color: var(--danger, #e53e3e);
+  color: var(--danger);
 }
 
 .file-selection-btn.ghost {
@@ -947,7 +947,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 
 .sidebar-error-text {
   font-size: 12px;
-  color: var(--danger, #e53e3e);
+  color: var(--danger);
   margin-bottom: 6px;
   line-height: 1.45;
 }

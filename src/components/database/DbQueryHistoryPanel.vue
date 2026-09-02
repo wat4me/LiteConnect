@@ -218,7 +218,7 @@ const rows = computed((): RowView[] =>
 }
 
 .history-status.failed {
-  color: var(--danger, #f85149);
+  color: var(--danger);
 }
 
 .history-status.cancelled {
@@ -226,11 +226,11 @@ const rows = computed((): RowView[] =>
 }
 
 .history-status.success {
-  color: var(--success, #3fb950);
+  color: var(--success);
 }
 
 .history-slow {
-  color: var(--warning, #d29922);
+  color: var(--warning);
   font-size: 10px;
 }
 
@@ -271,12 +271,12 @@ const rows = computed((): RowView[] =>
 }
 
 .history-trunc {
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 
 .history-err {
   font-size: 11px;
-  color: var(--danger, #f85149);
+  color: var(--danger);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,12 +1,13 @@
 import type {
   DbColumnInfo,
   DbConnection,
+  DbEngine,
   DbIndexInfo,
   DbQueryResult,
   DbSslOptions,
   DbTableBrowseResult,
   DbTableInfo,
-} from '../../env.d'
+} from '@shared/types/database'
 
 export type GridSort = { col: string; dir: 'asc' | 'desc' } | null
 
@@ -142,7 +143,7 @@ export type StructureTab = {
 
 export type ConnectionFormModel = {
   name: string
-  engine: import('../../env.d').DbEngine
+  engine: DbEngine
   host: string
   port: number
   username: string

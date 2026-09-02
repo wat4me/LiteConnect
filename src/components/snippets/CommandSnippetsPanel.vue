@@ -620,14 +620,14 @@ onBeforeUnmount(() => {
                 <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="toggleMenu(item.id)" :title="t('snippets.more')">
                   <AppIcon name="more" size="sm" />
                 </button>
-                <div v-if="menuOpenId === item.id" class="more-menu">
-                  <button type="button" class="more-item" @click="sendToBatch(item)">{{ t('snippets.batch') }}</button>
-                  <button type="button" class="more-item" @click="copySnippet(item)">{{ t('snippets.copy') }}</button>
-                  <button type="button" class="more-item" @click="startEdit(item)">{{ t('snippets.edit') }}</button>
-                  <button type="button" class="more-item" @click="togglePin(item)">
+                <div v-if="menuOpenId === item.id" class="ui-menu ui-menu-anchored">
+                  <button type="button" class="ui-menu-item" @click="sendToBatch(item)">{{ t('snippets.batch') }}</button>
+                  <button type="button" class="ui-menu-item" @click="copySnippet(item)">{{ t('snippets.copy') }}</button>
+                  <button type="button" class="ui-menu-item" @click="startEdit(item)">{{ t('snippets.edit') }}</button>
+                  <button type="button" class="ui-menu-item" @click="togglePin(item)">
                     {{ item.pinned ? t('snippets.unpin') : t('snippets.pin') }}
                   </button>
-                  <button type="button" class="more-item danger" @click="removeSnippet(item.id)">{{ t('snippets.delete') }}</button>
+                  <button type="button" class="ui-menu-item danger" @click="removeSnippet(item.id)">{{ t('snippets.delete') }}</button>
                 </div>
               </div>
             </div>
@@ -869,7 +869,7 @@ onBeforeUnmount(() => {
 
 .pin-btn.active,
 .pin-btn:hover {
-  color: #e6a23c;
+  color: var(--warning);
   opacity: 1;
 }
 
@@ -915,37 +915,9 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.more-menu {
-  position: absolute;
+.more-wrap .ui-menu-anchored {
   right: 0;
   top: 100%;
-  z-index: 20;
   min-width: 100px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-}
-
-.more-item {
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 6px 10px;
-  font-size: 12px;
-  color: var(--text-primary);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.more-item:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.06));
-}
-
-.more-item.danger {
-  color: var(--danger, #f56c6c);
 }
 </style>

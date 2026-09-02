@@ -2,8 +2,9 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiModel, AiProvider, AiSettings } from '../../env.d.ts'
+import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../../env.d.ts'
 import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
+import { DEFAULT_AI_TOOL_PERMISSION } from '@shared/aiToolPolicy'
 import { firstAiModelId, inferContextWindowTokens, parseAiModels } from '@shared/aiContext'
 import AppIcon from '../icons/AppIcon.vue'
 
@@ -27,13 +28,22 @@ function cloneSettings(settings?: AiSettings | null): AiSettings {
         activeModel: '',
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
         temperature: 0.7,
+        toolPermission: DEFAULT_AI_TOOL_PERMISSION,
       }
   raw.providers = (raw.providers || []).map((p) => ({
     ...p,
     models: parseAiModels(p.models),
   }))
+  raw.toolPermission = raw.toolPermission || DEFAULT_AI_TOOL_PERMISSION
   return raw
 }
+
+const permissionModes: Array<{ id: AiToolPermissionMode; label: string; desc: string }> = [
+  { id: 'ask', label: t('ai.toolPermissionAsk'), desc: t('ai.toolPermissionAskDesc') },
+  { id: 'ask-write', label: t('ai.toolPermissionAskWrite'), desc: t('ai.toolPermissionAskWriteDesc') },
+  { id: 'readonly', label: t('ai.toolPermissionReadonly'), desc: t('ai.toolPermissionReadonlyDesc') },
+  { id: 'auto', label: t('ai.toolPermissionAuto'), desc: t('ai.toolPermissionAutoDesc') },
+]
 
 const draftSettings = ref<AiSettings>(cloneSettings(props.modelValue))
 
@@ -141,6 +151,7 @@ async function saveSettings() {
     activeModel: draftSettings.value.activeModel.trim(),
     systemPrompt: draftSettings.value.systemPrompt,
     temperature: 0.7,
+    toolPermission: draftSettings.value.toolPermission || DEFAULT_AI_TOOL_PERMISSION,
   }
   if (next.providers.length === 0) {
     ElMessage.warning(t('ai.needProvider'))
@@ -218,6 +229,23 @@ defineExpose({ applyExternal })
             <AppIcon name="delete" size="xs" />
           </button>
         </div>
+      </div>
+
+      <div class="permission-box">
+        <span class="field-label">{{ t('ai.toolPermission') }}</span>
+        <p class="permission-hint">{{ t('ai.toolPermissionHint') }}</p>
+        <label
+          v-for="mode in permissionModes"
+          :key="mode.id"
+          class="permission-option"
+          :class="{ active: draftSettings.toolPermission === mode.id }"
+        >
+          <input v-model="draftSettings.toolPermission" type="radio" :value="mode.id" />
+          <span>
+            <span class="permission-option-title">{{ mode.label }}</span>
+            <span class="permission-option-desc">{{ mode.desc }}</span>
+          </span>
+        </label>
       </div>
 
       <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="saveSettings">{{ t('ai.saveSettings') }}</button>
@@ -415,6 +443,55 @@ defineExpose({ applyExternal })
   font-size: 11px;
   color: var(--text-secondary);
   font-weight: 600;
+}
+
+.permission-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.permission-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.permission-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.permission-option.active {
+  border-color: var(--accent);
+}
+
+.permission-option input {
+  margin-top: 2px;
+}
+
+.permission-option-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.permission-option-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 

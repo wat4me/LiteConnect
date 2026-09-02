@@ -52,6 +52,15 @@ npm run lint   # architecture-focused ESLint (dependency zones)
 | `shared/**` | `src/**`, `electron/**` | dual-process pure only |
 | `electron/**` | `src/**` | main ↛ renderer |
 | `src/**` | `electron/**` | renderer ↛ main (use preload IPC) |
+| Peer composables (`terminal`, `sftp`, `docker`, `database`, `ai`, `snippets`, `connections`, `monitor`) | each other's `composables/` | features meet at domain ports / App composition |
+| `composables/session`, `workspace` | peer feature composables | session/workspace depend on domain types, not feature internals |
+| `composables/settings` | peer composables except `database` | settings may apply DB defaults; not other features |
+| `electron/ssh` | `docker`, `db`, `mcp`, `ai` | interactive SSH does not own those modes |
+| `electron/docker` | `ssh`, `db`, `mcp`, `ai` | Docker uses `DockerSshBackend` / `DockerSessionHost` |
+| `electron/db` | `docker`, `mcp`, `ai`; `ssh` except `trust` / `auth` / `loadSsh2` | tunnel is a dedicated ssh2 client |
+| `electron/mcp` | `docker`, `db`, `ai` | MCP may import `ssh` types/`sessionExec`; only `bind.ts` should take `SSHManager` |
+| `electron/ai` | `ssh`, `docker`, `db` | AI tools go through MCP runtime |
+| `electron/store` | `ssh`, `docker`, `mcp`, `ai` | persistence stays below services |
 
 Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`).
 
@@ -63,12 +72,12 @@ Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`
 | SSH workspace | `components/workspace`, `composables/workspace` | `SshWorkspace`, sidebars, panel exclusivity |
 | Connections | `components/connections`, `composables/connections` | Host list, groups, batch test |
 | Session | `composables/session`, `domain/session`, `utils/session` | Session graph, reconnect, display helpers |
-| Terminal | `components/terminal`, `composables/terminal`, `utils/terminal` | xterm, paste, shell suggest |
+| Terminal | `components/terminal`, `composables/terminal`, `domain/terminal`, `utils/terminal` | xterm, paste, shell suggest, CWD port |
 | SFTP | `components/sftp`, `composables/sftp`, `utils/sftp` | File browser, transfers |
 | Docker | `components/docker`, `composables/docker`, `utils/docker` | Containers, logs, exec |
 | Database | `components/database`, `composables/database`, `domain/database`, `utils/database` | SQL workspace |
 | Monitor | `components/monitor`, `composables/monitor` | Host metrics dock |
-| Snippets / batch | `components/snippets`, `composables/snippets`, `utils/snippets` | Command snippets, broadcast |
+| Snippets / batch | `components/snippets`, `composables/snippets`, `utils/snippets` | Command snippets, broadcast, snippet hotkeys |
 | AI | `components/ai`, `composables/ai` | Chat sidebar |
 | Settings | `components/settings`, `composables/settings` | Settings panels |
 | Shared UI | `composables/shared`, `utils/shared` | Cross-cutting pure/UI helpers |
@@ -80,6 +89,10 @@ Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`
 3. **`composables/**` must not import `*.vue` SFCs. Domain types live in `domain/` or `env.d.ts`, not under `components/`.
 4. Prefer **`@/`** (renderer) and **`@shared/`** (dual-process pure modules) over deep relative paths.
 5. Cross-feature product seams (terminal CWD → SFTP follow, Docker over SSH) should depend on **small types/ports**, not peer feature internals.
+   - Terminal CWD: `src/domain/terminal/types.ts` (`TerminalPwdTracker`)
+   - Split layout: `src/domain/terminal/types.ts` (`SplitMode` / `SplitSide`)
+   - Docker over SSH: `electron/docker/types.ts` (`DockerSessionHost` / `DockerSshBackend`)
+   - MCP over SSH: `electron/mcp/ports.ts` + `electron/mcp/bind.ts` (only `bind.ts` may import `SSHManager`)
 
 ## Electron: three SSH-related modes
 
@@ -95,16 +108,33 @@ Do not merge these — they have different lifecycles and security boundaries:
 
 | Module | Purpose |
 |--------|---------|
+| `types/connection.ts` | SSH `Connection` / groups / credentials (main + renderer) |
+| `types/database.ts` | DB connection / query / browse IPC types |
+| `types/ai.ts` | AI settings, history, stream payloads |
+| `types/docker.ts` | Docker IPC types (not main-only transport classes) |
+| `types/settings.ts` | `AppSettingsAll` / bootstrap / workspace tabs |
 | `sqlReadOnly.ts` | Read-only SQL classification (main + renderer) |
 | `sqlRisk.ts` | Dangerous SQL risk assessment (main + renderer) |
 | `dbConnectionUrl.ts` | Connection URL / JDBC / Easy Connect parsing |
 | `mcp/*` | SSH tool schemas, command classification, output truncation |
 
+Renderer `Window.LiteConnect` lives in `src/types/liteConnectApi.ts`. `src/env.d.ts` only declares `Window` and re-exports shared types.
+
+AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; HTTP/parse lives in `electron/ai/providerHttp.ts`, session JSON in `electron/ai/historyStore.ts`, tool loop in `electron/ai/chatStream.ts`.
+
+Settings IPC is composed from `electron/ipc/settings/*.ts`. New settings go through `settings:getAll` / `settings:setMany` (`AppSettingsAll` + `SettingsStore.applyMany`), not a new one-off get/set channel.
+
+SSH MCP tool implementations live under `electron/mcp/tools/` (sessions, exec, sftp, pty, service). `electron/mcp/runtime.ts` is dispatch + session guards.
+
+DB query-tab run/export orchestration is `src/composables/database/useDbQueryRun.ts` and `useDbResultExport.ts`. Engine metadata/browse SQL lives in `electron/db/drivers/{postgres,mysql,oracle}Browse.ts` (class files stay the `DbDriver` entry and keep a private `warmExactCount` wrapper for tests).
+
+App-shell wiring extracted from `App.vue`: snippet hotkeys (`useSnippetHotkeys`), Docker SSH session listeners (`useDockerSshBridge`), SFTP/batch toasts (`useTransferToasts`).
+
 UI-only helpers stay in `src/utils/**`, never in `shared/`.
 
 ## Intentional coupling (keep)
 
-- Docker → SSH via `DockerSessionHost` interface
+- Docker → SSH via `DockerSshBackend` / `DockerSessionHost` (adapter in `docker/sshSessionHost.ts`; no `electron/ssh` import)
 - DB tunnel auth via injected stores + independent tunnel client
 - SFTP path follow via terminal PWD tracker / pause helpers
 - Window close → disconnect owned SSH sessions (composition root)

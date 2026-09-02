@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiSettings } from '../../env.d.ts'
+import type { AiSettings, AiToolRun } from '../../env.d.ts'
 import { useAiChat, type ChatItem } from '../../composables/ai/useAiChat'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import {
@@ -14,6 +14,8 @@ import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'
 import { aiModelId, formatTokenCount, packAiMessages } from '@shared/aiContext'
+import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
+import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 
 const { t } = useI18n()
 
@@ -51,6 +53,7 @@ const {
   retryMessage,
   prepareEditUserMessage,
   deleteMessage,
+  resolveToolApproval,
 } = useAiChat()
 
 const messages = ref<ChatItem[]>([])
@@ -77,6 +80,38 @@ const hasApiConfigured = computed(() => {
 
 let initialLoadPromise: Promise<void> | null = null
 const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
+
+/** Tool calls awaiting user approval — confirmed from the bar above the composer. */
+const pendingApprovals = computed(() => {
+  const runs: AiToolRun[] = []
+  for (const message of messages.value) {
+    for (const run of message.toolRuns || []) {
+      if (run.status === 'ask') runs.push(run)
+    }
+  }
+  return runs
+})
+
+function approvalHint(run: AiToolRun): string {
+  return formatToolRunDisplay(run).hint
+}
+
+function approvalRiskLabel(risk?: AiToolRun['risk']): string {
+  if (risk === 'read') return t('ai.toolRiskRead')
+  if (risk === 'write') return t('ai.toolRiskWrite')
+  if (risk === 'destructive') return t('ai.toolRiskDestructive')
+  if (risk === 'privileged') return t('ai.toolRiskPrivileged')
+  if (risk === 'forbidden') return t('ai.toolRiskForbidden')
+  return ''
+}
+
+function approvalCopy(run: AiToolRun): string {
+  if (run.risk === 'forbidden') return t('ai.toolAskForbidden')
+  if (run.risk === 'destructive' || run.risk === 'privileged') return t('ai.toolAskDanger')
+  return t('ai.toolAskHint')
+}
+
+const toolNameLabel = useAiToolNameLabel()
 
 const currentThreadTitle = computed(() => {
   const active = threadSummaries.value.find((t) => t.active)
@@ -608,6 +643,34 @@ function handleClearMessages() {
         @delete-message="handleDeleteMessage"
         @use-example="(text) => { input = text }"
       />
+    </div>
+
+    <div v-if="pendingApprovals.length" class="tool-approval-stack">
+      <div
+        v-for="run in pendingApprovals"
+        :key="run.id"
+        class="tool-approval"
+        :class="{ danger: run.risk === 'destructive' || run.risk === 'privileged' || run.risk === 'forbidden' }"
+      >
+        <div class="tool-approval-head">
+          <span class="tool-approval-name">{{ toolNameLabel(run.name) }}</span>
+          <span v-if="approvalRiskLabel(run.risk)" class="tool-approval-risk" :data-risk="run.risk">{{ approvalRiskLabel(run.risk) }}</span>
+          <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
+        </div>
+        <pre v-if="approvalHint(run)" class="tool-approval-hint" :title="approvalHint(run)">{{ approvalHint(run) }}</pre>
+        <p v-if="run.reason && run.risk !== 'read'" class="tool-approval-reason">{{ run.reason }}</p>
+        <div class="tool-approval-actions">
+          <button type="button" class="tool-approval-btn" @click="resolveToolApproval(run.id, false)">{{ t('ai.toolDeny') }}</button>
+          <button
+            type="button"
+            class="tool-approval-btn primary"
+            :disabled="run.risk === 'forbidden'"
+            @click="resolveToolApproval(run.id, true)"
+          >
+            {{ t('ai.toolAllow') }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <form class="composer" @submit.prevent="sendMessage">
@@ -1249,6 +1312,118 @@ function handleClearMessages() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.tool-approval-stack {
+  margin: 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-approval {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.tool-approval.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-color));
+}
+
+.tool-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-approval-name {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-approval-risk {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+}
+
+.tool-approval-risk[data-risk='destructive'],
+.tool-approval-risk[data-risk='privileged'],
+.tool-approval-risk[data-risk='forbidden'] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.tool-approval-copy {
+  color: var(--text-secondary);
+}
+
+.tool-approval-hint {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 72px;
+  overflow: auto;
+}
+
+.tool-approval-reason {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.tool-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.tool-approval-btn {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.tool-approval-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.tool-approval-btn.primary {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-color));
+}
+
+.tool-approval-btn.primary:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+
+.tool-approval-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .composer:focus-within {

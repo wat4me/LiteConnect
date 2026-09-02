@@ -1,7 +1,7 @@
 import { PassThrough } from 'stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PtySessionStore } from './ptySessions'
-import type { McpShellChannel } from '../ssh/manager'
+import type { McpShellChannel } from '../ssh/types'
 
 const SESSION_ID = '550e8400-e29b-41d4-a716-446655440000'
 

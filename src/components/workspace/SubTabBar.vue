@@ -238,7 +238,7 @@ function onTabClick(sessionId: string) {
 .split-tip-dismiss {
   border: none;
   background: transparent;
-  color: var(--accent, #58a6ff);
+  color: var(--accent);
   font-size: 11px;
   cursor: pointer;
   flex-shrink: 0;
@@ -295,7 +295,7 @@ function onTabClick(sessionId: string) {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--danger, #f85149);
+  background: var(--danger);
   flex-shrink: 0;
   animation: sub-tab-unread-pulse 1.6s ease-in-out infinite;
 }
@@ -304,7 +304,7 @@ function onTabClick(sessionId: string) {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--danger, #f85149);
+  background: var(--danger);
   flex-shrink: 0;
 }
 

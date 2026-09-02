@@ -438,7 +438,7 @@ defineExpose({
 }
 
 .settings-global-note.err {
-  color: var(--danger, #f85149);
+  color: var(--danger);
   opacity: 1;
 }
 

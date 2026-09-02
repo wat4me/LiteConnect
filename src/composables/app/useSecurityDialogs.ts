@@ -1,21 +1,8 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import type { Connection, KeyboardInteractivePrompt } from '@/env.d'
+import type { DecryptionFailedData, HostKeyMismatchData } from '@/domain/app/security'
 
-export interface HostKeyMismatchData {
-  connectionId: string
-  host: string
-  port: number
-  existingFingerprint: string
-  newFingerprint: string
-  /** jump = bastion, target = destination host */
-  role?: 'target' | 'jump'
-}
-
-export interface DecryptionFailedData {
-  connectionId: string
-  field: 'password' | 'privateKey' | 'apiKey'
-  message: string
-}
+export type { DecryptionFailedData, HostKeyMismatchData }
 
 export function useSecurityDialogs(deps: {
   connections: Ref<Connection[]>

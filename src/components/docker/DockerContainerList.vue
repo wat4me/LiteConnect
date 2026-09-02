@@ -121,7 +121,7 @@ function onSearchInput(e: Event) {
         </button>
       </div>
       <input
-        class="search-input"
+        class="ui-input ui-input-sm ui-grow docker-list-search"
         type="search"
         :value="searchQuery"
         :placeholder="t('docker.searchPlaceholder')"
@@ -270,16 +270,8 @@ function onSearchInput(e: Event) {
   font-variant-numeric: tabular-nums;
 }
 
-.search-input {
-  flex: 1;
-  min-width: 140px;
+.docker-list-search {
   max-width: 280px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 6px 10px;
-  font-size: 12px;
 }
 
 .list-pane {
@@ -301,7 +293,7 @@ function onSearchInput(e: Event) {
 }
 
 .list-placeholder.error {
-  color: var(--danger, #f85149);
+  color: var(--danger);
 }
 
 .list-error-detail {

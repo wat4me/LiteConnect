@@ -519,13 +519,13 @@ onBeforeUnmount(() => {
 }
 
 .tab-indicator.down {
-  background: var(--danger, #f85149);
+  background: var(--danger);
 }
 
 .tab-disconnected {
   font-size: 10px;
   font-weight: 600;
-  color: var(--danger, #f85149);
+  color: var(--danger);
   margin-left: 2px;
 }
 
@@ -554,7 +554,7 @@ onBeforeUnmount(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--danger, #f85149);
+  background: var(--danger);
   flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--bg-secondary);
   animation: tab-unread-pulse 1.6s ease-in-out infinite;

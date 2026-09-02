@@ -159,7 +159,7 @@ function editorTheme(): Extension {
         outline: '1px solid var(--accent)',
       },
       '.cm-searchMatch': {
-        backgroundColor: 'color-mix(in srgb, var(--warning, #d29922) 35%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--warning) 35%, transparent)',
       },
       '.cm-panels': {
         backgroundColor: 'var(--bg-secondary)',

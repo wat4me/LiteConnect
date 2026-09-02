@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
 }
 
 .pin {
-  color: #e6a23c;
+  color: var(--warning);
   font-size: 11px;
 }
 

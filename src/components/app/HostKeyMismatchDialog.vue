@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { HostKeyMismatchData } from '@/composables/app/useSecurityDialogs'
+import type { HostKeyMismatchData } from '@/domain/app/security'
 import {
   formatFingerprintForCopy,
   groupFingerprintBody,
@@ -215,7 +215,7 @@ async function copyFingerprint() {
 }
 
 .dialog-tone-icon.info {
-  color: var(--accent, #3b82f6);
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -240,8 +240,8 @@ async function copyFingerprint() {
 .trust-steps {
   margin: 0 0 16px;
   padding: 10px 12px 10px 28px;
-  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-radius: 8px;
   font-size: 12.5px;
   color: var(--text-primary);

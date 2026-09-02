@@ -135,11 +135,11 @@ function subtitle(item: ShellSuggestItem): string {
 
 /* history = warm amber; parameter hints = cool accent */
 .cmd-suggest-item.history .title {
-  color: #e6a23c;
+  color: var(--warning);
 }
 
 .cmd-suggest-item.flag .title {
-  color: var(--accent, #4a9eff);
+  color: var(--accent);
 }
 
 .sub {

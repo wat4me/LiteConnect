@@ -1,6 +1,10 @@
 import type { ClientChannel } from 'ssh2'
-import type { SSHManager } from '../ssh/manager'
-import { DOCKER_SOCKET_PATH, type DockerInstallationPresence, type DockerSessionHost } from './types'
+import {
+  DOCKER_SOCKET_PATH,
+  type DockerInstallationPresence,
+  type DockerSessionHost,
+  type DockerSshBackend,
+} from './types'
 import {
   classifyNcExecFailure,
   DOCKER_NC_EXEC_COMMAND,
@@ -30,7 +34,7 @@ export class DockerSshSessionHost implements DockerSessionHost {
   private readonly unsubscribeTeardown: () => void
   private disposed = false
 
-  constructor(private readonly ssh: SSHManager) {
+  constructor(private readonly ssh: DockerSshBackend) {
     this.unsubscribeTeardown = ssh.registerSessionTeardownHook((sessionId) => {
       this.lastSocketMode.delete(sessionId)
     })

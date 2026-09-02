@@ -1,0 +1,482 @@
+﻿/* Shared ConnectionForm chrome. Imported unscoped; scoped to .connection-modal. */
+
+.connection-modal {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  /* Leave room for custom titlebar so close (X) is never under drag region */
+  max-height: calc(
+    100vh - 32px - env(titlebar-area-height, var(--titlebar-height, 36px))
+  );
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+
+.connection-modal .modal-header {
+  flex-shrink: 0;
+  padding: 20px 24px 0;
+}
+
+.connection-modal .modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 28px 14px 0;
+  color: var(--text-primary);
+}
+
+.connection-modal .section-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.connection-modal .section-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.connection-modal .section-tab:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.connection-modal .section-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.connection-modal .section-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.connection-modal .section-tab:not(.active) .section-badge {
+  background: var(--accent-bg, rgba(56, 139, 253, 0.15));
+  color: var(--accent);
+}
+
+.connection-modal .form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.connection-modal .form-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px;
+}
+
+.connection-modal .form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.connection-modal .form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connection-modal .form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.connection-modal .nested-row {
+  margin-top: 8px;
+}
+
+.connection-modal .panel {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  gap: 10px;
+}
+
+.connection-modal .panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connection-modal .panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.connection-modal .panel-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.connection-modal .forward-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.connection-modal .btn-icon-remove {
+  height: 38px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.connection-modal .btn-icon-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.connection-modal .btn-add-row {
+  align-self: flex-start;
+  padding: 6px 12px;
+  background: none;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.connection-modal .btn-add-row:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(56, 139, 253, 0.08));
+}
+
+.connection-modal .input-narrow {
+  width: 120px;
+}
+
+.connection-modal .form-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.connection-modal .label {
+  font-size: var(--font-ui-sm, 12px);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.connection-modal .auth-tabs {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.connection-modal .auth-tab {
+  flex: 1;
+  padding: 8px 0;
+  background: var(--bg-primary);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.connection-modal .auth-tab:first-child {
+  border-right: 1px solid var(--border-color);
+}
+
+.connection-modal .auth-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.connection-modal .auth-tab:hover:not(.active) {
+  background: var(--bg-tertiary);
+}
+
+.connection-modal .username-row {
+  display: flex;
+  gap: 8px;
+}
+
+.connection-modal .username-input {
+  flex: 1;
+}
+
+.connection-modal .credential-inline-select {
+  width: 170px;
+  flex-shrink: 0;
+}
+
+.connection-modal .btn-credential {
+  height: var(--control-h, 36px);
+  padding: 0 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.connection-modal .btn-credential:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.connection-modal .btn-credential:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.connection-modal .privatekey-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.connection-modal .btn-select-key {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.2s;
+}
+
+.connection-modal .btn-select-key:hover {
+  border-color: var(--accent);
+}
+
+.connection-modal .btn-clear-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h, 36px);
+  height: var(--control-h, 36px);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.connection-modal .btn-clear-key:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.connection-modal .host-row {
+  display: flex;
+  gap: 8px;
+}
+
+.connection-modal .password-row {
+  display: flex;
+  gap: 0;
+}
+
+.connection-modal .password-input {
+  flex: 1;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+
+.connection-modal .btn-toggle-password {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h, 36px);
+  height: var(--control-h, 36px);
+  padding: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-top-right-radius: var(--radius-md, 8px);
+  border-bottom-right-radius: var(--radius-md, 8px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.connection-modal .btn-toggle-password:hover {
+  color: var(--text-primary);
+}
+
+.connection-modal .host-input {
+  flex: 1;
+}
+
+.connection-modal .port-input {
+  width: 100px;
+}
+
+.connection-modal .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.connection-modal .checkbox-row input {
+  margin: 0;
+}
+
+.connection-modal .color-tag-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.connection-modal .color-tag-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.connection-modal .color-tag-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.connection-modal .color-tag-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.connection-modal .hint-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.connection-modal .x11-options {
+  display: flex;
+  gap: 8px;
+}
+
+.connection-modal .x11-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connection-modal .x11-display-field {
+  flex: 0 0 100px;
+}
+
+.connection-modal .form-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.connection-modal .form-actions-right {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 520px) {
+  .connection-modal .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .connection-modal .form-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .connection-modal .form-actions-left,
+  .connection-modal .form-actions-right {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .connection-modal .form-actions-right .ui-btn {
+    flex: 1;
+  }
+
+  .connection-modal .forward-row {
+    flex-wrap: wrap;
+  }
+}
+
+.connection-modal .spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+

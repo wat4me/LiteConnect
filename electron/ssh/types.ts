@@ -1,33 +1,11 @@
 import type { Client, ClientChannel, SFTPWrapper } from 'ssh2'
 import type * as net from 'net'
+import type { SshConnectProfile } from '../../shared/types/connection'
+import type { TransferConflictStrategy } from '../../shared/types/sftp'
 
-export interface Connection {
-  id: string
-  host: string
-  port: number
-  username: string
-  password: string
-  name: string
-  keepaliveInterval?: number
-  x11Forwarding?: boolean
-  x11Host?: string
-  x11Display?: number
-  privateKey?: string
-  /** Bastion / jump host (ProxyJump-style) */
-  jumpHost?: string
-  jumpPort?: number
-  jumpUsername?: string
-  jumpPassword?: string
-  jumpPrivateKey?: string
-  /** Use OS SSH agent (Pageant on Windows, SSH_AUTH_SOCK elsewhere) */
-  useAgent?: boolean
-  /** Local port forwards: listen locally and tunnel to remoteHost:remotePort via SSH */
-  localForwards?: Array<{ localPort: number; remoteHost: string; remotePort: number }>
-  /** Remote forwards: remote listens and tunnels back to a local host:port */
-  remoteForwards?: Array<{ remoteHost?: string; remotePort: number; localHost: string; localPort: number }>
-  /** SOCKS5 dynamic forward on a local port */
-  dynamicForwards?: Array<{ localPort: number }>
-}
+export type Connection = SshConnectProfile
+export type { SshConnectProfile } from '../../shared/types/connection'
+export type { FileEntry, TransferConflictStrategy } from '../../shared/types/sftp'
 
 export interface Session {
   id: string
@@ -41,6 +19,13 @@ export interface Session {
   jumpClient?: Client
   localForwardServers?: net.Server[]
   remoteForwardHandles?: Array<{ close: () => void }>
+}
+
+/** MCP / Docker exec PTY-less shell channel (not exposed to renderer IPC). */
+export type McpShellChannel = NodeJS.ReadWriteStream & {
+  setWindow?: (rows: number, cols: number, height?: number, width?: number) => void
+  close?: () => void
+  destroy?: () => void
 }
 
 export type KeyboardInteractiveRequest = {
@@ -59,16 +44,6 @@ export interface SSHCallbacks {
   onClose: (sessionId: string) => void
   onError: (sessionId: string, error: string) => void
   onKeyboardInteractive?: (req: KeyboardInteractiveRequest) => Promise<string[] | null>
-}
-
-export interface FileEntry {
-  name: string
-  path: string
-  isDirectory: boolean
-  isSymlink: boolean
-  size: number
-  modifyTime: number
-  permissions: string
 }
 
 /** Public snapshot for main-process integrations (MCP / monitor). No secrets. */
@@ -91,8 +66,6 @@ export interface ActiveTransfer {
   /** Directory job: child transfer ids to cancel together */
   childIds?: Set<string>
 }
-
-export type TransferConflictStrategy = 'overwrite' | 'skip' | 'rename'
 
 /** On single-file failure during directory transfer */
 export type DirFailPolicy = 'continue' | 'stop'

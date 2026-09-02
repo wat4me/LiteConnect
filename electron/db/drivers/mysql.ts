@@ -1,4 +1,4 @@
-import mysql, { type Pool, type RowDataPacket, type ResultSetHeader, type FieldPacket } from 'mysql2/promise'
+import mysql, { type RowDataPacket, type ResultSetHeader, type FieldPacket } from 'mysql2/promise'
 import { v4 as uuidv4 } from 'uuid'
 import {
   assertIdent,
@@ -12,12 +12,7 @@ import {
 } from '../common'
 import { planSqlRowLimit } from '../sql/sqlLimit'
 import { buildWhereClauseMysql } from '../browse/browseFilter'
-import {
-  BrowseCountCache,
-  browseCountCacheKey,
-  browseHasFilter,
-  finalizeBrowsePage,
-} from '../browse/browsePagination'
+import { BrowseCountCache } from '../browse/browsePagination'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
 import type {
   DbBrowseOptions,
@@ -37,46 +32,18 @@ import type {
 } from '../types'
 import { resolveSslConfig } from '../types'
 import { mapMysqlExtraOptions } from '../../../shared/dbConnectionUrl'
+import {
+  CONTROL_CONNECT_TIMEOUT_MS,
+  CONTROL_QUERY_TIMEOUT_MS,
+  type ActiveQuery,
+  type LiveSession,
+  type PinnedClient,
+  type MysqlBrowseHost,
+  type MysqlControlConnection,
+} from './mysqlTypes'
+import * as mysqlBrowse from './mysqlBrowse'
 
-/** Short-lived cancel control connection — must not share the business pool. */
-const CONTROL_CONNECT_TIMEOUT_MS = 5_000
-const CONTROL_QUERY_TIMEOUT_MS = 5_000
-
-interface LiveSession {
-  id: string
-  connectionId: string
-  connectionName: string
-  host: string
-  port: number
-  username: string
-  database: string | null
-  serverVersion: string
-  password: string
-  /** Resolved SSL config for control connections (tunnel endpoint host/port already applied) */
-  ssl: ReturnType<typeof resolveSslConfig>
-  pool: Pool
-}
-
-interface ActiveQuery {
-  sessionId: string
-  threadId: number
-  cancelled: boolean
-}
-
-/** Sticky physical connection for a query tab (DB-009). */
-interface PinnedClient {
-  sessionId: string
-  clientKey: string
-  conn: mysql.PoolConnection
-  inTransaction: boolean
-  database: string | null
-}
-
-/** Minimal surface for cancel control connection (mockable in tests). */
-export type MysqlControlConnection = {
-  query: (sql: string | { sql: string; timeout?: number }) => Promise<unknown>
-  end: () => Promise<void>
-}
+export type { MysqlControlConnection }
 
 export class MySqlDriver implements DbDriver {
   readonly engine = 'mysql' as const
@@ -88,6 +55,15 @@ export class MySqlDriver implements DbDriver {
   private countWarmInflight = new Set<string>()
   /** sessionId\0clientKey -> pinned connection held for explicit transactions */
   private pinnedClients = new Map<string, PinnedClient>()
+
+  private browseHost(): MysqlBrowseHost {
+    return {
+      sessions: this.sessions,
+      countCache: this.countCache,
+      countWarmInflight: this.countWarmInflight,
+      requireSession: (sessionId) => this.requireSession(sessionId),
+    }
+  }
 
   async connect(conn: DbConnection): Promise<DbSessionInfo> {
     const extras = mapMysqlExtraOptions(conn.extraOptions)
@@ -427,9 +403,7 @@ export class MySqlDriver implements DbDriver {
   }
 
   async listDatabases(sessionId: string): Promise<string[]> {
-    const session = this.requireSession(sessionId)
-    const [rows] = await session.pool.query<RowDataPacket[]>('SHOW DATABASES')
-    return rows.map((r) => String(r.Database ?? Object.values(r)[0] ?? '')).filter(Boolean)
+    return mysqlBrowse.listDatabases(this.browseHost(), sessionId)
   }
 
   async listTables(sessionId: string, database?: string): Promise<string[]> {
@@ -438,69 +412,11 @@ export class MySqlDriver implements DbDriver {
   }
 
   async listTableInfos(sessionId: string, database?: string): Promise<DbTableInfo[]> {
-    const session = this.requireSession(sessionId)
-    const schema = database || session.database
-    if (!schema) {
-      const [rows] = await session.pool.query<RowDataPacket[]>('SHOW FULL TABLES')
-      return rows
-        .map((r) => {
-          const vals = Object.values(r)
-          const name = String(vals[0] ?? '')
-          const typeRaw = String(vals[1] ?? 'BASE TABLE').toUpperCase()
-          return {
-            name,
-            type: typeRaw.includes('VIEW') ? ('view' as const) : ('table' as const),
-            engine: null,
-            rows: null,
-            comment: '',
-          }
-        })
-        .filter((t) => t.name)
-    }
-
-    const [rows] = await session.pool.query<RowDataPacket[]>(
-      `SELECT TABLE_NAME AS name, TABLE_TYPE AS tableType, ENGINE AS engine,
-              TABLE_ROWS AS rowEstimate, TABLE_COMMENT AS comment
-       FROM information_schema.TABLES
-       WHERE TABLE_SCHEMA = ?
-       ORDER BY TABLE_TYPE, TABLE_NAME`,
-      [schema],
-    )
-    return rows
-      .map((r) => ({
-        name: String(r.name || ''),
-        type: String(r.tableType || '').toUpperCase().includes('VIEW')
-          ? ('view' as const)
-          : ('table' as const),
-        engine: r.engine != null ? String(r.engine) : null,
-        rows: r.rowEstimate != null && r.rowEstimate !== '' ? Number(r.rowEstimate) : null,
-        comment: r.comment != null ? String(r.comment) : '',
-      }))
-      .filter((t) => t.name)
+    return mysqlBrowse.listTableInfos(this.browseHost(), sessionId, database)
   }
 
   async getTableColumns(sessionId: string, database: string, table: string): Promise<DbColumnInfo[]> {
-    const session = this.requireSession(sessionId)
-    assertIdent(database)
-    assertIdent(table)
-    const [rows] = await session.pool.query<RowDataPacket[]>(
-      `SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable,
-              COLUMN_KEY AS colKey, COLUMN_DEFAULT AS defaultValue, EXTRA AS extra,
-              COLUMN_COMMENT AS comment
-       FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-       ORDER BY ORDINAL_POSITION`,
-      [database, table],
-    )
-    return rows.map((r) => ({
-      name: String(r.name || ''),
-      type: String(r.type || ''),
-      nullable: String(r.nullable || '').toUpperCase() === 'YES',
-      key: String(r.colKey || ''),
-      defaultValue: r.defaultValue === undefined ? null : (r.defaultValue as string | null),
-      extra: String(r.extra || ''),
-      comment: String(r.comment || ''),
-    }))
+    return mysqlBrowse.getTableColumns(this.browseHost(), sessionId, database, table)
   }
 
   async getTableIndexes(
@@ -508,47 +424,11 @@ export class MySqlDriver implements DbDriver {
     database: string,
     table: string,
   ): Promise<DbIndexInfo[]> {
-    const session = this.requireSession(sessionId)
-    assertIdent(database)
-    assertIdent(table)
-    const [rows] = await session.pool.query<RowDataPacket[]>(
-      `SELECT INDEX_NAME AS name, COLUMN_NAME AS colName, NON_UNIQUE AS nonUnique,
-              SEQ_IN_INDEX AS seq, INDEX_TYPE AS indexType, INDEX_COMMENT AS comment
-       FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-       ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
-      [database, table],
-    )
-    const map = new Map<string, DbIndexInfo>()
-    for (const r of rows) {
-      const name = String(r.name || '')
-      if (!name) continue
-      let idx = map.get(name)
-      if (!idx) {
-        idx = {
-          name,
-          columns: [],
-          unique: Number(r.nonUnique) === 0,
-          primary: name === 'PRIMARY',
-          type: String(r.indexType || ''),
-          comment: r.comment != null ? String(r.comment) : '',
-        }
-        map.set(name, idx)
-      }
-      const col = String(r.colName || '')
-      if (col) idx.columns.push(col)
-    }
-    return [...map.values()]
+    return mysqlBrowse.getTableIndexes(this.browseHost(), sessionId, database, table)
   }
 
   async getCreateTable(sessionId: string, database: string, table: string): Promise<string> {
-    const session = this.requireSession(sessionId)
-    assertIdent(database)
-    assertIdent(table)
-    const fq = `${quoteIdentMysql(database)}.${quoteIdentMysql(table)}`
-    const [rows] = await session.pool.query<RowDataPacket[]>(`SHOW CREATE TABLE ${fq}`)
-    const row = rows[0] || {}
-    return String(row['Create Table'] ?? row['Create View'] ?? Object.values(row)[1] ?? '')
+    return mysqlBrowse.getCreateTable(this.browseHost(), sessionId, database, table)
   }
 
   async browseTable(
@@ -559,99 +439,15 @@ export class MySqlDriver implements DbDriver {
     pageSize = 100,
     options?: DbBrowseOptions,
   ): Promise<DbTableBrowseResult> {
-    const session = this.requireSession(sessionId)
-    assertIdent(database)
-    assertIdent(table)
-    const safePage = Math.max(1, Math.floor(page) || 1)
-    const safeSize = Math.min(Math.max(Math.floor(pageSize) || 100, 1), 500)
-    const offset = (safePage - 1) * safeSize
-    const fq = `${quoteIdentMysql(database)}.${quoteIdentMysql(table)}`
-
-    const where = buildWhereClauseMysql(options)
-
-    let orderClause = ''
-    if (options?.orderBy) {
-      assertIdent(options.orderBy)
-      const dir = options.orderDir === 'desc' ? 'DESC' : 'ASC'
-      orderClause = ` ORDER BY ${quoteIdentMysql(options.orderBy)} ${dir}`
-    }
-
-    const start = Date.now()
-    const hasFilter = browseHasFilter(options)
-    const cacheKey = browseCountCacheKey(sessionId, database, table, options)
-    let exactTotal = this.countCache.get(cacheKey)
-
-    // pageSize+1 so hasNext is known without a full COUNT
-    const [result, fields] = await session.pool.query({
-      sql: `SELECT * FROM ${fq}${where.clause}${orderClause} LIMIT ${safeSize + 1} OFFSET ${offset}`,
-      timeout: DEFAULT_QUERY_TIMEOUT_MS,
-      values: where.params,
-    })
-    const durationMs = Date.now() - start
-    const rows = result as RowDataPacket[]
-    const fieldList = (fields || []) as FieldPacket[]
-    const columns = fieldList.map((f) => f.name)
-    const mapped = rows.map((row) => {
-      const out: Record<string, unknown> = {}
-      for (const col of columns) out[col] = serializeCell((row as any)[col], { column: col })
-      return out
-    })
-
-    // Optional exact count from cache only on the hot path; warm cache in background when missing
-    if (exactTotal == null && !hasFilter) {
-      // Prefer cheap estimate for unfiltered large tables
-      let estimatedTotal: number | null = null
-      try {
-        const [estRows] = await session.pool.query<RowDataPacket[]>(
-          `SELECT TABLE_ROWS AS c FROM information_schema.TABLES
-           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? LIMIT 1`,
-          [database, table],
-        )
-        if (estRows[0]?.c != null && estRows[0].c !== '') {
-          estimatedTotal = Number(estRows[0].c)
-        }
-      } catch {
-        estimatedTotal = null
-      }
-      // Fire-and-forget exact COUNT for subsequent pages (does not block first paint)
-      void this.warmExactCount(session, cacheKey, fq, where.clause, where.params)
-      return finalizeBrowsePage({
-        rows: mapped,
-        columns,
-        page: safePage,
-        pageSize: safeSize,
-        durationMs,
-        exactTotal: null,
-        estimatedTotal,
-        hasFilter: false,
-      })
-    }
-
-    if (exactTotal == null && hasFilter) {
-      // With filter: do not block on COUNT; schedule async warm for later pages
-      void this.warmExactCount(session, cacheKey, fq, where.clause, where.params)
-      return finalizeBrowsePage({
-        rows: mapped,
-        columns,
-        page: safePage,
-        pageSize: safeSize,
-        durationMs,
-        exactTotal: null,
-        estimatedTotal: null,
-        hasFilter: true,
-      })
-    }
-
-    return finalizeBrowsePage({
-      rows: mapped,
-      columns,
-      page: safePage,
-      pageSize: safeSize,
-      durationMs,
-      exactTotal,
-      estimatedTotal: null,
-      hasFilter,
-    })
+    return mysqlBrowse.browseTable(
+      this.browseHost(),
+      sessionId,
+      database,
+      table,
+      page,
+      pageSize,
+      options,
+    )
   }
 
   private async warmExactCount(
@@ -661,27 +457,14 @@ export class MySqlDriver implements DbDriver {
     whereClause: string,
     whereParams: unknown[],
   ): Promise<void> {
-    if (this.countCache.get(cacheKey) != null) return
-    if (this.countWarmInflight.has(cacheKey)) return
-    this.countWarmInflight.add(cacheKey)
-    try {
-      // Session may have been disconnected after browse returned
-      if (!this.sessions.has(session.id) || this.sessions.get(session.id) !== session) return
-      const [countRows] = await session.pool.query<RowDataPacket[]>({
-        sql: `SELECT COUNT(*) AS c FROM ${fq}${whereClause}`,
-        timeout: DEFAULT_QUERY_TIMEOUT_MS,
-        values: whereParams,
-      })
-      if (!this.sessions.has(session.id) || this.sessions.get(session.id) !== session) return
-      const total = Number(countRows[0]?.c ?? 0)
-      if (Number.isFinite(total) && total >= 0) {
-        this.countCache.set(cacheKey, total)
-      }
-    } catch {
-      // background count is best-effort; never throw to caller
-    } finally {
-      this.countWarmInflight.delete(cacheKey)
-    }
+    return mysqlBrowse.warmExactCount(
+      this.browseHost(),
+      session,
+      cacheKey,
+      fq,
+      whereClause,
+      whereParams,
+    )
   }
 
   async useDatabase(sessionId: string, database: string): Promise<void> {

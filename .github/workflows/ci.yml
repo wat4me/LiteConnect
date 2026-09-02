@@ -15,6 +15,13 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-linux-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
         run: npm ci
       - name: Typecheck
@@ -27,3 +34,27 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      - name: Main process load check (TDZ guard)
+        run: node scripts/check-main-load.mjs
+
+  package-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-windows-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Build renderer and main
+        run: npm run build
+      - name: Package unpacked app (files whitelist smoke)
+        run: npx electron-builder --dir

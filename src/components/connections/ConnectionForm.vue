@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import AppIcon from '../icons/AppIcon.vue'
 import HostKeyMismatchDialog from '@/components/app/HostKeyMismatchDialog.vue'
+import ConnectionFormBasic from './ConnectionFormBasic.vue'
+import ConnectionFormTunnel from './ConnectionFormTunnel.vue'
+import ConnectionFormAdvanced from './ConnectionFormAdvanced.vue'
 import { computed, nextTick, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
-import type { HostKeyMismatchData } from '@/composables/app/useSecurityDialogs'
+import type { HostKeyMismatchData } from '@/domain/app/security'
 import type { Connection, Group, SavedCredential } from '../../env.d.ts'
-import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
+import type { ConnectionFormModel, ConnectionFormSection } from './connectionFormTypes'
+import './connectionForm.css'
 
 const props = defineProps<{
   connection: Connection | null
@@ -28,7 +32,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const form = ref({
+const form = ref<ConnectionFormModel>({
   name: '',
   host: '',
   port: 22,
@@ -48,9 +52,9 @@ const form = ref({
   jumpPassword: '',
   jumpPrivateKey: '',
   useAgent: false,
-  localForwards: [] as Array<{ localPort: number; remoteHost: string; remotePort: number }>,
-  remoteForwards: [] as Array<{ remoteHost: string; remotePort: number; localHost: string; localPort: number }>,
-  dynamicForwards: [] as Array<{ localPort: number }>,
+  localForwards: [],
+  remoteForwards: [],
+  dynamicForwards: [],
 })
 
 const groups = ref<Group[]>([])
@@ -66,12 +70,10 @@ const jumpPrivateKeyFileName = ref('')
 /** When editing, keep stored private key unless the user picks/clears one. */
 const keepStoredPrivateKey = ref(false)
 const keepStoredJumpPrivateKey = ref(false)
-/** Form sections to keep the modal short and scannable */
-type FormSection = 'basic' | 'tunnel' | 'advanced'
-const formSection = ref<FormSection>('basic')
+const formSection = ref<ConnectionFormSection>('basic')
 
 const testingConnection = ref(false)
-const nameInputRef = ref<HTMLInputElement | null>(null)
+const basicRef = ref<{ nameInputRef?: HTMLInputElement | null } | null>(null)
 
 /** Host-key trust prompt during “测试连接” (first contact / key change). */
 const hostKeyDialogVisible = ref(false)
@@ -238,8 +240,9 @@ async function prepareNextCreateForm(justSaved: Connection) {
     form.value.note = ''
   }
   await nextTick()
-  nameInputRef.value?.focus()
-  nameInputRef.value?.select()
+  const nameInput = basicRef.value?.nameInputRef
+  nameInput?.focus()
+  nameInput?.select()
 }
 
 /**
@@ -678,288 +681,34 @@ async function toggleCredentialAutoFill() {
 
       <form @submit.prevent="handleSave(false)" class="form">
         <div class="form-body">
-          <!-- 基本 -->
-          <div v-show="formSection === 'basic'" class="form-section">
-            <div class="form-row">
-              <label class="label">{{ t('connectionForm.name') }}</label>
-              <input
-                ref="nameInputRef"
-                v-model="form.name"
-                :placeholder="t('connectionForm.namePlaceholder')"
-                class="ui-input"
-              />
-            </div>
-
-            <div class="form-row">
-              <label class="label">{{ t('connectionForm.host') }}</label>
-              <div class="host-row">
-                <input v-model="form.host" :placeholder="t('connectionForm.hostPlaceholder')" class="ui-input host-input" />
-                <input v-model.number="form.port" type="number" :placeholder="t('connectionForm.port')" class="ui-input port-input" />
-              </div>
-            </div>
-
-            <div class="form-row">
-              <label class="label">{{ t('connectionForm.username') }}</label>
-              <div class="username-row">
-                <input v-model="form.username" placeholder="root" class="ui-input username-input" />
-                <select
-                  v-model="selectedCredentialId"
-                  class="ui-select credential-inline-select"
-                  :title="t('connectionForm.credentialSelectTitle')"
-                  @change="applySavedCredential"
-                >
-                  <option value="">{{ t('connectionForm.selectCredential') }}</option>
-                  <option v-for="credential in savedCredentials" :key="credential.id" :value="credential.id">
-                    {{ credential.name }} / {{ credential.username }}
-                  </option>
-                </select>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <label class="label">{{ t('connectionForm.authType') }}</label>
-              <div class="auth-tabs">
-                <button type="button" class="auth-tab" :class="{ active: authType === 'password' }" @click="switchAuthType('password')">{{ t('connectionForm.password') }}</button>
-                <button type="button" class="auth-tab" :class="{ active: authType === 'key' }" @click="switchAuthType('key')">{{ t('connectionForm.key') }}</button>
-              </div>
-            </div>
-
-            <div v-if="authType === 'password'" class="form-row">
-              <label class="label">{{ t('connectionForm.password') }}</label>
-              <div class="password-row">
-                <input v-model="form.password" :type="showPassword ? 'text' : 'password'" :placeholder="t('connectionForm.passwordPlaceholder')" class="ui-input password-input" />
-                <button type="button" class="btn-toggle-password" @click="showPassword = !showPassword" :title="showPassword ? t('connectionForm.hidePassword') : t('connectionForm.showPassword')">
-                  <AppIcon :name="showPassword ? 'eye-off' : 'eye'" size="md" />
-                </button>
-              </div>
-            </div>
-
-            <div v-if="authType === 'key'" class="form-row">
-              <label class="label">{{ t('connectionForm.privateKey') }}</label>
-              <div class="privatekey-row">
-                <button type="button" class="btn-select-key" @click="selectPrivateKey">{{ privateKeyFileName || t('connectionForm.selectPrivateKey') }}</button>
-                <button v-if="form.privateKey || keepStoredPrivateKey" type="button" class="btn-clear-key" @click="clearPrivateKey" :title="t('connectionForm.clearPrivateKey')">
-                  <AppIcon name="close" size="sm" />
-                </button>
-              </div>
-              <div class="hint-text">{{ t('connectionForm.privateKeyHint') }}</div>
-              <div class="form-row nested-row">
-                <label class="label">{{ t('connectionForm.passphrase') }}</label>
-                <div class="password-row">
-                  <input v-model="form.password" :type="showPassword ? 'text' : 'password'" :placeholder="t('connectionForm.passphrasePlaceholder')" class="ui-input password-input" />
-                  <button type="button" class="btn-toggle-password" @click="showPassword = !showPassword" :title="showPassword ? t('connectionForm.hidePassword') : t('connectionForm.showPassword')">
-                    <AppIcon :name="showPassword ? 'eye-off' : 'eye'" size="md" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="form-grid-2">
-              <div class="form-row">
-                <label class="label">{{ t('connectionForm.group') }}</label>
-                <select v-model="form.group" class="ui-select">
-                  <option v-for="g in groups" :key="g.id" :value="g.id">
-                    {{ g.name }}{{ g.isDefault ? ` (${t('groups.defaultGroup')})` : '' }}
-                  </option>
-                </select>
-              </div>
-              <div class="form-row">
-                <label class="label">{{ t('connectionForm.colorTag') }}</label>
-                <div class="color-tag-options">
-                  <button
-                    v-for="tag in CONNECTION_COLOR_TAGS"
-                    :key="tag.id || 'none'"
-                    type="button"
-                    class="color-tag-btn"
-                    :class="{ active: form.colorTag === tag.id }"
-                    :title="tag.label"
-                    @click="form.colorTag = tag.id"
-                  >
-                    <span class="color-tag-swatch" :style="{ background: tag.color }"></span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <label class="label">{{ t('connectionForm.note') }}</label>
-              <input v-model="form.note" class="ui-input" :placeholder="t('connectionForm.notePlaceholder')" maxlength="200" />
-            </div>
-          </div>
-
-          <!-- 隧道 -->
-          <div v-show="formSection === 'tunnel'" class="form-section">
-            <div class="form-row panel">
-              <div class="panel-head">
-                <span class="panel-title">{{ t('connectionForm.jumpTitle') }}</span>
-                <span class="panel-hint">{{ t('connectionForm.jumpHint') }}</span>
-              </div>
-              <div class="x11-options">
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.jumpHost') }}</label>
-                  <input v-model="form.jumpHost" class="ui-input" placeholder="bastion.example.com" />
-                </div>
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.port') }}</label>
-                  <input v-model.number="form.jumpPort" type="number" min="1" max="65535" class="ui-input" />
-                </div>
-              </div>
-              <div v-if="form.jumpHost" class="x11-options">
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.jumpUser') }}</label>
-                  <input v-model="form.jumpUsername" class="ui-input" :placeholder="t('connectionForm.jumpUserPlaceholder')" />
-                </div>
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.jumpAuthType') }}</label>
-                  <div class="auth-tabs">
-                    <button type="button" class="auth-tab" :class="{ active: jumpAuthType === 'password' }" @click="switchJumpAuthType('password')">{{ t('connectionForm.password') }}</button>
-                    <button type="button" class="auth-tab" :class="{ active: jumpAuthType === 'key' }" @click="switchJumpAuthType('key')">{{ t('connectionForm.key') }}</button>
-                  </div>
-                </div>
-              </div>
-              <div v-if="form.jumpHost && jumpAuthType === 'password'" class="x11-options">
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.jumpPassword') }}</label>
-                  <input v-model="form.jumpPassword" type="password" class="ui-input" :placeholder="t('connectionForm.jumpPasswordPlaceholder')" />
-                </div>
-              </div>
-              <div v-if="form.jumpHost && jumpAuthType === 'key'" class="form-row">
-                <label class="label">{{ t('connectionForm.jumpPrivateKey') }}</label>
-                <div class="key-file-row">
-                  <button type="button" class="ui-btn" @click="selectJumpPrivateKey">{{ t('connectionForm.selectPrivateKey') }}</button>
-                  <span v-if="jumpPrivateKeyFileName" class="key-file-name">{{ jumpPrivateKeyFileName }}</span>
-                  <button v-if="jumpPrivateKeyFileName" type="button" class="btn-icon-remove" @click="clearJumpPrivateKey">{{ t('connectionForm.clearPrivateKey') }}</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="form-row panel">
-              <div class="panel-head">
-                <span class="panel-title">{{ t('connectionForm.localForwardTitle') }}</span>
-                <span class="panel-hint">{{ t('connectionForm.localForwardHint') }}</span>
-              </div>
-              <div
-                v-for="(fwd, idx) in form.localForwards"
-                :key="idx"
-                class="forward-row"
-              >
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.localPort') }}</label>
-                  <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
-                </div>
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.remoteHost') }}</label>
-                  <input v-model="fwd.remoteHost" class="ui-input" placeholder="127.0.0.1" />
-                </div>
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.remotePort') }}</label>
-                  <input v-model.number="fwd.remotePort" type="number" min="1" max="65535" class="ui-input" />
-                </div>
-                <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.localForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
-              </div>
-              <button
-                type="button"
-                class="btn-add-row"
-                @click="form.localForwards.push({ localPort: 0, remoteHost: '127.0.0.1', remotePort: 0 })"
-              >
-                {{ t('connectionForm.addForward') }}
-              </button>
-            </div>
-
-            <div class="form-row panel">
-              <div class="panel-head">
-                <span class="panel-title">{{ t('connectionForm.remoteForwardTitle') }}</span>
-                <span class="panel-hint">{{ t('connectionForm.remoteForwardHint') }}</span>
-              </div>
-              <div v-for="(fwd, idx) in form.remoteForwards" :key="'rf' + idx" class="forward-row">
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.remotePort') }}</label>
-                  <input v-model.number="fwd.remotePort" type="number" min="1" max="65535" class="ui-input" />
-                </div>
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.localHost') }}</label>
-                  <input v-model="fwd.localHost" class="ui-input" placeholder="127.0.0.1" />
-                </div>
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.localPort') }}</label>
-                  <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
-                </div>
-                <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.remoteForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
-              </div>
-              <button
-                type="button"
-                class="btn-add-row"
-                @click="form.remoteForwards.push({ remoteHost: '127.0.0.1', remotePort: 0, localHost: '127.0.0.1', localPort: 0 })"
-              >
-                {{ t('connectionForm.addRemoteForward') }}
-              </button>
-            </div>
-
-            <div class="form-row panel">
-              <div class="panel-head">
-                <span class="panel-title">{{ t('connectionForm.dynamicForwardTitle') }}</span>
-                <span class="panel-hint">{{ t('connectionForm.dynamicForwardHint') }}</span>
-              </div>
-              <div v-for="(fwd, idx) in form.dynamicForwards" :key="'df' + idx" class="forward-row">
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.socksPort') }}</label>
-                  <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
-                </div>
-                <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.dynamicForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
-              </div>
-              <button
-                type="button"
-                class="btn-add-row"
-                @click="form.dynamicForwards.push({ localPort: 1080 })"
-              >
-                {{ t('connectionForm.addSocksForward') }}
-              </button>
-            </div>
-
-            <div class="form-row panel">
-              <label class="checkbox-row">
-                <input v-model="form.x11Forwarding" type="checkbox" />
-                <span>{{ t('connectionForm.graphicalForwarding') }}</span>
-              </label>
-              <div class="hint-text">
-                {{ t('connectionForm.graphicalHint') }}
-              </div>
-              <div v-if="form.x11Forwarding" class="x11-options">
-                <div class="x11-field">
-                  <label class="label">{{ t('connectionForm.displayHost') }}</label>
-                  <input v-model="form.x11Host" placeholder="127.0.0.1" class="ui-input" />
-                </div>
-                <div class="x11-field x11-display-field">
-                  <label class="label">{{ t('connectionForm.displayNumber') }}</label>
-                  <input v-model.number="form.x11Display" type="number" min="0" max="99" placeholder="0" class="ui-input" />
-                </div>
-              </div>
-              <div v-if="form.x11Forwarding" class="hint-text">
-                {{ t('connectionForm.willConnect', {
-                  host: form.x11Host || '127.0.0.1',
-                  port: 6000 + (Number.isInteger(form.x11Display) ? form.x11Display : 0),
-                }) }}
-              </div>
-            </div>
-          </div>
-
-          <!-- 高级 -->
-          <div v-show="formSection === 'advanced'" class="form-section">
-            <div class="form-row">
-              <label class="label">{{ t('connectionForm.keepalive') }}</label>
-              <input v-model.number="form.keepaliveInterval" type="number" min="5" max="300" placeholder="30" class="ui-input input-narrow" />
-              <div class="hint-text">{{ t('connectionForm.keepaliveHint') }}</div>
-            </div>
-
-            <div class="form-row panel">
-              <label class="checkbox-row">
-                <input v-model="form.useAgent" type="checkbox" />
-                <span>{{ t('connectionForm.useAgent') }}</span>
-              </label>
-              <div class="hint-text">{{ t('connectionForm.useAgentHint') }}</div>
-            </div>
-          </div>
-
+          <ConnectionFormBasic
+            v-show="formSection === 'basic'"
+            ref="basicRef"
+            :form="form"
+            :groups="groups"
+            :saved-credentials="savedCredentials"
+            :selected-credential-id="selectedCredentialId"
+            :auth-type="authType"
+            :show-password="showPassword"
+            :private-key-file-name="privateKeyFileName"
+            :keep-stored-private-key="keepStoredPrivateKey"
+            @update:selected-credential-id="selectedCredentialId = $event"
+            @update:show-password="showPassword = $event"
+            @apply-credential="applySavedCredential"
+            @switch-auth="switchAuthType"
+            @select-private-key="selectPrivateKey"
+            @clear-private-key="clearPrivateKey"
+          />
+          <ConnectionFormTunnel
+            v-show="formSection === 'tunnel'"
+            :form="form"
+            :jump-auth-type="jumpAuthType"
+            :jump-private-key-file-name="jumpPrivateKeyFileName"
+            @switch-jump-auth="switchJumpAuthType"
+            @select-jump-key="selectJumpPrivateKey"
+            @clear-jump-key="clearJumpPrivateKey"
+          />
+          <ConnectionFormAdvanced v-show="formSection === 'advanced'" :form="form" />
         </div>
 
         <footer class="form-footer">
@@ -1002,484 +751,3 @@ async function toggleCredentialAutoFill() {
   </div>
 </template>
 
-<style scoped>
-.connection-modal {
-  width: 480px;
-  max-width: calc(100vw - 32px);
-  /* Leave room for custom titlebar so close (X) is never under drag region */
-  max-height: calc(
-    100vh - 32px - env(titlebar-area-height, var(--titlebar-height, 36px))
-  );
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  -webkit-app-region: no-drag;
-}
-
-.modal-header {
-  flex-shrink: 0;
-  padding: 20px 24px 0;
-}
-
-.modal-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0 28px 14px 0;
-  color: var(--text-primary);
-}
-
-.section-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-}
-
-.section-tab {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.section-tab:hover:not(.active) {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.section-tab.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-.section-badge {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
-  color: inherit;
-  font-size: 11px;
-  line-height: 16px;
-  text-align: center;
-}
-
-.section-tab:not(.active) .section-badge {
-  background: var(--accent-bg, rgba(56, 139, 253, 0.15));
-  color: var(--accent);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-
-.form-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px 24px;
-}
-
-.form-section {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.nested-row {
-  margin-top: 8px;
-}
-
-.panel {
-  padding: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  gap: 10px;
-}
-
-.panel-head {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.panel-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.panel-hint {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-.forward-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.btn-icon-remove {
-  height: 38px;
-  padding: 0 10px;
-  flex-shrink: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.btn-icon-remove:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-
-.btn-add-row {
-  align-self: flex-start;
-  padding: 6px 12px;
-  background: none;
-  border: 1px dashed var(--border-color);
-  border-radius: 6px;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-add-row:hover {
-  border-color: var(--accent);
-  background: var(--accent-bg, rgba(56, 139, 253, 0.08));
-}
-
-.input-narrow {
-  width: 120px;
-}
-
-.form-footer {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 24px 16px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-}
-
-.label {
-  font-size: var(--font-ui-sm, 12px);
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.auth-tabs {
-  display: flex;
-  gap: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.auth-tab {
-  flex: 1;
-  padding: 8px 0;
-  background: var(--bg-primary);
-  border: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.auth-tab:first-child {
-  border-right: 1px solid var(--border-color);
-}
-
-.auth-tab.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-.auth-tab:hover:not(.active) {
-  background: var(--bg-tertiary);
-}
-
-.username-row {
-  display: flex;
-  gap: 8px;
-}
-
-.username-input {
-  flex: 1;
-}
-
-.credential-inline-select {
-  width: 170px;
-  flex-shrink: 0;
-}
-
-.btn-credential {
-  height: var(--control-h, 36px);
-  padding: 0 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s;
-}
-
-.btn-credential:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.btn-credential:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.privatekey-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.btn-select-key {
-  flex: 1;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: border-color 0.2s;
-}
-
-.btn-select-key:hover {
-  border-color: var(--accent);
-}
-
-.btn-clear-key {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--control-h, 36px);
-  height: var(--control-h, 36px);
-  background: none;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md, 8px);
-  color: var(--text-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-
-.btn-clear-key:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-
-.host-row {
-  display: flex;
-  gap: 8px;
-}
-
-.password-row {
-  display: flex;
-  gap: 0;
-}
-
-.password-input {
-  flex: 1;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  border-right: none;
-}
-
-.btn-toggle-password {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--control-h, 36px);
-  height: var(--control-h, 36px);
-  padding: 0;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-top-right-radius: var(--radius-md, 8px);
-  border-bottom-right-radius: var(--radius-md, 8px);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.btn-toggle-password:hover {
-  color: var(--text-primary);
-}
-
-.host-input {
-  flex: 1;
-}
-
-.port-input {
-  width: 100px;
-}
-
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.checkbox-row input {
-  margin: 0;
-}
-
-.color-tag-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.color-tag-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-}
-
-.color-tag-btn.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg);
-}
-
-.color-tag-swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.hint-text {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.x11-options {
-  display: flex;
-  gap: 8px;
-}
-
-.x11-field {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.x11-display-field {
-  flex: 0 0 100px;
-}
-
-.form-actions-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.form-actions-right {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-@media (max-width: 520px) {
-  .form-grid-2 {
-    grid-template-columns: 1fr;
-  }
-
-  .form-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .form-actions-left,
-  .form-actions-right {
-    width: 100%;
-    justify-content: stretch;
-  }
-
-  .form-actions-right .ui-btn {
-    flex: 1;
-  }
-
-  .forward-row {
-    flex-wrap: wrap;
-  }
-}
-
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border-color);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-</style>

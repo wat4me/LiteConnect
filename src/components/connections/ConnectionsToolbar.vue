@@ -39,7 +39,7 @@ defineExpose({ searchInputRef })
           ref="searchInputRef"
           :value="props.searchQuery"
           :placeholder="t('connections.searchPlaceholder')"
-          class="search-input"
+          class="ui-input search-input"
           :aria-label="t('connections.searchAria')"
           @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
         />
@@ -169,25 +169,9 @@ defineExpose({ searchInputRef })
   pointer-events: none;
 }
 
-.search-input {
-  width: 100%;
-  padding: 9px 32px 9px 36px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.search-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg);
-}
-
-.search-input::placeholder {
-  color: var(--text-secondary);
+.search-box .search-input {
+  padding-left: 36px;
+  padding-right: 32px;
 }
 
 .search-clear {

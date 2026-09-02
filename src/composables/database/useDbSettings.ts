@@ -1,25 +1,32 @@
 import { onMounted, onBeforeUnmount, ref } from 'vue'
-import { terminalFontFamilyPresets } from '@/composables/app/useTheme'
 import {
   clampQueryMaxRows,
   clampQueryTimeoutSec,
-  QUERY_MAX_ROWS_DEFAULT,
-  QUERY_TIMEOUT_SEC_DEFAULT,
   sanitizeDefaultRunScopePref,
   type QueryDefaultRunScopePref,
   type QueryTabExecOptions,
 } from '@/utils/database/queryTabOptions'
+import {
+  DB_PAGE_SIZE_OPTIONS,
+  DEFAULT_DB_DEFAULT_MAX_ROWS,
+  DEFAULT_DB_DEFAULT_QUERY_TIMEOUT_SEC,
+  DEFAULT_DB_DEFAULT_RUN_SCOPE,
+  DEFAULT_DB_FONT_FAMILY,
+  DEFAULT_DB_FONT_SIZE,
+  DEFAULT_DB_PAGE_SIZE,
+  type DbPageSize,
+} from '@/utils/database/dbSettingsDefaults'
 
-export const DB_PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const
-export type DbPageSize = (typeof DB_PAGE_SIZE_OPTIONS)[number]
-
-export const DEFAULT_DB_FONT_FAMILY = terminalFontFamilyPresets[0].value
-export const DEFAULT_DB_FONT_SIZE = 13
-export const DEFAULT_DB_PAGE_SIZE: DbPageSize = 100
-
-export const DEFAULT_DB_DEFAULT_MAX_ROWS = QUERY_MAX_ROWS_DEFAULT
-export const DEFAULT_DB_DEFAULT_QUERY_TIMEOUT_SEC = QUERY_TIMEOUT_SEC_DEFAULT
-export const DEFAULT_DB_DEFAULT_RUN_SCOPE: QueryDefaultRunScopePref = 'smart'
+export {
+  DB_PAGE_SIZE_OPTIONS,
+  DEFAULT_DB_DEFAULT_MAX_ROWS,
+  DEFAULT_DB_DEFAULT_QUERY_TIMEOUT_SEC,
+  DEFAULT_DB_DEFAULT_RUN_SCOPE,
+  DEFAULT_DB_FONT_FAMILY,
+  DEFAULT_DB_FONT_SIZE,
+  DEFAULT_DB_PAGE_SIZE,
+}
+export type { DbPageSize }
 
 export interface DbSettingsSnapshot {
   fontFamily: string

@@ -857,7 +857,7 @@ onMounted(() => {
 }
 
 .dbeaver-hint.warn {
-  color: var(--warning, #d69e2e);
+  color: var(--warning);
 }
 
 .dbeaver-hint.ok {

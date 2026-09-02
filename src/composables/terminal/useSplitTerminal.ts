@@ -1,7 +1,7 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
+import type { SplitMode, SplitSide } from '@/domain/terminal/types'
 
-export type SplitMode = 'none' | 'horizontal' | 'vertical'
-export type SplitSide = 'left' | 'right' | 'top' | 'bottom'
+export type { SplitMode, SplitSide }
 
 const RESIZE_MIN = 20
 const RESIZE_MAX = 80

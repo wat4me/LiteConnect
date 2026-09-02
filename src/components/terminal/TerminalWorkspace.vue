@@ -2,8 +2,8 @@
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Connection } from '../../env.d'
-import type { ConnectionGroup, Session } from '../../composables/session/useSessionManager'
-import type { SplitMode, SplitSide } from '../../composables/terminal/useSplitTerminal'
+import type { ConnectionGroup, Session } from '@/domain/session/types'
+import type { SplitMode, SplitSide } from '@/domain/terminal/types'
 import {
   getSessionSshAddress,
   getSshAddress,

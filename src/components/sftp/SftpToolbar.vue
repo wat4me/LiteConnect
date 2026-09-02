@@ -26,13 +26,12 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 function onGuarded(action: () => void) {
-  if (props.locked) return
   action()
 }
 </script>
 
 <template>
-  <div class="navigation-actions">
+  <div class="navigation-actions" :aria-busy="!!locked">
     <button
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"

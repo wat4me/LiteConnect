@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { KnownHostsStore } from '../ssh/trust/knownHosts'
+import type { SessionLogManager } from '../ssh/sessionLog'
 import { SSHManager } from '../ssh/manager'
 import { MonitorCollector } from '../ssh/monitor/monitor'
 import { SettingsStore } from '../store/settingsStore'
@@ -21,8 +22,9 @@ export function registerSshHandlers(
   monitorCollector: MonitorCollector,
   credentialStore: CredentialStore,
   knownHosts: KnownHostsStore,
+  sessionLog?: SessionLogManager,
 ): void {
-  registerSshConnectHandlers(getMainWindow, sshManager, settingsStore, credentialStore, knownHosts)
+  registerSshConnectHandlers(getMainWindow, sshManager, settingsStore, credentialStore, knownHosts, sessionLog)
   registerSftpHandlers(sshManager)
   registerSftpTransferHandlers(getMainWindow, sshManager, settingsStore)
   registerMonitorHandlers(settingsStore, monitorCollector)

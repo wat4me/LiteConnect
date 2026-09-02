@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="settings-content">
+  <section class="settings-content" data-setting="appearance">
     <header class="content-header">
       <h3>{{ t('settingsAppearance.title') }}</h3>
       <p>{{ t('settingsAppearance.intro') }}</p>
@@ -320,7 +320,7 @@ onBeforeUnmount(() => {
 
     <div class="content-grid">
       <div class="settings-card">
-        <div class="settings-label">{{ t('settingsAppearance.theme') }}</div>
+        <div class="settings-label" data-setting="appearance.theme">{{ t('settingsAppearance.theme') }}</div>
         <div class="theme-options">
           <button
             v-for="t in themeOrder"
@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
 
-        <div class="settings-label" style="margin-top: 18px">{{ t('settingsAppearance.bgImage') }}</div>
+        <div class="settings-label" style="margin-top: 18px" data-setting="appearance.bgImage">{{ t('settingsAppearance.bgImage') }}</div>
         <div class="bg-image-row">
           <button type="button" class="ui-btn" @click="pickBackgroundImage">
             {{ hasBgImage ? t('settingsAppearance.bgImageChange') : t('settingsAppearance.bgImagePick') }}
@@ -405,7 +405,7 @@ onBeforeUnmount(() => {
           <p class="settings-hint">{{ t('settingsAppearance.bgImageOverlayHint') }}</p>
         </template>
 
-        <div class="settings-label" style="margin-top: 18px">{{ t('settingsAppearance.fancyCursor') }}</div>
+        <div class="settings-label" style="margin-top: 18px" data-setting="appearance.fancyCursor">{{ t('settingsAppearance.fancyCursor') }}</div>
         <div class="toggle-row">
           <span>{{ draft.fancyCursorEnabled ? t('settingsAppearance.fancyCursorOn') : t('settingsAppearance.fancyCursorOff') }}</span>
           <button
@@ -432,6 +432,34 @@ onBeforeUnmount(() => {
             <span class="cursor-style-desc">{{ opt.desc }}</span>
           </button>
         </div>
+
+        <div class="settings-label" style="margin-top: 18px">{{ t('settingsAppearance.windowTitle') }}</div>
+
+        <div class="toggle-row" data-setting="appearance.closeToTray">
+          <span>{{ t('settingsAppearance.closeToTray') }}</span>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: draft.closeToTrayEnabled }"
+            @click="draft.closeToTrayEnabled = !draft.closeToTrayEnabled"
+          >
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+        <p class="settings-hint">{{ t('settingsAppearance.closeToTrayHint') }}</p>
+
+        <div class="toggle-row" data-setting="appearance.globalHotkey">
+          <span>{{ t('settingsAppearance.globalHotkey') }}</span>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: draft.globalHotkeyEnabled }"
+            @click="draft.globalHotkeyEnabled = !draft.globalHotkeyEnabled"
+          >
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+        <p class="settings-hint">{{ t('settingsAppearance.globalHotkeyHint') }}</p>
       </div>
 
       <div class="preview-card">
@@ -519,52 +547,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.content-header {
-  margin-bottom: 20px;
-  max-width: 720px;
-}
-
-.content-header h3 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  color: var(--text-primary);
-}
-
-.content-header p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(280px, 1fr);
-  gap: 20px;
-  align-items: start;
-  max-width: 960px;
-}
-
-@media (max-width: 900px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.settings-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 16px;
-}
-
-.settings-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
 .theme-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -605,56 +587,6 @@ onBeforeUnmount(() => {
   font-weight: 700;
   border: 1px solid rgba(128, 128, 128, 0.25);
   flex-shrink: 0;
-}
-
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.toggle-btn {
-  position: relative;
-  width: 40px;
-  height: 22px;
-  border-radius: 11px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.toggle-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.toggle-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: transform 0.15s ease, background 0.15s ease;
-}
-
-.toggle-btn.active .toggle-knob {
-  transform: translateX(18px);
-  background: #fff;
-}
-
-.settings-hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.45;
 }
 
 .bg-image-row {
@@ -791,32 +723,6 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   font-size: 12px;
   font-family: ui-monospace, Consolas, monospace;
-}
-
-.preview-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 14px;
-}
-
-.preview-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
-}
-
-.preview-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  color: var(--accent);
 }
 
 .ui-preview {

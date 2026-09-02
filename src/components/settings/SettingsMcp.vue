@@ -119,13 +119,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="settings-content">
+  <section class="settings-content" data-setting="mcp">
     <header class="content-header">
       <h3>{{ t('settingsMcp.title') }}</h3>
       <p>{{ t('settingsMcp.intro') }}</p>
     </header>
     <div class="settings-card">
-      <div class="settings-label">{{ t('settingsMcp.service') }}</div>
+      <div class="settings-label" data-setting="mcp.service">{{ t('settingsMcp.service') }}</div>
       <div class="toggle-row">
         <span>{{ mcpStatus?.enabled ? t('settingsMcp.enabled') : t('settingsMcp.disabled') }}</span>
         <button
@@ -144,7 +144,7 @@ onMounted(() => {
         <template v-else-if="mcpStatus?.lastError">{{ t('settingsMcp.startFailed', { error: mcpStatus.lastError }) }}</template>
         <template v-else>{{ t('settingsMcp.stopped') }}</template>
       </p>
-      <div class="settings-label" style="margin-top: 12px">{{ t('settingsMcp.port') }}</div>
+      <div class="settings-label" style="margin-top: 12px" data-setting="mcp.port">{{ t('settingsMcp.port') }}</div>
       <div class="path-row">
         <input
           v-model.number="mcpPortDraft"
@@ -157,7 +157,7 @@ onMounted(() => {
           {{ t('settingsMcp.applyPort') }}
         </button>
       </div>
-      <div class="settings-label" style="margin-top: 12px">{{ t('settingsMcp.token') }}</div>
+      <div class="settings-label" style="margin-top: 12px" data-setting="mcp.token">{{ t('settingsMcp.token') }}</div>
       <div class="path-row">
         <input class="settings-input" type="text" readonly :value="mcpStatus?.token || ''" />
         <button
@@ -211,144 +211,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.content-header {
-  margin-bottom: 20px;
-  max-width: 720px;
-}
-
-.content-header h3 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  color: var(--text-primary);
-}
-
-.content-header p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.settings-card {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-secondary);
-  padding: 16px;
-  max-width: 720px;
-}
-
-.settings-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.settings-hint {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.45;
-}
-
-.settings-hint.warn {
-  color: var(--warning, #d29922);
-}
-
-.path-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.settings-input {
-  flex: 1;
-  min-width: 180px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
 .mcp-port-input {
   flex: 0 0 120px;
   min-width: 120px;
-}
-
-.ui-btn {
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ui-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ui-btn:not(:disabled):hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.ui-btn-sm {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.toggle-btn {
-  width: 40px;
-  height: 22px;
-  border-radius: 11px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  position: relative;
-  cursor: pointer;
-  padding: 0;
-}
-
-.toggle-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.toggle-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.toggle-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: left 0.15s ease;
-}
-
-.toggle-btn.active .toggle-knob {
-  left: 20px;
+  width: 120px;
 }
 
 .mcp-facts {

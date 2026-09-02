@@ -91,6 +91,20 @@ export type SshMcpToolResult<T = unknown> = {
   structuredContent: T
 }
 
+/** Renderer IPC alias for a tool call result. */
+export type SshMcpToolCallResult = SshMcpToolResult
+
+export type McpHttpStatus = {
+  enabled: boolean
+  listening: boolean
+  host: '127.0.0.1'
+  port: number
+  url: string
+  token: string
+  lastError: string | null
+  snippets: { generic: string }
+}
+
 export type SshMcpErrorPayload = {
   code: SshMcpToolErrorCode
   message: string

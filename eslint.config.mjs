@@ -10,6 +10,59 @@ import importPlugin from 'eslint-plugin-import'
 import tseslint from 'typescript-eslint'
 import vueParser from 'vue-eslint-parser'
 
+function peerZone(targetDir, fromDir, message) {
+  return {
+    target: `./src/composables/${targetDir}/**/*`,
+    from: `./src/composables/${fromDir}/**/*`,
+    message,
+  }
+}
+
+/** Peer features must not import each other's composables. Use domain ports / App composition. */
+const rendererPeerFeatures = [
+  'terminal',
+  'sftp',
+  'docker',
+  'database',
+  'ai',
+  'snippets',
+  'connections',
+  'monitor',
+]
+
+const rendererPeerZones = []
+for (const a of rendererPeerFeatures) {
+  for (const b of rendererPeerFeatures) {
+    if (a === b) continue
+    rendererPeerZones.push(
+      peerZone(a, b, `${a} composables must not import ${b} composables (use domain ports or App.vue wiring)`),
+    )
+  }
+}
+
+for (const peer of rendererPeerFeatures) {
+  rendererPeerZones.push(
+    peerZone('session', peer, 'session must not import feature composables (depend on domain ports)'),
+  )
+  rendererPeerZones.push(
+    peerZone(
+      'workspace',
+      peer,
+      'workspace composables must not import feature composables (App.vue / SshWorkspace compose them)',
+    ),
+  )
+}
+
+for (const peer of ['sftp', 'docker', 'terminal', 'ai', 'snippets', 'connections', 'monitor', 'session']) {
+  rendererPeerZones.push(
+    peerZone(
+      'settings',
+      peer,
+      'settings may compose database defaults, but must not import other feature composables',
+    ),
+  )
+}
+
 const architectureZones = [
   {
     target: './src/utils/**/*',
@@ -60,6 +113,120 @@ const architectureZones = [
     target: './src/**/*',
     from: './electron/**/*',
     message: 'renderer must not import electron main modules (use preload IPC)',
+  },
+
+  ...rendererPeerZones,
+
+  {
+    target: './electron/ssh/**/*',
+    from: './electron/docker/**/*',
+    message: 'ssh must not import docker (Docker consumes a host port, not the reverse)',
+  },
+  {
+    target: './electron/ssh/**/*',
+    from: './electron/db/**/*',
+    message: 'ssh must not import db',
+  },
+  {
+    target: './electron/ssh/**/*',
+    from: './electron/mcp/**/*',
+    message: 'ssh must not import mcp',
+  },
+  {
+    target: './electron/ssh/**/*',
+    from: './electron/ai/**/*',
+    message: 'ssh must not import ai',
+  },
+  {
+    target: './electron/db/**/*',
+    from: './electron/docker/**/*',
+    message: 'db must not import docker',
+  },
+  {
+    target: './electron/db/**/*',
+    from: './electron/mcp/**/*',
+    message: 'db must not import mcp',
+  },
+  {
+    target: './electron/db/**/*',
+    from: './electron/ai/**/*',
+    message: 'db must not import ai',
+  },
+  {
+    target: './electron/db/**/*',
+    from: './electron/ssh/**/*',
+    except: ['**/electron/ssh/trust/**', '**/electron/ssh/auth*', '**/electron/ssh/loadSsh2*'],
+    message: 'db tunnel may reuse ssh auth/trust/loadSsh2, not SSHManager sessions',
+  },
+  {
+    target: './electron/docker/**/*',
+    from: './electron/ssh/**/*',
+    message: 'docker must use DockerSshBackend / DockerSessionHost, not import electron/ssh',
+  },
+  {
+    target: './electron/docker/**/*',
+    from: './electron/db/**/*',
+    message: 'docker must not import db',
+  },
+  {
+    target: './electron/docker/**/*',
+    from: './electron/mcp/**/*',
+    message: 'docker must not import mcp',
+  },
+  {
+    target: './electron/docker/**/*',
+    from: './electron/ai/**/*',
+    message: 'docker must not import ai',
+  },
+  {
+    target: './electron/mcp/**/*',
+    from: './electron/docker/**/*',
+    message: 'mcp must not import docker (interactive SSH sessions only)',
+  },
+  {
+    target: './electron/mcp/**/*',
+    from: './electron/db/**/*',
+    message: 'mcp must not import db',
+  },
+  {
+    target: './electron/mcp/**/*',
+    from: './electron/ai/**/*',
+    message: 'mcp must not import ai',
+  },
+  {
+    target: './electron/ai/**/*',
+    from: './electron/ssh/**/*',
+    message: 'ai talks to SSH via MCP runtime, not electron/ssh directly',
+  },
+  {
+    target: './electron/ai/**/*',
+    from: './electron/docker/**/*',
+    message: 'ai must not import docker',
+  },
+  {
+    target: './electron/ai/**/*',
+    from: './electron/db/**/*',
+    message: 'ai must not import db',
+  },
+  {
+    target: './electron/store/**/*',
+    from: './electron/docker/**/*',
+    message: 'store must not import docker',
+  },
+  {
+    target: './electron/store/**/*',
+    from: './electron/mcp/**/*',
+    message: 'store must not import mcp',
+  },
+  {
+    target: './electron/store/**/*',
+    from: './electron/ai/**/*',
+    message: 'store must not import ai',
+  },
+  {
+    target: './electron/store/**/*',
+    from: './electron/ssh/**/*',
+    message: 'store must not import ssh',
   },
 ]
 

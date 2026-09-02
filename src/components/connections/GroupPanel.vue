@@ -451,8 +451,8 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         </div>
       </template>
 
-      <div v-if="visibleGroups.length === 0" class="empty-groups">
-        {{ t('groups.noMatch') }}
+      <div v-if="visibleGroups.length === 0" class="ui-empty ui-empty-compact empty-groups">
+        <p class="ui-empty-desc">{{ t('groups.noMatch') }}</p>
       </div>
     </div>
 
@@ -467,7 +467,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
       <div
         v-if="ctxMenu"
         ref="ctxMenuRef"
-        class="group-ctx-menu"
+        class="ui-menu"
         role="menu"
         :style="ctxMenuStyle"
         @click.stop
@@ -477,7 +477,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         <template v-if="ctxMenu.kind === 'group'">
           <button
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             @click="onGroupMenuAction('select', ctxMenu.group)"
           >
@@ -486,7 +486,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           </button>
           <button
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             @click="onGroupMenuAction('rename', ctxMenu.group)"
           >
@@ -495,7 +495,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           </button>
           <button
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             :disabled="ctxMenu.group.isDefault"
             @click="onGroupMenuAction('setDefault', ctxMenu.group)"
@@ -509,7 +509,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           </button>
           <button
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             @click="onGroupMenuAction('toggleCollapse', ctxMenu.group)"
           >
@@ -522,10 +522,10 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               isGroupCollapsed(ctxMenu.group.id) ? t('groups.expand') : t('groups.collapse')
             }}
           </button>
-          <div class="group-ctx-divider" role="separator"></div>
+          <div class="ui-menu-sep" role="separator"></div>
           <button
             type="button"
-            class="group-ctx-item danger"
+            class="ui-menu-item danger"
             role="menuitem"
             @click="onGroupMenuAction('delete', ctxMenu.group)"
           >
@@ -538,7 +538,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         <template v-else-if="ctxMenu.kind === 'conn'">
           <button
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             @click="onConnMenuAction('connect', ctxMenu.conn)"
           >
@@ -548,7 +548,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           <button
             v-if="ctxMenu.conn.group"
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             @click="onConnMenuAction('selectGroup', ctxMenu.conn)"
           >
@@ -561,7 +561,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         <template v-else-if="ctxMenu.kind === 'panel'">
           <button
             type="button"
-            class="group-ctx-item"
+            class="ui-menu-item"
             role="menuitem"
             @click="onPanelMenuAction('add')"
           >
@@ -755,9 +755,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .empty-groups {
   padding: 14px 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-align: center;
 }
 
 .group-actions {
@@ -929,76 +926,5 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .sidebar-conn:hover .sidebar-conn-name {
   color: var(--text-primary);
-}
-</style>
-
-<style>
-/* Teleported menu — unscoped so fixed body portal inherits theme tokens */
-.group-ctx-menu {
-  position: fixed;
-  z-index: 10000;
-  min-width: 160px;
-  padding: 4px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.group-ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.group-ctx-item:hover:not(:disabled) {
-  background: var(--hover-bg);
-}
-
-.group-ctx-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.group-ctx-item.danger {
-  color: var(--danger);
-}
-
-.group-ctx-item.danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.group-ctx-icon {
-  flex-shrink: 0;
-  opacity: 0.85;
-  color: var(--text-secondary);
-}
-
-.group-ctx-item:hover:not(:disabled) .group-ctx-icon {
-  color: var(--text-primary);
-  opacity: 1;
-}
-
-.group-ctx-item.danger .group-ctx-icon {
-  color: var(--danger);
-}
-
-.group-ctx-divider {
-  height: 1px;
-  margin: 2px 6px;
-  background: var(--border-color);
 }
 </style>

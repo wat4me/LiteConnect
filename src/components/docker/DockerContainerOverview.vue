@@ -194,7 +194,7 @@ function stateLabel(state: string): string {
 }
 
 .detail-error {
-  color: var(--danger, #f85149);
+  color: var(--danger);
 }
 
 .list-error-detail {

@@ -14,3 +14,9 @@ export interface ConnectionGroup {
   activeSessionId: string | null
   nextTabNumber: number
 }
+
+export type SplitDropPayload = {
+  mode: 'horizontal' | 'vertical'
+  side: 'left' | 'right' | 'top' | 'bottom'
+  sessionId: string
+}

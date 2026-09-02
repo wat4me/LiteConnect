@@ -3,10 +3,9 @@ import { defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, watch 
 import LeftToolbar from '@/components/workspace/LeftToolbar.vue'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
 import type { Connection } from '@/env.d'
-import type { ConnectionGroup, Session } from '@/composables/session/useSessionManager'
-import type { SplitMode, SplitSide } from '@/composables/terminal/useSplitTerminal'
-import type { BatchCommandTarget } from '@/composables/snippets/useBatchCommand'
-import type { SplitDropPayload } from '@/composables/session/useSessionActions'
+import type { ConnectionGroup, Session, SplitDropPayload } from '@/domain/session/types'
+import type { SplitMode, SplitSide } from '@/domain/terminal/types'
+import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { getSnippetContext } from '@/utils/session/sessionDisplay'
 import {
   ensureTransferListeners,

@@ -1,17 +1,13 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
 import type { Connection } from '../../env.d'
-import type { ConnectionGroup, Session } from './useSessionManager'
-import type { SplitMode, SplitSide } from '../terminal/useSplitTerminal'
-import type { TerminalPwdTracker } from '../terminal/useTerminalPwd'
-import type { BatchCommandTarget } from '@/composables/snippets/useBatchCommand'
+import type { ConnectionGroup, Session, SplitDropPayload } from '@/domain/session/types'
+import type { SplitMode, SplitSide } from '@/domain/terminal/types'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { buildBatchSessionTarget } from '@/utils/session/sessionDisplay'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
 
-export type SplitDropPayload = {
-  mode: 'horizontal' | 'vertical'
-  side: SplitSide
-  sessionId: string
-}
+export type { SplitDropPayload }
 
 /**
  * Session lifecycle + split wiring used by the SSH workspace.
