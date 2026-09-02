@@ -133,7 +133,7 @@ async function loadDeferredMain(): Promise<void> {
     const gateway = new McpHttpGateway(
       sshMcpRuntime,
       settingsStore,
-      { name: 'liteconnect-ssh', version: app.getVersion() || '1.0.5' },
+      { name: 'liteconnect-ssh', version: app.getVersion() || '1.0.7' },
       createMcpAuditLog(join(app.getPath('userData'), 'mcp-audit.jsonl')),
     )
     mcpHttpGateway = gateway

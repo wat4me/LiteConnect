@@ -30,7 +30,7 @@ function runtime() {
   })
 }
 
-const serverInfo = { name: 'liteconnect-ssh', version: '1.0.5' }
+const serverInfo = { name: 'liteconnect-ssh', version: '1.0.7' }
 
 describe('handleMcpJsonRpc', () => {
   it('handles initialize, ping, and tools/list', async () => {
