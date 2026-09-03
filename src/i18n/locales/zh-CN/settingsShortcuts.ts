@@ -23,6 +23,7 @@ export default {
       toggleMonitor: '切换服务器监控',
       toggleBatch: '切换批量执行',
       toggleSnippets: '切换命令片段侧栏',
+      toggleDocker: '打开 / 关闭 Docker 工作区',
       snippetQuickRun: '命令片段快速运行',
       commandPalette: '全局跳转（连接 / 设置）',
       newSubSession: '新建子会话',

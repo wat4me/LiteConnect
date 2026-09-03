@@ -22,12 +22,16 @@ const props = defineProps<{
   disconnectedSessionIds?: Set<string>
   /** Terminal container element used to compute the drop side during tab drag */
   terminalContainer?: HTMLElement | null
+  dockerTabOpen?: boolean
+  dockerTabActive?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'select', sessionId: string): void
   (e: 'close', sessionId: string): void
   (e: 'add', connectionId: string): void
+  (e: 'select-docker'): void
+  (e: 'close-docker'): void
   (e: 'split-preview', payload: DropPayload | null): void
   (e: 'split-commit', payload: DropPayload): void
 }>()
@@ -169,7 +173,7 @@ function onTabClick(sessionId: string) {
           :key="session.id"
           class="sub-tab"
           :class="{
-            active: session.id === activeSessionId,
+            active: !dockerTabActive && session.id === activeSessionId,
             dragging,
             disconnected: disconnectedSessionIds?.has(session.id),
           }"
@@ -188,6 +192,24 @@ function onTabClick(sessionId: string) {
             class="sub-tab-unread-dot"
           ></span>
           <button class="sub-tab-close" @click.stop="emit('close', session.id)">
+            <AppIcon name="close" size="xs" />
+          </button>
+        </div>
+        <div
+          v-if="dockerTabOpen"
+          class="sub-tab"
+          :class="{ active: dockerTabActive }"
+          :title="t('docker.title')"
+          @click="emit('select-docker')"
+        >
+          <AppIcon name="docker" size="xs" class="sub-tab-docker-icon" />
+          <span class="sub-tab-label">{{ t('docker.tabLabel') }}</span>
+          <button
+            class="sub-tab-close"
+            :title="t('docker.closeTab')"
+            :aria-label="t('docker.closeTab')"
+            @click.stop="emit('close-docker')"
+          >
             <AppIcon name="close" size="xs" />
           </button>
         </div>
@@ -289,6 +311,11 @@ function onTabClick(sessionId: string) {
   font-weight: 500;
   min-width: 8px;
   text-align: center;
+}
+
+.sub-tab-docker-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
 .sub-tab-unread-dot {

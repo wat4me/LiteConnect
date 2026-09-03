@@ -22,6 +22,7 @@ import {
   listConnections,
   listGroups,
   listSessions,
+  saveConnection,
 } from './tools/sessions'
 import { cancelJob, execCommand, getJob, runForegroundExec } from './tools/exec'
 import {
@@ -87,6 +88,8 @@ export class SshMcpRuntime {
           return this.ok(listSessions(host))
         case 'connect':
           return await connectSaved(host, input)
+        case 'save_connection':
+          return await saveConnection(host, input)
         case 'disconnect':
           return disconnectSessions(host, input)
         case 'exec':

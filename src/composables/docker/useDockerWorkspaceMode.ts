@@ -2,7 +2,7 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 export type WorkspaceMode = 'terminal' | 'docker'
 
-/** Terminal-mode side panels snapshot (restored when leaving Docker). */
+/** Terminal chrome snapshot (restored when switching PTY sessions). */
 export type TerminalSidebarSnapshot = {
   aiSidebarVisible: boolean
   sidebarVisible: boolean
@@ -12,8 +12,12 @@ export type TerminalSidebarSnapshot = {
   snippetPaletteVisible: boolean
 }
 
-export type DockerWorkspaceModeEntry = {
-  mode: WorkspaceMode
+export type DockerTabEntry = {
+  open: boolean
+  selected: boolean
+}
+
+export type SessionChromeEntry = {
   sidebarSnapshot: TerminalSidebarSnapshot | null
 }
 
@@ -65,35 +69,62 @@ function applySnapshot(panels: SidebarPanelControls, snap: TerminalSidebarSnapsh
 }
 
 /**
- * Per-SSH-session workspace mode (terminal | docker) and sidebar snapshots.
- * Modes never leak across sessions; global sidebar state is re-applied on switch.
+ * Docker is an SSH-subordinate window: a sub-tab beside 终端 1 / 终端 2,
+ * keyed by connection (host), not by PTY session.
  */
 export function useDockerWorkspaceMode(deps: {
   activeSessionId: ComputedRef<string | null> | Ref<string | null>
+  activeConnectionId: ComputedRef<string | null> | Ref<string | null>
   panels: SidebarPanelControls
 }) {
-  /** sessionId → mode + terminal sidebar snapshot */
-  const bySession = ref(new Map<string, DockerWorkspaceModeEntry>())
-
-  /** sessionId → SSH connected (true until closed; reconnected restores) */
+  const byConnection = ref(new Map<string, DockerTabEntry>())
+  const bySession = ref(new Map<string, SessionChromeEntry>())
   const connectedBySession = ref(new Map<string, boolean>())
 
-  function getEntry(sessionId: string): DockerWorkspaceModeEntry {
+  function peekTab(connectionId: string): DockerTabEntry {
+    return byConnection.value.get(connectionId) ?? { open: false, selected: false }
+  }
+
+  function getTab(connectionId: string): DockerTabEntry {
+    let entry = byConnection.value.get(connectionId)
+    if (!entry) {
+      entry = { open: false, selected: false }
+      byConnection.value.set(connectionId, entry)
+    }
+    return entry
+  }
+
+  function getChrome(sessionId: string): SessionChromeEntry {
     let entry = bySession.value.get(sessionId)
     if (!entry) {
-      entry = { mode: 'terminal', sidebarSnapshot: null }
+      entry = { sidebarSnapshot: null }
       bySession.value.set(sessionId, entry)
     }
     return entry
   }
 
-  const workspaceMode = computed<WorkspaceMode>(() => {
-    const sid = deps.activeSessionId.value
-    if (!sid) return 'terminal'
-    return getEntry(sid).mode
+  function touchConnections(): void {
+    byConnection.value = new Map(byConnection.value)
+  }
+
+  function touchSessions(): void {
+    bySession.value = new Map(bySession.value)
+  }
+
+  const dockerTabOpen = computed(() => {
+    const cid = deps.activeConnectionId.value
+    if (!cid) return false
+    return peekTab(cid).open
   })
 
-  const isDockerMode = computed(() => workspaceMode.value === 'docker')
+  const isDockerMode = computed(() => {
+    const cid = deps.activeConnectionId.value
+    if (!cid) return false
+    const tab = peekTab(cid)
+    return tab.open && tab.selected
+  })
+
+  const workspaceMode = computed<WorkspaceMode>(() => (isDockerMode.value ? 'docker' : 'terminal'))
 
   const isActiveSessionConnected = computed(() => {
     const sid = deps.activeSessionId.value
@@ -103,7 +134,7 @@ export function useDockerWorkspaceMode(deps: {
     return map.get(sid) === true
   })
 
-  /** Toolbar: need active session that is still connected to enter Docker. */
+  /** Need a connected PTY on the current host to open Docker. */
   const dockerButtonEnabled = computed(() => {
     const sid = deps.activeSessionId.value
     if (!sid) return false
@@ -120,7 +151,7 @@ export function useDockerWorkspaceMode(deps: {
     if (!connectedBySession.value.has(sessionId)) {
       markSessionConnected(sessionId, opts?.connected !== false)
     }
-    getEntry(sessionId)
+    getChrome(sessionId)
   }
 
   const disconnectedSessionIds = computed(() => {
@@ -131,34 +162,33 @@ export function useDockerWorkspaceMode(deps: {
     return ids
   })
 
-  function setModeForSession(sessionId: string, mode: WorkspaceMode): void {
-    const entry = getEntry(sessionId)
-    if (entry.mode === mode) return
-
-    if (mode === 'docker') {
-      entry.sidebarSnapshot = captureSnapshot(deps.panels)
-      hideAllSidebars(deps.panels)
-      entry.mode = 'docker'
-    } else {
-      entry.mode = 'terminal'
-      const snap = entry.sidebarSnapshot ?? EMPTY_SNAPSHOT
-      applySnapshot(deps.panels, snap)
-      entry.sidebarSnapshot = null
-    }
-    // trigger reactivity for Map mutations
-    bySession.value = new Map(bySession.value)
-  }
-
   function enterDocker(): void {
+    const cid = deps.activeConnectionId.value
     const sid = deps.activeSessionId.value
-    if (!sid || !dockerButtonEnabled.value) return
-    setModeForSession(sid, 'docker')
+    if (!cid || !sid || !dockerButtonEnabled.value) return
+    const tab = getTab(cid)
+    tab.open = true
+    tab.selected = true
+    touchConnections()
   }
 
+  /** Leave the Docker pane; keep the Docker sub-tab if it was opened. */
   function enterTerminal(): void {
-    const sid = deps.activeSessionId.value
-    if (!sid) return
-    setModeForSession(sid, 'terminal')
+    const cid = deps.activeConnectionId.value
+    if (!cid) return
+    const tab = getTab(cid)
+    if (!tab.selected) return
+    tab.selected = false
+    touchConnections()
+  }
+
+  function closeDockerTab(): void {
+    const cid = deps.activeConnectionId.value
+    if (!cid) return
+    const tab = getTab(cid)
+    tab.open = false
+    tab.selected = false
+    touchConnections()
   }
 
   function toggleDockerWorkspace(): void {
@@ -170,15 +200,13 @@ export function useDockerWorkspaceMode(deps: {
   }
 
   /**
-   * Apply panels for the newly active session without cross-session leakage.
-   * Call when activeSessionId changes.
+   * Re-apply PTY sidebar snapshots when the active session changes.
+   * Docker selection is per connection and is not stored on the PTY.
    */
   function applyModeForActiveSession(prevSessionId: string | null, nextSessionId: string | null): void {
     if (prevSessionId && prevSessionId !== nextSessionId) {
-      const prev = getEntry(prevSessionId)
-      if (prev.mode === 'terminal') {
-        prev.sidebarSnapshot = captureSnapshot(deps.panels)
-      }
+      getChrome(prevSessionId).sidebarSnapshot = captureSnapshot(deps.panels)
+      touchSessions()
     }
 
     if (!nextSessionId) {
@@ -187,44 +215,55 @@ export function useDockerWorkspaceMode(deps: {
     }
 
     ensureSessionTracked(nextSessionId)
-    const next = getEntry(nextSessionId)
-    if (next.mode === 'docker') {
-      hideAllSidebars(deps.panels)
-    } else {
-      applySnapshot(deps.panels, next.sidebarSnapshot ?? EMPTY_SNAPSHOT)
-    }
+    if (isDockerMode.value) return
+    applySnapshot(deps.panels, getChrome(nextSessionId).sidebarSnapshot ?? EMPTY_SNAPSHOT)
   }
 
   function forgetSession(sessionId: string): void {
     bySession.value.delete(sessionId)
-    bySession.value = new Map(bySession.value)
+    touchSessions()
     connectedBySession.value.delete(sessionId)
     connectedBySession.value = new Map(connectedBySession.value)
   }
 
-  /** Block terminal-side panel toggles while Docker workspace is active. */
-  function withTerminalModeGuard(fn: () => void): void {
-    if (isDockerMode.value) return
-    fn()
+  function forgetConnection(connectionId: string): void {
+    byConnection.value.delete(connectionId)
+    touchConnections()
+  }
+
+  function pruneConnections(liveIds: Iterable<string>): void {
+    const live = new Set(liveIds)
+    let changed = false
+    for (const id of [...byConnection.value.keys()]) {
+      if (!live.has(id)) {
+        byConnection.value.delete(id)
+        changed = true
+      }
+    }
+    if (changed) touchConnections()
   }
 
   return {
     workspaceMode,
     isDockerMode,
+    dockerTabOpen,
     isActiveSessionConnected,
     dockerButtonEnabled,
     enterDocker,
     enterTerminal,
+    closeDockerTab,
     toggleDockerWorkspace,
     applyModeForActiveSession,
     markSessionConnected,
     ensureSessionTracked,
     disconnectedSessionIds,
     forgetSession,
-    withTerminalModeGuard,
+    forgetConnection,
+    pruneConnections,
     /** test helpers */
-    _getEntry: getEntry,
-    _bySession: bySession,
+    _getTab: peekTab,
+    _getChrome: getChrome,
+    _byConnection: byConnection,
     _connectedBySession: connectedBySession,
   }
 }

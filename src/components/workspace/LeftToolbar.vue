@@ -33,7 +33,7 @@ const { t } = useI18n()
 const dockerTooltip = computed(() => {
   if (props.dockerDisabled) return t('toolbar.dockerDisabled')
   if (props.dockerActive) return t('toolbar.dockerActive')
-  return t('toolbar.docker')
+  return t('toolbar.dockerShortcut')
 })
 </script>
 

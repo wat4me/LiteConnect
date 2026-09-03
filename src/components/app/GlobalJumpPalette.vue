@@ -13,6 +13,7 @@ const emit = defineEmits<{
   (e: 'connect', connectionId: string): void
   (e: 'open-home'): void
   (e: 'open-settings'): void
+  (e: 'open-docker'): void
 }>()
 
 const { t } = useI18n()
@@ -27,6 +28,7 @@ type JumpItem =
 const actions = computed<JumpItem[]>(() => [
   { kind: 'action', id: 'home', title: t('connections.actionOpenHome'), subtitle: t('connections.actionOpenHomeSub') },
   { kind: 'action', id: 'settings', title: t('connections.actionOpenSettings'), subtitle: t('connections.actionOpenSettingsSub') },
+  { kind: 'action', id: 'docker', title: t('connections.actionOpenDocker'), subtitle: t('connections.actionOpenDockerSub') },
 ])
 
 const items = computed<JumpItem[]>(() => {
@@ -71,6 +73,7 @@ function pick(item: JumpItem) {
   if (item.kind === 'action') {
     if (item.id === 'home') emit('open-home')
     if (item.id === 'settings') emit('open-settings')
+    if (item.id === 'docker') emit('open-docker')
   } else {
     emit('connect', item.connectionId)
   }

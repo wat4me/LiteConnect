@@ -4,9 +4,62 @@ import type { SSHManager } from '../ssh/manager'
 import type { CredentialStore } from '../store/credentialStore'
 import { requestRendererConnect } from './connectBridge'
 import { createSshMcpRuntime, type SshMcpRuntime } from './runtime'
-import type { SshMcpApprovalFn } from './ports'
+import type { SshMcpApprovalFn, SshMcpSaveConnectionDraft } from './ports'
 import type { ApprovalMode } from '../../shared/mcp/types'
 import { broadcast, clearSessionOwner } from '../window/windowRegistry'
+import { matchExistingSavedConnection } from './saveConnectionInput'
+
+function publicConnectionFields(c: { id: string; name: string; host: string; port: number; username: string; group?: string }) {
+  return {
+    id: c.id,
+    name: c.name,
+    host: c.host,
+    port: c.port,
+    username: c.username,
+    group: c.group,
+  }
+}
+
+function resolveGroupId(credentialStore: CredentialStore, raw?: string): string | undefined {
+  const token = raw?.trim()
+  if (!token) return undefined
+  const groups = credentialStore.getGroups()
+  if (groups.some((g) => g.id === token)) return token
+  const exact = groups.filter((g) => g.name === token)
+  if (exact.length === 1) return exact[0].id
+  const lowered = token.toLowerCase()
+  const fuzzy = groups.filter((g) => g.name.toLowerCase() === lowered)
+  if (fuzzy.length === 1) return fuzzy[0].id
+  return undefined
+}
+
+async function saveDraftConnection(
+  credentialStore: CredentialStore,
+  draft: SshMcpSaveConnectionDraft,
+) {
+  const existing = credentialStore.getConnections().map((c) => publicConnectionFields(c))
+  const match = matchExistingSavedConnection(existing, draft)
+  if (match.kind === 'name-taken') {
+    throw new Error('CONNECTION_NAME_TAKEN')
+  }
+  if (match.kind === 'reuse') {
+    const row = existing.find((c) => c.id === match.id)!
+    return { ...row, created: false as const }
+  }
+  const saved = await credentialStore.saveConnection({
+    name: draft.name,
+    host: draft.host,
+    port: draft.port,
+    username: draft.username,
+    password: draft.password,
+    privateKey: draft.privateKey,
+    useAgent: draft.useAgent,
+    group: resolveGroupId(credentialStore, draft.group),
+    note: draft.note,
+  })
+  broadcast('mcp:connectionsChanged')
+  return { ...publicConnectionFields(saved), created: true as const }
+}
 
 export function bindSshMcpRuntime(
   sshManager: SSHManager,
@@ -55,19 +108,13 @@ export function bindSshMcpRuntime(
     },
     connections: {
       listPublicConnections: () =>
-        credentialStore.getConnections().map((c) => ({
-          id: c.id,
-          name: c.name,
-          host: c.host,
-          port: c.port,
-          username: c.username,
-          group: c.group,
-        })),
+        credentialStore.getConnections().map((c) => publicConnectionFields(c)),
       listGroups: () =>
         credentialStore.getGroups().map((g) => ({
           id: g.id,
           name: g.name,
         })),
+      saveConnection: (draft) => saveDraftConnection(credentialStore, draft),
     },
     metrics: {
       getCached: (sessionId) => monitorCollector.getCached(sessionId),

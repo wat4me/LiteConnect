@@ -34,6 +34,7 @@ const READ_TOOLS = new Set([
 
 const WRITE_TOOLS = new Set([
   'connect',
+  'save_connection',
   'write_file',
   'upload_file',
   'download_file',

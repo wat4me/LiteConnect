@@ -3,6 +3,7 @@ export const SSH_MCP_TOOL_NAMES = [
   'list_sessions',
   'list_groups',
   'connect',
+  'save_connection',
   'disconnect',
   'exec',
   'list_jobs',
@@ -76,6 +77,7 @@ export type SshMcpToolErrorCode =
   | 'FILE_TOO_LARGE'
   | 'CONNECTION_NOT_FOUND'
   | 'CONNECTION_AMBIGUOUS'
+  | 'CONNECTION_NAME_TAKEN'
   | 'CONNECT_FAILED'
   | 'CONNECT_TIMEOUT'
   | 'CONNECT_UNAVAILABLE'

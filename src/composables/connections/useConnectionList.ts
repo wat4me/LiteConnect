@@ -517,12 +517,19 @@ export function useConnectionList(options: {
     listKeyboardIndex.value = -1
   })
 
+  function onConnectionsStoreChange() {
+    if (!initialized.value) return
+    void loadData()
+  }
+
   onMounted(() => {
     document.addEventListener('keydown', onListKeydown)
+    window.addEventListener('connections-store-change', onConnectionsStoreChange)
   })
 
   onBeforeUnmount(() => {
     document.removeEventListener('keydown', onListKeydown)
+    window.removeEventListener('connections-store-change', onConnectionsStoreChange)
     listDragAutoScroll.stop()
   })
 

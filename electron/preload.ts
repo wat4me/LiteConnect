@@ -297,6 +297,12 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
   },
+  onMcpConnectionsChanged: (callback: () => void) => {
+    const channel = 'mcp:connectionsChanged'
+    const listener = () => callback()
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  },
 
   /** Docker availability probe for an SSH session (sessionId only; no socket/path/API). */
   dockerProbe: (sessionId: string) => ipcRenderer.invoke('docker:probe', sessionId),

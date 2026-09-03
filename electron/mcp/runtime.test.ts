@@ -7,6 +7,7 @@ import type { SessionExecResult } from '../ssh/sessionExec'
 
 const SESSION_ID = '550e8400-e29b-41d4-a716-446655440000'
 const CONNECTION_ID = '660e8400-e29b-41d4-a716-446655440000'
+const NEW_CONNECTION_ID = '770e8400-e29b-41d4-a716-446655440000'
 
 function snapshot(over: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return {
@@ -87,20 +88,33 @@ function fakeSsh(over: Partial<SshMcpSessionPort> = {}): SshMcpSessionPort {
 
 function makeRuntime(over: Partial<SshMcpSessionPort> = {}, extras?: { approvalMode?: 'auto' | 'ask-destructive' | 'deny-destructive'; requestApproval?: (req: any) => Promise<boolean> }) {
   const ssh = fakeSsh(over)
+  const listed = [
+    {
+      id: CONNECTION_ID,
+      name: 'web-1',
+      host: '10.0.0.8',
+      port: 22,
+      username: 'deploy',
+      group: 'grp-1',
+    },
+  ]
   const runtime = createSshMcpRuntime({
     ssh,
     connections: {
-      listPublicConnections: () => [
-        {
-          id: CONNECTION_ID,
-          name: 'web-1',
-          host: '10.0.0.8',
-          port: 22,
-          username: 'deploy',
-          group: 'grp-1',
-        },
-      ],
+      listPublicConnections: () => listed,
       listGroups: () => [{ id: 'grp-1', name: 'prod' }],
+      saveConnection: vi.fn(async (draft) => {
+        const row = {
+          id: NEW_CONNECTION_ID,
+          name: draft.name,
+          host: draft.host,
+          port: draft.port,
+          username: draft.username,
+          group: draft.group,
+        }
+        listed.push(row)
+        return { ...row, created: true }
+      }),
     },
     metrics: {
       getCached: (id) => (id === SESSION_ID ? { hostname: 'web-1', cpu: { usage: 10 } } : undefined),
@@ -293,7 +307,13 @@ describe('SshMcpRuntime', () => {
 
     const empty = createSshMcpRuntime({
       ssh: fakeSsh(),
-      connections: { listPublicConnections: () => [], listGroups: () => [] },
+      connections: {
+        listPublicConnections: () => [],
+        listGroups: () => [],
+        saveConnection: async () => {
+          throw new Error('unused')
+        },
+      },
     })
     const miss = await empty.call('get_metrics', { sessionId: SESSION_ID })
     expect(miss.isError).toBe(true)
@@ -314,6 +334,39 @@ describe('SshMcpRuntime', () => {
     const byName = await runtime.call('connect', { name: 'web-1' })
     expect(byName.isError).toBe(false)
     expect(ssh.connectSaved).toHaveBeenCalled()
+  })
+
+  it('saves a new host and can open it', async () => {
+    const { runtime, ssh } = makeRuntime()
+    const saved = await runtime.call('save_connection', {
+      host: '10.1.2.3',
+      username: 'root',
+      password: 'pw',
+    })
+    expect(saved.isError).toBe(false)
+    expect(saved.structuredContent).toMatchObject({
+      host: '10.1.2.3',
+      username: 'root',
+      created: true,
+    })
+    expect(JSON.stringify(saved.structuredContent)).not.toContain('pw')
+
+    const opened = await runtime.call('save_connection', {
+      host: '10.1.2.3',
+      username: 'root',
+      password: 'pw',
+      connect: true,
+    })
+    expect(opened.isError).toBe(false)
+    expect(opened.structuredContent).toMatchObject({ sessionId: SESSION_ID })
+    expect(ssh.connectSaved).toHaveBeenCalled()
+  })
+
+  it('rejects save_connection without auth', async () => {
+    const { runtime } = makeRuntime()
+    const result = await runtime.call('save_connection', { host: '10.1.2.3', username: 'root' })
+    expect(result.isError).toBe(true)
+    expect((result.structuredContent as { code: string }).code).toBe('INVALID_ARGUMENTS')
   })
 
   it('rejects unknown or missing connect targets', async () => {

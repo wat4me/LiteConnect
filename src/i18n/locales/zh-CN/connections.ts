@@ -113,6 +113,8 @@ export default {
     actionOpenHomeSub: '连接管理',
     actionOpenSettings: '打开设置',
     actionOpenSettingsSub: '主题 / 终端 / 网络',
+    actionOpenDocker: '打开 Docker',
+    actionOpenDockerSub: '在当前 SSH 主机下打开 Docker 子窗口',
     onboardingAria: '首次使用提示',
     onboardingWelcome: '欢迎使用 LiteConnect · {current}/{total}',
     onboardingSkip: '跳过',

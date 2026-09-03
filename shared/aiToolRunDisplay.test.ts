@@ -7,6 +7,27 @@ import {
 } from './aiToolRunDisplay'
 
 describe('formatToolRunDisplay', () => {
+  it('does not put save_connection passwords into the hint', () => {
+    const view = formatToolRunDisplay({
+      name: 'save_connection',
+      args: JSON.stringify({
+        host: '10.0.0.8',
+        username: 'root',
+        password: 'super-secret',
+        connect: true,
+      }),
+      content: JSON.stringify({
+        id: 'abc',
+        name: 'root@10.0.0.8',
+        host: '10.0.0.8',
+        username: 'root',
+        created: true,
+      }),
+    })
+    expect(view.hint).not.toContain('super-secret')
+    expect(view.hint).toContain('10.0.0.8')
+  })
+
   it('extracts exec stdout instead of dumping JSON escapes', () => {
     const view = formatToolRunDisplay({
       name: 'exec',

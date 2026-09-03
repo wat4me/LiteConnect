@@ -27,7 +27,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'list_connections',
     title: 'List saved SSH connections',
     description:
-      'List saved SSH hosts (id, name, host, port, username, group). Never includes passwords or keys. Use connect with a connection id to open a session. For a saved group, call list_groups then exec with group.',
+      'List saved SSH hosts (id, name, host, port, username, group). Never includes passwords or keys. Use connect with a connection id to open a session. To add a host, call save_connection. For a saved group, call list_groups then exec with group.',
     inputSchema: EMPTY_OBJECT,
     annotations: {
       readOnlyHint: true,
@@ -66,7 +66,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'connect',
     title: 'Connect a saved SSH host',
     description:
-      'Open an SSH session for a host already saved in LiteConnect. Pass connectionId from list_connections (preferred) or an exact saved name. Uses stored credentials; do not supply passwords. If that host is already connected, returns the existing sessionId. After success, use the returned sessionId for exec/read_file/write_file. The user may need to confirm a host key in the app UI.',
+      'Open an SSH session for a saved LiteConnect host. Pass connectionId from list_connections (preferred) or an exact saved name. Uses stored credentials. To add a host that is not saved yet, call save_connection first (or save_connection with connect=true). If that host is already connected, returns the existing sessionId. After success, use the returned sessionId for exec/read_file/write_file. The user may need to confirm a host key in the app UI.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -85,6 +85,65 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
       readOnlyHint: false,
       destructiveHint: false,
       openWorldHint: true,
+    },
+  },
+  {
+    name: 'save_connection',
+    title: 'Save a new SSH host',
+    description:
+      'Add a host to the LiteConnect connection list. Required: host, username, and one of password, privateKey (PEM text), or useAgent=true. Optional: name (defaults to user@host), port (default 22), group (id or exact group name), note, connect (if true, open a session after saving). Does not overwrite an existing name: same name+host+user+port returns that connection; a different host under the same name errors. Never echo secrets in later messages. Then use connect or the returned connectionId.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        host: {
+          type: 'string',
+          description: 'Hostname or IP (no spaces).',
+        },
+        username: {
+          type: 'string',
+          description: 'SSH username.',
+        },
+        password: {
+          type: 'string',
+          description: 'SSH password. Omit when using privateKey or useAgent.',
+        },
+        privateKey: {
+          type: 'string',
+          description: 'PEM private key text (not a file path).',
+        },
+        useAgent: {
+          type: 'boolean',
+          description: 'Use the system SSH agent instead of a password or key. Default false.',
+        },
+        name: {
+          type: 'string',
+          description: 'Display name in LiteConnect. Default user@host.',
+        },
+        port: {
+          type: 'integer',
+          description: 'SSH port. Default 22.',
+        },
+        group: {
+          type: 'string',
+          description: 'Existing group id or exact group name. Default group if omitted or unknown.',
+        },
+        note: {
+          type: 'string',
+          description: 'Optional note stored on the connection.',
+        },
+        connect: {
+          type: 'boolean',
+          description: 'If true, open a session after saving (same as connect). Default false.',
+        },
+      },
+      required: ['host', 'username'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+      idempotentHint: true,
     },
   },
   {

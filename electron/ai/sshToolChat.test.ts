@@ -41,5 +41,6 @@ describe('sshToolChat helpers', () => {
     expect(text).toContain('abc')
     expect(text).toContain('deploy@10.0.0.8')
     expect(text).toContain('connect(connectionId)')
+    expect(text).toContain('save_connection')
   })
 })

@@ -266,15 +266,19 @@ const {
   dockerButtonEnabled,
   isActiveSessionConnected,
   toggleDockerWorkspace,
+  enterDocker,
   enterTerminal,
+  closeDockerTab,
+  dockerTabOpen,
   applyModeForActiveSession,
   markSessionConnected,
   ensureSessionTracked,
   disconnectedSessionIds,
   forgetSession,
-  withTerminalModeGuard,
+  pruneConnections,
 } = useDockerWorkspaceMode({
   activeSessionId,
+  activeConnectionId: computed(() => activeGroup.value?.connectionId ?? null),
   panels: {
     aiSidebarVisible,
     sidebarVisible,
@@ -286,19 +290,46 @@ const {
 })
 
 function guardedToggleSidebar() {
-  withTerminalModeGuard(toggleSidebar)
+  toggleSidebar()
 }
 function guardedToggleAiSidebar() {
-  withTerminalModeGuard(toggleAiSidebar)
+  toggleAiSidebar()
 }
 function guardedToggleMonitorPanel() {
-  withTerminalModeGuard(toggleMonitorPanel)
+  toggleMonitorPanel()
 }
 function guardedToggleBatchPanel() {
-  withTerminalModeGuard(toggleBatchPanel)
+  toggleBatchPanel()
 }
 function guardedToggleSnippetsPanel() {
-  withTerminalModeGuard(toggleSnippetsPanel)
+  toggleSnippetsPanel()
+}
+
+/** Open the Docker sub-tab under the current SSH host (同列于终端 1 / 终端 2). */
+function handleEnterDocker() {
+  closeSettingsPage()
+  if (appMode.value !== 'ssh') {
+    appMode.value = 'ssh'
+    ensureSshWorkspaceMounted()
+  }
+  if (isHomeActive.value || !dockerButtonEnabled.value) {
+    ElMessage.warning(t('toolbar.dockerDisabled'))
+    return
+  }
+  enterDocker()
+}
+
+function handleToggleDocker() {
+  closeSettingsPage()
+  if (appMode.value !== 'ssh') {
+    appMode.value = 'ssh'
+    ensureSshWorkspaceMounted()
+  }
+  if (isHomeActive.value || (!isDockerMode.value && !dockerButtonEnabled.value)) {
+    ElMessage.warning(t('toolbar.dockerDisabled'))
+    return
+  }
+  toggleDockerWorkspace()
 }
 
 const {
@@ -374,7 +405,7 @@ const { tryRunSnippetHotkey } = useSnippetHotkeys({
   openSnippetPalette,
 })
 
-const { handleKeydown } = useAppKeyboard({
+const { handleKeydown, handleWheel, handlePageZoomKeydown } = useAppKeyboard({
   isHomeActive,
   isSshWorkspace: isSshMode,
   activeGroup,
@@ -383,6 +414,7 @@ const { handleKeydown } = useAppKeyboard({
   toggleMonitor: guardedToggleMonitorPanel,
   toggleBatchPanel: guardedToggleBatchPanel,
   toggleSnippetsPanel: guardedToggleSnippetsPanel,
+  toggleDocker: handleToggleDocker,
   openSnippetPalette,
   openJumpPalette: () => { jumpPaletteVisible.value = true },
   openShortcutsHelp: () => { shortcutsHelpVisible.value = true },
@@ -426,6 +458,13 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => groups.value.map((g) => g.connectionId),
+  (ids) => {
+    pruneConnections(ids)
+  },
+)
+
 useDockerSshBridge({
   liveSessionIds,
   trackSessionConnection,
@@ -449,6 +488,7 @@ provide('pwdTracker', pwdTracker)
 let unsubReplyComplete: (() => void) | null = null
 let unsubMcpConnect: (() => void) | null = null
 let unsubMcpClose: (() => void) | null = null
+let unsubMcpConnections: (() => void) | null = null
 
 watch(
   [activeSessionId, aiSidebarVisible],
@@ -486,6 +526,12 @@ onMounted(async () => {
       void handleCloseSession(sessionId)
     })
   }
+  if (typeof window.LiteConnect.onMcpConnectionsChanged === 'function') {
+    unsubMcpConnections = window.LiteConnect.onMcpConnectionsChanged(() => {
+      void loadConnections()
+      window.dispatchEvent(new CustomEvent('connections-store-change'))
+    })
+  }
   unsubMcpConnect = window.LiteConnect.onMcpConnectRequest((payload) => {
     void (async () => {
       try {
@@ -504,6 +550,8 @@ onMounted(async () => {
     })()
   })
   document.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keydown', handlePageZoomKeydown, true)
+  window.addEventListener('wheel', handleWheel, { passive: false, capture: true })
   window.addEventListener('latency-settings-change', handleLatencySettingsChange)
   window.addEventListener('monitor-settings-change', handleMonitorSettingsChange)
   window.addEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
@@ -580,7 +628,11 @@ onBeforeUnmount(() => {
   unsubMcpConnect = null
   unsubMcpClose?.()
   unsubMcpClose = null
+  unsubMcpConnections?.()
+  unsubMcpConnections = null
   document.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('keydown', handlePageZoomKeydown, true)
+  window.removeEventListener('wheel', handleWheel, { capture: true })
   window.removeEventListener('latency-settings-change', handleLatencySettingsChange)
   window.removeEventListener('monitor-settings-change', handleMonitorSettingsChange)
   window.removeEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
@@ -679,6 +731,7 @@ onBeforeUnmount(() => {
           :secondary-session-id="secondarySessionId"
           :secondary-side="secondarySide"
           :docker-mode="isDockerMode"
+          :docker-tab-open="dockerTabOpen"
           :docker-button-enabled="dockerButtonEnabled"
           :active-session-ssh-disconnected="!!activeSessionId && !isActiveSessionConnected"
           :disconnected-session-ids="disconnectedSessionIds"
@@ -688,6 +741,8 @@ onBeforeUnmount(() => {
           @toggle-batch="guardedToggleBatchPanel"
           @toggle-snippets="guardedToggleSnippetsPanel"
           @toggle-docker="toggleDockerWorkspace"
+          @select-docker="enterDocker"
+          @close-docker="closeDockerTab"
           @back-to-terminal="enterTerminal"
           @close-ai="aiSidebarVisible = false"
           @close-files="sidebarVisible = false"
@@ -705,7 +760,7 @@ onBeforeUnmount(() => {
           @reconnect="handleReconnect"
           @cd-command="onCdCommand"
           @pwd-output="onPwdOutput"
-          @ai-selection="(text, mode) => withTerminalModeGuard(() => handleAiSelection(text, mode))"
+          @ai-selection="(text, mode) => handleAiSelection(text, mode)"
           @split-preview="onDragSplitPreview"
           @split-commit="onDragSplitCommit"
           @toggle-horizontal="toggleHorizontal"
@@ -759,6 +814,7 @@ onBeforeUnmount(() => {
       @connect="(id) => { jumpPaletteVisible = false; showSettingsPage = false; appMode = 'ssh'; onQuickConnect(id) }"
       @open-home="() => { jumpPaletteVisible = false; showSettingsPage = false; enterSsh(true) }"
       @open-settings="() => { jumpPaletteVisible = false; openSettingsPage() }"
+      @open-docker="() => { jumpPaletteVisible = false; handleEnterDocker() }"
     />
   </div>
 </template>

@@ -366,6 +366,9 @@ export function useXtermInstance(deps: {
   function setFontSize(size: number) {
     fontSize.value = size
     if (terminal) terminal.options.fontSize = size
+    // Cell metrics change without a container resize; FitAddon + PTY must
+    // follow or the canvas overflows the SSH pane (clipped rows / wrapping).
+    scheduleTerminalRefresh(false, { forceSshResize: false })
   }
 
   /** Test helper: last dimensions sent to remote. */

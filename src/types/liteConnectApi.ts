@@ -380,6 +380,7 @@ export interface LiteConnectApi {
     callback: (payload: { requestId: string; connectionId: string }) => void,
   ) => () => void
   onMcpCloseSession: (callback: (sessionId: string) => void) => () => void
+  onMcpConnectionsChanged: (callback: () => void) => () => void
   getMonitorEnabled: () => Promise<boolean>
   setMonitorEnabled: (enabled: boolean) => Promise<void>
   getMonitorIntervalMs: () => Promise<number>

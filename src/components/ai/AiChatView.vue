@@ -11,6 +11,16 @@ import {
   toolRunDefaultOpen,
   type ToolRunSummary,
 } from '@shared/aiToolRunDisplay'
+import { isLiveReasoningSegment } from '@/utils/ai/chatReasoning'
+import {
+  activeTimelineTurnId,
+  collectChatTimelineTurns,
+  nearbyTimelineIndices,
+  nearestTimelineIndex,
+  TIMELINE_FLYOUT_ROW_PX,
+  timelineFlyoutTop,
+  timelineTickRatio,
+} from '@/utils/ai/chatTimeline'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -96,6 +106,15 @@ let isProgrammaticScroll = false
 let scrollRaf = 0
 const NEAR_BOTTOM_PX = 48
 
+const timelineTurns = computed(() => collectChatTimelineTurns(props.messages))
+const showTimeline = computed(() => timelineTurns.value.length > 0 && props.messages.length > 1)
+const timelineRailRef = ref<HTMLElement | null>(null)
+const activeTurnId = ref('')
+const hoveredTurnIndex = ref<number | null>(null)
+const timelineHovering = ref(false)
+let timelineHideTimer: ReturnType<typeof setTimeout> | null = null
+let jumpScrollTimer: ReturnType<typeof setTimeout> | null = null
+
 function captureScroll() {
   const el = listRef.value
   if (el) savedScrollTop = el.scrollTop
@@ -132,9 +151,119 @@ function scheduleScrollToBottom() {
   })
 }
 
+function updateActiveTurn() {
+  const el = listRef.value
+  const turns = timelineTurns.value
+  if (!el || !turns.length) {
+    activeTurnId.value = ''
+    return
+  }
+  if (followLatest.value) {
+    activeTurnId.value = turns[turns.length - 1]?.id || ''
+    return
+  }
+  const measured = turns.map((turn) => {
+    const row = el.querySelector(`[data-message-id="${CSS.escape(turn.id)}"]`) as HTMLElement | null
+    return { id: turn.id, top: row ? row.offsetTop : 0 }
+  })
+  activeTurnId.value = activeTimelineTurnId(measured, el.scrollTop)
+}
+
+function onTimelineEnter() {
+  if (timelineHideTimer) {
+    clearTimeout(timelineHideTimer)
+    timelineHideTimer = null
+  }
+  timelineHovering.value = true
+  if (hoveredTurnIndex.value == null) {
+    const turns = timelineTurns.value
+    const activeIdx = turns.findIndex((turn) => turn.id === activeTurnId.value)
+    hoveredTurnIndex.value = activeIdx >= 0 ? activeIdx : Math.max(0, turns.length - 1)
+  }
+}
+
+function onTimelineLeave() {
+  if (timelineHideTimer) clearTimeout(timelineHideTimer)
+  timelineHideTimer = setTimeout(() => {
+    timelineHovering.value = false
+    hoveredTurnIndex.value = null
+    timelineHideTimer = null
+  }, 140)
+}
+
+function onTimelineMove(event: MouseEvent) {
+  const rail = timelineRailRef.value
+  const count = timelineTurns.value.length
+  if (!rail || count <= 0) return
+  const rect = rail.getBoundingClientRect()
+  hoveredTurnIndex.value = nearestTimelineIndex(count, event.clientY - rect.top, rect.height)
+}
+
+function jumpToTurn(id: string) {
+  const el = listRef.value
+  if (!el) return
+  const row = el.querySelector(`[data-message-id="${CSS.escape(id)}"]`) as HTMLElement | null
+  if (!row) return
+  followLatest.value = false
+  activeTurnId.value = id
+  isProgrammaticScroll = true
+  const top = Math.max(0, row.offsetTop - 8)
+  el.scrollTo({ top, behavior: 'smooth' })
+  savedScrollTop = top
+  if (jumpScrollTimer) clearTimeout(jumpScrollTimer)
+  jumpScrollTimer = setTimeout(() => {
+    isProgrammaticScroll = false
+    captureScroll()
+    updateActiveTurn()
+    jumpScrollTimer = null
+  }, 420)
+}
+
+function onTimelineClick(event: MouseEvent) {
+  const turns = timelineTurns.value
+  if (!turns.length) return
+  const rail = timelineRailRef.value
+  let idx = hoveredTurnIndex.value
+  if (rail) {
+    const rect = rail.getBoundingClientRect()
+    idx = nearestTimelineIndex(turns.length, event.clientY - rect.top, rect.height)
+  }
+  const turn = idx == null ? undefined : turns[idx]
+  if (!turn) return
+  hoveredTurnIndex.value = idx
+  jumpToTurn(turn.id)
+}
+
+const nearbyTurns = computed(() => {
+  const turns = timelineTurns.value
+  const hovered = hoveredTurnIndex.value
+  if (hovered == null || !turns.length) return []
+  return nearbyTimelineIndices(hovered, turns.length)
+    .map((i) => turns[i])
+    .filter(Boolean)
+})
+
+const timelineFlyoutStyle = computed(() => {
+  const turns = timelineTurns.value
+  const hovered = hoveredTurnIndex.value
+  const rail = timelineRailRef.value
+  if (hovered == null || !turns[hovered] || !rail) return { display: 'none' }
+  const nearby = nearbyTimelineIndices(hovered, turns.length)
+  const local = Math.max(0, nearby.indexOf(hovered))
+  const flyoutHeight = Math.max(TIMELINE_FLYOUT_ROW_PX, nearby.length * TIMELINE_FLYOUT_ROW_PX)
+  const top = timelineFlyoutTop({
+    tickRatio: timelineTickRatio(hovered, turns.length),
+    trackHeight: rail.clientHeight,
+    flyoutHeight,
+    hoveredLocalIndex: local,
+  })
+  return { top: `${Math.round(top + rail.offsetTop)}px` }
+})
+
 function onListScroll() {
   if (isProgrammaticScroll) {
     captureScroll()
+    updateActiveTurn()
     return
   }
   captureScroll()
@@ -146,6 +275,7 @@ function onListScroll() {
   } else if (!followLatest.value && isNearBottom(el)) {
     followLatest.value = true
   }
+  updateActiveTurn()
 }
 
 function toggleFollowLatest() {
@@ -170,6 +300,7 @@ const messagesSignature = computed(() =>
 )
 
 const toolOpenState = reactive(new Map<string, boolean>())
+const reasoningOpenState = reactive(new Map<string, boolean>())
 
 function toolRunKey(message: ChatItem, run: AiToolRun): string {
   return `${message.id}:${run.id}`
@@ -187,6 +318,26 @@ function onToolRunToggle(message: ChatItem, run: AiToolRun, event: Event) {
   const el = event.currentTarget as HTMLDetailsElement
   if (!el || el.tagName !== 'DETAILS') return
   toolOpenState.set(toolRunKey(message, run), el.open)
+}
+
+function reasoningKey(message: ChatItem, segIndex: number): string {
+  return `${message.id}:r${segIndex}`
+}
+
+function isReasoningLive(message: ChatItem, segIndex: number): boolean {
+  return isLiveReasoningSegment(message, segIndex)
+}
+
+function isReasoningOpen(message: ChatItem, segIndex: number): boolean {
+  const key = reasoningKey(message, segIndex)
+  if (reasoningOpenState.has(key)) return reasoningOpenState.get(key) === true
+  return isReasoningLive(message, segIndex)
+}
+
+function onReasoningToggle(message: ChatItem, segIndex: number, event: Event) {
+  const el = event.currentTarget as HTMLDetailsElement
+  if (!el || el.tagName !== 'DETAILS') return
+  reasoningOpenState.set(reasoningKey(message, segIndex), el.open)
 }
 
 watch(
@@ -256,8 +407,9 @@ function toolRunSummaryLabel(summary: ToolRunSummary): string {
 watch(
   [messagesSignature, () => props.loading, () => props.messages.length],
   async () => {
-    if (!followLatest.value) return
     await nextTick()
+    updateActiveTurn()
+    if (!followLatest.value) return
     scheduleScrollToBottom()
   },
   { immediate: true },
@@ -273,17 +425,23 @@ onActivated(() => {
       scheduleScrollToBottom()
       requestAnimationFrame(() => {
         if (followLatest.value) scrollToBottom()
+        updateActiveTurn()
       })
       return
     }
     restoreScroll()
-    requestAnimationFrame(() => restoreScroll())
+    requestAnimationFrame(() => {
+      restoreScroll()
+      updateActiveTurn()
+    })
   })
 })
 
 onBeforeUnmount(() => {
   if (copiedTimer) clearTimeout(copiedTimer)
   if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  if (jumpScrollTimer) clearTimeout(jumpScrollTimer)
+  if (timelineHideTimer) clearTimeout(timelineHideTimer)
 })
 
 const lastAssistantId = computed(() => {
@@ -330,7 +488,12 @@ async function copyText(text: string, key: string) {
 
 <template>
   <div class="chat-shell">
-    <div ref="listRef" class="chat-list" @scroll.passive="onListScroll">
+    <div
+      ref="listRef"
+      class="chat-list"
+      :class="{ 'has-timeline': showTimeline }"
+      @scroll.passive="onListScroll"
+    >
       <div v-if="messages.length === 0" class="ui-empty empty-state">
         <div class="ui-empty-icon empty-mark" aria-hidden="true">
           <AppIcon name="ai-chat" size="xl" />
@@ -369,6 +532,8 @@ async function copyText(text: string, key: string) {
         :key="message.id"
         class="chat-row"
         :class="[message.role, { error: message.error, streaming: message.streaming }]"
+        :data-message-id="message.id"
+        :data-role="message.role"
       >
       <div class="message-stack">
         <div v-if="!message.streaming && !loading" class="message-actions">
@@ -430,8 +595,27 @@ async function copyText(text: string, key: string) {
           </template>
         </div>
       <template v-for="(item, segIndex) in displayItems(message)" :key="segIndex">
-      <details v-if="item.seg.kind === 'reasoning'" class="reasoning-box">
-        <summary>{{ t('ai.reasoning') }}</summary>
+      <details
+        v-if="item.seg.kind === 'reasoning'"
+        class="reasoning-box"
+        :class="{ live: isReasoningLive(message, segIndex) }"
+        :open.prop="isReasoningOpen(message, segIndex)"
+        :aria-busy="isReasoningLive(message, segIndex) ? 'true' : undefined"
+        @toggle="onReasoningToggle(message, segIndex, $event)"
+      >
+        <summary class="reasoning-summary">
+          <span
+            v-if="isReasoningLive(message, segIndex)"
+            class="thinking-dots"
+            aria-hidden="true"
+          ><i /><i /><i /></span>
+          <span
+            class="reasoning-title"
+            :class="{ 'ai-think-shimmer': isReasoningLive(message, segIndex) }"
+          >
+            {{ isReasoningLive(message, segIndex) ? t('ai.reasoningLive') : t('ai.reasoning') }}
+          </span>
+        </summary>
         <div class="reasoning-content">
           <template v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'reasoning' ? item.seg.text : '')" :key="index">
             <div v-if="block.type === 'code'" class="code-block">
@@ -501,9 +685,9 @@ async function copyText(text: string, key: string) {
       </div>
       </template>
       <div v-if="message.streaming && !message.content && !message.reasoningContent" class="message-content">
-        <span class="thinking">
+        <span class="thinking" role="status">
           <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-          {{ t('ai.thinking') }}
+          <span class="thinking-label ai-think-shimmer">{{ t('ai.thinking') }}</span>
         </span>
       </div>
       <div
@@ -516,6 +700,56 @@ async function copyText(text: string, key: string) {
       </div>
     </div>
     </div>
+    <nav
+      v-if="showTimeline"
+      class="chat-timeline"
+      :aria-label="t('ai.timelineAria')"
+    >
+      <div
+        ref="timelineRailRef"
+        class="chat-timeline-rail"
+        @mouseenter="onTimelineEnter"
+        @mousemove="onTimelineMove"
+        @mouseleave="onTimelineLeave"
+        @click="onTimelineClick"
+      >
+        <span
+          v-for="turn in timelineTurns"
+          :key="turn.id"
+          class="chat-timeline-tick"
+          :class="{
+            active: turn.id === activeTurnId,
+            hovered: hoveredTurnIndex === turn.index,
+          }"
+          :style="{ top: `${timelineTickRatio(turn.index, timelineTurns.length) * 100}%` }"
+        />
+      </div>
+      <div
+        v-if="timelineHovering && nearbyTurns.length"
+        class="chat-timeline-flyout"
+        :style="timelineFlyoutStyle"
+        @mouseenter="onTimelineEnter"
+        @mouseleave="onTimelineLeave"
+        @click.stop
+      >
+        <button
+          v-for="turn in nearbyTurns"
+          :key="turn.id"
+          type="button"
+          class="chat-timeline-item"
+          :class="{
+            active: turn.id === activeTurnId,
+            hovered: hoveredTurnIndex === turn.index,
+          }"
+          :aria-current="turn.id === activeTurnId ? 'true' : undefined"
+          :title="t('ai.timelineJump')"
+          @click.stop="jumpToTurn(turn.id)"
+        >
+          <span class="chat-timeline-item-index">{{ t('ai.timelineTurn', { n: turn.index + 1 }) }}</span>
+          <span class="chat-timeline-item-preview">{{ turn.preview }}</span>
+        </button>
+      </div>
+    </nav>
     <button
       v-if="messages.length > 0 && !followLatest"
       type="button"
@@ -546,6 +780,10 @@ async function copyText(text: string, key: string) {
   display: flex;
   flex-direction: column;
   gap: 22px;
+}
+
+.chat-list.has-timeline {
+  padding-left: 26px;
 }
 
 .empty-state {
@@ -618,6 +856,130 @@ async function copyText(text: string, key: string) {
 .jump-latest:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.chat-timeline {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 16px;
+  z-index: 3;
+  pointer-events: none;
+  user-select: none;
+}
+
+.chat-timeline-rail {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.chat-timeline-rail::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.chat-timeline-rail:hover::before {
+  background: color-mix(in srgb, var(--accent) 50%, var(--border-color));
+}
+
+.chat-timeline-tick {
+  position: absolute;
+  left: 8px;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-secondary);
+  opacity: 0.55;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.chat-timeline-tick.active {
+  width: 12px;
+  height: 3px;
+  background: var(--accent);
+  opacity: 1;
+}
+
+.chat-timeline-tick.hovered {
+  width: 12px;
+  height: 3px;
+  opacity: 1;
+  background: var(--accent-hover);
+}
+
+.chat-timeline-flyout {
+  position: absolute;
+  left: 14px;
+  z-index: 4;
+  width: 196px;
+  max-width: calc(100vw - 48px);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.chat-timeline-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 48px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-timeline-item:hover,
+.chat-timeline-item.hovered {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+
+.chat-timeline-item.active {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.chat-timeline-item-index {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.chat-timeline-item.hovered .chat-timeline-item-index,
+.chat-timeline-item.active .chat-timeline-item-index {
+  color: var(--accent);
+}
+
+.chat-timeline-item-preview {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-primary);
 }
 
 .code-actions {
@@ -763,9 +1125,30 @@ async function copyText(text: string, key: string) {
 .thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
 .thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
 
+.ai-think-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--text-secondary) 0%,
+    var(--accent) 42%,
+    var(--text-primary) 50%,
+    var(--accent) 58%,
+    var(--text-secondary) 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: ai-think-shimmer 1.7s linear infinite;
+}
+
 @keyframes ai-think {
   0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
   40% { opacity: 1; transform: translateY(-2px); }
+}
+
+@keyframes ai-think-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 .markdown-block + .markdown-block,
@@ -1114,7 +1497,40 @@ async function copyText(text: string, key: string) {
   font-size: 11px;
 }
 
-.reasoning-box summary {
+.reasoning-box.live {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.reasoning-box.live .reasoning-summary {
+  position: relative;
+  padding-bottom: 6px;
+}
+
+.reasoning-box.live .reasoning-summary::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 20%, transparent) 25%,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--accent) 20%, transparent) 75%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: ai-think-shimmer 1.4s linear infinite;
+}
+
+.reasoning-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 4px 10px;
   cursor: pointer;
   color: var(--text-secondary);
@@ -1122,8 +1538,19 @@ async function copyText(text: string, key: string) {
   list-style: none;
 }
 
-.reasoning-box summary::-webkit-details-marker {
+.reasoning-box.live .reasoning-summary {
+  color: var(--accent);
+}
+
+.reasoning-box summary::-webkit-details-marker,
+.reasoning-summary::-webkit-details-marker,
+.reasoning-summary::marker {
   display: none;
+  content: '';
+}
+
+.reasoning-title {
+  font-weight: 600;
 }
 
 .reasoning-content {
@@ -1139,5 +1566,23 @@ async function copyText(text: string, key: string) {
 
 .code-block {
   border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots i,
+  .ai-think-shimmer,
+  .reasoning-box.live .reasoning-summary::after {
+    animation: none;
+  }
+
+  .ai-think-shimmer {
+    background: none;
+    color: var(--accent);
+  }
+
+  .reasoning-box.live .reasoning-summary::after {
+    background: var(--accent);
+    opacity: 0.45;
+  }
 }
 </style>

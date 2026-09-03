@@ -1,6 +1,6 @@
 # LiteConnect
 
-LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具与 AI 对话面板，适合日常运维与开发联调。
+LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
 
 当前版本：**1.0.7**
 
@@ -100,14 +100,96 @@ LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接�
 
 监控数据通过 SSH 执行系统命令采集，具体可用字段取决于远端操作系统和命令环境。
 
-### AI 面板
+### AI 助手
 
-- 调用 OpenAI-compatible Chat Completions 接口
-- 配置 Base URL、模型、API Key、系统提示词和温度
-- 支持流式文本、Markdown、思考内容和 token 用量展示
-- 同一 SSH 会话内支持多线程对话；消息可重新生成、编辑和删除
-- 可将终端选中文本或上下文发送到当前会话对应的 AI 对话（解释 / 建议等）
-- 对话按 SSH 会话隔离，并以 JSONL 保存到本地
+侧栏 AI 对话绑定当前 SSH 主机。模型可以调用与 MCP 相同的 SSH 工具去查磁盘、读日志、跑命令，而不是让你先在终端里复制输出。
+
+**接入与对话**
+
+- 兼容 OpenAI Chat Completions（`/v1/chat/completions`）。可添加多个提供商，填写 Base URL、API Key 和模型
+- 可配置系统提示词、上下文窗口（token 上限）和温度
+- 流式输出；支持 Markdown、代码块（可填入终端或发送执行）、深度思考过程、工具调用卡片和 token 用量
+- 对话按 SSH 会话隔离；同一主机可开多条会话线程，历史以 JSONL 保存在本地
+- 消息可编辑、删除、重新生成；长对话可用左侧时间线跳到某一轮提问
+- 终端选区可发送到 AI（解释报错、给建议）；回复里的命令可填入终端或直接执行
+
+**SSH 工具（与 MCP 共用运行时）**
+
+AI 通过主进程 MCP runtime 调工具，走独立 exec / SFTP / agent PTY，**不会写入你正在看的终端**。当前侧栏已连接的主机可省略 `sessionId`。
+
+常见能力：列出已保存主机与会话、连接或新增主机、`exec`（含分组广播和后台任务）、读写远端文件、上传下载（本机 ↔ 远端）、列目录、`tail`、`stat`、systemd 服务、独立 PTY（安装向导 / TUI）、读取已启动的监控快照。
+
+**权限**
+
+默认每次远端命令、写文件、PTY 或断开会话都要你在对话里点「允许」。可在 AI 设置里改：
+
+| 模式 | 行为 |
+|---|---|
+| 每次确认（推荐） | 查会话列表等只读盘点可自动进行；exec / 写文件 / PTY / 断开需确认 |
+| 只读自动，写入需确认 | `df` / `ps` / 读文件等自动执行；`rm`、写文件、sudo、断开会话仍要确认 |
+| 只允许只读 | 只跑查看类操作 |
+| 自动执行 | 不再询问（不推荐） |
+
+删根目录、`mkfs`、灌盘、关机等禁止命令**始终拦截**，与权限模式无关。回复里不会复述 `save_connection` 提交的密码或私钥。
+
+### MCP
+
+可选的本机 MCP 服务，把同一套 SSH 工具开放给 Cursor、Claude Code 等支持 Streamable HTTP 的客户端。默认关闭。
+
+**怎么开**
+
+1. 设置 → MCP，打开开关（会提示确认）
+2. LiteConnect 必须保持运行
+3. 客户端必须跑在**同一台电脑**上（只监听 `127.0.0.1`）
+4. 把地址和 Bearer Token 填进客户端。设置页可复制通用 JSON 或接入说明
+
+| 项 | 说明 |
+|---|---|
+| 传输 | Streamable HTTP（JSON-RPC，`POST /mcp`） |
+| 默认地址 | `http://127.0.0.1:17420/mcp`（端口可改，范围 1024–65535） |
+| 鉴权 | `Authorization: Bearer <token>` |
+| 健康检查 | `GET /health` |
+| 绑定 | 仅 loopback；校验 `Host` / `Origin`；有请求频率限制 |
+| Token | 存在 `settings.json`，能用系统加密时走 `safeStorage`；可更换（旧 Token 立即失效） |
+
+通用客户端配置示例：
+
+```json
+{
+  "name": "liteconnect-ssh",
+  "transport": "http",
+  "url": "http://127.0.0.1:17420/mcp",
+  "headers": {
+    "Authorization": "Bearer <token>"
+  }
+}
+```
+
+**工具一览**
+
+| 类别 | 工具 |
+|---|---|
+| 主机与会话 | `list_connections`、`list_groups`、`list_sessions`、`connect`、`save_connection`、`disconnect` |
+| 命令 | `exec`（可 `sessionIds` / `group` 广播，可 `background=true`）、`list_jobs`、`get_job`、`cancel_job` |
+| 文件 | `read_file`、`write_file`、`list_dir`、`stat_path`、`tail_file`、`upload_file`、`download_file` |
+| 服务与监控 | `service_control`、`get_metrics` |
+| Agent PTY | `pty_open`、`pty_write`、`pty_read`、`pty_resize`、`pty_close`、`pty_list` |
+
+**和 AI 侧栏的关系**
+
+- 工具定义和执行路径相同（`shared/mcp` + `electron/mcp`）
+- 外部 MCP 客户端默认 **拒绝破坏性命令**（`deny-destructive`）；应用内 AI 则按上面的确认策略，通过后再以 `auto` 交给 runtime
+- 禁止类命令两边都会拦
+- 都不使用用户正在看的交互式终端：`exec` 是独立通道；需要安装向导、方向键时用 agent PTY（每 SSH 会话最多 2 个）
+- MCP **不会**走 Docker sock 或数据库隧道，只操作交互式 `SSHManager` 会话
+- 知道 Token 的本机程序可以列出/连接已保存主机，也可以 `save_connection` 新增主机（使用它提供的账号）
+
+**安全注意**
+
+- 默认关闭；只应在本机、且没有不受信任软件时开启
+- 不要把 Token 发到网上或填进远程 Agent
+- 破坏性 / 提权命令默认拒绝；禁止命令始终拒绝
+- 单次 `exec` 命令最长 5000 字符；读/写文件单次最多 256 KiB；本机上传下载最多 64 MiB
 
 ### 工作区与交互
 
@@ -125,6 +207,7 @@ LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接�
 - SSH 自动重连开关及最大次数
 - X11 显示服务路径与自动启动（Windows：VcXsrv / Xming）
 - 数据库查询标签默认行为、查询限制与危险 SQL 确认
+- MCP 服务开关、端口和 Bearer Token
 - 快捷键、粘贴确认和其他交互选项
 - 安装包可通过 GitHub Releases 检查更新（electron-updater）
 
@@ -152,6 +235,8 @@ LiteConnect/
 │   ├── db/                      # 数据库会话、驱动、SSH 隧道、查询与导出
 │   │   └── drivers/             # MySQL / PostgreSQL / Oracle 驱动
 │   ├── docker/                  # Docker API 传输、容器操作、日志与 exec
+│   ├── ai/                      # Chat Completions 流式请求、工具循环、会话历史
+│   ├── mcp/                     # SSH MCP runtime、HTTP 网关、工具实现
 │   ├── ipc/                     # renderer/main IPC 注册与输入校验
 │   ├── ssh/                     # SSH、SFTP、转发、监控和传输任务
 │   ├── store/                   # 连接、凭据、设置、查询历史与命令历史
@@ -194,6 +279,7 @@ LiteConnect/
 - `electron/window/` 管理主窗口与独立会话窗口。
 - `src/components/` 和 `src/composables/` 负责界面及 renderer 状态。
 - SSH、数据库和 Docker 的 socket、stream、日志、exec 及连接资源由主进程持有。
+- 应用内 AI 与外部 MCP 客户端共用 `electron/mcp` 工具运行时；HTTP 网关仅绑定 loopback。
 
 ## 本地数据
 
@@ -205,7 +291,7 @@ LiteConnect/
 |---|---|
 | `connections.json` / `groups.json` | SSH 连接和分组（含置顶、排序与使用统计） |
 | `saved-credentials.json` | 可复用凭据 |
-| `settings.json` | 应用设置 |
+| `settings.json` | 应用设置（含 MCP 开关、端口与加密后的 Bearer Token） |
 | `known_hosts.json` | SSH 主机密钥 |
 | `db-connections.json` | 数据库连接配置 |
 | `db-query-history.json` | 数据库查询历史 |

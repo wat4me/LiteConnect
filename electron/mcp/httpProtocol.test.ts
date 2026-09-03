@@ -26,7 +26,13 @@ function runtime() {
   }
   return createSshMcpRuntime({
     ssh,
-    connections: { listPublicConnections: () => [], listGroups: () => [] },
+    connections: {
+      listPublicConnections: () => [],
+      listGroups: () => [],
+      saveConnection: async () => {
+        throw new Error('unused')
+      },
+    },
   })
 }
 
@@ -61,6 +67,7 @@ describe('handleMcpJsonRpc', () => {
     const tools = (list.body.result as { tools: Array<{ name: string }> }).tools
     expect(tools.map((t) => t.name)).toContain('exec')
     expect(tools.map((t) => t.name)).toContain('list_sessions')
+    expect(tools.map((t) => t.name)).toContain('save_connection')
   })
 
   it('treats initialized as a notification', async () => {

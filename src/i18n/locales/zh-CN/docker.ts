@@ -1,6 +1,8 @@
 export default {
   docker: {
     title: 'Docker',
+    tabLabel: 'Docker',
+    closeTab: '关闭 Docker',
     refresh: '刷新',
     refreshing: '刷新中…',
     backToTerminal: '返回终端',

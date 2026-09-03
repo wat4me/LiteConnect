@@ -28,8 +28,19 @@ describe('assessAiToolCall', () => {
     }
   })
 
+  it('treats save_connection as a write that asks in ask mode', () => {
+    const gate = assessAiToolCall(
+      'save_connection',
+      { host: '10.0.0.8', username: 'root', password: 'x' },
+      'ask',
+    )
+    expect(gate.action).toBe('ask')
+    expect(gate.risk).toBe('write')
+  })
+
   it('readonly mode blocks writes and destructive exec', () => {
     expect(assessAiToolCall('write_file', { path: '/tmp/a', content: 'x' }, 'readonly').action).toBe('deny')
+    expect(assessAiToolCall('save_connection', { host: '10.0.0.8', username: 'root', password: 'x' }, 'readonly').action).toBe('deny')
     expect(assessAiToolCall('exec', { command: 'rm -rf /tmp/x' }, 'readonly').action).toBe('deny')
     expect(assessAiToolCall('exec', { command: 'uptime' }, 'readonly').action).toBe('allow')
   })

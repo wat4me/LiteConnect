@@ -51,9 +51,32 @@ export type SshMcpSessionPort = {
   onSessionTeardown?(cb: (sessionId: string) => void): () => void
 }
 
+export type SshMcpSavedConnection = {
+  id: string
+  name: string
+  host: string
+  port: number
+  username: string
+  group?: string
+  created: boolean
+}
+
+export type SshMcpSaveConnectionDraft = {
+  name: string
+  host: string
+  port: number
+  username: string
+  password: string
+  privateKey?: string
+  useAgent?: boolean
+  group?: string
+  note?: string
+}
+
 export type SshMcpConnectionPort = {
   listPublicConnections(): Array<Omit<SshMcpPublicConnection, 'hasOpenSession'>>
   listGroups(): Array<{ id: string; name: string }>
+  saveConnection(draft: SshMcpSaveConnectionDraft): Promise<SshMcpSavedConnection>
 }
 
 export type SshMcpMetricsPort = {

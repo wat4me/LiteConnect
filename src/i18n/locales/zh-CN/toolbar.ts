@@ -16,6 +16,7 @@ export default {
     snippets: '命令片段',
     snippetsShortcut: '命令片段 (Ctrl+Shift+S)',
     docker: 'Docker 工作区',
+    dockerShortcut: 'Docker 工作区 (Ctrl+Shift+D)',
     dockerDisabled: '需要已连接的 SSH 会话才能打开 Docker',
     dockerActive: 'Docker 工作区（点击返回终端）',
   },

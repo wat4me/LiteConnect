@@ -51,8 +51,19 @@
     return DEMO.hosts.find((h) => h.id === activeHostId) || DEMO.hosts[0]
   }
 
+  function dockerTabState(h) {
+    const v = dockerOverride[h.id]
+    if (v === 'active' || v === true) return 'active'
+    if (v === 'open') return 'open'
+    return 'closed'
+  }
+
   function isDockerMode(h) {
-    return !!dockerOverride[h.id]
+    return dockerTabState(h) === 'active'
+  }
+
+  function isDockerTabOpen(h) {
+    return dockerTabState(h) !== 'closed'
   }
 
   function escapeHtml(str) {
@@ -82,7 +93,6 @@
   }
 
   function effectiveTool(h) {
-    if (isDockerMode(h)) return null
     if (toolOverride[h.id] !== undefined) return toolOverride[h.id]
     return h.tool
   }
@@ -122,15 +132,14 @@
       else if (t === 'monitor') active = mon
       else if (t === 'ai' || t === 'sftp') active = tool === t
       btn.classList.toggle('active', active)
-      // In Docker mode only Docker stays clickable (toggle off); other tools disabled
-      btn.disabled = docker && t !== 'docker'
+      btn.disabled = false
     })
   }
 
   /* —— Side panels —— */
   function renderSide(h) {
     const tool = effectiveTool(h)
-    if (!tool || isDockerMode(h)) {
+    if (!tool) {
       els.sidePanel.hidden = true
       els.sideResize.hidden = true
       els.sidePanel.innerHTML = ''
@@ -217,21 +226,26 @@
 
   /* —— Sub tabs —— */
   function renderSubTabs(h) {
-    if (isDockerMode(h)) {
-      els.subTabs.innerHTML = ''
-      return
-    }
-    els.subTabs.innerHTML =
+    const dockerOn = isDockerMode(h)
+    const dockerOpen = isDockerTabOpen(h)
+    const tabs =
       (h.subTabs || [])
         .map(
           (t) => `
-        <button type="button" class="sub-tab${t.active ? ' active' : ''}" data-sub="${t.id}">
+        <button type="button" class="sub-tab${!dockerOn && t.active ? ' active' : ''}" data-sub="${t.id}">
           <span class="sub-tab-label">终端 ${t.n}</span>
           <span class="sub-tab-close" aria-hidden="true">${icon('close', 'xs')}</span>
         </button>`,
         )
         .join('') +
+      (dockerOpen
+        ? `<button type="button" class="sub-tab${dockerOn ? ' active' : ''}" data-sub="docker">
+          <span class="sub-tab-label">Docker</span>
+          <span class="sub-tab-close" data-close-docker aria-hidden="true">${icon('close', 'xs')}</span>
+        </button>`
+        : '') +
       `<button type="button" class="sub-tab-add" title="新建终端" aria-label="新建终端">${icon('plus', 'xs')}</button>`
+    els.subTabs.innerHTML = tabs
   }
 
   function renderTerminal(lines) {
@@ -412,12 +426,11 @@
     // Docker replaces terminal host content area like real app (terminal stays mounted under v-show)
     const subBar = els.terminalHost.querySelector('.sub-tab-bar-wrap')
     const dockerView = DEMO.dockerView
+    if (subBar) subBar.hidden = false
     if (isDockerMode(h) && dockerView) {
-      if (subBar) subBar.hidden = true
       els.mainPane.innerHTML = renderDocker(dockerView)
       bindDockerInteractions(dockerView)
     } else {
-      if (subBar) subBar.hidden = false
       els.mainPane.innerHTML = renderTerminal(h.terminal)
     }
   }
@@ -774,13 +787,10 @@
     const tool = btn.dataset.tool
 
     if (tool === 'docker') {
-      // Toggle Docker on the current SSH session (same host tab / titlebar)
-      dockerOverride[h.id] = !isDockerMode(h)
+      dockerOverride[h.id] = isDockerMode(h) ? 'open' : 'active'
       applyAppMode()
       return
     }
-
-    if (isDockerMode(h)) return
 
     if (tool === 'ai' || tool === 'sftp') {
       const cur = effectiveTool(h)
@@ -812,15 +822,26 @@
 
   els.mainPane.addEventListener('click', (e) => {
     if (e.target.closest('[data-back-terminal]')) {
-      // Exit Docker on current host → back to terminal (same session)
-      dockerOverride[activeHostId] = false
+      dockerOverride[activeHostId] = 'open'
       applyAppMode()
     }
   })
 
   els.subTabs.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-docker]')) {
+      dockerOverride[activeHostId] = false
+      applyAppMode()
+      return
+    }
     const tab = e.target.closest('.sub-tab')
     if (!tab || e.target.closest('.sub-tab-close')) return
+    if (tab.dataset.sub === 'docker') {
+      dockerOverride[activeHostId] = 'active'
+      applyAppMode()
+      return
+    }
+    dockerOverride[activeHostId] = isDockerTabOpen(host()) ? 'open' : false
+    applyAppMode()
     els.subTabs.querySelectorAll('.sub-tab').forEach((el) => el.classList.remove('active'))
     tab.classList.add('active')
   })

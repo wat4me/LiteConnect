@@ -28,6 +28,9 @@ const HINT_KEYS = [
   'ptyId',
   'jobId',
   'group',
+  'host',
+  'name',
+  'username',
 ] as const
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -262,10 +265,18 @@ function formatFromObject(name: string, obj: Record<string, unknown>, content: s
       }
     }
   }
-  if (name === 'connect' || name === 'disconnect') {
+  if (name === 'connect' || name === 'disconnect' || name === 'save_connection') {
     const host = hostLabel(obj)
+    const text =
+      obj.created === false
+        ? 'exists'
+        : obj.reused === true
+          ? 'reused'
+          : obj.closed === true
+            ? 'closed'
+            : 'ok'
     return {
-      summary: { kind: 'text', text: obj.reused === true ? 'reused' : obj.closed === true ? 'closed' : 'ok' },
+      summary: { kind: 'text', text },
       hint: host,
       body: '',
     }

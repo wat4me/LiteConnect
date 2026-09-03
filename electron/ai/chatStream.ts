@@ -14,6 +14,7 @@ import {
   type AccumulatedToolCall,
 } from './sshToolChat'
 import { serializeToolRunForHistory } from '../../shared/aiToolRunDisplay'
+import { redactToolArgsJson } from '../../shared/mcp/redactToolArgs'
 import {
   AI_TOOL_APPROVAL_TIMEOUT_MS,
   assessAiToolCall,
@@ -241,13 +242,14 @@ export async function runAiChatStream(opts: {
           boundSessionId,
         )
         const gate = assessAiToolCall(call.function.name, boundArgs, settings.toolPermission)
+        const displayArgs = redactToolArgsJson(call.function.arguments)
         send({
           type: 'tool',
           value: {
             phase: gate.action === 'ask' ? 'ask' : gate.action === 'deny' ? 'blocked' : 'running',
             id: call.id,
             name: call.function.name,
-            args: call.function.arguments,
+            args: displayArgs,
             risk: gate.risk,
             reason: gate.reason,
           },
@@ -279,7 +281,7 @@ export async function runAiChatStream(opts: {
                 phase: 'running',
                 id: call.id,
                 name: call.function.name,
-                args: call.function.arguments,
+                args: displayArgs,
                 risk: gate.risk,
                 reason: gate.reason,
               },
@@ -294,7 +296,7 @@ export async function runAiChatStream(opts: {
 
         const stored = serializeToolRunForHistory({
           name: call.function.name,
-          args: call.function.arguments,
+          args: displayArgs,
           content: result.content,
           isError: result.isError,
           structured: result.structuredContent,

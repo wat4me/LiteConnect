@@ -13,7 +13,7 @@ export const MCP_PROTOCOL_VERSIONS = [
 export const MCP_DEFAULT_PROTOCOL_VERSION = '2025-11-25'
 
 export const MCP_SERVER_INSTRUCTIONS =
-  'LiteConnect SSH tools operate on saved hosts and sessions in the LiteConnect app. Call list_connections / list_sessions first. Use connect to open a host, then exec/read_file/write_file with sessionId. Interactive installers and TUIs: pty_open, pty_write, pty_read(mode=screen), pty_close — a dedicated PTY, not the user terminal. Always disconnect when finished. exec is a non-interactive channel; for long tasks use background=true and poll get_job. Destructive and privileged commands are denied by default. Never ask for passwords or private keys.'
+  'LiteConnect SSH tools operate on hosts and sessions in the LiteConnect app. Call list_connections / list_sessions first. Use connect to open a saved host. To add a host, save_connection with host, username, and password or privateKey or useAgent=true; optionally connect=true. Then exec/read_file/write_file with sessionId. Interactive installers and TUIs: pty_open, pty_write, pty_read(mode=screen), pty_close — a dedicated PTY, not the user terminal. Always disconnect when finished. exec is a non-interactive channel; for long tasks use background=true and poll get_job. Destructive and privileged commands are denied by default. Never echo passwords or private keys in later messages.'
 
 export type McpServerInfo = { name: string; version: string }
 

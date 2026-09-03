@@ -131,6 +131,26 @@ function buildLoadTarget(connectionId?: string): { type: 'url'; url: string } | 
   return { type: 'file', file, search: '' }
 }
 
+/** Keep layout CSS pixels at 1x. Terminal font zoom is in-renderer, not Chromium zoom. */
+function lockRendererPageZoom(win: BrowserWindow): void {
+  const contents = win.webContents
+  const reset = () => {
+    if (win.isDestroyed() || contents.isDestroyed()) return
+    try {
+      if (contents.getZoomFactor() !== 1) contents.setZoomFactor(1)
+      if (contents.getZoomLevel() !== 0) contents.setZoomLevel(0)
+    } catch {
+      // ignore
+    }
+  }
+  void contents.setVisualZoomLevelLimits(1, 1).catch(() => {})
+  contents.on('did-finish-load', () => {
+    void contents.setVisualZoomLevelLimits(1, 1).catch(() => {})
+    reset()
+  })
+  contents.on('zoom-changed', reset)
+}
+
 export function createWindow(
   themeOrOptions: string | CreateWindowOptions = 'dark',
   customColorsLegacy: { fontColor: string; bgColor: string } | null = null,
@@ -176,6 +196,8 @@ export function createWindow(
   })
 
   registerWindow(mainWindow, { primary: opts.primary !== false && !isDetached })
+
+  lockRendererPageZoom(mainWindow)
 
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow.isDestroyed()) mainWindow.show()

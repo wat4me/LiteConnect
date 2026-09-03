@@ -28,7 +28,13 @@ function runtime() {
   }
   return createSshMcpRuntime({
     ssh,
-    connections: { listPublicConnections: () => [], listGroups: () => [] },
+    connections: {
+      listPublicConnections: () => [],
+      listGroups: () => [],
+      saveConnection: async () => {
+        throw new Error('unused')
+      },
+    },
   })
 }
 

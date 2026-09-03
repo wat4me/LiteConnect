@@ -48,8 +48,10 @@ const props = withDefaults(
      */
     workspaceVisible?: boolean
     disconnectedSessionIds?: Set<string>
+    dockerTabOpen?: boolean
+    dockerTabActive?: boolean
   }>(),
-  { workspaceVisible: true },
+  { workspaceVisible: true, dockerTabOpen: false, dockerTabActive: false },
 )
 
 const emit = defineEmits<{
@@ -69,6 +71,8 @@ const emit = defineEmits<{
   (e: 'start-split-resize', event: MouseEvent, container: HTMLElement): void
   (e: 'reset-split-ratio'): void
   (e: 'set-secondary-session', sessionId: string): void
+  (e: 'select-docker'): void
+  (e: 'close-docker'): void
 }>()
 
 type TerminalTabExpose = FocusableTerminalTab & { sessionId?: string }
@@ -127,6 +131,7 @@ const splitHasSecondary = computed(() => props.isSplit && !!secondarySession.val
 
 const showSessionTabs = computed(() => {
   if (!props.activeGroup || props.activeGroup.sessions.length === 0) return false
+  if (props.dockerTabOpen) return true
   return !(splitHasSecondary.value && props.activeGroup.sessions.length === 2)
 })
 
@@ -285,13 +290,17 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
       :unread-sessions="unreadSessions"
       :disconnected-session-ids="disconnectedSessionIds"
       :terminal-container="terminalContainerRef"
+      :docker-tab-open="dockerTabOpen"
+      :docker-tab-active="dockerTabActive"
       @select="emit('select-session', $event)"
       @close="emit('close-session', $event)"
       @add="emit('add-session', $event)"
+      @select-docker="emit('select-docker')"
+      @close-docker="emit('close-docker')"
       @split-preview="onDragSplitPreview"
       @split-commit="onDragSplitCommit"
     >
-      <template #actions>
+      <template v-if="!dockerTabActive" #actions>
         <div class="terminal-layout-actions">
           <span class="layout-action-label">{{ t('terminal.layout') }}</span>
           <button
@@ -353,6 +362,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
     </div>
 
     <div
+      v-show="!dockerTabActive"
       ref="terminalContainerRef"
       class="terminal-container"
       :class="{
@@ -477,6 +487,10 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
         <div class="split-divider-handle"></div>
       </div>
     </div>
+
+    <div v-show="dockerTabActive" class="docker-pane-host">
+      <slot name="docker-pane" />
+    </div>
   </div>
 </template>
 
@@ -541,6 +555,20 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
   flex: 1;
   position: relative;
   overflow: hidden;
+  min-height: 0;
+}
+
+.docker-pane-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.docker-pane-host > :deep(.docker-workspace) {
+  flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 

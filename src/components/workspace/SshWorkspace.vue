@@ -73,8 +73,10 @@ const props = defineProps<{
   secondarySessionId: string | null
   secondarySide: SplitSide
 
-  /** Workspace mode: docker hides side panels and fills remaining width. */
+  /** Docker sub-tab is selected (main pane shows Docker, not a PTY). */
   dockerMode?: boolean
+  /** Docker sub-tab exists on the current host (selected or not). */
+  dockerTabOpen?: boolean
   dockerButtonEnabled?: boolean
   /** SSH closed for active session (still open tab). */
   activeSessionSshDisconnected?: boolean
@@ -88,6 +90,9 @@ const emit = defineEmits<{
   (e: 'toggle-batch'): void
   (e: 'toggle-snippets'): void
   (e: 'toggle-docker'): void
+  (e: 'select-docker'): void
+  (e: 'close-docker'): void
+  (e: 'back-to-terminal'): void
   (e: 'close-ai'): void
   (e: 'close-files'): void
   (e: 'close-monitor'): void
@@ -118,7 +123,6 @@ const emit = defineEmits<{
   (e: 'set-secondary-session', sessionId: string): void
   (e: 'send-to-batch', command: string): void
   (e: 'clear-batch-initial'): void
-  (e: 'back-to-terminal'): void
 }>()
 
 const terminalWorkspaceRef = ref<{
@@ -149,7 +153,12 @@ watch(
   },
 )
 
-const showSidePanels = () => !props.dockerMode
+const showSidePanels = () => true
+
+function onSelectTerminal(sessionId: string) {
+  if (props.dockerMode) emit('back-to-terminal')
+  emit('select-session', sessionId)
+}
 
 watch(
   () => props.monitorVisible,
@@ -170,8 +179,8 @@ watch(
       :show-ai-unread="showAiUnread"
       :active-transfers="globalActiveTransfers"
       :docker-active="!!dockerMode"
-      :docker-disabled="!dockerButtonEnabled && !dockerMode"
-      :side-panels-disabled="!!dockerMode"
+      :docker-disabled="!dockerButtonEnabled && !dockerTabOpen"
+      :side-panels-disabled="false"
       @toggle-ai="emit('toggle-ai')"
       @toggle-files="emit('toggle-files')"
       @toggle-monitor="emit('toggle-monitor')"
@@ -231,8 +240,7 @@ watch(
     ></div>
 
     <div class="workspace-main">
-      <!-- Keep TerminalWorkspace mounted (v-show) so xterm is never destroyed in Docker mode -->
-      <div v-show="!dockerMode" class="terminal-host">
+      <div class="terminal-host">
         <TerminalWorkspace
           ref="terminalWorkspaceRef"
           :active-group="activeGroup"
@@ -252,7 +260,9 @@ watch(
           :secondary-side="secondarySide"
           :workspace-visible="!dockerMode"
           :disconnected-session-ids="disconnectedSessionIds"
-          @select-session="emit('select-session', $event)"
+          :docker-tab-open="!!dockerTabOpen"
+          :docker-tab-active="!!dockerMode"
+          @select-session="onSelectTerminal"
           @close-session="emit('close-session', $event)"
           @add-session="emit('add-session', $event)"
           @session-closed="emit('session-closed', $event)"
@@ -268,24 +278,23 @@ watch(
           @start-split-resize="(e, el) => emit('start-split-resize', e, el)"
           @reset-split-ratio="emit('reset-split-ratio')"
           @set-secondary-session="emit('set-secondary-session', $event)"
-        />
+          @select-docker="emit('select-docker')"
+          @close-docker="emit('close-docker')"
+        >
+          <template #docker-pane>
+            <KeepAlive :max="12">
+              <DockerWorkspace
+                v-if="dockerTabOpen && activeSessionId && activeGroup"
+                :key="activeGroup.connectionId"
+                :session-id="activeSessionId"
+                :ssh-disconnected="!!activeSessionSshDisconnected"
+                @back-to-terminal="emit('back-to-terminal')"
+                @reconnect="activeSessionId && emit('reconnect', activeSessionId)"
+              />
+            </KeepAlive>
+          </template>
+        </TerminalWorkspace>
       </div>
-
-      <!--
-        Per-session KeepAlive: A in Docker → switch to B terminal → back to A
-        must restore the same DockerWorkspace instance (list/selection/scroll),
-        not remount and re-probe. key=sessionId so modes never leak across sessions.
-      -->
-      <KeepAlive :max="12">
-        <DockerWorkspace
-          v-if="dockerMode && activeSessionId"
-          :key="activeSessionId"
-          :session-id="activeSessionId"
-          :ssh-disconnected="!!activeSessionSshDisconnected"
-          @back-to-terminal="emit('back-to-terminal')"
-          @reconnect="activeSessionId && emit('reconnect', activeSessionId)"
-        />
-      </KeepAlive>
 
       <div
         v-if="showSidePanels() && monitorVisible && activeGroup && activeGroup.sessions.length > 0"

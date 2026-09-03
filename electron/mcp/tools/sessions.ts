@@ -1,6 +1,7 @@
 import { MCP_MIN_IDLE_DISCONNECT_MS } from '../../../shared/mcp/limits'
 import type { SshMcpGroup, SshMcpPublicConnection, SshMcpSessionSnapshot, SshMcpToolResult } from '../../../shared/mcp/types'
 import { isValidUUID } from '../../utils/validation'
+import { parseSaveConnectionInput } from '../saveConnectionInput'
 import type { McpRuntimeHost } from '../runtimeHost'
 
 export function listConnections(host: McpRuntimeHost): { connections: SshMcpPublicConnection[] } {
@@ -110,6 +111,49 @@ export async function connectSaved(host: McpRuntimeHost, input: Record<string, u
     if (message === 'CONNECT_UNAVAILABLE') return host.error('CONNECT_UNAVAILABLE', 'LiteConnect has no open window to complete the connection')
     if (message === 'CONNECT_FAILED') return host.error('CONNECT_FAILED', 'SSH connect failed')
     return host.error('CONNECT_FAILED', message)
+  }
+}
+
+export async function saveConnection(host: McpRuntimeHost, input: Record<string, unknown>): Promise<SshMcpToolResult> {
+  const parsed = parseSaveConnectionInput(input)
+  if (!parsed.ok) return host.error(parsed.code, parsed.message)
+  const draft = parsed.value
+  try {
+    const saved = await host.connections.saveConnection({
+      name: draft.name,
+      host: draft.host,
+      port: draft.port,
+      username: draft.username,
+      password: draft.password,
+      privateKey: draft.privateKey,
+      useAgent: draft.useAgent,
+      group: draft.group,
+      note: draft.note,
+    })
+    if (!draft.connect) return host.ok(saved)
+    const opened = await connectSaved(host, { connectionId: saved.id })
+    if (opened.isError) {
+      return host.ok({
+        ...saved,
+        connectError: opened.structuredContent,
+      })
+    }
+    const session = opened.structuredContent as { sessionId?: string; reused?: boolean; generation?: number }
+    return host.ok({
+      ...saved,
+      sessionId: session.sessionId,
+      reused: session.reused,
+      generation: session.generation,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message === 'CONNECTION_NAME_TAKEN') {
+      return host.error(
+        'CONNECTION_NAME_TAKEN',
+        'A different host is already saved under this name; pick another name',
+      )
+    }
+    return host.error('TOOL_FAILED', message)
   }
 }
 

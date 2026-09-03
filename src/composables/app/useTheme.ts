@@ -510,6 +510,7 @@ export const KEYBOARD_SHORTCUTS: Array<{ keys: string; descKey: string; scopeKey
   { keys: 'Ctrl+Shift+M', descKey: 'settingsShortcuts.items.toggleMonitor', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+Shift+B', descKey: 'settingsShortcuts.items.toggleBatch', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+Shift+S', descKey: 'settingsShortcuts.items.toggleSnippets', scopeKey: 'settingsShortcuts.scopes.workspace' },
+  { keys: 'Ctrl+Shift+D', descKey: 'settingsShortcuts.items.toggleDocker', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+K', descKey: 'settingsShortcuts.items.snippetQuickRun', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+P', descKey: 'settingsShortcuts.items.commandPalette', scopeKey: 'settingsShortcuts.scopes.global' },
   { keys: 'Ctrl+Shift+T', descKey: 'settingsShortcuts.items.newSubSession', scopeKey: 'settingsShortcuts.scopes.workspace' },

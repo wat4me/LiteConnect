@@ -1,5 +1,6 @@
 import type { ComputedRef, Ref } from 'vue'
 import type { ConnectionGroup } from '@/domain/session/types'
+import { isBrowserPageZoomKey } from '@/utils/terminal/terminalFontZoom'
 
 export function useAppKeyboard(deps: {
   isHomeActive: ComputedRef<boolean>
@@ -11,6 +12,7 @@ export function useAppKeyboard(deps: {
   toggleMonitor: () => void
   toggleBatchPanel: () => void
   toggleSnippetsPanel?: () => void
+  toggleDocker?: () => void
   openSnippetPalette?: () => void
   openJumpPalette?: () => void
   openShortcutsHelp?: () => void
@@ -24,6 +26,7 @@ export function useAppKeyboard(deps: {
   onDecryptionDismiss?: () => void
 }) {
   function isTypingTarget(target: EventTarget | null): boolean {
+    if (!target || typeof HTMLElement === 'undefined') return false
     if (!(target instanceof HTMLElement)) return false
     const tag = target.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
@@ -67,6 +70,14 @@ export function useAppKeyboard(deps: {
 
     const mod = e.ctrlKey || e.metaKey
     if (!mod) return
+
+    // Chromium page zoom (Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0) scales the whole
+    // SSH chrome. Terminal font zoom is handled on the xterm textarea; this
+    // only cancels the browser default (also when focus is not in the terminal).
+    if (isBrowserPageZoomKey(e)) {
+      e.preventDefault()
+      return
+    }
 
     const key = e.key.toLowerCase()
 
@@ -135,6 +146,13 @@ export function useAppKeyboard(deps: {
       return
     }
 
+    // Ctrl+Shift+D — Docker 工作区（顶栏独立模块，也可从数据库页切过去）
+    if (key === 'd' && e.shiftKey) {
+      e.preventDefault()
+      deps.toggleDocker?.()
+      return
+    }
+
     // Ctrl+Shift+T — 新建子会话
     if (key === 't' && e.shiftKey) {
       if (!isTerminalContext()) return
@@ -168,5 +186,14 @@ export function useAppKeyboard(deps: {
     }
   }
 
-  return { handleKeydown }
+  function handleWheel(e: WheelEvent) {
+    if (e.ctrlKey || e.metaKey) e.preventDefault()
+  }
+
+  /** Capture: cancel Chromium zoom before the default action. Does not stopPropagation. */
+  function handlePageZoomKeydown(e: KeyboardEvent) {
+    if (isBrowserPageZoomKey(e)) e.preventDefault()
+  }
+
+  return { handleKeydown, handleWheel, handlePageZoomKeydown }
 }

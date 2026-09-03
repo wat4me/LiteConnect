@@ -25,6 +25,11 @@ import {
   buildPastePreview,
 } from '@/utils/terminal/terminalPaste'
 import { canMeasureTerminal } from '@/utils/terminal/terminalResizePolicy'
+import {
+  isTerminalFontZoomInKey,
+  isTerminalFontZoomOutKey,
+  stepTerminalFontSize,
+} from '@/utils/terminal/terminalFontZoom'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import type { DockerExecShell } from '../../env.d'
 
@@ -357,6 +362,18 @@ function createXterm(): void {
 
   terminal.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== 'keydown') return true
+    if (isTerminalFontZoomInKey(ev) || isTerminalFontZoomOutKey(ev)) {
+      ev.preventDefault()
+      const delta = isTerminalFontZoomInKey(ev) ? 1 : -1
+      const next = stepTerminalFontSize(fontSize.value, delta)
+      if (next !== fontSize.value) {
+        fontSize.value = next
+        if (terminal) terminal.options.fontSize = next
+        window.LiteConnect.setTerminalFontSize(next).catch(() => {})
+        scheduleRefresh()
+      }
+      return false
+    }
     if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'f' || ev.key === 'F')) {
       ev.preventDefault()
       toggleSearch()
