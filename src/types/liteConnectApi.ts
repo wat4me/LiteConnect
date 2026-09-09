@@ -2,6 +2,7 @@ import type {
   AiChatMessage,
   AiChatResult,
   AiChatStreamPayload,
+  AiChatStreamOptions,
   AiHistoryRecord,
   AiSessionStore,
   AiSettings,
@@ -189,7 +190,7 @@ export interface LiteConnectApi {
   aiChatStream: (
     requestId: string,
     messages: AiChatMessage[],
-    opts?: { sessionId?: string; cwd?: string },
+    opts: AiChatStreamOptions,
   ) => Promise<AiChatResult>
   aiAbortChatStream: (requestId: string) => Promise<boolean>
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) => Promise<boolean>
@@ -216,7 +217,7 @@ export interface LiteConnectApi {
       titleGenerated?: boolean
     },
   ) => Promise<AiSessionStore>
-  appendAiSessionHistory: (sessionId: string, record: AiHistoryRecord) => Promise<void>
+  appendAiSessionHistory: (sessionId: string, record: AiHistoryRecord, threadId?: string) => Promise<void>
   clearAiSessionHistory: (sessionId: string) => Promise<void>
   onAiChatStream: (requestId: string, callback: (payload: AiChatStreamPayload) => void) => () => void
 

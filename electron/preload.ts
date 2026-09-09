@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { AiChatStreamOptions } from '../shared/types/ai'
 
 contextBridge.exposeInMainWorld('LiteConnect', {
   getAppBootstrap: () => ipcRenderer.invoke('app:getBootstrap'),
@@ -115,7 +116,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   switchAiModel: (providerId: string, model: string) => ipcRenderer.invoke('settings:switchAiModel', providerId, model),
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => ipcRenderer.invoke('ai:testProvider', provider),
   aiChat: (messages: any[]) => ipcRenderer.invoke('ai:chat', messages),
-  aiChatStream: (requestId: string, messages: any[], opts?: { sessionId?: string; cwd?: string }) =>
+  aiChatStream: (requestId: string, messages: any[], opts: AiChatStreamOptions) =>
     ipcRenderer.invoke('ai:chatStream', requestId, messages, opts),
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) =>
@@ -140,7 +141,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
       titleGenerated?: boolean
     },
   ) => ipcRenderer.invoke('ai:createConversation', sessionId, payload),
-  appendAiSessionHistory: (sessionId: string, record: any) => ipcRenderer.invoke('ai:appendSessionHistory', sessionId, record),
+  appendAiSessionHistory: (sessionId: string, record: any, threadId?: string) =>
+    ipcRenderer.invoke('ai:appendSessionHistory', sessionId, record, threadId),
   clearAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:clearSessionHistory', sessionId),
   onAiChatStream: (requestId: string, callback: (payload: any) => void) => {
     const channel = `ai:chatStream:${requestId}`

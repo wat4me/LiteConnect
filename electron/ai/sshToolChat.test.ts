@@ -66,6 +66,7 @@ describe('sshToolChat helpers', () => {
     expect(text.endsWith('当前工作目录: /var/www/app。未写绝对路径时默认相对此目录。')).toBe(true)
     expect(sanitizeTrackedCwd('  /tmp  ')).toBe('/tmp')
     expect(sanitizeTrackedCwd('a\nb')).toBe('')
+    expect(sanitizeTrackedCwd('v/v5-automation-servers')).toBe('')
   })
 
   it('requires a declared risk on exec but not on inventory tools', () => {

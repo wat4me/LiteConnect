@@ -1,23 +1,8 @@
 import { ipcMain } from 'electron'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
-import {
-  isContextLengthError,
-  resolveContextWindowTokens,
-} from '../../shared/aiContext'
 import type { SshMcpRuntime } from '../mcp/runtime'
-import {
-  extractAiUsage,
-  getAiChatCompletionsUrl,
-  getFirstString,
-  normalizeAiContent,
-  packRequestMessages,
-  readHttpErrorMessage,
-  testAiProviderConfig,
-  toApiChatMessages,
-  validateAiMessages,
-  validateAiSettings,
-} from '../ai/providerHttp'
+import { testAiProviderConfig, validateAiSettings } from '../ai/providerHttp'
 import {
   createNewConversationAtomic,
   getActiveThread,
@@ -28,11 +13,16 @@ import {
   writeAiHistoryRecords,
   writeAiSessionStore,
 } from '../ai/historyStore'
-import { abortAiChatStream, resolveToolApproval, runAiChatStream } from '../ai/chatStream'
+import { abortAiChatStream, createAiStreamControl, resolveToolApproval, runAiChatStream } from '../ai/chatStream'
 import { generateConversationTitle } from '../ai/conversationTitle'
+import type { AiChatStreamOptions } from '../../shared/types/ai'
+import { runAiChatCompletion } from '../ai/chatCompletion'
+import { runPersistedAiReply } from '../ai/streamPersistence'
+import { createStreamPublisher } from '../ai/streamPublisher'
 
 export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?: SshMcpRuntime): void {
   const ensureSettingsReady = () => settingsStore.init().then(() => settingsStore.initMigrations())
+  const runningSessions = new Set<string>()
 
   ipcMain.handle('settings:getAiSettings', async () => {
     await ensureSettingsReady()
@@ -100,8 +90,8 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
     }
   })
 
-  ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any) => {
-    await upsertAiHistoryRecord(sessionId, record)
+  ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any, threadId?: string) => {
+    await upsertAiHistoryRecord(sessionId, record, typeof threadId === 'string' ? threadId : undefined)
   })
 
   ipcMain.handle('ai:clearSessionHistory', async (_event, sessionId: string) => {
@@ -110,85 +100,47 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
 
   ipcMain.handle('ai:chat', async (_event, messages: any) => {
     await ensureSettingsReady()
-    const settings = settingsStore.getAiResolvedConfig()
-    const chatMessages = validateAiMessages(messages)
-    if (!settings.apiKey.trim()) {
-      throw new Error(t('ai.apiKeyRequired'))
-    }
-
-    const postChat = (packed: ReturnType<typeof packRequestMessages>) =>
-      fetch(getAiChatCompletionsUrl(settings.baseUrl), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: settings.model,
-          temperature: settings.temperature ?? 0.7,
-          messages: toApiChatMessages(packed, false),
-        }),
-      })
-
-    let packed = packRequestMessages(settings, chatMessages)
-    let response = await postChat(packed)
-    if (!response.ok) {
-      const message = await readHttpErrorMessage(
-        response,
-        t('ai.requestFailed', { status: response.status }),
-      )
-      if (!isContextLengthError(message)) throw new Error(message)
-      packed = packRequestMessages(
-        settings,
-        chatMessages,
-        Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
-      )
-      response = await postChat(packed)
-      if (!response.ok) {
-        throw new Error(await readHttpErrorMessage(response, message))
-      }
-    }
-
-    const data = await response.json()
-    const choice = data?.choices?.[0]
-    const message = choice?.message || {}
-    const content = normalizeAiContent(message.content ?? choice?.text)
-    if (!content) {
-      throw new Error(t('ai.noMessageContent'))
-    }
-    const reasoningContent = getFirstString(
-      message.reasoning_content,
-      message.reasoning,
-      message.thinking,
-      choice?.reasoning_content,
-      choice?.reasoning,
-      choice?.thinking,
-      data?.reasoning_content,
-      data?.reasoning,
-    )
-    return {
-      content,
-      reasoningContent: reasoningContent || undefined,
-      usage: extractAiUsage(data?.usage),
-    }
+    return runAiChatCompletion(settingsStore.getAiResolvedConfig(), messages)
   })
 
-  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any, opts?: { sessionId?: string; cwd?: string }) => {
-    await ensureSettingsReady()
-    const settings = settingsStore.getAiResolvedConfig()
-    if (!settings.apiKey.trim()) {
-      throw new Error(t('ai.apiKeyRequired'))
+  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any, opts: AiChatStreamOptions) => {
+    if (!opts || typeof opts.sessionId !== 'string' || !opts.sessionId ||
+      typeof opts.threadId !== 'string' || !opts.threadId ||
+      typeof opts.assistantMessageId !== 'string' || !opts.assistantMessageId ||
+      typeof opts.createdAt !== 'number' || !Number.isFinite(opts.createdAt)) {
+      throw new Error('Invalid AI history target')
     }
-    return runAiChatStream({
-      event,
-      requestId,
-      messages,
-      sessionId: opts?.sessionId,
-      cwd: typeof opts?.cwd === 'string' ? opts.cwd : undefined,
-      settings,
-      sshMcpRuntime,
-      getToolPermission: () => settingsStore.getAiResolvedConfig().toolPermission,
+    const target = { ...opts }
+    if (runningSessions.has(target.sessionId)) throw new Error('An AI reply is already running for this session')
+    const control = createAiStreamControl(requestId)
+    runningSessions.add(target.sessionId)
+    const publisher = createStreamPublisher((payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send(`ai:chatStream:${requestId}`, payload)
     })
+    try {
+      return await runPersistedAiReply({
+        target,
+        save: (record) => upsertAiHistoryRecord(target.sessionId, record, target.threadId),
+        publish: publisher.publish,
+        run: async (emit, checkpoint) => {
+          control.controller.signal.throwIfAborted()
+          await ensureSettingsReady()
+          const settings = settingsStore.getAiResolvedConfig()
+          if (!settings.apiKey.trim()) throw new Error(t('ai.apiKeyRequired'))
+          return runAiChatStream({
+            emit, checkpoint, requestId, messages, abortController: control.controller,
+            sessionId: target.sessionId,
+            cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
+            settings, sshMcpRuntime,
+            getToolPermission: () => settingsStore.getAiResolvedConfig().toolPermission,
+          })
+        },
+      })
+    } finally {
+      publisher.flush()
+      control.cleanup()
+      runningSessions.delete(target.sessionId)
+    }
   })
 
   ipcMain.handle('ai:abortChatStream', async (_event, requestId: string) => {

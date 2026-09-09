@@ -13,6 +13,8 @@ export function sanitizeTrackedCwd(raw: unknown): string {
   const cwd = raw.trim()
   if (!cwd || cwd.length > 4096) return ''
   if (/[\0\r\n]/.test(cwd)) return ''
+  // Relative leftovers like `v/v5-automation-servers` become `/v/...` if we prefix blindly.
+  if (!cwd.startsWith('/')) return ''
   return cwd
 }
 

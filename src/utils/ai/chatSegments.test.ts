@@ -11,9 +11,10 @@ describe('appendTextSegment', () => {
   })
 
   it('concatenates into the tail when the kind matches', () => {
-    expect(appendTextSegment([{ kind: 'content', text: '先看' }], 'content', '磁盘')).toEqual([
-      { kind: 'content', text: '先看磁盘' },
-    ])
+    const segs = [{ kind: 'content' as const, text: '先看' }]
+    const next = appendTextSegment(segs, 'content', '磁盘')
+    expect(next).toBe(segs)
+    expect(next).toEqual([{ kind: 'content', text: '先看磁盘' }])
   })
 
   it('starts a new content block after a tool instead of merging with the preface', () => {

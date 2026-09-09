@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSftpNavigation } from './useSftpNavigation'
+import { clearSftpListedCwd, getSftpListedCwd } from './sftpListedCwd'
 
 describe('useSftpNavigation locate / follow cwd', () => {
   const originalWindow = globalThis.window
@@ -43,6 +44,7 @@ describe('useSftpNavigation locate / follow cwd', () => {
   afterEach(() => {
     bus.removeEventListener('request-terminal-pwd', onPwdRequest)
     globalThis.window = originalWindow
+    clearSftpListedCwd('sess-1')
   })
 
   function nav() {
@@ -60,6 +62,7 @@ describe('useSftpNavigation locate / follow cwd', () => {
     await api.initSftp()
     const readsAfterInit = sftpReaddir.mock.calls.length
     expect(api.currentPath.value).toBe('/home/u')
+    expect(getSftpListedCwd('sess-1')).toBe('/home/u')
 
     const ok = await api.syncCwdForce()
     expect(ok).toBe(true)

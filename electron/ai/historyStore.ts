@@ -457,10 +457,11 @@ export async function writeAiHistoryRecords(sessionId: string, records: AiHistor
   })
 }
 
-export async function upsertAiHistoryRecord(sessionId: string, record: any): Promise<void> {
+export async function upsertAiHistoryRecord(sessionId: string, record: any, threadId?: string): Promise<void> {
   const next = normalizeAiHistoryRecord(record)
   await mutateAiSessionStore(sessionId, (store) => {
-    const active = getActiveThread(store)
+    const active = threadId ? store.threads.find((thread) => thread.id === threadId) : getActiveThread(store)
+    if (!active) throw new Error('AI conversation no longer exists')
     const idx = active.messages.findIndex((r) => r.id === next.id)
     if (idx >= 0) active.messages[idx] = next
     else active.messages.push(next)

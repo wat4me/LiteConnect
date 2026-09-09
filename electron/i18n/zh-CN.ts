@@ -90,6 +90,8 @@ export default {
     noStreamBody: 'AI 响应未包含流数据',
     apiKeyRequired: '请先配置 AI API 密钥',
     requestFailed: 'AI 请求失败 ({status})',
+    stopped: '已停止生成',
+    requestInterrupted: 'AI 请求中断',
     needUserMessage: '请先发送一条用户消息',
     titleGenerateEmpty: '模型未返回有效标题',
     titleGenerateTimeout: '生成标题超时',

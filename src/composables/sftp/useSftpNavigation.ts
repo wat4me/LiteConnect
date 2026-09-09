@@ -9,6 +9,7 @@ import {
   shouldReloadSftpListing,
   uniqueCleanPaths,
 } from '@/utils/sftp/sftpCwdSync'
+import { setSftpListedCwd } from './sftpListedCwd'
 
 /** Friendlier empty-dir / permission / not-found copy for SFTP readdir failures */
 function formatSftpError(raw: unknown, path: string): string {
@@ -144,6 +145,7 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
       currentPath.value = cleanPath
       pathInput.value = cleanPath
       files.value = filtered
+      setSftpListedCwd(sessionId(), cleanPath)
       return true
     } catch (err: any) {
       if (loadId !== pendingLoadId) return false

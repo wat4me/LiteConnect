@@ -1,4 +1,4 @@
-import { computed, inject, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
   AiChatMessage,
@@ -19,7 +19,7 @@ import { flattenConversationForApi } from '@shared/aiMessages'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
 import { syncAiApprovalPending } from './useAiApprovalHint'
 import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
-import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import { getSftpListedCwd } from '@/composables/sftp/sftpListedCwd'
 
 export type ChatItem = {
   id: string
@@ -83,13 +83,9 @@ function getAiSessionState(sessionId: string): AiSessionState {
 }
 
 export function useAiChat() {
-  const pwdTracker = inject<TerminalPwdTracker | undefined>('pwdTracker', undefined)
-
   function cwdForSession(sessionId: string): string | undefined {
-    const raw = pwdTracker?.getPwd(sessionId)
-    if (typeof raw !== 'string') return undefined
-    const cwd = raw.trim()
-    if (!cwd || cwd.length > 4096 || /[\0\r\n]/.test(cwd)) return undefined
+    const cwd = getSftpListedCwd(sessionId).trim()
+    if (!cwd.startsWith('/') || cwd.length > 4096 || /[\0\r\n]/.test(cwd)) return undefined
     return cwd
   }
 
@@ -425,10 +421,14 @@ export function useAiChat() {
     }
   }
 
-  async function persistMessage(sessionId: string, message: ChatItem) {
+  async function persistMessage(sessionId: string, message: ChatItem, threadId?: string) {
     try {
-      // toHistoryRecord already strips Proxies; cloneForIpc is a final IPC safety net
-      await window.LiteConnect.appendAiSessionHistory(sessionId, cloneForIpc(toHistoryRecord(message)))
+      const targetThreadId = threadId || getAiSessionState(sessionId).activeThreadId
+      await window.LiteConnect.appendAiSessionHistory(
+        sessionId,
+        cloneForIpc(toHistoryRecord(message)),
+        targetThreadId || undefined,
+      )
       const state = getAiSessionState(sessionId)
       // Keep local thread title/meta roughly in sync without full reload
       const current = state.threads.find((t) => t.id === state.activeThreadId)
@@ -540,38 +540,17 @@ export function useAiChat() {
     setSessionLoading(sessionId, true)
 
     const assistantMessage = createMessage('assistant', '', false, { streaming: true })
+    assistantMessage.segments = []
+    assistantMessage.toolRuns = []
     state.messages.push(assistantMessage)
     onUpdate(state.messages)
     const assistantIndex = state.messages.length - 1
 
     const getAssistantMessage = () => state.messages[assistantIndex] || assistantMessage
-    let checkpointTimer: ReturnType<typeof setTimeout> | null = null
-    let checkpointInFlight: Promise<void> | null = null
-
-    const scheduleAssistantCheckpoint = () => {
-      if (checkpointTimer) clearTimeout(checkpointTimer)
-      checkpointTimer = setTimeout(() => {
-        checkpointTimer = null
-        const msg = getAssistantMessage()
-        if (!msg.content && !msg.reasoningContent) return
-        const p: Promise<void> = persistMessage(sessionId, { ...msg, streaming: false }).then(
-          () => undefined,
-          () => undefined,
-        )
-        checkpointInFlight = p.finally(() => {
-          if (checkpointInFlight === p) checkpointInFlight = null
-        })
-      }, 1200)
-    }
-
     const updateAssistantMessage = (patch: Partial<ChatItem>) => {
       const current = getAssistantMessage()
-      state.messages.splice(assistantIndex, 1, { ...current, ...patch })
-      onUpdate(state.messages)
+      Object.assign(current, patch)
       if (patch.toolRuns) refreshApprovalPending(sessionId)
-      if (patch.content !== undefined || patch.reasoningContent !== undefined) {
-        scheduleAssistantCheckpoint()
-      }
     }
 
     try {
@@ -581,48 +560,52 @@ export function useAiChat() {
       activeStreamUnsubscribe = window.LiteConnect.onAiChatStream(requestId, (payload: AiChatStreamPayload) => {
         const current = getAssistantMessage()
         if (payload.type === 'content') {
-          updateAssistantMessage({
-            content: current.content + payload.value,
-            segments: appendTextSegment(current.segments, 'content', payload.value),
-          })
+          current.content += payload.value
+          if (!current.segments) current.segments = []
+          appendTextSegment(current.segments, 'content', payload.value)
         } else if (payload.type === 'reasoning') {
-          updateAssistantMessage({
-            reasoningContent: (current.reasoningContent || '') + payload.value,
-            segments: appendTextSegment(current.segments, 'reasoning', payload.value),
-          })
+          current.reasoningContent = (current.reasoningContent || '') + payload.value
+          if (!current.segments) current.segments = []
+          appendTextSegment(current.segments, 'reasoning', payload.value)
         } else if (payload.type === 'usage') {
-          // Store a plain copy — reactive() would wrap nested objects as Proxies
-          updateAssistantMessage({ usage: plainUsage(payload.value) })
+          current.usage = plainUsage(payload.value)
         } else if (payload.type === 'tool') {
-          const runs = [...(current.toolRuns || [])]
           const incoming = payload.value
+          if (!current.toolRuns) current.toolRuns = []
+          const runs = current.toolRuns
           const idx = runs.findIndex((r) => r.id === incoming.id)
           const status =
             incoming.status ||
             (incoming.phase === 'start' ? 'running' : incoming.phase === 'done' ? 'done' : incoming.phase)
+          const prev = idx >= 0 ? runs[idx] : undefined
           const nextRun: AiToolRun = {
             id: incoming.id,
-            name: incoming.name || (idx >= 0 ? runs[idx].name : ''),
-            args: incoming.args ?? (idx >= 0 ? runs[idx].args : ''),
-            content: incoming.content ?? (idx >= 0 ? runs[idx].content : '') ?? '',
+            name: incoming.name || prev?.name || '',
+            args: incoming.args ?? prev?.args ?? '',
+            content: incoming.content ?? prev?.content ?? '',
             isError:
               incoming.isError === true ||
               incoming.phase === 'denied' ||
               incoming.phase === 'blocked' ||
               incoming.phase === 'reclassify',
             status,
-            risk: incoming.risk ?? (idx >= 0 ? runs[idx].risk : undefined),
-            reason: incoming.reason ?? (idx >= 0 ? runs[idx].reason : undefined),
+            risk: incoming.risk ?? prev?.risk,
+            reason: incoming.reason ?? prev?.reason,
           }
-          if (idx >= 0) runs[idx] = { ...runs[idx], ...nextRun }
+          if (idx >= 0) Object.assign(runs[idx], nextRun)
           else runs.push(nextRun)
-          updateAssistantMessage({ toolRuns: runs, segments: ensureToolSegments(current.segments, runs) })
+          if (!current.segments) current.segments = []
+          ensureToolSegments(current.segments, runs)
+          refreshApprovalPending(sessionId)
         }
       })
 
       try {
         const reply = await window.LiteConnect.aiChatStream(requestId, requestMessages, {
           sessionId,
+          threadId: state.activeThreadId,
+          assistantMessageId: assistantMessage.id,
+          createdAt: assistantMessage.createdAt,
           cwd: cwdForSession(sessionId),
         })
         const current = getAssistantMessage()
@@ -634,9 +617,9 @@ export function useAiChat() {
           reasoningContent: reply.reasoningContent || current.reasoningContent,
           usage: plainUsage(reply.usage || current.usage),
           toolRuns: finalToolRuns,
-          segments: ensureToolSegments(current.segments, finalToolRuns),
+          segments: plainSegments(reply.segments) || ensureToolSegments(current.segments, finalToolRuns),
           apiMessages: finalApiMessages,
-          error: aborted && !reply.content && !current.content ? false : current.error,
+          error: reply.error === true,
         })
       } finally {
         activeStreamUnsubscribe?.()
@@ -645,54 +628,24 @@ export function useAiChat() {
         activeStreamSessionId = null
       }
     } catch (err: any) {
+      // Transport/storage failures are shown locally; main owns all assistant writes.
       const current = getAssistantMessage()
-      const aborted = err?.name === 'AbortError' || /abort|取消|停止/i.test(String(err?.message || ''))
-      if (aborted) {
-        updateAssistantMessage({
-          content: current.content || t('ai.stopped'),
-        })
-      } else if (!current.content && !current.reasoningContent) {
-        try {
-          const reply = await window.LiteConnect.aiChat(requestMessages)
-          updateAssistantMessage({
-            content: reply.content,
-            reasoningContent: reply.reasoningContent,
-            usage: plainUsage(reply.usage),
-            apiMessages: [
-              {
-                role: 'assistant',
-                content: reply.content,
-                ...(reply.reasoningContent ? { reasoningContent: reply.reasoningContent } : {}),
-              },
-            ],
-          })
-        } catch (fallbackErr: any) {
-          updateAssistantMessage({
-            content: sanitizeAiErrorMessage(fallbackErr?.message || err?.message || t('ai.requestFailed')),
-            error: true,
-          })
-        }
-      } else {
-        updateAssistantMessage({
-          content: `${current.content}\n\n${sanitizeAiErrorMessage(err?.message || t('ai.requestInterrupted'))}`,
-          error: true,
-        })
-      }
+      const detail = sanitizeAiErrorMessage(err?.message || t('ai.requestFailed'))
+      const suffix = `${current.content ? '\n\n' : ''}${detail}`
+      if (!current.segments) current.segments = []
+      appendTextSegment(current.segments, 'content', suffix)
+      updateAssistantMessage({ content: current.content + suffix, error: true })
     } finally {
-      if (checkpointTimer) {
-        clearTimeout(checkpointTimer)
-        checkpointTimer = null
-      }
+      activeStreamUnsubscribe?.()
+      activeStreamUnsubscribe = null
       activeRequestId = null
       activeStreamSessionId = null
       updateAssistantMessage({ streaming: false })
-      state.persisting = true
-      try {
-        if (checkpointInFlight) await checkpointInFlight
-        await persistMessage(sessionId, getAssistantMessage())
-      } finally {
-        state.persisting = false
-        setSessionLoading(sessionId, false)
+      setSessionLoading(sessionId, false)
+      const summary = state.threads.find(thread => thread.id === state.activeThreadId)
+      if (summary) {
+        summary.messageCount = state.messages.length
+        summary.updatedAt = Date.now()
       }
     }
     const finalAssistant = getAssistantMessage()
@@ -734,7 +687,7 @@ export function useAiChat() {
     const userMessage = createMessage('user', content)
     state.messages.push(userMessage)
     onUpdate(state.messages)
-    await persistMessage(sessionId, userMessage)
+    await persistMessage(sessionId, userMessage, state.activeThreadId)
     return ensureAssistantReply(sessionId, onUpdate)
   }
 

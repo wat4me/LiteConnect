@@ -8,13 +8,12 @@ import { useMarkdownRenderer, type MarkdownBlock } from '@/composables/ai/useMar
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import type { ChatItem } from '../../composables/ai/useAiChat'
 import {
-  formatToolRunArgs,
-  formatToolRunDisplay,
   toolRunDefaultOpen,
   type ToolRunSummary,
 } from '@shared/aiToolRunDisplay'
 import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { activeTimelineTurnId, collectChatTimelineTurns } from '@/utils/ai/chatTimeline'
+import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -224,13 +223,7 @@ function toolRunKey(message: ChatItem, run: AiToolRun): string {
   return `${message.id}:${run.id}`
 }
 
-function toolView(run: AiToolRun) {
-  return formatToolRunDisplay(run)
-}
-
-function toolArgsText(run: AiToolRun): string {
-  return formatToolRunArgs(run.args)
-}
+const { toolView, toolArgsText } = createToolRunDisplayCache()
 
 function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
   return toolOpenState.get(toolRunKey(message, run)) === true
@@ -294,7 +287,8 @@ function toolRiskLabel(risk?: AiToolRun['risk']): string {
   return ''
 }
 
-function isNonzeroExit(run: AiToolRun): boolean {
+function isNonzeroExit(message: ChatItem, run: AiToolRun): boolean {
+  if (!isToolRunOpen(message, run)) return false
   const summary = toolView(run).summary
   return summary.kind === 'exit' && summary.code !== 0
 }
@@ -308,10 +302,12 @@ function toolRunStateLabel(message: ChatItem, run: AiToolRun): string {
   if (run.status === 'blocked') return t('ai.toolBlocked')
   if (run.status === 'reclassify') return t('ai.toolReclassify')
   if (run.isError) return t('ai.toolFailed')
+  if (!isToolRunOpen(message, run)) return t('ai.toolSummaryOk')
   return toolRunSummaryLabel(toolView(run).summary)
 }
 
-function toolRunStateTitle(run: AiToolRun): string {
+function toolRunStateTitle(message: ChatItem, run: AiToolRun): string {
+  if (!isToolRunOpen(message, run)) return ''
   const summary = toolView(run).summary
   if (summary.kind === 'exit') return t('ai.toolSummaryExitHint', { code: summary.code })
   return ''
@@ -592,7 +588,8 @@ async function copyText(text: string, key: string) {
           >{{ reasoningPreview(item) }}</span>
         </summary>
         <div v-if="isReasoningOpen(message, segIndex)" class="reasoning-content">
-          <template v-for="(block, index) in parseSegmentMarkdown(message, segIndex, reasoningText(item))" :key="index">
+          <div v-if="isReasoningLive(message, segIndex)" class="markdown-block markdown-streaming">{{ reasoningText(item) }}</div>
+          <template v-else v-for="(block, index) in parseSegmentMarkdown(message, segIndex, reasoningText(item))" :key="index">
             <div v-if="block.type === 'code'" class="code-block">
               <div class="code-block-header">
                 <span class="code-language">{{ block.language || 'text' }}</span>
@@ -618,7 +615,7 @@ async function copyText(text: string, key: string) {
         :class="{
           error:
             item.run.status !== 'reclassify' &&
-            (item.run.isError || item.run.status === 'denied' || item.run.status === 'blocked' || isNonzeroExit(item.run)),
+            (item.run.isError || item.run.status === 'denied' || item.run.status === 'blocked' || isNonzeroExit(message, item.run)),
           reclassify: item.run.status === 'reclassify',
           pending: item.run.status === 'running',
           ask: item.run.status === 'ask',
@@ -630,16 +627,19 @@ async function copyText(text: string, key: string) {
         <summary class="tool-run-head">
           <span class="tool-run-name">{{ toolNameLabel(item.run.name) }}</span>
           <span v-if="toolRiskLabel(item.run.risk)" class="tool-run-risk" :data-risk="item.run.risk">{{ toolRiskLabel(item.run.risk) }}</span>
-          <span v-if="toolView(item.run).hint" class="tool-run-hint" :title="toolView(item.run).hint">{{ toolView(item.run).hint }}</span>
-          <span class="tool-run-state" :title="toolRunStateTitle(item.run)">{{ toolRunStateLabel(message, item.run) }}</span>
+          <span v-if="isToolRunOpen(message, item.run) && toolView(item.run).hint" class="tool-run-hint" :title="toolView(item.run).hint">{{ toolView(item.run).hint }}</span>
+          <span class="tool-run-state" :title="toolRunStateTitle(message, item.run)">{{ toolRunStateLabel(message, item.run) }}</span>
         </summary>
+        <template v-if="isToolRunOpen(message, item.run)">
         <p v-if="item.run.status === 'blocked'" class="tool-ask-copy">{{ t('ai.toolAskForbidden') }}</p>
         <p v-if="item.run.status === 'reclassify'" class="tool-ask-copy">{{ t('ai.toolReclassifyHint') }}</p>
         <pre v-if="toolArgsText(item.run) && item.run.status !== 'denied'" class="tool-run-args">{{ toolArgsText(item.run) }}</pre>
         <pre v-if="toolView(item.run).body && item.run.status !== 'denied' && item.run.status !== 'blocked' && item.run.status !== 'reclassify'" class="tool-run-out">{{ toolView(item.run).body }}</pre>
+        </template>
       </details>
       <div v-else-if="item.seg.kind === 'content'" class="message-content">
-        <template v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'content' ? item.seg.text : '')" :key="index">
+        <div v-if="message.streaming" class="markdown-block markdown-streaming">{{ item.seg.kind === 'content' ? item.seg.text : '' }}</div>
+        <template v-else v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'content' ? item.seg.text : '')" :key="index">
           <div v-if="block.type === 'code'" class="code-block">
             <div class="code-block-header">
               <span class="code-language">{{ block.language || 'text' }}</span>
@@ -1203,6 +1203,11 @@ async function copyText(text: string, key: string) {
 
 .markdown-block :deep(p) {
   margin: 0;
+}
+
+.markdown-streaming {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .markdown-block :deep(h3),

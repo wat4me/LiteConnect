@@ -5,6 +5,7 @@ import { t } from '../../i18n'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
+import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/composables/sftp/sftpListedCwd'
 import type { Session, ConnectionGroup } from '@/domain/session/types'
 
 export type { Session, ConnectionGroup }
@@ -90,6 +91,7 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
       const home = (await window.LiteConnect.sftpExecHome(sessionId)).trim()
       if (home) {
         deps.pwdTracker.initSession(sessionId, home)
+        if (!getSftpListedCwd(sessionId)) setSftpListedCwd(sessionId, home)
       }
     } catch (err) {
       console.warn('[PWD] Failed to initialize session home:', err)
@@ -373,6 +375,7 @@ export function useSessionManager(deps: { pwdTracker: TerminalPwdTracker }) {
 
     group.sessions.splice(idx, 1)
     deps.pwdTracker.removeSession(sessionId)
+    clearSftpListedCwd(sessionId)
     const sb = requireSidebar()
     sb.fileSidebarRef.value?.clearSessionState(sessionId)
 

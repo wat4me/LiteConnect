@@ -1,4 +1,4 @@
-import type { IpcMainInvokeEvent } from 'electron'
+import { runAiChatCompletion } from './chatCompletion'
 import {
   isContextLengthError,
   resolveContextWindowTokens,
@@ -10,7 +10,6 @@ import {
   MAX_SSH_TOOL_ROUNDS,
   parseToolCallArguments,
   sshToolsForChat,
-  sanitizeTrackedCwd,
   sshToolSystemAddendum,
   type AccumulatedToolCall,
 } from './sshToolChat'
@@ -26,7 +25,7 @@ import {
   type AiToolRunStatus,
 } from '../../shared/aiToolPolicy'
 import { appendFinalAssistantTurn } from '../../shared/aiMessages'
-import type { AiChatMessage, AiResolvedConfig, AiToolRun } from '../../shared/types/ai'
+import type { AiChatMessage, AiChatStreamPayload, AiResolvedConfig, AiToolRun } from '../../shared/types/ai'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import { isValidUUID } from '../utils/validation'
 import {
@@ -42,6 +41,20 @@ import {
 } from './providerHttp'
 
 const activeAiStreams = new Map<string, AbortController>()
+
+export function createAiStreamControl(requestId: string) {
+  if (typeof requestId !== 'string' || !requestId || activeAiStreams.has(requestId)) {
+    throw new Error('Invalid or active AI request id')
+  }
+  const controller = new AbortController()
+  activeAiStreams.set(requestId, controller)
+  return {
+    controller,
+    cleanup: () => {
+      if (activeAiStreams.get(requestId) === controller) activeAiStreams.delete(requestId)
+    },
+  }
+}
 
 type PendingToolApproval = { finish: (approved: boolean) => void }
 const pendingToolApprovals = new Map<string, PendingToolApproval>()
@@ -75,7 +88,6 @@ export function abortAiChatStream(requestId: string): boolean {
   const controller = activeAiStreams.get(requestId)
   if (!controller) return false
   controller.abort()
-  activeAiStreams.delete(requestId)
   return true
 }
 
@@ -88,7 +100,9 @@ export function resolveToolApproval(requestId: string, callId: string, approved:
 }
 
 export async function runAiChatStream(opts: {
-  event: IpcMainInvokeEvent
+  emit: (payload: AiChatStreamPayload) => void
+  checkpoint?: () => Promise<void>
+  abortController?: AbortController
   requestId: string
   messages: unknown
   sessionId?: string
@@ -104,7 +118,7 @@ export async function runAiChatStream(opts: {
   aborted?: boolean
   apiMessages?: AiChatMessage[]
 }> {
-  const { event, requestId, messages, sessionId, cwd, settings, sshMcpRuntime, getToolPermission } = opts
+  const { requestId, messages, sessionId, cwd, settings, sshMcpRuntime, getToolPermission } = opts
   const currentToolPermission = () =>
     sanitizeAiToolPermission(getToolPermission?.() ?? settings.toolPermission)
   if (!requestId || typeof requestId !== 'string') {
@@ -112,10 +126,10 @@ export async function runAiChatStream(opts: {
   }
   const chatMessages = validateAiMessages(messages)
 
-  const send = (payload: any) => {
-    if (!event.sender.isDestroyed()) {
-      event.sender.send(`ai:chatStream:${requestId}`, payload)
-    }
+  let receivedText = false
+  const send = (payload: AiChatStreamPayload) => {
+    if (payload.type === 'content' || payload.type === 'reasoning') receivedText = true
+    opts.emit(payload)
   }
 
   const boundSessionId =
@@ -134,7 +148,7 @@ export async function runAiChatStream(opts: {
       host: snap?.host,
       username: snap?.username,
       connectionName: snap?.connectionName,
-      cwd: sanitizeTrackedCwd(cwd),
+      cwd,
     })
   }
 
@@ -150,11 +164,9 @@ export async function runAiChatStream(opts: {
     ...(withTools && tools ? { tools, tool_choice: 'auto' as const } : {}),
   })
 
-  const abortController = new AbortController()
-  activeAiStreams.set(requestId, abortController)
-  const cleanupStream = () => {
-    activeAiStreams.delete(requestId)
-  }
+  const control = opts.abortController ? undefined : createAiStreamControl(requestId)
+  const abortController = opts.abortController || control!.controller
+  const cleanupStream = () => control?.cleanup()
 
   const requestStream = (includeUsage: boolean, msgs: any[], withTools: boolean) =>
     fetch(getAiChatCompletionsUrl(settings.baseUrl), {
@@ -293,6 +305,11 @@ export async function runAiChatStream(opts: {
           },
         })
 
+        const approval = gate.action === 'ask'
+          ? waitForToolApproval(requestId, call.id, abortController.signal)
+          : undefined
+        await opts.checkpoint?.()
+        if (abortController.signal.aborted) break
         let result: { isError: boolean; content: string; structuredContent?: unknown }
         let status: AiToolRunStatus = 'done'
         if (gate.action === 'reclassify') {
@@ -315,7 +332,7 @@ export async function runAiChatStream(opts: {
             structuredContent: { code: gate.code, message: gate.reason },
           }
         } else if (gate.action === 'ask') {
-          const approved = await waitForToolApproval(requestId, call.id, abortController.signal)
+          const approved = await approval
           if (!approved) {
             status = 'denied'
             result = {
@@ -336,6 +353,8 @@ export async function runAiChatStream(opts: {
                 reason: gate.reason,
               },
             })
+            await opts.checkpoint?.()
+            if (abortController.signal.aborted) break
             result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto' })
           }
         } else {
@@ -383,6 +402,7 @@ export async function runAiChatStream(opts: {
           toolCallId: call.id,
           content: result.content,
         })
+        await opts.checkpoint?.()
       }
     }
 
@@ -412,6 +432,14 @@ export async function runAiChatStream(opts: {
     if (abortController.signal.aborted || err?.name === 'AbortError') {
       send({ type: 'done' })
       return { content: '', aborted: true }
+    }
+    if (!receivedText) {
+      const reply = await runAiChatCompletion(settings, chatMessages, abortController.signal)
+      if (reply.reasoningContent) send({ type: 'reasoning', value: reply.reasoningContent })
+      send({ type: 'content', value: reply.content })
+      if (reply.usage) send({ type: 'usage', value: reply.usage })
+      send({ type: 'done' })
+      return { ...reply, apiMessages: [{ role: 'assistant', content: reply.content, reasoningContent: reply.reasoningContent }] }
     }
     throw err
   } finally {

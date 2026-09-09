@@ -6,14 +6,14 @@ export function appendTextSegment(
   kind: 'reasoning' | 'content',
   delta: string,
 ): AiChatSegment[] {
-  const out = [...(segments || [])]
-  const last = out[out.length - 1]
+  const list = segments || []
+  const last = list[list.length - 1]
   if (last && last.kind === kind) {
-    out[out.length - 1] = { kind, text: last.text + delta }
-  } else {
-    out.push({ kind, text: delta })
+    last.text += delta
+    return list
   }
-  return out
+  list.push({ kind, text: delta })
+  return list
 }
 
 /**
@@ -25,9 +25,9 @@ export function ensureToolSegments(
   toolRuns: Array<{ id: string }> | undefined,
 ): AiChatSegment[] | undefined {
   if (!toolRuns?.length) return segments
-  const out = [...(segments || [])]
+  const out = segments || []
   const missing = toolRuns.filter((run) => !out.some((seg) => seg.kind === 'tool' && seg.runId === run.id))
-  if (!missing.length) return segments
+  if (!missing.length) return segments || out
   for (const run of missing) {
     out.push({ kind: 'tool', runId: run.id })
   }

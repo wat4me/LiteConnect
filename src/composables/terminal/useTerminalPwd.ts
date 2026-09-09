@@ -8,15 +8,31 @@ export function useTerminalPwd() {
   const pendingCdCommands: Record<string, string[]> = {}
 
   function initSession(sessionId: string, homePath: string, initialPwd?: string) {
+    const home = typeof homePath === 'string' ? homePath.trim() : ''
+    const initial = typeof initialPwd === 'string' ? initialPwd.trim() : ''
     const existing = state[sessionId]
-    const pwd = existing?.pwd || initialPwd || homePath
-    state[sessionId] = { pwd, homePath, previousPwd: existing?.previousPwd || pwd }
+    const pwd =
+      (isAbsolutePosix(existing?.pwd || '') ? existing!.pwd : '') ||
+      (isAbsolutePosix(initial) ? initial : '') ||
+      (isAbsolutePosix(home) ? home : '')
+    if (!pwd) return
+
+    state[sessionId] = {
+      pwd: normalizePosixPath(pwd),
+      homePath: isAbsolutePosix(home) ? normalizePosixPath(home) : existing?.homePath || '/',
+      previousPwd: isAbsolutePosix(existing?.previousPwd || '')
+        ? existing!.previousPwd
+        : normalizePosixPath(pwd),
+    }
 
     const pending = pendingCdCommands[sessionId]
     if (pending?.length) {
       delete pendingCdCommands[sessionId]
       for (const command of pending) {
-        handleCd(sessionId, command)
+        const targets = extractCdTargets(command)
+        if (targets.some((target) => target.startsWith('/') || target === '~' || target.startsWith('~'))) {
+          handleCd(sessionId, command)
+        }
       }
     }
   }
@@ -49,11 +65,16 @@ export function useTerminalPwd() {
 
   function revertCd(sessionId: string): string | null {
     const st = state[sessionId]
-    if (st) {
+    if (!st) return null
+    if (st.pwd !== st.previousPwd) {
       st.pwd = st.previousPwd
       return st.pwd
     }
-    return null
+    const parent = parentPosixPath(st.pwd)
+    if (parent === st.pwd) return st.pwd
+    st.pwd = parent
+    st.previousPwd = parent
+    return st.pwd
   }
 
   function getPwd(sessionId: string): string | null {
@@ -83,9 +104,21 @@ export function useTerminalPwd() {
   return { state, initSession, handleCd, revertCd, getPwd, getHomePath, hasSession, removeSession, setPwd }
 }
 
+function isAbsolutePosix(path: string): boolean {
+  return path.startsWith('/') && !/[\0\r\n]/.test(path)
+}
+
+function parentPosixPath(path: string): string {
+  if (!isAbsolutePosix(path) || path === '/') return '/'
+  const parts = path.split('/').filter(Boolean)
+  parts.pop()
+  return parts.length ? `/${parts.join('/')}` : '/'
+}
+
 function applyCdTarget(st: PwdState, arg: string): void {
   if (!arg || arg === '~') {
-    st.previousPwd = st.pwd
+    if (!isAbsolutePosix(st.homePath)) return
+    st.previousPwd = st.pwd || st.homePath
     st.pwd = st.homePath
     return
   }
@@ -94,6 +127,11 @@ function applyCdTarget(st: PwdState, arg: string): void {
     const prev = st.previousPwd
     st.previousPwd = st.pwd
     st.pwd = prev
+    return
+  }
+
+  if (!arg.startsWith('/') && !arg.startsWith('~') && !isAbsolutePosix(st.pwd)) {
+    // Relative cd with no known base would invent `/v/...` from an empty tracker.
     return
   }
 

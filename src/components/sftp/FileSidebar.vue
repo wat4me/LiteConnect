@@ -541,8 +541,10 @@ function onContextMenuProperties(entry: FileEntry) {
 }
 
 function initPwdTracker() {
-  if (!pwdTracker.hasSession(props.sessionId)) {
-    pwdTracker.initSession(props.sessionId, homePath.value, terminalPath.value)
+  const home = (homePath.value || '').trim()
+  const term = (terminalPath.value || '').trim()
+  if (!pwdTracker.hasSession(props.sessionId) && (home.startsWith('/') || term.startsWith('/'))) {
+    pwdTracker.initSession(props.sessionId, home || term, term || home)
   }
   // Sync terminalPath from the global tracker (may have been updated by cd commands from App.vue)
   const tracked = pwdTracker.getPwd(props.sessionId)
@@ -559,34 +561,52 @@ async function initPwdTrackerAndSync() {
   }
 }
 
-async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
-  if (!sftpReady.value || !followTerminalPath.value) return false
-
-  const logical = cleanRemotePath(trackedPwd)
-  terminalPath.value = logical
-  if (logical === currentPath.value) return true
-
-  // isFallback=true: do not let loadDirectory revert the cd tracker.
-  // Tracker must stay on the shell-logical path so later `cd ..` matches the terminal.
+async function tryOpenFollowPath(logical: string): Promise<boolean> {
   const ok = await loadDirectory(logical, true)
-  if (ok) {
-    saveCurrentState()
-    return true
-  }
-
+  if (ok) return true
   try {
     const physical = await window.LiteConnect.sftpRealpath(props.sessionId, logical)
     const cleanPhysical = physical ? cleanRemotePath(physical) : ''
     if (cleanPhysical && cleanPhysical !== logical) {
       const opened = await loadDirectory(cleanPhysical, true)
       if (opened) {
+        // Listing may be physical; keep the tracker on the logical shell path.
         terminalPath.value = logical
-        saveCurrentState()
         return true
       }
     }
   } catch {
-    // Keep tracker on logical even if SFTP cannot open this hop.
+    // Missing path or realpath unsupported.
+  }
+  return false
+}
+
+async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
+  if (!sftpReady.value || !followTerminalPath.value) return false
+
+  let logical = cleanRemotePath(trackedPwd)
+  terminalPath.value = logical
+  if (logical === currentPath.value) return true
+
+  if (await tryOpenFollowPath(logical)) {
+    saveCurrentState()
+    return true
+  }
+
+  // Optimistic `cd` (e.g. `cd v` which the shell rejected) — walk back until SFTP opens.
+  let guard = 8
+  while (guard-- > 0) {
+    const prev = pwdTracker.revertCd(props.sessionId)
+    if (!prev) break
+    const next = cleanRemotePath(prev)
+    if (next === logical && next === '/') break
+    logical = next
+    terminalPath.value = logical
+    if (await tryOpenFollowPath(logical)) {
+      saveCurrentState()
+      return true
+    }
+    if (logical === '/') break
   }
 
   saveCurrentState()
@@ -602,9 +622,12 @@ async function handleTerminalCd(command: string): Promise<void> {
 
 watch(
   () => pwdTracker.state[props.sessionId]?.pwd,
-  async (trackedPwd) => {
-    if (!trackedPwd) return
-    await syncFromTrackedPwd(trackedPwd)
+  async () => {
+    await runExclusive(async () => {
+      const latest = pwdTracker.getPwd(props.sessionId)
+      if (!latest) return
+      await syncFromTrackedPwd(latest)
+    })
   },
   { flush: 'post' }
 )

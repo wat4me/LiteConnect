@@ -79,12 +79,22 @@ export interface AiToolRun {
 
 export interface AiChatResult {
   content: string
+  error?: boolean
+  segments?: AiChatSegment[]
   reasoningContent?: string
   usage?: AiUsage
   toolRuns?: AiToolRun[]
   aborted?: boolean
   /** This turn's Chat Completions messages (assistant / tool / final assistant). */
   apiMessages?: AiChatMessage[]
+}
+
+export interface AiChatStreamOptions {
+  sessionId: string
+  threadId: string
+  assistantMessageId: string
+  createdAt: number
+  cwd?: string
 }
 
 /**

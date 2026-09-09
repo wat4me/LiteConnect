@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiSettings, AiToolRun } from '../../env.d.ts'
@@ -19,7 +19,7 @@ import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
 import { formatToolRunArgs, formatToolRunDisplay } from '@shared/aiToolRunDisplay'
 import { formatClassifyReason } from '@/utils/ai/classifyReason'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
-import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import { sftpListedCwdState } from '@/composables/sftp/sftpListedCwd'
 
 const { t } = useI18n()
 
@@ -115,7 +115,6 @@ function approvalCopy(run: AiToolRun): string {
 }
 
 const toolNameLabel = useAiToolNameLabel()
-const pwdTracker = inject<TerminalPwdTracker | undefined>('pwdTracker', undefined)
 
 const currentThreadTitle = computed(() => {
   const active = threadSummaries.value.find((t) => t.active)
@@ -124,13 +123,14 @@ const currentThreadTitle = computed(() => {
 })
 
 const contextDroppedCount = computed(() => {
+  if (loading.value || messages.value.some((m) => m.streaming)) return 0
   const conv = flattenConversationForApi(messages.value)
   if (!conv.length) return 0
   return estimateSidebarAiRequest({
     systemPrompt: settings.value.systemPrompt,
     messages: conv,
     sessionId: props.sessionId,
-    cwd: pwdTracker?.state[props.sessionId]?.pwd,
+    cwd: sftpListedCwdState()[props.sessionId],
     model: settings.value.activeModel || displayModelName.value,
     contextWindowTokens: activeContextWindowTokens.value,
   }).droppedCount
@@ -207,7 +207,7 @@ const modelSwitcherGroups = computed(() => {
 })
 
 function syncMessages(msgs: ChatItem[]) {
-  messages.value = msgs
+  if (messages.value !== msgs) messages.value = msgs
   threadSummaries.value = getSessionState(props.sessionId).threads.slice()
 }
 
