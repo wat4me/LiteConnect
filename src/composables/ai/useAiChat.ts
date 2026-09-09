@@ -19,7 +19,7 @@ import { flattenConversationForApi } from '@shared/aiMessages'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
 import { syncAiApprovalPending } from './useAiApprovalHint'
 import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
-import { getSftpListedCwd } from '@/composables/sftp/sftpListedCwd'
+import { getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 
 export type ChatItem = {
   id: string

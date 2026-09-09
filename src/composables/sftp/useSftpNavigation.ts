@@ -9,7 +9,7 @@ import {
   shouldReloadSftpListing,
   uniqueCleanPaths,
 } from '@/utils/sftp/sftpCwdSync'
-import { setSftpListedCwd } from './sftpListedCwd'
+import { setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 
 /** Friendlier empty-dir / permission / not-found copy for SFTP readdir failures */
 function formatSftpError(raw: unknown, path: string): string {

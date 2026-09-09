@@ -5,7 +5,7 @@ import { t } from '../../i18n'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
-import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/composables/sftp/sftpListedCwd'
+import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 import type { Session, ConnectionGroup } from '@/domain/session/types'
 
 export type { Session, ConnectionGroup }

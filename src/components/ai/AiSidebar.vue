@@ -19,7 +19,7 @@ import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
 import { formatToolRunArgs, formatToolRunDisplay } from '@shared/aiToolRunDisplay'
 import { formatClassifyReason } from '@/utils/ai/classifyReason'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
-import { sftpListedCwdState } from '@/composables/sftp/sftpListedCwd'
+import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
 
 const { t } = useI18n()
 

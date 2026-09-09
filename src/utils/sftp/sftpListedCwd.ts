@@ -1,9 +1,9 @@
 import { reactive } from 'vue'
-import { cleanRemotePath } from '@/utils/sftp/sftpCwdSync'
+import { cleanRemotePath } from './sftpCwdSync'
 
 /**
  * Last directory SFTP successfully listed per SSH session.
- * This is a real remote path (readdir succeeded), unlike optimistic `cd` tracking.
+ * Shared store (not an SFTP composable) so AI/session can read a real remote path.
  */
 const listedCwd = reactive<Record<string, string>>({})
 

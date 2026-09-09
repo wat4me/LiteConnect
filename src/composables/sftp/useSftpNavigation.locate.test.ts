@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSftpNavigation } from './useSftpNavigation'
-import { clearSftpListedCwd, getSftpListedCwd } from './sftpListedCwd'
+import { clearSftpListedCwd, getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 
 describe('useSftpNavigation locate / follow cwd', () => {
   const originalWindow = globalThis.window
