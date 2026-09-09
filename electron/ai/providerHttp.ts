@@ -4,11 +4,16 @@ import {
   parseAiModels,
   type AiContextMessage,
 } from '../../shared/aiContext'
+import {
+  toApiChatMessages,
+  validateAiMessages,
+} from '../../shared/aiMessages'
 import { sanitizeAiToolPermission } from '../../shared/aiToolPolicy'
 import type { AiChatMessage, AiUsage } from '../../shared/types/ai'
 import { t } from '../i18n'
 
 export type { AiChatMessage }
+export { toApiChatMessages, validateAiMessages }
 
 export function normalizeAiBaseUrl(baseUrl: string): string {
   if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
@@ -111,22 +116,6 @@ export function validateAiSettings(settings: any): {
     contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
     toolPermission: sanitizeAiToolPermission(settings.toolPermission),
   }
-}
-
-export function validateAiMessages(messages: any): AiChatMessage[] {
-  if (!Array.isArray(messages)) throw new Error('Invalid AI messages')
-  const validRoles = new Set(['system', 'user', 'assistant'])
-  return messages.map((message) => {
-    if (!message || typeof message !== 'object') throw new Error('Invalid AI message')
-    if (!validRoles.has(message.role)) throw new Error('Invalid AI message role')
-    if (typeof message.content !== 'string' || !message.content.trim()) {
-      throw new Error('Invalid AI message content')
-    }
-    return {
-      role: message.role,
-      content: message.content.slice(0, 200_000),
-    }
-  })
 }
 
 export function packRequestMessages(

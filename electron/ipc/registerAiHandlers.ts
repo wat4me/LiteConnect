@@ -14,6 +14,7 @@ import {
   packRequestMessages,
   readHttpErrorMessage,
   testAiProviderConfig,
+  toApiChatMessages,
   validateAiMessages,
   validateAiSettings,
 } from '../ai/providerHttp'
@@ -125,7 +126,7 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
         body: JSON.stringify({
           model: settings.model,
           temperature: settings.temperature ?? 0.7,
-          messages: packed,
+          messages: toApiChatMessages(packed, false),
         }),
       })
 
@@ -172,7 +173,7 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
     }
   })
 
-  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any, opts?: { sessionId?: string }) => {
+  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any, opts?: { sessionId?: string; cwd?: string }) => {
     await ensureSettingsReady()
     const settings = settingsStore.getAiResolvedConfig()
     if (!settings.apiKey.trim()) {
@@ -183,8 +184,10 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
       requestId,
       messages,
       sessionId: opts?.sessionId,
+      cwd: typeof opts?.cwd === 'string' ? opts.cwd : undefined,
       settings,
       sshMcpRuntime,
+      getToolPermission: () => settingsStore.getAiResolvedConfig().toolPermission,
     })
   })
 

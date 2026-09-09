@@ -34,6 +34,7 @@ import {
   uploadFile,
   writeFileTool,
 } from './tools/sftp'
+import { globTool, grepTool } from './tools/search'
 import { ptyClose, ptyOpen, ptyRead, ptyResize, ptyWrite } from './tools/pty'
 import { serviceControl } from './tools/service'
 
@@ -102,6 +103,10 @@ export class SshMcpRuntime {
           return cancelJob(host, input)
         case 'read_file':
           return await readFileTool(host, input)
+        case 'grep':
+          return await grepTool(host, input)
+        case 'glob':
+          return await globTool(host, input)
         case 'write_file':
           return await writeFileTool(host, input)
         case 'download_file':

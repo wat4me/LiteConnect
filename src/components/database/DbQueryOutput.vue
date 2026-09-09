@@ -300,15 +300,33 @@ watch(
         v-else-if="tab.result && !tab.result.hasResultSet && !isPlan"
         class="ok-panel"
       >
-        {{ t('database.query.successAffected', { rows: tab.result.affectedRows ?? 0, ms: tab.result.durationMs }) }}
+        <template v-if="(tab.result.batch?.statementCount ?? 0) > 1">
+          {{ t('database.query.successBatch', {
+            count: tab.result.batch!.statementCount,
+            rows: tab.result.affectedRows ?? 0,
+            ms: tab.result.durationMs,
+          }) }}
+        </template>
+        <template v-else>
+          {{ t('database.query.successAffected', { rows: tab.result.affectedRows ?? 0, ms: tab.result.durationMs }) }}
+        </template>
         <template v-if="tab.result.insertId"> · insertId {{ tab.result.insertId }}</template>
       </div>
       <div
         v-else-if="tab.result && tab.result.hasResultSet && !isPlan"
         class="ok-panel"
       >
-        {{ t('database.query.resultRows', { rows: tab.result.rowCount }) }}
-        · {{ tab.result.durationMs }}ms
+        <template v-if="(tab.result.batch?.statementCount ?? 0) > 1">
+          {{ t('database.query.successBatch', {
+            count: tab.result.batch!.statementCount,
+            rows: tab.result.affectedRows ?? tab.result.rowCount,
+            ms: tab.result.durationMs,
+          }) }}
+        </template>
+        <template v-else>
+          {{ t('database.query.resultRows', { rows: tab.result.rowCount }) }}
+          · {{ tab.result.durationMs }}ms
+        </template>
         <template v-if="truncated"> · {{ t('database.query.truncatedBadge') }}</template>
       </div>
       <div v-else class="grid-empty dim">{{ t('database.query.messagesEmpty') }}</div>

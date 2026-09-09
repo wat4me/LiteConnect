@@ -15,6 +15,8 @@ export type TerminalSidebarSnapshot = {
 export type DockerTabEntry = {
   open: boolean
   selected: boolean
+  /** Panel layout captured when entering Docker; restored on exit. */
+  savedPanels?: TerminalSidebarSnapshot | null
 }
 
 export type SessionChromeEntry = {
@@ -167,9 +169,22 @@ export function useDockerWorkspaceMode(deps: {
     const sid = deps.activeSessionId.value
     if (!cid || !sid || !dockerButtonEnabled.value) return
     const tab = getTab(cid)
+    const wasSelected = tab.open && tab.selected
+    if (!wasSelected) {
+      // Hide SFTP/AI/monitor/etc. while Docker owns the main pane; restore on exit.
+      tab.savedPanels = captureSnapshot(deps.panels)
+      hideAllSidebars(deps.panels)
+    }
     tab.open = true
     tab.selected = true
     touchConnections()
+  }
+
+  function restoreSavedPanels(tab: DockerTabEntry): void {
+    if (tab.savedPanels) {
+      applySnapshot(deps.panels, tab.savedPanels)
+      tab.savedPanels = null
+    }
   }
 
   /** Leave the Docker pane; keep the Docker sub-tab if it was opened. */
@@ -179,6 +194,7 @@ export function useDockerWorkspaceMode(deps: {
     const tab = getTab(cid)
     if (!tab.selected) return
     tab.selected = false
+    restoreSavedPanels(tab)
     touchConnections()
   }
 
@@ -186,8 +202,10 @@ export function useDockerWorkspaceMode(deps: {
     const cid = deps.activeConnectionId.value
     if (!cid) return
     const tab = getTab(cid)
+    const wasSelected = tab.open && tab.selected
     tab.open = false
     tab.selected = false
+    if (wasSelected) restoreSavedPanels(tab)
     touchConnections()
   }
 

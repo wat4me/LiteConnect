@@ -234,6 +234,26 @@ function formatFromObject(name: string, obj: Record<string, unknown>, content: s
       }),
     }
   }
+  if (Array.isArray(obj.matches)) {
+    return {
+      summary: { kind: 'entries', count: obj.matches.length },
+      hint: str(obj.pattern) || str(obj.path),
+      body: formatRows(obj.matches, (row) => {
+        const loc = str(row.path)
+        const line = num(row.line)
+        const text = str(row.text)
+        const where = line ? `${loc}:${line}` : loc
+        return [where, text].filter(Boolean).join('  ')
+      }),
+    }
+  }
+  if (Array.isArray(obj.files)) {
+    return {
+      summary: { kind: 'entries', count: obj.files.length },
+      hint: str(obj.pattern) || str(obj.path),
+      body: obj.files.map((item) => String(item)).filter(Boolean).join('\n'),
+    }
+  }
   if (Array.isArray(obj.entries)) {
     return {
       summary: { kind: 'entries', count: obj.entries.length },
@@ -370,6 +390,17 @@ function fallbackSummary(name: string, body: string): ToolRunSummary {
   }
 }
 
+/** Pretty-print tool-call arguments for the card / approval bar. Keeps secrets as-is. */
+export function formatToolRunArgs(args?: string): string {
+  const text = typeof args === 'string' ? args.trim() : ''
+  if (!text || text === '{}' || text === '[]') return ''
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    return text
+  }
+}
+
 export function serializeToolRunForHistory(input: {
   name: string
   args: string
@@ -378,7 +409,7 @@ export function serializeToolRunForHistory(input: {
   structured?: unknown
 }): { args: string; content: string } {
   const view = formatToolRunDisplay(input)
-  const args = view.hint.slice(0, AI_TOOL_RUN_ARGS_MAX)
+  const args = input.args.slice(0, AI_TOOL_RUN_ARGS_MAX)
   if (input.isError) {
     return { args, content: (view.body || input.content).slice(0, AI_TOOL_RUN_CONTENT_MAX) }
   }

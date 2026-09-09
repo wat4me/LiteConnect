@@ -6,6 +6,7 @@ import {
   normalizeAiBaseUrl,
   normalizeAiContent,
   sanitizeGeneratedTitle,
+  toApiChatMessages,
   validateAiMessages,
 } from './providerHttp'
 
@@ -41,6 +42,30 @@ describe('validateAiMessages', () => {
 
   it('rejects empty content', () => {
     expect(() => validateAiMessages([{ role: 'user', content: '  ' }])).toThrow()
+  })
+
+  it('keeps assistant reasoning for tool-mode round-trips', () => {
+    const out = validateAiMessages([
+      { role: 'assistant', content: 'ok', reasoning_content: 'plan' },
+    ])
+    expect(out).toEqual([{ role: 'assistant', content: 'ok', reasoningContent: 'plan' }])
+  })
+
+  it('accepts tool results', () => {
+    const out = validateAiMessages([
+      { role: 'tool', tool_call_id: 'c1', content: 'ok' },
+    ])
+    expect(out).toEqual([{ role: 'tool', content: 'ok', toolCallId: 'c1' }])
+  })
+})
+
+describe('toApiChatMessages', () => {
+  it('emits reasoning_content only when tools are on', () => {
+    const msgs = [{ role: 'assistant', content: 'ok', reasoningContent: 'plan' }]
+    expect(toApiChatMessages(msgs, true)).toEqual([
+      { role: 'assistant', content: 'ok', reasoning_content: 'plan' },
+    ])
+    expect(toApiChatMessages(msgs, false)).toEqual([{ role: 'assistant', content: 'ok' }])
   })
 })
 

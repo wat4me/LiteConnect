@@ -7,21 +7,26 @@ const windows = new Set<BrowserWindow>()
 /** Primary window (first created / main shell). May be null after close. */
 let primaryWindow: BrowserWindow | null = null
 
+/** Dedicated database-module window (at most one). Never becomes primary. */
+let dbWindow: BrowserWindow | null = null
+
 /** sessionId → owning webContents.id (for multi-window cleanup). */
 const sessionOwners = new Map<string, number>()
 
 /** Detached windows keyed by connectionId (reuse / focus). */
 const detachedByConnection = new Map<string, BrowserWindow>()
 
-export function registerWindow(win: BrowserWindow, opts?: { primary?: boolean }): void {
+export function registerWindow(win: BrowserWindow, opts?: { primary?: boolean; db?: boolean }): void {
   windows.add(win)
-  if (opts?.primary || !primaryWindow || primaryWindow.isDestroyed()) {
+  if (opts?.db) dbWindow = win
+  if (!opts?.db && (opts?.primary || !primaryWindow || primaryWindow.isDestroyed())) {
     primaryWindow = win
   }
   win.on('closed', () => {
     windows.delete(win)
+    if (dbWindow === win) dbWindow = null
     if (primaryWindow === win) {
-      primaryWindow = [...windows].find((w) => !w.isDestroyed()) || null
+      primaryWindow = [...windows].find((w) => !w.isDestroyed() && w !== dbWindow) || null
     }
     for (const [connId, w] of detachedByConnection) {
       if (w === win) detachedByConnection.delete(connId)
@@ -31,8 +36,15 @@ export function registerWindow(win: BrowserWindow, opts?: { primary?: boolean })
 
 export function getPrimaryWindow(): BrowserWindow | null {
   if (primaryWindow && !primaryWindow.isDestroyed()) return primaryWindow
-  primaryWindow = [...windows].find((w) => !w.isDestroyed()) || null
+  primaryWindow = [...windows].find((w) => !w.isDestroyed() && w !== dbWindow) || null
   return primaryWindow
+}
+
+/** The dedicated DB window, if it is alive. */
+export function getDbWindow(): BrowserWindow | null {
+  if (dbWindow && !dbWindow.isDestroyed()) return dbWindow
+  dbWindow = null
+  return null
 }
 
 export function getAllWindows(): BrowserWindow[] {

@@ -526,11 +526,13 @@ onMounted(loadSnippets)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  align-self: baseline;
 }
 
 .session-group-count {
   font-weight: 500;
   opacity: 0.7;
+  align-self: baseline;
 }
 
 .session-checkbox {

@@ -39,9 +39,24 @@ export interface AiResolvedConfig {
   toolPermission?: AiToolPermissionMode
 }
 
+/** OpenAI Chat Completions function tool call. */
+export interface AiFunctionToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+/**
+ * Chat Completions message as sent to the model.
+ * Assistant turns with tools use `toolCalls`; results use `role: 'tool'`.
+ */
 export interface AiChatMessage {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
+  /** Assistant CoT. Sent as `reasoning_content` when the request includes tools. */
+  reasoningContent?: string
+  toolCalls?: AiFunctionToolCall[]
+  toolCallId?: string
 }
 
 export interface AiUsage {
@@ -68,6 +83,8 @@ export interface AiChatResult {
   usage?: AiUsage
   toolRuns?: AiToolRun[]
   aborted?: boolean
+  /** This turn's Chat Completions messages (assistant / tool / final assistant). */
+  apiMessages?: AiChatMessage[]
 }
 
 /**
@@ -90,6 +107,8 @@ export interface AiHistoryRecord {
   createdAt: number
   toolRuns?: AiToolRun[]
   segments?: AiChatSegment[]
+  /** Wire transcript for this assistant turn; next request appends after it. */
+  apiMessages?: AiChatMessage[]
 }
 
 export interface AiConversationThread {
@@ -125,7 +144,7 @@ export type AiChatStreamPayload =
   | {
       type: 'tool'
       value: {
-        phase: 'start' | 'ask' | 'running' | 'done' | 'denied' | 'blocked'
+        phase: 'start' | 'ask' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify'
         id: string
         name: string
         args?: string

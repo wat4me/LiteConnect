@@ -568,11 +568,13 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  align-self: baseline;
 }
 
 .bk-rowcount {
   font-size: 10px;
   color: var(--text-secondary);
+  align-self: baseline;
 }
 
 .bk-table-list {

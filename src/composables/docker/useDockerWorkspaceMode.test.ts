@@ -59,7 +59,7 @@ describe('useDockerWorkspaceMode', () => {
     expect(mode.disconnectedSessionIds.value.has('s1')).toBe(false)
   })
 
-  it('opens a per-connection Docker sub-tab without hiding sidebars', () => {
+  it('opens a per-connection Docker sub-tab, hides sidebars, restores on exit', () => {
     const panels = makePanels({
       aiSidebarVisible: true,
       monitorVisible: true,
@@ -70,13 +70,37 @@ describe('useDockerWorkspaceMode', () => {
     mode.enterDocker()
     expect(mode.isDockerMode.value).toBe(true)
     expect(mode.dockerTabOpen.value).toBe(true)
-    expect(panels.aiSidebarVisible.value).toBe(true)
-    expect(panels.monitorVisible.value).toBe(true)
+    expect(panels.aiSidebarVisible.value).toBe(false)
+    expect(panels.monitorVisible.value).toBe(false)
+    expect(panels.snippetsPanelVisible.value).toBe(false)
 
     mode.enterTerminal()
     expect(mode.isDockerMode.value).toBe(false)
     expect(mode.dockerTabOpen.value).toBe(true)
     expect(panels.aiSidebarVisible.value).toBe(true)
+    expect(panels.monitorVisible.value).toBe(true)
+    expect(panels.snippetsPanelVisible.value).toBe(true)
+  })
+
+  it('re-entering Docker does not overwrite the saved panel snapshot', () => {
+    const panels = makePanels({ sidebarVisible: true })
+    const { mode } = makeMode({ panels })
+    mode.ensureSessionTracked('s1')
+    mode.enterDocker()
+    mode.enterDocker()
+    expect(panels.sidebarVisible.value).toBe(false)
+    mode.enterTerminal()
+    expect(panels.sidebarVisible.value).toBe(true)
+  })
+
+  it('closeDockerTab restores sidebars when the tab was selected', () => {
+    const panels = makePanels({ sidebarVisible: true })
+    const { mode } = makeMode({ panels })
+    mode.ensureSessionTracked('s1')
+    mode.enterDocker()
+    expect(panels.sidebarVisible.value).toBe(false)
+    mode.closeDockerTab()
+    expect(panels.sidebarVisible.value).toBe(true)
   })
 
   it('closeDockerTab removes the sub-tab', () => {

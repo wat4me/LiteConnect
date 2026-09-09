@@ -63,6 +63,8 @@ export interface LiteConnectApi {
   updateConnectionGroup: (id: string, groupId: string | undefined) => Promise<Connection>
   setConnectionPinned: (id: string, pinned: boolean) => Promise<Connection>
   openConnectionWindow: (connectionId: string) => Promise<{ reused: boolean; connectionId: string }>
+  openDatabaseWindow: () => Promise<{ reused: boolean }>
+  focusMainWindow: () => Promise<void>
   reorderConnections: (orderedIds: string[]) => Promise<void>
   isEncryptionAvailable: () => Promise<boolean>
   getConnectionPassword: (id: string) => Promise<string>
@@ -187,7 +189,7 @@ export interface LiteConnectApi {
   aiChatStream: (
     requestId: string,
     messages: AiChatMessage[],
-    opts?: { sessionId?: string },
+    opts?: { sessionId?: string; cwd?: string },
   ) => Promise<AiChatResult>
   aiAbortChatStream: (requestId: string) => Promise<boolean>
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) => Promise<boolean>

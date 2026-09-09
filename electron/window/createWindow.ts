@@ -18,6 +18,8 @@ export type CreateWindowOptions = {
   primary?: boolean
   /** Open a focused SSH connection workspace */
   connectionId?: string
+  /** Boot the renderer straight into the database module (dedicated DB window) */
+  dbMode?: boolean
   title?: string
   width?: number
   height?: number
@@ -109,11 +111,14 @@ function installContentSecurityPolicy(): void {
   })
 }
 
-function buildLoadTarget(connectionId?: string): { type: 'url'; url: string } | { type: 'file'; file: string; search: string } {
+function buildLoadTarget(connectionId?: string, dbMode?: boolean): { type: 'url'; url: string } | { type: 'file'; file: string; search: string } {
   const params = new URLSearchParams()
   if (connectionId) {
     params.set('detached', '1')
     params.set('connectionId', connectionId)
+  }
+  if (dbMode) {
+    params.set('mode', 'db')
   }
   const qs = params.toString()
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -195,7 +200,10 @@ export function createWindow(
     },
   })
 
-  registerWindow(mainWindow, { primary: opts.primary !== false && !isDetached })
+  registerWindow(mainWindow, {
+    primary: opts.primary !== false && !isDetached && !opts.dbMode,
+    db: !!opts.dbMode,
+  })
 
   lockRendererPageZoom(mainWindow)
 
@@ -203,7 +211,7 @@ export function createWindow(
     if (!mainWindow.isDestroyed()) mainWindow.show()
   })
 
-  const target = buildLoadTarget(opts.connectionId)
+  const target = buildLoadTarget(opts.connectionId, opts.dbMode)
   if (target.type === 'url') {
     void mainWindow.loadURL(target.url)
   } else {

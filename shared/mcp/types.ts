@@ -10,6 +10,8 @@ export const SSH_MCP_TOOL_NAMES = [
   'get_job',
   'cancel_job',
   'read_file',
+  'grep',
+  'glob',
   'write_file',
   'download_file',
   'upload_file',

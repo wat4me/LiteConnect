@@ -2,7 +2,9 @@ import { app } from 'electron'
 import { existsSync } from 'fs'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { normalizeAiChatMessage } from '../../shared/aiMessages'
 import type {
+  AiChatMessage,
   AiChatSegment,
   AiConversationThread,
   AiHistoryRecord,
@@ -124,7 +126,8 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
       rec.status === 'running' ||
       rec.status === 'done' ||
       rec.status === 'denied' ||
-      rec.status === 'blocked'
+      rec.status === 'blocked' ||
+      rec.status === 'reclassify'
         ? rec.status
         : undefined
     const risk =
@@ -145,6 +148,16 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
       risk,
       reason: typeof rec.reason === 'string' ? rec.reason.slice(0, 500) : undefined,
     })
+  }
+  return out.length ? out : undefined
+}
+
+function normalizeApiMessages(raw: unknown): AiChatMessage[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const out: AiChatMessage[] = []
+  for (const item of raw.slice(0, 40)) {
+    const next = normalizeAiChatMessage(item)
+    if (next) out.push(next)
   }
   return out.length ? out : undefined
 }
@@ -174,6 +187,7 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
     toolRuns: normalizeToolRuns(record.toolRuns),
     segments: normalizeSegments(record.segments),
+    apiMessages: normalizeApiMessages(record.apiMessages),
   }
 }
 

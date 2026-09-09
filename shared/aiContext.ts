@@ -1,11 +1,8 @@
 import { lookupModelsDevContext } from './modelsDevContext'
+import type { AiChatMessage, AiUsage } from './types/ai'
 
-export type AiContextRole = 'system' | 'user' | 'assistant'
-
-export type AiContextMessage = {
-  role: AiContextRole
-  content: string
-}
+export type AiContextRole = AiChatMessage['role']
+export type AiContextMessage = AiChatMessage
 
 export type AiContextPack = {
   messages: AiContextMessage[]
@@ -51,7 +48,91 @@ function isCjkCodePoint(code: number): boolean {
 }
 
 export function messageTokens(message: AiContextMessage): number {
-  return estimateTokens(message.content) + 6
+  let n = estimateTokens(message.content || '') + estimateTokens(message.reasoningContent || '') + 6
+  if (message.role === 'tool' && message.toolCallId) n += 4
+  for (const call of message.toolCalls || []) {
+    n += estimateTokens(call.function?.name || '') + estimateTokens(call.function?.arguments || '') + 8
+  }
+  return n
+}
+
+function clonePackedMessage(message: AiContextMessage): AiContextMessage {
+  const out: AiContextMessage = { role: message.role, content: message.content || '' }
+  if (message.role === 'assistant' && message.reasoningContent?.trim()) {
+    out.reasoningContent = message.reasoningContent
+  }
+  if (message.role === 'assistant' && message.toolCalls?.length) {
+    out.toolCalls = message.toolCalls
+  }
+  if (message.role === 'tool' && message.toolCallId) {
+    out.toolCallId = message.toolCallId
+  }
+  return out
+}
+
+function keepableMessage(message: AiContextMessage): boolean {
+  if (message.role === 'user') return Boolean(message.content?.trim())
+  if (message.role === 'tool') return Boolean(message.toolCallId)
+  if (message.role === 'assistant') {
+    return Boolean(
+      message.content?.trim() ||
+        message.reasoningContent?.trim() ||
+        message.toolCalls?.length,
+    )
+  }
+  return false
+}
+
+/** User message plus the following assistant / tool messages, so a tool loop is dropped as a unit. */
+export function groupConversationTurns(messages: AiContextMessage[]): AiContextMessage[][] {
+  const groups: AiContextMessage[][] = []
+  let current: AiContextMessage[] = []
+  for (const message of messages) {
+    if (message.role === 'user' && current.length) {
+      groups.push(current)
+      current = [clonePackedMessage(message)]
+    } else {
+      current.push(clonePackedMessage(message))
+    }
+  }
+  if (current.length) groups.push(current)
+  return groups
+}
+
+function groupTokens(group: AiContextMessage[]): number {
+  return group.reduce((sum, message) => sum + messageTokens(message), 0)
+}
+
+function fitLatestGroup(
+  group: AiContextMessage[],
+  room: number,
+  maxMessageTokens: number,
+): { group: AiContextMessage[]; truncatedCount: number } {
+  if (groupTokens(group) <= room) return { group, truncatedCount: 0 }
+  const fitted: AiContextMessage[] = []
+  let used = 0
+  let truncatedCount = 0
+  for (const message of group) {
+    const tokens = messageTokens(message)
+    if (used + tokens <= room) {
+      fitted.push(message)
+      used += tokens
+      continue
+    }
+    if (fitted.length === 0 && message.role === 'user') {
+      const cap = Math.min(maxMessageTokens, Math.max(32, room - 6))
+      let content = message.content || ''
+      if (estimateTokens(content) > cap) {
+        content = truncateToTokenBudget(content, cap)
+        truncatedCount += 1
+      }
+      const next: AiContextMessage = { role: 'user', content }
+      fitted.push(next)
+      used += messageTokens(next)
+    }
+    break
+  }
+  return { group: fitted.length ? fitted : [group[group.length - 1]], truncatedCount }
 }
 
 export function formatTokenCount(n: number): string {
@@ -59,6 +140,31 @@ export function formatTokenCount(n: number): string {
   if (v < 1000) return String(v)
   if (v < 10_000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`
   return `${Math.round(v / 1000)}k`
+}
+
+/** Provider-billed tokens for a completed turn (`total`, else prompt + completion). */
+export function billedConversationTokens(usage?: AiUsage | null): number {
+  if (!usage) return 0
+  if (typeof usage.totalTokens === 'number' && Number.isFinite(usage.totalTokens) && usage.totalTokens > 0) {
+    return Math.round(usage.totalTokens)
+  }
+  const prompt = typeof usage.promptTokens === 'number' && Number.isFinite(usage.promptTokens) ? usage.promptTokens : 0
+  const completion =
+    typeof usage.completionTokens === 'number' && Number.isFinite(usage.completionTokens) ? usage.completionTokens : 0
+  const n = prompt + completion
+  return n > 0 ? Math.round(n) : 0
+}
+
+/** Latest successful assistant usage on the thread (skip errors / in-flight turns without usage). */
+export function lastBilledConversationUsage(
+  messages: Array<{ role?: string; error?: boolean; usage?: AiUsage | null }>,
+): AiUsage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message.role !== 'assistant' || message.error) continue
+    if (billedConversationTokens(message.usage) > 0) return message.usage || undefined
+  }
+  return undefined
 }
 
 /**
@@ -247,41 +353,35 @@ export function packAiMessages(opts: {
     used += messageTokens(sys)
   }
 
-  const conv = (opts.messages || []).filter(
-    (m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim(),
-  )
-
-  const kept: AiContextMessage[] = []
+  const conv = (opts.messages || []).filter(keepableMessage)
+  const groups = groupConversationTurns(conv)
+  const keptGroups: AiContextMessage[][] = []
   let droppedCount = 0
 
-  for (let i = conv.length - 1; i >= 0; i--) {
-    let content = conv[i].content
-    if (estimateTokens(content) > maxMessageTokens) {
-      content = truncateToTokenBudget(content, maxMessageTokens)
-      truncatedCount += 1
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const group = groups[i]
+    const tokens = groupTokens(group)
+    if (used + tokens <= promptBudget) {
+      keptGroups.push(group)
+      used += tokens
+      continue
     }
-    let tokens = estimateTokens(content) + 6
-    if (used + tokens > promptBudget) {
-      if (kept.length === 0) {
-        const room = Math.max(32, promptBudget - used - 6)
-        content = truncateToTokenBudget(content, room)
-        truncatedCount += 1
-        tokens = estimateTokens(content) + 6
-        kept.push({ role: conv[i].role, content })
-        used += tokens
-        droppedCount += i
-        break
-      }
-      droppedCount += i + 1
-      break
+    if (keptGroups.length === 0) {
+      const fitted = fitLatestGroup(group, Math.max(32, promptBudget - used), maxMessageTokens)
+      keptGroups.push(fitted.group)
+      used += groupTokens(fitted.group)
+      truncatedCount += fitted.truncatedCount
+      droppedCount += groups.slice(0, i).reduce((sum, g) => sum + g.length, 0)
+      droppedCount += Math.max(0, group.length - fitted.group.length)
+    } else {
+      droppedCount += groups.slice(0, i + 1).reduce((sum, g) => sum + g.length, 0)
     }
-    kept.push({ role: conv[i].role, content })
-    used += tokens
+    break
   }
 
-  kept.reverse()
+  keptGroups.reverse()
   return {
-    messages: [...packed, ...kept],
+    messages: [...packed, ...keptGroups.flat()],
     promptTokens: used,
     budgetTokens: promptBudget,
     droppedCount,

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  billedConversationTokens,
   clampContextWindowTokens,
   estimateTokens,
   firstAiModelId,
   formatTokenCount,
   inferContextWindowTokens,
   isContextLengthError,
+  lastBilledConversationUsage,
   packAiMessages,
   parseAiModels,
   resolveContextWindowTokens,
@@ -26,6 +28,23 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(12)).toBe('12')
     expect(formatTokenCount(1200)).toBe('1.2k')
     expect(formatTokenCount(12_400)).toBe('12k')
+  })
+})
+
+describe('billedConversationTokens / lastBilledConversationUsage', () => {
+  it('prefers totalTokens and skips error / empty turns', () => {
+    expect(billedConversationTokens({ totalTokens: 3804, promptTokens: 3000, completionTokens: 804 })).toBe(3804)
+    expect(billedConversationTokens({ promptTokens: 3000, completionTokens: 804 })).toBe(3804)
+    expect(billedConversationTokens({ promptTokens: 12 })).toBe(12)
+    expect(billedConversationTokens(undefined)).toBe(0)
+    expect(
+      lastBilledConversationUsage([
+        { role: 'user' },
+        { role: 'assistant', usage: { totalTokens: 100 } },
+        { role: 'assistant', error: true, usage: { totalTokens: 999 } },
+        { role: 'assistant', usage: {} },
+      ]),
+    ).toEqual({ totalTokens: 100 })
   })
 })
 
@@ -93,6 +112,20 @@ describe('packAiMessages', () => {
     expect(lastUser?.content).toContain('19')
   })
 
+  it('counts assistant reasoning in the packed prompt', () => {
+    const pack = packAiMessages({
+      messages: [
+        { role: 'user', content: 'q' },
+        { role: 'assistant', content: 'a', reasoningContent: 'think'.repeat(20) },
+        { role: 'user', content: 'next' },
+      ],
+      budgetTokens: 8_000,
+    })
+    const assistant = pack.messages.find((m) => m.role === 'assistant')
+    expect(assistant?.reasoningContent).toContain('think')
+    expect(pack.promptTokens).toBeGreaterThan(estimateTokens('q') + estimateTokens('a') + estimateTokens('next'))
+  })
+
   it('truncates a single oversized message instead of dropping it', () => {
     const pack = packAiMessages({
       messages: [{ role: 'user', content: '错'.repeat(20_000) }],
@@ -104,6 +137,64 @@ describe('packAiMessages', () => {
     expect(pack.truncatedCount).toBeGreaterThan(0)
     expect(pack.messages[0].content.includes('…')).toBe(true)
     expect(estimateTokens(pack.messages[0].content)).toBeLessThan(400)
+  })
+
+  it('keeps a tool loop intact as one turn', () => {
+    const pack = packAiMessages({
+      messages: [
+        { role: 'user', content: 'df' },
+        {
+          role: 'assistant',
+          content: '',
+          reasoningContent: 'plan',
+          toolCalls: [{ id: 'c1', type: 'function', function: { name: 'exec', arguments: '{"command":"df"}' } }],
+        },
+        { role: 'tool', toolCallId: 'c1', content: '/ 12%' },
+        { role: 'assistant', content: 'ok' },
+      ],
+      budgetTokens: 8_000,
+    })
+    expect(pack.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
+    expect(pack.messages[1].toolCalls?.[0].function.name).toBe('exec')
+    expect(pack.messages[2]).toMatchObject({ role: 'tool', toolCallId: 'c1', content: '/ 12%' })
+  })
+
+  it('drops an old tool turn as a unit when the window is tight', () => {
+    const pack = packAiMessages({
+      systemPrompt: 'sys',
+      messages: [
+        { role: 'user', content: 'old' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'old', type: 'function', function: { name: 'exec', arguments: '{}' } }],
+        },
+        { role: 'tool', toolCallId: 'old', content: 'x'.repeat(8_000) },
+        { role: 'assistant', content: 'old-answer' },
+        { role: 'user', content: 'new question' },
+      ],
+      budgetTokens: 1_024,
+      reserveOutputTokens: 200,
+    })
+    expect(pack.messages.some((m) => m.role === 'tool')).toBe(false)
+    expect(pack.messages.some((m) => m.role === 'user' && m.content === 'new question')).toBe(true)
+    expect(pack.droppedCount).toBeGreaterThan(0)
+  })
+
+  it('does not rewrite a kept historical assistant when the window still fits', () => {
+    const long = '答'.repeat(9_000)
+    const pack = packAiMessages({
+      messages: [
+        { role: 'user', content: 'old' },
+        { role: 'assistant', content: long },
+        { role: 'user', content: 'next' },
+      ],
+      budgetTokens: 20_000,
+      maxMessageTokens: 200,
+    })
+    const assistant = pack.messages.find((m) => m.role === 'assistant')
+    expect(assistant?.content).toBe(long)
+    expect(pack.truncatedCount).toBe(0)
   })
 })
 

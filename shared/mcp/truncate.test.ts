@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { capCollectedStream, capExecOutput, redactSecrets, truncateText } from './truncate'
+import { capCollectedStream, capExecOutput, truncateText } from './truncate'
 
 describe('truncateText', () => {
   it('leaves short text alone', () => {
@@ -14,31 +14,14 @@ describe('truncateText', () => {
   })
 })
 
-describe('redactSecrets', () => {
-  it('redacts private keys, tokens, and password assignments', () => {
-    const raw = [
-      '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----',
-      'AKIAIOSFODNN7EXAMPLE',
-      'Authorization: Bearer supersecrettokenvalue',
-      'password=hunter2',
-    ].join('\n')
-    const out = redactSecrets(raw)
-    expect(out).not.toContain('BEGIN OPENSSH')
-    expect(out).not.toContain('AKIAIOSFODNN7EXAMPLE')
-    expect(out).not.toContain('supersecrettokenvalue')
-    expect(out).not.toContain('hunter2')
-    expect(out).toContain('[redacted')
-  })
-})
-
 describe('capExecOutput', () => {
-  it('redacts then truncates both streams', () => {
+  it('truncates both streams and keeps the original text', () => {
     const r = capExecOutput('password=secret ' + 'x'.repeat(50), 'y'.repeat(50), {
       stdout: 30,
       stderr: 20,
     })
     expect(r.truncated).toBe(true)
-    expect(r.stdout).not.toContain('secret')
+    expect(r.stdout.startsWith('password=secret')).toBe(true)
     expect(r.stdout.length).toBeLessThanOrEqual(30)
     expect(r.stderr.length).toBeLessThanOrEqual(20)
   })

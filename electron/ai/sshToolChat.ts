@@ -1,4 +1,8 @@
-import { sshMcpToolsAsOpenAiFunctions } from '../../shared/mcp/tools'
+export {
+  sanitizeTrackedCwd,
+  sshToolSystemAddendum,
+  sshToolsForChat,
+} from '../../shared/aiSidebarPrompt'
 
 export const MAX_SSH_TOOL_ROUNDS = 8
 
@@ -8,31 +12,14 @@ export type AccumulatedToolCall = {
   arguments: string
 }
 
-export function sshToolSystemAddendum(session: {
-  sessionId: string
-  host?: string
-  username?: string
-  connectionName?: string
-}): string {
-  const where = [session.connectionName, session.username && session.host ? `${session.username}@${session.host}` : session.host]
-    .filter(Boolean)
-    .join(' · ')
-  return [
-    '你可以使用 SSH 工具连接已保存的主机，并查看远端状态，不要空口猜测磁盘、进程、日志或配置。',
-    '先 list_connections。已有主机用 connect(connectionId)；没有则 save_connection(host, username, 以及 password / privateKey / useAgent=true)，需要马上连上时加 connect=true。连接成功后，exec / read_file / write_file / list_dir 必须使用返回的 sessionId。',
-    `当前侧栏会话已绑定 sessionId=${session.sessionId}${where ? `（${where}）` : ''}。若操作的就是这台机，可省略 sessionId。`,
-    '远端命令、写文件、PTY、断开会话默认要等用户在对话里点「允许」才会执行。删根目录、mkfs、灌盘、关机会被直接拦截，不要尝试绕过。',
-    '不要主动 disconnect 用户正在用的会话。多台机器可用 list_groups 再 exec(group=...)。长任务用 exec(background=true) 然后 get_job。',
-    '需要安装向导、菜单、方向键时用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端。exec 仍是非交互命令。大文件用 upload_file / download_file。',
-    'save_connection 会把凭据写入 LiteConnect 连接列表；回复里不要复述密码或私钥。用户可能需要在应用里确认主机指纹。',
-    '工具结果已经显示在卡片里。回复只给简短结论和下一步，不要原样粘贴大段 stdout/JSON。能用工具拿到的信息，不要让用户去终端复制。',
-  ].join('\n')
-}
-
+/** Sidebar chat: always pin tools to the bound SSH session. MCP HTTP still requires the caller to pass sessionId. */
 export function bindSessionArgs(args: unknown, sessionId: string): Record<string, unknown> {
   const next =
     args && typeof args === 'object' && !Array.isArray(args) ? { ...(args as Record<string, unknown>) } : {}
-  if (!next.sessionId && sessionId) next.sessionId = sessionId
+  if (sessionId) {
+    next.sessionId = sessionId
+    delete next.sessionIds
+  }
   return next
 }
 
@@ -62,10 +49,6 @@ export function parseToolCallArguments(raw: string): unknown {
   } catch {
     return { command: text }
   }
-}
-
-export function sshToolsForChat() {
-  return sshMcpToolsAsOpenAiFunctions()
 }
 
 export function looksLikeToolsUnsupported(message: string): boolean {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiSettings, AiToolRun } from '../../env.d.ts'
@@ -13,9 +13,13 @@ import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiChatView from './AiChatView.vue'
-import { aiModelId, formatTokenCount, packAiMessages } from '@shared/aiContext'
-import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
+import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConversationUsage } from '@shared/aiContext'
+import { flattenConversationForApi } from '@shared/aiMessages'
+import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
+import { formatToolRunArgs, formatToolRunDisplay } from '@shared/aiToolRunDisplay'
+import { formatClassifyReason } from '@/utils/ai/classifyReason'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
 
 const { t } = useI18n()
 
@@ -51,7 +55,7 @@ const {
   clearAllConversations,
   regenerateMessage,
   retryMessage,
-  prepareEditUserMessage,
+  editUserMessageAndResend,
   deleteMessage,
   resolveToolApproval,
 } = useAiChat()
@@ -93,13 +97,12 @@ const pendingApprovals = computed(() => {
 })
 
 function approvalHint(run: AiToolRun): string {
-  return formatToolRunDisplay(run).hint
+  return formatToolRunArgs(run.args) || formatToolRunDisplay(run).hint
 }
 
 function approvalRiskLabel(risk?: AiToolRun['risk']): string {
   if (risk === 'read') return t('ai.toolRiskRead')
-  if (risk === 'write') return t('ai.toolRiskWrite')
-  if (risk === 'destructive') return t('ai.toolRiskDestructive')
+  if (risk === 'write' || risk === 'destructive') return t('ai.toolRiskWrite')
   if (risk === 'privileged') return t('ai.toolRiskPrivileged')
   if (risk === 'forbidden') return t('ai.toolRiskForbidden')
   return ''
@@ -112,6 +115,7 @@ function approvalCopy(run: AiToolRun): string {
 }
 
 const toolNameLabel = useAiToolNameLabel()
+const pwdTracker = inject<TerminalPwdTracker | undefined>('pwdTracker', undefined)
 
 const currentThreadTitle = computed(() => {
   const active = threadSummaries.value.find((t) => t.active)
@@ -119,36 +123,35 @@ const currentThreadTitle = computed(() => {
   return title || t('ai.newConversationTitle')
 })
 
-const contextPack = computed(() => {
-  const conv = messages.value
-    .filter(
-      (m) =>
-        !m.error &&
-        !m.streaming &&
-        (m.role === 'user' || m.role === 'assistant') &&
-        m.content.trim(),
-    )
-    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
-  const draft = input.value.trim()
-  if (draft) conv.push({ role: 'user', content: draft })
-  return packAiMessages({
+const contextDroppedCount = computed(() => {
+  const conv = flattenConversationForApi(messages.value)
+  if (!conv.length) return 0
+  return estimateSidebarAiRequest({
     systemPrompt: settings.value.systemPrompt,
     messages: conv,
+    sessionId: props.sessionId,
+    cwd: pwdTracker?.state[props.sessionId]?.pwd,
     model: settings.value.activeModel || displayModelName.value,
     contextWindowTokens: activeContextWindowTokens.value,
-  })
+  }).droppedCount
 })
+
+const contextUsedTokens = computed(() =>
+  billedConversationTokens(lastBilledConversationUsage(messages.value)),
+)
+
+const contextBudgetTokens = computed(() => activeContextWindowTokens.value)
 
 const CONTEXT_RING = { size: 20, radius: 7 }
 
 const contextRatio = computed(() => {
-  const budget = contextPack.value.budgetTokens
+  const budget = contextBudgetTokens.value
   if (budget <= 0) return 0
-  return Math.min(1, Math.max(0, contextPack.value.promptTokens / budget))
+  return Math.min(1, Math.max(0, contextUsedTokens.value / budget))
 })
 
 const contextTone = computed<'ok' | 'warn' | 'danger'>(() => {
-  if (contextPack.value.droppedCount > 0 || contextRatio.value >= 0.85) return 'danger'
+  if (contextDroppedCount.value > 0 || contextRatio.value >= 0.85) return 'danger'
   if (contextRatio.value >= 0.6) return 'warn'
   return 'ok'
 })
@@ -159,22 +162,13 @@ const contextRingDash = computed(() => {
   return { circ, filled }
 })
 
-/** Meter is a local estimate of the next send — never implies a request already went out. */
-const showContextMeter = computed(() => {
-  if (input.value.trim()) return true
-  return messages.value.some(
-    (m) =>
-      !m.error &&
-      !m.streaming &&
-      (m.role === 'user' || m.role === 'assistant') &&
-      m.content.trim(),
-  )
-})
+/** Last billed turn vs the model window. Composer draft is not counted. */
+const showContextMeter = computed(() => contextUsedTokens.value > 0)
 
 const contextMeterTitle = computed(() =>
   t('ai.contextUsage', {
-    used: formatTokenCount(contextPack.value.promptTokens),
-    budget: formatTokenCount(contextPack.value.budgetTokens),
+    used: formatTokenCount(contextUsedTokens.value),
+    budget: formatTokenCount(contextBudgetTokens.value),
   }),
 )
 
@@ -363,10 +357,8 @@ async function handleRetry(messageId: string) {
   }
 }
 
-async function handleEditMessage(messageId: string) {
-  const text = await prepareEditUserMessage(props.sessionId, messageId, syncMessages)
-  if (text == null) return
-  input.value = text
+async function handleEditResend(messageId: string, newText: string) {
+  await editUserMessageAndResend(props.sessionId, messageId, newText, syncMessages)
 }
 
 async function handleDeleteMessage(messageId: string) {
@@ -633,13 +625,13 @@ function handleClearMessages() {
         :messages="messages"
         :has-api-configured="hasApiConfigured"
         :loading="loading"
-        :context-dropped-count="contextPack.droppedCount"
+        :context-dropped-count="contextDroppedCount"
         @open-settings="openSettingsCta"
         @fill-code="fillCodeToTerminal"
         @run-code="runCodeToTerminal"
         @regenerate="handleRegenerate"
         @retry="handleRetry"
-        @edit-message="handleEditMessage"
+        @edit-resend="handleEditResend"
         @delete-message="handleDeleteMessage"
         @use-example="(text) => { input = text }"
       />
@@ -658,7 +650,7 @@ function handleClearMessages() {
           <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
         </div>
         <pre v-if="approvalHint(run)" class="tool-approval-hint" :title="approvalHint(run)">{{ approvalHint(run) }}</pre>
-        <p v-if="run.reason && run.risk !== 'read'" class="tool-approval-reason">{{ run.reason }}</p>
+        <p v-if="run.reason && run.risk !== 'read'" class="tool-approval-reason">{{ formatClassifyReason(run.reason, t) }}</p>
         <div class="tool-approval-actions">
           <button type="button" class="tool-approval-btn" @click="resolveToolApproval(run.id, false)">{{ t('ai.toolDeny') }}</button>
           <button
@@ -686,8 +678,8 @@ function handleClearMessages() {
         @keydown.meta.enter.prevent="sendMessage"
       />
       <div class="composer-actions">
-        <button type="button" class="composer-clear" @click="handleClearMessages" :title="t('ai.clearChat')">
-          {{ t('ai.clear') }}
+        <button type="button" class="composer-clear" :title="t('ai.clearChat')" @click="handleClearMessages">
+          <AppIcon name="delete" size="sm" />
         </button>
         <span
           v-if="showContextMeter"
@@ -1206,15 +1198,21 @@ function handleClearMessages() {
 }
 
 .composer-clear {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 11px;
-  padding: 0 2px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .composer-clear:hover {
+  background: var(--hover-bg);
   color: var(--text-primary);
 }
 

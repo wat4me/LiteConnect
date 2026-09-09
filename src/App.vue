@@ -35,6 +35,7 @@ import { useLatencyState } from './composables/session/useLatencyState'
 import { useAppKeyboard } from '@/composables/app/useAppKeyboard'
 import { useSplitTerminal } from './composables/terminal/useSplitTerminal'
 import { useAiReplyBadge } from './composables/ai/useAiReplyBadge'
+import { useAiApprovalHint } from './composables/ai/useAiApprovalHint'
 import { onAiReplyComplete } from './composables/ai/aiReplyEvents'
 import { useSecurityDialogs } from '@/composables/app/useSecurityDialogs'
 import { useAppNavigation } from '@/composables/app/useAppNavigation'
@@ -290,23 +291,39 @@ const {
 })
 
 function guardedToggleSidebar() {
+  if (isDockerMode.value) return
   toggleSidebar()
 }
 function guardedToggleAiSidebar() {
+  if (isDockerMode.value) return
   toggleAiSidebar()
 }
+
+function jumpToAiApproval(sessionId: string) {
+  const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
+  if (group) {
+    if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
+    if (activeSessionId.value !== sessionId) onSelectSession(sessionId)
+  }
+  if (isDockerMode.value) enterTerminal()
+  aiSidebarVisible.value = true
+}
 function guardedToggleMonitorPanel() {
+  if (isDockerMode.value) return
   toggleMonitorPanel()
 }
 function guardedToggleBatchPanel() {
+  if (isDockerMode.value) return
   toggleBatchPanel()
 }
 function guardedToggleSnippetsPanel() {
+  if (isDockerMode.value) return
   toggleSnippetsPanel()
 }
 
 /** Open the Docker sub-tab under the current SSH host (同列于终端 1 / 终端 2). */
 function handleEnterDocker() {
+  if (isDbWindow) return
   closeSettingsPage()
   if (appMode.value !== 'ssh') {
     appMode.value = 'ssh'
@@ -320,6 +337,7 @@ function handleEnterDocker() {
 }
 
 function handleToggleDocker() {
+  if (isDbWindow) return
   closeSettingsPage()
   if (appMode.value !== 'ssh') {
     appMode.value = 'ssh'
@@ -358,6 +376,7 @@ const {
 })
 
 const { unreadSessions, markUnread, clearUnread, hasUnread } = useAiReplyBadge()
+const { pendingApprovalSessions, hasPending: hasAiApprovalPending } = useAiApprovalHint()
 
 const {
   batchSessions,
@@ -500,21 +519,41 @@ watch(
 
 useTransferToasts()
 
-/** Detached multi-window launch: ?detached=1&connectionId=uuid */
+/** Detached multi-window launch: ?detached=1&connectionId=uuid ; DB window: ?mode=db */
 function readLaunchParams() {
   try {
     const params = new URLSearchParams(window.location.search)
     return {
       detached: params.get('detached') === '1',
       connectionId: params.get('connectionId') || '',
+      mode: params.get('mode') || '',
     }
   } catch {
-    return { detached: false, connectionId: '' }
+    return { detached: false, connectionId: '', mode: '' }
   }
 }
 
 const launchParams = readLaunchParams()
 const isDetachedWindow = launchParams.detached && !!launchParams.connectionId
+/** Dedicated DB window (?mode=db): boot straight into the database module. */
+const isDbWindow = launchParams.mode === 'db'
+if (isDbWindow) {
+  enterDatabase()
+}
+
+/** Titlebar module switch: DB lives in its own OS window. */
+function handleEnterDatabaseModule() {
+  if (isDbWindow) return
+  void window.LiteConnect.openDatabaseWindow()
+}
+
+function handleEnterSshModule(forceHome?: boolean) {
+  if (isDbWindow) {
+    void window.LiteConnect.focusMainWindow()
+    return
+  }
+  enterSsh(forceHome)
+}
 
 onMounted(async () => {
   unsubReplyComplete = onAiReplyComplete((sessionId) => {
@@ -615,7 +654,7 @@ onMounted(async () => {
   monitorEnabled.value = await window.LiteConnect.getMonitorEnabled()
   await Promise.all([loadFancyCursorSettings(), loadAppBackgroundSettings()])
   await Promise.all([loadConnections(), loadRecentConnections()])
-  if (!isDetachedWindow) {
+  if (!isDetachedWindow && !isDbWindow) {
     await restoreWorkspaceTabs()
   }
   bootstrapPending.value = false
@@ -649,8 +688,8 @@ onBeforeUnmount(() => {
       :app-mode="appMode"
       :show-settings-page="showSettingsPage"
       :connection-label="titlebarConnectionLabel"
-      @enter-ssh="enterSsh"
-      @enter-database="enterDatabase"
+      @enter-ssh="handleEnterSshModule"
+      @enter-database="handleEnterDatabaseModule"
       @toggle-settings="toggleSettingsPage"
       @open-shortcuts="shortcutsHelpVisible = true"
     />
@@ -665,6 +704,7 @@ onBeforeUnmount(() => {
           :latency-map="latencyEnabled ? latencyMap : null"
           :latency-enabled="latencyEnabled"
           :unread-sessions="unreadSessions"
+          :ai-approval-sessions="pendingApprovalSessions"
           :disconnected-session-ids="disconnectedSessionIds"
           :home-active="isHomeActive"
           @select="(id) => { showSettingsPage = false; appMode = 'ssh'; onSelectGroup(id) }"
@@ -707,7 +747,9 @@ onBeforeUnmount(() => {
           :live-session-ids="liveSessionIds"
           :all-sessions="allSessions"
           :unread-sessions="unreadSessions"
+          :ai-approval-sessions="pendingApprovalSessions"
           :show-ai-unread="!aiSidebarVisible && !!activeSessionId && hasUnread(activeSessionId)"
+          :show-ai-approval="!aiSidebarVisible && !!activeSessionId && hasAiApprovalPending(activeSessionId)"
           :ai-sidebar-visible="aiSidebarVisible"
           :sidebar-visible="sidebarVisible"
           :sidebar-width="sidebarWidth"
@@ -735,6 +777,7 @@ onBeforeUnmount(() => {
           :docker-button-enabled="dockerButtonEnabled"
           :active-session-ssh-disconnected="!!activeSessionId && !isActiveSessionConnected"
           :disconnected-session-ids="disconnectedSessionIds"
+          @jump-ai-approval="jumpToAiApproval"
           @toggle-ai="guardedToggleAiSidebar"
           @toggle-files="guardedToggleSidebar"
           @toggle-monitor="guardedToggleMonitorPanel"

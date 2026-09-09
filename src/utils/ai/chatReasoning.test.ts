@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { isLiveReasoningSegment } from './chatReasoning'
+import { isLiveReasoningSegment, reasoningLiveSnippet } from './chatReasoning'
+
+describe('reasoningLiveSnippet', () => {
+  it('returns empty for blank input', () => {
+    expect(reasoningLiveSnippet('')).toBe('')
+    expect(reasoningLiveSnippet('  \n  ')).toBe('')
+  })
+
+  it('uses the last non-empty line so new thoughts replace the placeholder', () => {
+    expect(reasoningLiveSnippet('先看负载\n再看磁盘占用')).toBe('再看磁盘占用')
+    expect(reasoningLiveSnippet('先看负载\n\n  ')).toBe('先看负载')
+  })
+
+  it('collapses inner whitespace onto one line', () => {
+    expect(reasoningLiveSnippet('检查  磁盘\t占用')).toBe('检查 磁盘 占用')
+  })
+
+  it('keeps the newest tail when the line is longer than the slot', () => {
+    const text = '甲'.repeat(12)
+    expect(reasoningLiveSnippet(text, 8)).toBe(`…${'甲'.repeat(8)}`)
+  })
+})
+
 
 describe('isLiveReasoningSegment', () => {
   it('is false when the reply is not streaming', () => {

@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   reorderConnections: (orderedIds: string[]) => ipcRenderer.invoke('store:reorderConnections', orderedIds),
   openConnectionWindow: (connectionId: string) =>
     ipcRenderer.invoke('window:openConnection', connectionId),
+  openDatabaseWindow: () => ipcRenderer.invoke('window:openDatabase'),
+  focusMainWindow: () => ipcRenderer.invoke('window:focusMain'),
   isEncryptionAvailable: () => ipcRenderer.invoke('store:isEncryptionAvailable'),
   getConnectionPassword: (id: string) => ipcRenderer.invoke('store:getConnectionPassword', id),
   getConnectionSecrets: (id: string) => ipcRenderer.invoke('store:getConnectionSecrets', id),
@@ -113,7 +115,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   switchAiModel: (providerId: string, model: string) => ipcRenderer.invoke('settings:switchAiModel', providerId, model),
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => ipcRenderer.invoke('ai:testProvider', provider),
   aiChat: (messages: any[]) => ipcRenderer.invoke('ai:chat', messages),
-  aiChatStream: (requestId: string, messages: any[], opts?: { sessionId?: string }) =>
+  aiChatStream: (requestId: string, messages: any[], opts?: { sessionId?: string; cwd?: string }) =>
     ipcRenderer.invoke('ai:chatStream', requestId, messages, opts),
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) =>

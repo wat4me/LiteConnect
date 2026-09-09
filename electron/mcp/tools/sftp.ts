@@ -5,33 +5,95 @@ import {
   MCP_MAX_READ_FILE_BYTES,
   MCP_MAX_TRANSFER_BYTES,
   MCP_MAX_WRITE_FILE_BYTES,
+  MCP_READ_MAX_BYTES,
+  MCP_READ_MAX_LINE_CHARS,
   MCP_TAIL_MAX_BYTES,
 } from '../../../shared/mcp/limits'
 import type { SshMcpDirEntry, SshMcpToolResult } from '../../../shared/mcp/types'
 import { clampLength, clampLines, clampOffset, parseEncoding, requireLocalPath, requireRemotePath } from '../args'
 import type { McpRuntimeHost } from '../runtimeHost'
+import { clampReadLimit, clampReadStartLine, createLineCollector, READ_CHUNK_BYTES } from './fileWindow'
+
+function wantsByteWindow(input: Record<string, unknown>): boolean {
+  if (parseEncoding(input.encoding) === 'base64') return true
+  const hasByte = input.offset != null || input.length != null
+  const hasLine = input.startLine != null || input.limit != null
+  return hasByte && !hasLine
+}
 
 export async function readFileTool(host: McpRuntimeHost, input: Record<string, unknown>): Promise<SshMcpToolResult> {
   const session = host.requireSession(input.sessionId)
   const path = requireRemotePath(input.path)
-  const offset = clampOffset(input.offset)
-  const length = clampLength(input.length, MCP_MAX_READ_FILE_BYTES)
   const encoding = parseEncoding(input.encoding)
-  const ranged = await host.withSftp(session.sessionId, session.generation, () =>
-    host.ssh.sftpReadFileRange(session.sessionId, path, offset, length),
-  )
+  if (wantsByteWindow(input)) {
+    const offset = clampOffset(input.offset)
+    const length = clampLength(input.length, MCP_MAX_READ_FILE_BYTES)
+    const ranged = await host.withSftp(session.sessionId, session.generation, () =>
+      host.ssh.sftpReadFileRange(session.sessionId, path, offset, length),
+    )
+    host.touch(session.sessionId)
+    const content = encoding === 'base64' ? ranged.buffer.toString('base64') : ranged.buffer.toString('utf8')
+    return host.ok({
+      path,
+      content,
+      encoding,
+      bytes: ranged.buffer.length,
+      size: ranged.size,
+      offset,
+      eof: ranged.eof,
+      nextOffset: offset + ranged.buffer.length,
+    })
+  }
+
+  const startLine = clampReadStartLine(input.startLine)
+  const limit = clampReadLimit(input.limit)
+  const collector = createLineCollector({
+    startLine,
+    limit,
+    maxBytes: MCP_READ_MAX_BYTES,
+    maxLineChars: MCP_READ_MAX_LINE_CHARS,
+  })
+  let bytePos = 0
+  let size = 0
+  let eof = false
+  let binary = false
+
+  await host.withSftp(session.sessionId, session.generation, async () => {
+    while (!collector.stopped) {
+      const ranged = await host.ssh.sftpReadFileRange(session.sessionId, path, bytePos, READ_CHUNK_BYTES)
+      size = ranged.size
+      if (bytePos === 0 && ranged.buffer.includes(0)) {
+        binary = true
+        return
+      }
+      collector.push(ranged.buffer.toString('utf8'), ranged.eof)
+      bytePos += ranged.buffer.length
+      eof = ranged.eof
+      if (ranged.eof || ranged.buffer.length === 0) break
+    }
+  })
+
+  if (binary) {
+    return host.error(
+      'INVALID_ARGUMENTS',
+      'File looks binary. Re-call read_file with encoding=base64 and offset/length (max 50 KiB).',
+    )
+  }
+
+  const window = collector.result()
   host.touch(session.sessionId)
-  const content = encoding === 'base64' ? ranged.buffer.toString('base64') : ranged.buffer.toString('utf8')
-  const nextOffset = offset + ranged.buffer.length
+  const truncated = window.hitByteCap || window.hitLineCap || window.clippedLine || !eof
   return host.ok({
     path,
-    content,
-    encoding,
-    bytes: ranged.buffer.length,
-    size: ranged.size,
-    offset,
-    eof: ranged.eof,
-    nextOffset,
+    content: window.lines.join('\n'),
+    encoding: 'utf8',
+    startLine: window.startLine,
+    lineCount: window.lines.length,
+    nextLine: window.nextLine,
+    bytes: window.bytes,
+    size,
+    eof: eof && !window.hitByteCap,
+    truncated,
   })
 }
 

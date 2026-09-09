@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue'
+import { computed, inject, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
   AiChatMessage,
@@ -14,13 +14,18 @@ import type {
   AiUsage,
 } from '../../env.d'
 import { t } from '../../i18n'
-import { firstAiModelId, packAiMessages, resolveModelContextWindow } from '@shared/aiContext'
-import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
+import { firstAiModelId, resolveModelContextWindow } from '@shared/aiContext'
+import { flattenConversationForApi } from '@shared/aiMessages'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
+import { syncAiApprovalPending } from './useAiApprovalHint'
+import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
 
-export type ChatItem = AiChatMessage & {
+export type ChatItem = {
   id: string
   createdAt: number
+  role: 'user' | 'assistant'
+  content: string
   error?: boolean
   reasoningContent?: string
   usage?: AiUsage
@@ -28,6 +33,8 @@ export type ChatItem = AiChatMessage & {
   toolRuns?: AiToolRun[]
   /** True streaming order of reasoning / tool calls / content for display. */
   segments?: AiChatSegment[]
+  /** Wire Chat Completions messages for this assistant turn (prefix cache). */
+  apiMessages?: AiChatMessage[]
 }
 
 type AiSessionState = {
@@ -76,6 +83,16 @@ function getAiSessionState(sessionId: string): AiSessionState {
 }
 
 export function useAiChat() {
+  const pwdTracker = inject<TerminalPwdTracker | undefined>('pwdTracker', undefined)
+
+  function cwdForSession(sessionId: string): string | undefined {
+    const raw = pwdTracker?.getPwd(sessionId)
+    if (typeof raw !== 'string') return undefined
+    const cwd = raw.trim()
+    if (!cwd || cwd.length > 4096 || /[\0\r\n]/.test(cwd)) return undefined
+    return cwd
+  }
+
   const settings = ref<AiSettings>({
     providers: [],
     activeProviderId: null,
@@ -137,7 +154,7 @@ export function useAiChat() {
   }
 
   function createMessage(
-    role: AiChatMessage['role'],
+    role: 'user' | 'assistant',
     content: string,
     error = false,
     result?: Partial<AiChatResult> & { streaming?: boolean }
@@ -185,6 +202,8 @@ export function useAiChat() {
     if (message.toolRuns?.length) record.toolRuns = plainToolRuns(message.toolRuns)
     const segments = plainSegments(message.segments)
     if (segments) record.segments = segments
+    const apiMessages = plainApiMessages(message.apiMessages)
+    if (apiMessages) record.apiMessages = apiMessages
     return record
   }
 
@@ -199,6 +218,7 @@ export function useAiChat() {
       createdAt: record.createdAt,
       toolRuns: record.toolRuns,
       segments: record.segments,
+      apiMessages: record.apiMessages,
     }
   }
 
@@ -223,56 +243,43 @@ export function useAiChat() {
     )
   }
 
-  /** Append a streamed reasoning/content delta to the display timeline. */
-  function appendTextSegment(
-    segments: AiChatSegment[] | undefined,
-    kind: 'reasoning' | 'content',
-    delta: string,
-  ): AiChatSegment[] {
-    const out = [...(segments || [])]
-    const last = out[out.length - 1]
-    if (last && last.kind === kind) {
-      out[out.length - 1] = { kind, text: last.text + delta }
-    } else {
-      out.push({ kind, text: delta })
-    }
-    return out
-  }
-
-  /** Guarantee every tool run has a timeline entry (inserted before the final answer). */
-  function ensureToolSegments(
-    segments: AiChatSegment[] | undefined,
-    toolRuns: AiToolRun[] | undefined,
-  ): AiChatSegment[] | undefined {
-    if (!toolRuns?.length) return segments
-    const out = [...(segments || [])]
-    const missing = toolRuns.filter((run) => !out.some((seg) => seg.kind === 'tool' && seg.runId === run.id))
-    if (!missing.length) return segments
-    let insertAt = out.length
-    while (insertAt > 0 && out[insertAt - 1].kind === 'content') insertAt--
-    for (const run of missing) {
-      out.splice(insertAt, 0, { kind: 'tool', runId: run.id })
-      insertAt++
-    }
-    return out
-  }
-
-  function contentForModel(message: ChatItem): string {
-    if (!message.toolRuns?.length) return message.content
-    const lines = message.toolRuns.map((run) => {
-      const view = formatToolRunDisplay(run)
-      const head = view.hint ? `${run.name} ${view.hint}` : run.name
-      const out = (view.body || (view.summary.kind === 'text' ? view.summary.text : '') || run.content)
-        .replace(/\s+/g, ' ')
-        .slice(0, 1200)
-      return `- ${head}: ${run.isError ? 'ERROR ' : ''}${out}`
+  function plainApiMessages(messages: AiChatMessage[] | undefined): AiChatMessage[] | undefined {
+    if (!messages?.length) return undefined
+    return messages.map((m) => {
+      if (m.role === 'tool') {
+        return { role: 'tool' as const, content: String(m.content ?? ''), toolCallId: String(m.toolCallId || '') }
+      }
+      if (m.role === 'user' || m.role === 'system') {
+        return { role: m.role, content: String(m.content ?? '') }
+      }
+      const row: AiChatMessage = { role: 'assistant', content: String(m.content ?? '') }
+      if (m.reasoningContent) row.reasoningContent = String(m.reasoningContent)
+      if (m.toolCalls?.length) {
+        row.toolCalls = m.toolCalls.map((c) => ({
+          id: String(c.id || ''),
+          type: 'function' as const,
+          function: {
+            name: String(c.function?.name || ''),
+            arguments: String(c.function?.arguments || ''),
+          },
+        }))
+      }
+      return row
     })
-    return `【已在当前 SSH 会话执行】\n${lines.join('\n')}\n\n${message.content || ''}`
+  }
+
+  function refreshApprovalPending(sessionId: string) {
+    const state = getAiSessionState(sessionId)
+    const pending =
+      state.loading &&
+      state.messages.some((message) => (message.toolRuns || []).some((run) => run.status === 'ask'))
+    syncAiApprovalPending(sessionId, pending)
   }
 
   function setSessionLoading(sessionId: string, value: boolean) {
     const state = getAiSessionState(sessionId)
     state.loading = value
+    refreshApprovalPending(sessionId)
   }
 
   /**
@@ -523,24 +530,12 @@ export function useAiChat() {
       return false
     }
 
-    const chatMessages = state.messages
-      .filter((message) => !message.error && !message.streaming && (message.content.trim() || message.toolRuns?.length))
-      .map((message) => ({ role: message.role, content: contentForModel(message) }))
+    const requestMessages = cloneForIpc(flattenConversationForApi(state.messages))
 
-    if (chatMessages.length === 0) {
+    if (!requestMessages.some((message) => message.role === 'user')) {
       ElMessage.warning(t('ai.needUserMessage'))
       return false
     }
-
-    // System prompt is attached only here (and in main-process pack), never when
-    // the sidebar is merely opened.
-    const packed = packAiMessages({
-      systemPrompt: settings.value.systemPrompt,
-      messages: chatMessages.filter((m) => m.role !== 'system'),
-      model: settings.value.activeModel,
-      contextWindowTokens: activeContextWindowTokens.value,
-    })
-    const requestMessages = packed.messages.filter((m) => m.role !== 'system')
 
     setSessionLoading(sessionId, true)
 
@@ -573,6 +568,7 @@ export function useAiChat() {
       const current = getAssistantMessage()
       state.messages.splice(assistantIndex, 1, { ...current, ...patch })
       onUpdate(state.messages)
+      if (patch.toolRuns) refreshApprovalPending(sessionId)
       if (patch.content !== undefined || patch.reasoningContent !== undefined) {
         scheduleAssistantCheckpoint()
       }
@@ -610,7 +606,10 @@ export function useAiChat() {
             args: incoming.args ?? (idx >= 0 ? runs[idx].args : ''),
             content: incoming.content ?? (idx >= 0 ? runs[idx].content : '') ?? '',
             isError:
-              incoming.isError === true || incoming.phase === 'denied' || incoming.phase === 'blocked',
+              incoming.isError === true ||
+              incoming.phase === 'denied' ||
+              incoming.phase === 'blocked' ||
+              incoming.phase === 'reclassify',
             status,
             risk: incoming.risk ?? (idx >= 0 ? runs[idx].risk : undefined),
             reason: incoming.reason ?? (idx >= 0 ? runs[idx].reason : undefined),
@@ -622,16 +621,21 @@ export function useAiChat() {
       })
 
       try {
-        const reply = await window.LiteConnect.aiChatStream(requestId, requestMessages, { sessionId })
+        const reply = await window.LiteConnect.aiChatStream(requestId, requestMessages, {
+          sessionId,
+          cwd: cwdForSession(sessionId),
+        })
         const current = getAssistantMessage()
         const aborted = !!(reply as any)?.aborted
         const finalToolRuns = plainToolRuns(reply.toolRuns || current.toolRuns)
+        const finalApiMessages = plainApiMessages(reply.apiMessages || current.apiMessages)
         updateAssistantMessage({
           content: reply.content || current.content || (aborted ? t('ai.stopped') : ''),
           reasoningContent: reply.reasoningContent || current.reasoningContent,
           usage: plainUsage(reply.usage || current.usage),
           toolRuns: finalToolRuns,
           segments: ensureToolSegments(current.segments, finalToolRuns),
+          apiMessages: finalApiMessages,
           error: aborted && !reply.content && !current.content ? false : current.error,
         })
       } finally {
@@ -654,6 +658,13 @@ export function useAiChat() {
             content: reply.content,
             reasoningContent: reply.reasoningContent,
             usage: plainUsage(reply.usage),
+            apiMessages: [
+              {
+                role: 'assistant',
+                content: reply.content,
+                ...(reply.reasoningContent ? { reasoningContent: reply.reasoningContent } : {}),
+              },
+            ],
           })
         } catch (fallbackErr: any) {
           updateAssistantMessage({
@@ -759,31 +770,10 @@ export function useAiChat() {
   }
 
   /**
-   * Edit a user message: remove it and everything after, put text into input via callback result.
-   * Caller should put returned text into input for user to re-send (or pass autoResend).
+   * Edit a user message inline and resend: remove it and everything after, then re-request.
+   * Only the LAST user message may be edited — editing an older turn would silently
+   * discard the whole conversation after it.
    */
-  async function prepareEditUserMessage(
-    sessionId: string,
-    userMessageId: string,
-    onUpdate: (messages: ChatItem[]) => void
-  ): Promise<string | null> {
-    const state = getAiSessionState(sessionId)
-    if (state.loading) {
-      ElMessage.warning(t('ai.busy'))
-      return null
-    }
-    const index = state.messages.findIndex((m) => m.id === userMessageId)
-    if (index < 0) return null
-    const target = state.messages[index]
-    if (target.role !== 'user') return null
-
-    const content = target.content
-    state.messages.splice(index, state.messages.length - index)
-    onUpdate(state.messages)
-    await persistActiveThread(sessionId)
-    return content
-  }
-
   async function editUserMessageAndResend(
     sessionId: string,
     userMessageId: string,
@@ -798,6 +788,15 @@ export function useAiChat() {
     const index = state.messages.findIndex((m) => m.id === userMessageId)
     if (index < 0) return false
     if (state.messages[index].role !== 'user') return false
+
+    let lastUserIndex = -1
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      if (state.messages[i].role === 'user') {
+        lastUserIndex = i
+        break
+      }
+    }
+    if (index !== lastUserIndex) return false
 
     const content = newText.trim()
     if (!content) return false
@@ -1041,7 +1040,6 @@ export function useAiChat() {
     clearAllConversations,
     regenerateMessage,
     retryMessage,
-    prepareEditUserMessage,
     editUserMessageAndResend,
     deleteMessage,
   }

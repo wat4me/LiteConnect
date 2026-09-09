@@ -5,8 +5,22 @@ export const MCP_MAX_STDOUT_CHARS = 128 * 1024
 export const MCP_MAX_STDERR_CHARS = 64 * 1024
 /** Hard cap inside the exec collector so a runaway stream cannot OOM main. */
 export const MCP_EXEC_HARD_CAP_CHARS = 1_024 * 1024
-export const MCP_MAX_READ_FILE_BYTES = 256 * 1024
+/** Default/max slice for read_file. Agents page with startLine; do not dump whole files. */
+export const MCP_READ_DEFAULT_LINES = 200
+export const MCP_READ_MAX_LINES = 500
+export const MCP_READ_MAX_LINE_CHARS = 2_000
+export const MCP_READ_MAX_BYTES = 50 * 1024
+/** What we actually hand the model after any tool. Longer output is cut and the model is told to page/grep. */
+export const MCP_AI_RESULT_MAX_CHARS = 32 * 1024
+export const MCP_AI_RESULT_MAX_LINES = 200
+export const MCP_READ_CHUNK_BYTES = 8 * 1024
+export const MCP_MAX_READ_FILE_BYTES = MCP_READ_MAX_BYTES
 export const MCP_MAX_WRITE_FILE_BYTES = 256 * 1024
+export const MCP_GREP_MAX_MATCHES = 100
+export const MCP_GREP_MAX_LINE_CHARS = 2_000
+export const MCP_GLOB_MAX_RESULTS = 100
+export const MCP_SEARCH_TIMEOUT_MS = 15_000
+export const MCP_SEARCH_PATTERN_MAX = 200
 export const MCP_MAX_STDIN_CHARS = 64 * 1024
 export const MCP_MAX_TRANSFER_BYTES = 64 * 1024 * 1024
 export const MCP_MAX_DIR_ENTRIES = 400

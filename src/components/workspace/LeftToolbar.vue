@@ -10,6 +10,7 @@ const props = defineProps<{
   batchActive: boolean
   snippetsActive: boolean
   showAiUnread: boolean
+  showAiApproval?: boolean
   /** Active SFTP transfers (all sessions); shown when files panel closed */
   activeTransfers?: number
   /** Docker workspace mode button (not a side panel). */
@@ -51,9 +52,10 @@ const dockerTooltip = computed(() => {
       >
         <AppIcon name="ai-chat" size="lg" />
         <span
-          v-if="showAiUnread"
+          v-if="showAiApproval || showAiUnread"
           class="ai-reply-badge"
-          :aria-label="t('toolbar.aiUnread')"
+          :class="{ approval: showAiApproval }"
+          :aria-label="showAiApproval ? t('toolbar.aiApproval') : t('toolbar.aiUnread')"
         ></span>
       </button>
     </el-tooltip>
@@ -211,6 +213,10 @@ const dockerTooltip = computed(() => {
   background: var(--danger);
   box-shadow: 0 0 0 2px var(--bg-secondary);
   animation: ai-reply-pulse 1.6s ease-in-out infinite;
+}
+
+.ai-reply-badge.approval {
+  background: var(--warning);
 }
 
 .transfer-count-badge {

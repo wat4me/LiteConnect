@@ -98,8 +98,9 @@ function onSearchInput(e: Event) {
           :class="{ active: stateFilter === 'all' }"
           @click="emit('filter', 'all')"
         >
-          {{ t('docker.filters.all') }}
-          <span class="filter-count">{{ filterCounts.all }}</span>
+          <span class="filter-btn-text"
+            >{{ t('docker.filters.all') }}<span class="filter-count">{{ filterCounts.all }}</span></span
+          >
         </button>
         <button
           type="button"
@@ -107,8 +108,10 @@ function onSearchInput(e: Event) {
           :class="{ active: stateFilter === 'running' }"
           @click="emit('filter', 'running')"
         >
-          {{ t('docker.filters.running') }}
-          <span class="filter-count">{{ filterCounts.running }}</span>
+          <span class="filter-btn-text"
+            >{{ t('docker.filters.running')
+            }}<span class="filter-count">{{ filterCounts.running }}</span></span
+          >
         </button>
         <button
           type="button"
@@ -116,8 +119,10 @@ function onSearchInput(e: Event) {
           :class="{ active: stateFilter === 'stopped' }"
           @click="emit('filter', 'stopped')"
         >
-          {{ t('docker.filters.stopped') }}
-          <span class="filter-count">{{ filterCounts.stopped }}</span>
+          <span class="filter-btn-text"
+            >{{ t('docker.filters.stopped')
+            }}<span class="filter-count">{{ filterCounts.stopped }}</span></span
+          >
         </button>
       </div>
       <input
@@ -263,6 +268,12 @@ function onSearchInput(e: Event) {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--text-primary);
   font-weight: 600;
+}
+
+.filter-btn-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .filter-count {

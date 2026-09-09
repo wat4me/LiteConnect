@@ -11,6 +11,12 @@ import {
   validateSqlInput,
 } from '../common'
 import { planSqlRowLimit } from '../sql/sqlLimit'
+import { runSqlBatch } from '../sql/sqlBatch'
+import {
+  applyTxCommand,
+  classifyTxStatement,
+  splitExecutableSql,
+} from '../../../shared/sqlStatement'
 import { buildWhereClauseMysql } from '../browse/browseFilter'
 import { BrowseCountCache } from '../browse/browsePagination'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
@@ -543,6 +549,7 @@ export class MySqlDriver implements DbDriver {
   async query(sessionId: string, sql: string, options?: DbQueryOptions): Promise<DbQueryResult> {
     const session = this.requireSession(sessionId)
     const trimmed = validateSqlInput(sql)
+    const statements = splitExecutableSql(trimmed, 'mysql')
     const { maxRows, timeoutMs } = clampQueryLimits(options)
     const queryId =
       typeof options?.queryId === 'string' && options.queryId.trim()
@@ -564,6 +571,7 @@ export class MySqlDriver implements DbDriver {
     const start = Date.now()
     /** When false, connection was destroyed (not released) — must not release again. */
     let connectionReusable = true
+    let endedInTx = usePinned
     try {
       if (queryId) {
         const [idRows] = await conn.query<RowDataPacket[]>('SELECT CONNECTION_ID() AS id')
@@ -577,31 +585,30 @@ export class MySqlDriver implements DbDriver {
         if (usePinned) pin!.database = useDb
       }
 
-      if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-        throw cancelledError()
-      }
-
-      const plan = planSqlRowLimit(trimmed, maxRows, 'mysql')
-      if (plan.mode === 'unsupported') {
-        throw new Error(plan.error)
-      }
-
-      // Prefer server-side LIMIT rewrite; stream for complex SELECT; plain for SELECT INTO etc.
-      // While pinned in a user TX, avoid stream path that may destroy the connection.
-      if (plan.mode === 'stream' && !usePinned) {
+      const allowStream = statements.length === 1 && !usePinned
+      const executeOne = async (stmt: string): Promise<DbQueryResult> => {
+        if (queryId && this.activeQueries.get(queryId)?.cancelled) {
+          throw cancelledError()
+        }
+        const elapsed = Date.now() - start
+        if (elapsed >= timeoutMs) {
+          throw Object.assign(new Error('Query timed out'), {
+            errno: 3024,
+            code: 'ER_QUERY_TIMEOUT',
+          })
+        }
+        const remaining = Math.max(1, timeoutMs - elapsed)
         try {
-          const streamed = await this.queryStreamCapped(
-            conn,
-            trimmed,
+          const executed = await this.executeOnConn(conn, stmt, {
             maxRows,
-            timeoutMs,
+            timeoutMs: remaining,
             start,
             queryId,
-          )
-          connectionReusable = streamed.connectionReusable
-          return streamed.result
+            allowStream,
+          })
+          if (!executed.connectionReusable) connectionReusable = false
+          return executed.result
         } catch (streamErr: any) {
-          // Truncate/cancel/error may have destroyed the physical connection
           if (streamErr?.connectionReusable === false) {
             connectionReusable = false
           }
@@ -609,50 +616,183 @@ export class MySqlDriver implements DbDriver {
         }
       }
 
-      const sqlToRun =
-        plan.mode === 'rewrite'
-          ? plan.sql
-          : plan.mode === 'stream' && usePinned
-            ? trimmed
-            : trimmed /* plain | none | stream-on-pin */
-      const [result, fields] = await conn.query({
-        sql: sqlToRun,
-        timeout: timeoutMs,
-      })
+      let result: DbQueryResult
+      if (statements.length <= 1) {
+        const stmt = statements[0] || trimmed
+        result = await executeOne(stmt)
+        endedInTx = applyTxCommand(endedInTx, classifyTxStatement(stmt, 'mysql'))
+      } else {
+        const batch = await runSqlBatch({
+          statements,
+          dialect: 'mysql',
+          startedInTransaction: usePinned,
+          executeOne,
+          rollback: async () => {
+            await conn.query('ROLLBACK')
+          },
+        })
+        result = batch.result
+        endedInTx = batch.inTransaction
+      }
 
+      if (!connectionReusable) endedInTx = false
+
+      result = {
+        ...result,
+        transaction: { inTransaction: endedInTx, autocommit: !endedInTx },
+      }
+
+      if (connectionReusable) {
+        await this.settleQueryConnection({
+          sessionId,
+          clientKey,
+          conn,
+          usePinned,
+          endedInTx,
+          database: useDb || (usePinned ? pin!.database : session.database),
+        })
+      }
+
+      return result
+    } catch (err: any) {
       if (queryId && this.activeQueries.get(queryId)?.cancelled) {
         throw cancelledError()
       }
+      if (err?.errno === 1317 || err?.code === 'ER_QUERY_INTERRUPTED') {
+        throw cancelledError()
+      }
+      const holding =
+        !!clientKey
+        && this.pinnedClients.get(this.pinKey(sessionId, clientKey))?.conn === conn
+      if (!holding && connectionReusable) {
+        try {
+          await conn.query('ROLLBACK')
+        } catch {}
+      }
+      throw err
+    } finally {
+      if (queryId) this.activeQueries.delete(queryId)
+      const hold =
+        connectionReusable
+        && !!clientKey
+        && this.pinnedClients.get(this.pinKey(sessionId, clientKey))?.conn === conn
+      if (connectionReusable && !hold) {
+        try {
+          conn.release()
+        } catch {}
+      } else if (!connectionReusable && usePinned && clientKey) {
+        this.pinnedClients.delete(this.pinKey(sessionId, clientKey))
+      }
+    }
+  }
 
-      const durationMs = Date.now() - start
-
-      if (Array.isArray(result) && fields && Array.isArray(fields)) {
-        const rows = result as RowDataPacket[]
-        const fieldList = fields as FieldPacket[]
-        const columns = fieldList.map((f) => f.name)
-        // rewrite used maxRows+1; post-slice preserves truncated semantics
-        const allowTruncate = plan.mode === 'rewrite' || (plan.mode === 'stream' && usePinned)
-        const truncated = allowTruncate && rows.length > maxRows
-        const sliced = truncated ? rows.slice(0, maxRows) : rows
-        const mapped = sliced.map((row) => {
-          const out: Record<string, unknown> = {}
-          for (const col of columns) {
-            out[col] = serializeCell((row as any)[col])
-          }
-          return out
+  /**
+   * After a successful query, pin leftover SQL transactions or release a pin
+   * closed by COMMIT/ROLLBACK in the script.
+   */
+  private async settleQueryConnection(opts: {
+    sessionId: string
+    clientKey: string | null
+    conn: mysql.PoolConnection
+    usePinned: boolean
+    endedInTx: boolean
+    database: string | null
+  }): Promise<void> {
+    const { sessionId, clientKey, conn, usePinned, endedInTx, database } = opts
+    if (endedInTx) {
+      if (clientKey) {
+        const existing = this.pinnedClients.get(this.pinKey(sessionId, clientKey))
+        if (existing?.conn === conn) {
+          existing.inTransaction = true
+          existing.database = database
+          return
+        }
+        this.pinnedClients.set(this.pinKey(sessionId, clientKey), {
+          sessionId,
+          clientKey,
+          conn,
+          inTransaction: true,
+          database,
         })
-        return {
+        return
+      }
+      try {
+        await conn.query('ROLLBACK')
+      } catch {}
+      return
+    }
+    if (usePinned && clientKey) {
+      this.pinnedClients.delete(this.pinKey(sessionId, clientKey))
+      try {
+        await conn.query('SET autocommit = 1')
+      } catch {}
+    }
+  }
+
+  private async executeOnConn(
+    conn: mysql.PoolConnection,
+    sql: string,
+    opts: {
+      maxRows: number
+      timeoutMs: number
+      start: number
+      queryId: string | null
+      allowStream: boolean
+    },
+  ): Promise<{ result: DbQueryResult; connectionReusable: boolean }> {
+    const { maxRows, timeoutMs, start, queryId, allowStream } = opts
+    const plan = planSqlRowLimit(sql, maxRows, 'mysql')
+    if (plan.mode === 'unsupported') {
+      throw new Error(plan.error)
+    }
+
+    if (plan.mode === 'stream' && allowStream) {
+      return this.queryStreamCapped(conn, sql, maxRows, timeoutMs, start, queryId)
+    }
+
+    const sqlToRun = plan.mode === 'rewrite' ? plan.sql : sql
+    const [result, fields] = await conn.query({
+      sql: sqlToRun,
+      timeout: timeoutMs,
+    })
+
+    if (queryId && this.activeQueries.get(queryId)?.cancelled) {
+      throw cancelledError()
+    }
+
+    const durationMs = Date.now() - start
+
+    if (Array.isArray(result) && fields && Array.isArray(fields)) {
+      const rows = result as RowDataPacket[]
+      const fieldList = fields as FieldPacket[]
+      const columns = fieldList.map((f) => f.name)
+      const allowTruncate = plan.mode === 'rewrite' || plan.mode === 'stream'
+      const truncated = allowTruncate && rows.length > maxRows
+      const sliced = truncated ? rows.slice(0, maxRows) : rows
+      const mapped = sliced.map((row) => {
+        const out: Record<string, unknown> = {}
+        for (const col of columns) {
+          out[col] = serializeCell((row as any)[col])
+        }
+        return out
+      })
+      return {
+        connectionReusable: true,
+        result: {
           columns,
           rows: mapped,
           rowCount: mapped.length,
           truncated,
           durationMs,
           hasResultSet: true,
-        }
+        },
       }
+    }
 
-      const header = result as ResultSetHeader
-      return {
+    const header = result as ResultSetHeader
+    return {
+      connectionReusable: true,
+      result: {
         columns: [],
         rows: [],
         rowCount: 0,
@@ -661,26 +801,7 @@ export class MySqlDriver implements DbDriver {
         insertId: header.insertId,
         durationMs,
         hasResultSet: false,
-      }
-    } catch (err: any) {
-      if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-        throw cancelledError()
-      }
-      if (err?.errno === 1317 || err?.code === 'ER_QUERY_INTERRUPTED') {
-        throw cancelledError()
-      }
-      throw err
-    } finally {
-      if (queryId) this.activeQueries.delete(queryId)
-      // Never release a pinned TX connection back to the pool mid-transaction
-      if (connectionReusable && !usePinned) {
-        try {
-          conn.release()
-        } catch {}
-      } else if (!connectionReusable && usePinned && clientKey) {
-        // Stream destroyed pin — drop pin entry without double-release
-        this.pinnedClients.delete(this.pinKey(sessionId, clientKey))
-      }
+      },
     }
   }
 

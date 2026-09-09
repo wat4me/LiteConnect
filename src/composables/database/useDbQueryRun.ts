@@ -158,6 +158,9 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
       if (!deps.getLiveSession(still.connectionId)) return
       still.result = result
       still.outputKind = 'result'
+      if (result.transaction) {
+        patchQueryTxFlags(still, result.transaction)
+      }
       still.lastFullDocExecutedSql = nextLastFullDocExecutedSql({
         scope: dispatchScope,
         dispatchFullDocSql,

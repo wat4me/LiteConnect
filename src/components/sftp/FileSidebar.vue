@@ -357,9 +357,9 @@ async function handleNavigate(entry: FileEntry) {
 }
 
 async function handleSyncCwd() {
-  // Jump to tracked terminal cwd and scroll it into view.
-  // Avoid full-chain force readdir (that made the whole tree "flash refresh").
-  // Missing segments still re-fetch via followPath's smart force; use 刷新 for a full reload.
+  // Jump to live shell pwd, reload that directory listing, and scroll it into view.
+  // Do not force-readdir the whole ancestor chain (that made the tree flash);
+  // missing segments still re-fetch via followPath. Use 刷新 for a full chain reload.
   await runExclusive(async () => {
     const ok = await syncCwdForce()
     const path = currentPath.value
@@ -562,37 +562,34 @@ async function initPwdTrackerAndSync() {
 async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
   if (!sftpReady.value || !followTerminalPath.value) return false
 
-  const cleanTracked = cleanRemotePath(trackedPwd)
-  let target = cleanTracked
-  try {
-    const resolved = await window.LiteConnect.sftpRealpath(props.sessionId, cleanTracked)
-    if (resolved) target = cleanRemotePath(resolved)
-  } catch {
-    // Fall through and try the tracked path as-is.
-  }
-  terminalPath.value = target
-  if (target === currentPath.value) return true
+  const logical = cleanRemotePath(trackedPwd)
+  terminalPath.value = logical
+  if (logical === currentPath.value) return true
 
-  // Save the current known-good path before attempting to load the new one.
-  // This is more reliable than pwdTracker.revertCd() because previousPwd can be
-  // corrupted by rapid sequential cd commands.
-  const knownGoodPath = currentPath.value
-
-  // Use isFallback=true to prevent loadDirectory's internal revert logic
-  // (which relies on previousPwd). We handle the revert ourselves here.
-  const ok = await loadDirectory(target, true)
+  // isFallback=true: do not let loadDirectory revert the cd tracker.
+  // Tracker must stay on the shell-logical path so later `cd ..` matches the terminal.
+  const ok = await loadDirectory(logical, true)
   if (ok) {
     saveCurrentState()
     return true
   }
 
-  // Failed to load the tracked path — revert to the last known-good path
-  if (knownGoodPath) {
-    terminalPath.value = knownGoodPath
-    pwdTracker.setPwd(props.sessionId, knownGoodPath)
-    // Don't need to reload since currentPath/files are still showing knownGoodPath
-    saveCurrentState()
+  try {
+    const physical = await window.LiteConnect.sftpRealpath(props.sessionId, logical)
+    const cleanPhysical = physical ? cleanRemotePath(physical) : ''
+    if (cleanPhysical && cleanPhysical !== logical) {
+      const opened = await loadDirectory(cleanPhysical, true)
+      if (opened) {
+        terminalPath.value = logical
+        saveCurrentState()
+        return true
+      }
+    }
+  } catch {
+    // Keep tracker on logical even if SFTP cannot open this hop.
   }
+
+  saveCurrentState()
   return false
 }
 

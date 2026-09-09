@@ -11,6 +11,12 @@ import {
   validateSqlInput,
 } from '../common'
 import { isPostgresCursorSafe, planSqlRowLimit } from '../sql/sqlLimit'
+import { runSqlBatch } from '../sql/sqlBatch'
+import {
+  applyTxCommand,
+  classifyTxStatement,
+  splitExecutableSql,
+} from '../../../shared/sqlStatement'
 import { buildWhereClausePg } from '../browse/browseFilter'
 import { BrowseCountCache } from '../browse/browsePagination'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
@@ -658,6 +664,7 @@ export class PostgresDriver implements DbDriver {
 
   async query(sessionId: string, sql: string, options?: DbQueryOptions): Promise<DbQueryResult> {
     const trimmed = validateSqlInput(sql)
+    const statements = splitExecutableSql(trimmed, 'postgres')
     const { maxRows, timeoutMs } = clampQueryLimits(options)
     const queryId =
       typeof options?.queryId === 'string' && options.queryId.trim()
@@ -683,6 +690,7 @@ export class PostgresDriver implements DbDriver {
 
     const client = usePinned ? pin!.client : await pool.connect()
     const start = Date.now()
+    let endedInTx = usePinned
     try {
       if (queryId) {
         const pidRes = await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')
@@ -696,43 +704,59 @@ export class PostgresDriver implements DbDriver {
         })
       }
 
-      if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-        throw cancelledError()
-      }
-
       await client.query(`SET statement_timeout = ${Math.floor(timeoutMs)}`)
-      const plan = planSqlRowLimit(trimmed, maxRows, 'postgres')
-
       try {
-        if (plan.mode === 'unsupported') {
-          throw new Error(plan.error)
-        }
-
-        // Nested DECLARE CURSOR needs a TX; user TX already has BEGIN — still OK on same client.
-        // Avoid nested BEGIN from queryCursorCapped when already in user transaction: use plain+slice.
-        if (plan.mode === 'stream') {
-          if (isPostgresCursorSafe(trimmed) && !usePinned) {
-            return await this.queryCursorCapped(client, trimmed, maxRows, start, queryId)
+        const allowCursor = statements.length === 1 && !usePinned
+        const executeOne = async (stmt: string): Promise<DbQueryResult> => {
+          if (queryId && this.activeQueries.get(queryId)?.cancelled) {
+            throw cancelledError()
           }
-          // Never DECLARE CURSOR for unsafe shapes or inside user TX; run once and slice
-          const plain = await client.query(trimmed)
-          return this.mapQueryResult(plain, maxRows, start, /*allowTruncate*/ true)
+          const elapsed = Date.now() - start
+          if (elapsed >= timeoutMs) {
+            throw Object.assign(new Error('Query timed out'), { code: '57014' })
+          }
+          return this.executeOnClient(client, stmt, {
+            maxRows,
+            start,
+            queryId,
+            allowCursor,
+          })
         }
 
-        if (plan.mode === 'plain') {
-          // SELECT INTO etc.: execute as-is, no cursor, no LIMIT rewrite
-          const plain = await client.query(trimmed)
-          return this.mapQueryResult(plain, maxRows, start, /*allowTruncate*/ false)
+        let result: DbQueryResult
+        if (statements.length <= 1) {
+          const stmt = statements[0] || trimmed
+          result = await executeOne(stmt)
+          endedInTx = applyTxCommand(endedInTx, classifyTxStatement(stmt, 'postgres'))
+        } else {
+          const batch = await runSqlBatch({
+            statements,
+            dialect: 'postgres',
+            startedInTransaction: usePinned,
+            executeOne,
+            rollback: async () => {
+              await client.query('ROLLBACK')
+            },
+          })
+          result = batch.result
+          endedInTx = batch.inTransaction
         }
 
-        const sqlToRun = plan.mode === 'rewrite' ? plan.sql : trimmed
-        const result = await client.query(sqlToRun)
-
-        if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-          throw cancelledError()
+        result = {
+          ...result,
+          transaction: { inTransaction: endedInTx, autocommit: !endedInTx },
         }
 
-        return this.mapQueryResult(result, maxRows, start, plan.mode === 'rewrite')
+        await this.settleQueryClient({
+          sessionId,
+          clientKey,
+          client,
+          usePinned,
+          endedInTx,
+          database: dbKey,
+        })
+
+        return result
       } finally {
         try {
           await client.query('SET statement_timeout = 0')
@@ -746,15 +770,99 @@ export class PostgresDriver implements DbDriver {
       if (err?.code === '57014') {
         throw cancelledError()
       }
+      const holding =
+        !!clientKey
+        && this.pinnedClients.get(this.pinKey(sessionId, clientKey))?.client === client
+      if (!holding) {
+        try {
+          await client.query('ROLLBACK')
+        } catch {}
+      }
       throw err
     } finally {
       if (queryId) this.activeQueries.delete(queryId)
-      if (!usePinned) {
+      const hold =
+        !!clientKey
+        && this.pinnedClients.get(this.pinKey(sessionId, clientKey))?.client === client
+      if (!hold) {
         try {
           client.release()
         } catch {}
       }
     }
+  }
+
+  private async settleQueryClient(opts: {
+    sessionId: string
+    clientKey: string | null
+    client: PoolClient
+    usePinned: boolean
+    endedInTx: boolean
+    database: string
+  }): Promise<void> {
+    const { sessionId, clientKey, client, usePinned, endedInTx, database } = opts
+    if (endedInTx) {
+      if (clientKey) {
+        const existing = this.pinnedClients.get(this.pinKey(sessionId, clientKey))
+        if (existing?.client === client) {
+          existing.inTransaction = true
+          existing.database = database
+          return
+        }
+        this.pinnedClients.set(this.pinKey(sessionId, clientKey), {
+          sessionId,
+          clientKey,
+          client,
+          inTransaction: true,
+          database,
+        })
+        return
+      }
+      try {
+        await client.query('ROLLBACK')
+      } catch {}
+      return
+    }
+    if (usePinned && clientKey) {
+      this.pinnedClients.delete(this.pinKey(sessionId, clientKey))
+    }
+  }
+
+  private async executeOnClient(
+    client: PoolClient,
+    sql: string,
+    opts: {
+      maxRows: number
+      start: number
+      queryId: string | null
+      allowCursor: boolean
+    },
+  ): Promise<DbQueryResult> {
+    const { maxRows, start, queryId, allowCursor } = opts
+    const plan = planSqlRowLimit(sql, maxRows, 'postgres')
+    if (plan.mode === 'unsupported') {
+      throw new Error(plan.error)
+    }
+
+    if (plan.mode === 'stream') {
+      if (isPostgresCursorSafe(sql) && allowCursor) {
+        return this.queryCursorCapped(client, sql, maxRows, start, queryId)
+      }
+      const plain = await client.query(sql)
+      return this.mapQueryResult(plain, maxRows, start, /*allowTruncate*/ true)
+    }
+
+    if (plan.mode === 'plain') {
+      const plain = await client.query(sql)
+      return this.mapQueryResult(plain, maxRows, start, /*allowTruncate*/ false)
+    }
+
+    const sqlToRun = plan.mode === 'rewrite' ? plan.sql : sql
+    const result = await client.query(sqlToRun)
+    if (queryId && this.activeQueries.get(queryId)?.cancelled) {
+      throw cancelledError()
+    }
+    return this.mapQueryResult(result, maxRows, start, plan.mode === 'rewrite')
   }
 
   async exportTableStream(

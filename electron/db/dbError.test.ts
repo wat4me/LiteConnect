@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { classifyDbError, sanitizeDbErrorText, toIpcDbError } from './dbError'
+import { wrapSqlBatchError } from './sql/sqlBatch'
 
 describe('sanitizeDbErrorText', () => {
   it('redacts password and URL userinfo', () => {
@@ -61,6 +62,18 @@ describe('classifyDbError', () => {
     )
     expect(c.category).toBe('tunnel')
     expect(c.retryable).toBe(true)
+  })
+
+  it('toIpcDbError prefixes batch statement context and keeps syntax category', () => {
+    const inner = Object.assign(new Error("You have an error in your SQL syntax near 'INSERT'"), {
+      errno: 1064,
+      code: 'ER_PARSE_ERROR',
+    })
+    const wrapped = wrapSqlBatchError(inner, 1, 4, 'INSERT INTO t VALUES (1)')
+    const e = toIpcDbError(wrapped, 'mysql')
+    expect((e as any).category).toBe('syntax')
+    expect((e as any).detail).toMatch(/Statement 2\/4/)
+    expect((e as any).detail).toMatch(/INSERT INTO t/)
   })
 
   it('toIpcDbError never embeds secrets in message', () => {

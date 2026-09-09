@@ -33,6 +33,7 @@ const props = withDefaults(
     /** All open session ids across groups — used to drop retained panes after close */
     liveSessionIds: string[]
     unreadSessions: Set<string>
+    aiApprovalSessions?: Set<string>
     splitMode: SplitMode
     splitRatio: number
     isSplit: boolean
@@ -288,6 +289,7 @@ function onDragSplitCommit(payload: { mode: 'horizontal' | 'vertical'; side: Spl
       :active-session-id="activeGroup.activeSessionId"
       :connection-id="activeGroup.connectionId"
       :unread-sessions="unreadSessions"
+      :ai-approval-sessions="aiApprovalSessions"
       :disconnected-session-ids="disconnectedSessionIds"
       :terminal-container="terminalContainerRef"
       :docker-tab-open="dockerTabOpen"

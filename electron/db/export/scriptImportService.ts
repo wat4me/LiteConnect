@@ -111,6 +111,10 @@ export class SqlScriptImportService {
       report(job.cancelled ? 'cancelled' : 'completed', undefined, true)
     } catch (err: any) {
       report(job.cancelled ? 'cancelled' : 'failed', String(err?.message || err).slice(0, 500), true)
+    } finally {
+      try {
+        await this.dbManager.releaseClient(job.sessionId, `script:${job.id}`)
+      } catch {}
     }
   }
 }

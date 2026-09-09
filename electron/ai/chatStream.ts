@@ -10,17 +10,23 @@ import {
   MAX_SSH_TOOL_ROUNDS,
   parseToolCallArguments,
   sshToolsForChat,
+  sanitizeTrackedCwd,
   sshToolSystemAddendum,
   type AccumulatedToolCall,
 } from './sshToolChat'
 import { serializeToolRunForHistory } from '../../shared/aiToolRunDisplay'
-import { redactToolArgsJson } from '../../shared/mcp/redactToolArgs'
+import { clampToolResultForModel } from '../../shared/mcp/toolResultClamp'
 import {
   AI_TOOL_APPROVAL_TIMEOUT_MS,
   assessAiToolCall,
+  formatAiRiskReclassifyContent,
+  omitDeclaredRiskArg,
+  sanitizeAiToolPermission,
+  type AiToolPermissionMode,
   type AiToolRunStatus,
 } from '../../shared/aiToolPolicy'
-import type { AiResolvedConfig, AiToolRun } from '../../shared/types/ai'
+import { appendFinalAssistantTurn } from '../../shared/aiMessages'
+import type { AiChatMessage, AiResolvedConfig, AiToolRun } from '../../shared/types/ai'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import { isValidUUID } from '../utils/validation'
 import {
@@ -31,6 +37,7 @@ import {
   packRequestMessages,
   readAiStream,
   readHttpErrorMessage,
+  toApiChatMessages,
   validateAiMessages,
 } from './providerHttp'
 
@@ -85,16 +92,21 @@ export async function runAiChatStream(opts: {
   requestId: string
   messages: unknown
   sessionId?: string
+  cwd?: string
   settings: AiResolvedConfig
   sshMcpRuntime?: SshMcpRuntime
+  getToolPermission?: () => AiToolPermissionMode
 }): Promise<{
   content: string
   reasoningContent?: string
   usage?: ReturnType<typeof extractAiUsage>
   toolRuns?: AiToolRun[]
   aborted?: boolean
+  apiMessages?: AiChatMessage[]
 }> {
-  const { event, requestId, messages, sessionId, settings, sshMcpRuntime } = opts
+  const { event, requestId, messages, sessionId, cwd, settings, sshMcpRuntime, getToolPermission } = opts
+  const currentToolPermission = () =>
+    sanitizeAiToolPermission(getToolPermission?.() ?? settings.toolPermission)
   if (!requestId || typeof requestId !== 'string') {
     throw new Error('Invalid AI request id')
   }
@@ -122,6 +134,7 @@ export async function runAiChatStream(opts: {
       host: snap?.host,
       username: snap?.username,
       connectionName: snap?.connectionName,
+      cwd: sanitizeTrackedCwd(cwd),
     })
   }
 
@@ -131,7 +144,7 @@ export async function runAiChatStream(opts: {
   const createBody = (includeUsage: boolean, msgs: any[], withTools: boolean) => ({
     model: settings.model,
     temperature: settings.temperature ?? 0.7,
-    messages: msgs,
+    messages: toApiChatMessages(msgs, withTools),
     stream: true,
     ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
     ...(withTools && tools ? { tools, tool_choice: 'auto' as const } : {}),
@@ -161,12 +174,22 @@ export async function runAiChatStream(opts: {
   }
 
   try {
-    let apiMessages: any[] = packedMessages
+    let apiMessages: AiChatMessage[] = packedMessages
     const contentParts: string[] = []
     let reasoningContent = ''
+    let lastRoundContent = ''
+    let lastRoundReasoning = ''
     let usage: ReturnType<typeof extractAiUsage> | undefined
     const toolRuns: AiToolRun[] = []
     let toolsEnabled = Boolean(useTools && tools)
+
+    const turnApiMessages = (): AiChatMessage[] | undefined => {
+      const generated = appendFinalAssistantTurn(
+        apiMessages.slice(packedMessages.length),
+        { content: lastRoundContent, reasoningContent: lastRoundReasoning },
+      )
+      return generated.length ? generated : undefined
+    }
 
     for (let round = 0; round < (toolsEnabled ? MAX_SSH_TOOL_ROUNDS : 1); round++) {
       if (abortController.signal.aborted) break
@@ -193,6 +216,9 @@ export async function runAiChatStream(opts: {
       }
 
       let roundContent = ''
+      let roundReasoning = ''
+      lastRoundContent = ''
+      lastRoundReasoning = ''
       const toolAcc = new Map<number, AccumulatedToolCall>()
       await readAiStream(response, (chunk) => {
         if (abortController.signal.aborted) return
@@ -205,6 +231,7 @@ export async function runAiChatStream(opts: {
 
         if (reasoningDelta) {
           reasoningContent += reasoningDelta
+          roundReasoning += reasoningDelta
           send({ type: 'reasoning', value: reasoningDelta })
         }
         if (contentDelta) {
@@ -217,6 +244,8 @@ export async function runAiChatStream(opts: {
         }
       })
 
+      lastRoundContent = roundContent
+      lastRoundReasoning = roundReasoning
       if (roundContent.trim()) contentParts.push(roundContent)
 
       const calls = [...toolAcc.values()].filter((c) => c.name)
@@ -231,8 +260,9 @@ export async function runAiChatStream(opts: {
         ...apiMessages,
         {
           role: 'assistant',
-          content: roundContent || null,
-          tool_calls: assistantToolCalls,
+          content: roundContent || '',
+          ...(roundReasoning ? { reasoningContent: roundReasoning } : {}),
+          toolCalls: assistantToolCalls,
         },
       ]
 
@@ -241,15 +271,23 @@ export async function runAiChatStream(opts: {
           parseToolCallArguments(call.function.arguments),
           boundSessionId,
         )
-        const gate = assessAiToolCall(call.function.name, boundArgs, settings.toolPermission)
-        const displayArgs = redactToolArgsJson(call.function.arguments)
+        const gate = assessAiToolCall(call.function.name, boundArgs, currentToolPermission())
+        const mcpArgs = omitDeclaredRiskArg(boundArgs)
+        const callArgs = call.function.arguments || '{}'
         send({
           type: 'tool',
           value: {
-            phase: gate.action === 'ask' ? 'ask' : gate.action === 'deny' ? 'blocked' : 'running',
+            phase:
+              gate.action === 'ask'
+                ? 'ask'
+                : gate.action === 'deny'
+                  ? 'blocked'
+                  : gate.action === 'reclassify'
+                    ? 'reclassify'
+                    : 'running',
             id: call.id,
             name: call.function.name,
-            args: displayArgs,
+            args: callArgs,
             risk: gate.risk,
             reason: gate.reason,
           },
@@ -257,7 +295,19 @@ export async function runAiChatStream(opts: {
 
         let result: { isError: boolean; content: string; structuredContent?: unknown }
         let status: AiToolRunStatus = 'done'
-        if (gate.action === 'deny') {
+        if (gate.action === 'reclassify') {
+          status = 'reclassify'
+          result = {
+            isError: true,
+            content: formatAiRiskReclassifyContent(gate),
+            structuredContent: {
+              code: gate.code,
+              expected: gate.expected,
+              declared: gate.declared,
+              message: gate.reason,
+            },
+          }
+        } else if (gate.action === 'deny') {
           status = 'blocked'
           result = {
             isError: true,
@@ -281,22 +331,24 @@ export async function runAiChatStream(opts: {
                 phase: 'running',
                 id: call.id,
                 name: call.function.name,
-                args: displayArgs,
+                args: callArgs,
                 risk: gate.risk,
                 reason: gate.reason,
               },
             })
-            result = await sshMcpRuntime.call(call.function.name, boundArgs, { approvalMode: 'auto' })
+            result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto' })
           }
         } else {
-          result = await sshMcpRuntime.call(call.function.name, boundArgs, { approvalMode: 'auto' })
+          result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto' })
         }
 
         if (abortController.signal.aborted && status === 'done' && !result.content) break
 
+        result = clampToolResultForModel(result)
+
         const stored = serializeToolRunForHistory({
           name: call.function.name,
-          args: displayArgs,
+          args: callArgs,
           content: result.content,
           isError: result.isError,
           structured: result.structuredContent,
@@ -328,13 +380,14 @@ export async function runAiChatStream(opts: {
         })
         apiMessages.push({
           role: 'tool',
-          tool_call_id: call.id,
+          toolCallId: call.id,
           content: result.content,
         })
       }
     }
 
     const content = contentParts.join('\n\n')
+    const apiTurn = turnApiMessages()
     if (abortController.signal.aborted) {
       send({ type: 'done' })
       return {
@@ -343,6 +396,7 @@ export async function runAiChatStream(opts: {
         usage,
         toolRuns,
         aborted: true,
+        apiMessages: apiTurn,
       }
     }
 
@@ -352,6 +406,7 @@ export async function runAiChatStream(opts: {
       reasoningContent: reasoningContent || undefined,
       usage,
       toolRuns,
+      apiMessages: apiTurn,
     }
   } catch (err: any) {
     if (abortController.signal.aborted || err?.name === 'AbortError') {

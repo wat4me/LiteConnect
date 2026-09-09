@@ -1,5 +1,6 @@
 import { sanitizeCancelError } from './common'
 import type { DbEngine } from './types'
+import { isSqlBatchExecuteError } from './sql/sqlBatch'
 
 /**
  * Structured DB errors (DB-010).
@@ -361,6 +362,10 @@ export function classifyDbError(
 /** Throw-friendly Error that serializes category via message + custom props for IPC. */
 export function toIpcDbError(err: unknown, engine?: DbEngine | string, hints?: { viaTunnel?: boolean }): Error {
   const structured = classifyDbError(err, engine, hints)
+  if (isSqlBatchExecuteError(err)) {
+    const head = `Statement ${err.statementIndex + 1}/${err.statementCount}: ${err.statementPreview}`
+    structured.detail = structured.detail ? `${head}\n${structured.detail}` : head
+  }
   const e = new Error(structured.summary) as Error & {
     category: DbErrorCategory
     detail?: string

@@ -2,7 +2,13 @@ import { ref } from 'vue'
 import { t } from '../../i18n'
 import type { FileEntry } from '../../env.d.ts'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
-import { cleanRemotePath, planLocateCwd, sameRemotePath } from '@/utils/sftp/sftpCwdSync'
+import {
+  cleanRemotePath,
+  planLocateCwd,
+  sameRemotePath,
+  shouldReloadSftpListing,
+  uniqueCleanPaths,
+} from '@/utils/sftp/sftpCwdSync'
 
 /** Friendlier empty-dir / permission / not-found copy for SFTP readdir failures */
 function formatSftpError(raw: unknown, path: string): string {
@@ -195,12 +201,13 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
   }
 
   async function goToHome(): Promise<boolean> {
+    const known = homePath.value || shellHomePath.value
+    if (known) return await loadDirectory(known)
     try {
-      const home = await window.LiteConnect.sftpRealpath(sessionId(), '.')
-      return await loadDirectory(home)
-    } catch {
-      return false
-    }
+      const home = (await window.LiteConnect.sftpExecHome(sessionId())).trim()
+      if (home) return await loadDirectory(cleanRemotePath(home))
+    } catch {}
+    return false
   }
 
   async function syncCwd(): Promise<boolean> {
@@ -225,7 +232,7 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     return syncTrackedPath(true)
   }
 
-  async function resolveRemotePath(candidate: string): Promise<string | null> {
+  async function tryRealpath(candidate: string): Promise<string | null> {
     const clean = cleanRemotePath(candidate)
     try {
       const resolved = await window.LiteConnect.sftpRealpath(sessionId(), clean)
@@ -233,7 +240,37 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     } catch {
       // Some servers fail realpath on a path readdir can still open.
     }
-    return clean
+    return null
+  }
+
+  /**
+   * Open `logical` via SFTP. Physical realpath is only a readdir fallback.
+   * Never write the physical path into the cd tracker — shell `cd` is logical.
+   */
+  async function openLogicalPath(
+    logical: string,
+    mode: 'locate' | 'follow',
+  ): Promise<boolean> {
+    const track = cleanRemotePath(logical)
+    previousTerminalPath.value = terminalPath.value
+    terminalPath.value = track
+    if (pwdTracker) pwdTracker.setPwd(sessionId(), track)
+
+    const reload = shouldReloadSftpListing(mode, track, currentPath.value)
+    if (!reload && sftpReady.value) return true
+
+    if (await loadDirectory(track)) return true
+
+    const physical = await tryRealpath(track)
+    if (physical && !sameRemotePath(physical, track)) {
+      if (await loadDirectory(physical)) {
+        // Listing may be the physical path; tracker stays logical for later `cd`.
+        terminalPath.value = track
+        if (pwdTracker) pwdTracker.setPwd(sessionId(), track)
+        return true
+      }
+    }
+    return false
   }
 
   async function syncTrackedPath(useLiveShellPwd: boolean): Promise<boolean> {
@@ -251,32 +288,15 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
       return false
     }
 
-    const candidates = [
-      livePwd,
-      tracked ? cleanRemotePath(tracked) : '',
-    ].filter(Boolean)
-
-    // SFTP session cwd as last resort only when we already had to hit the shell.
-    if (useLiveShellPwd) candidates.push('.')
-
-    for (const candidate of [...new Set(candidates)]) {
-      const resolved = await resolveRemotePath(candidate)
-      if (!resolved) continue
-
-      previousTerminalPath.value = terminalPath.value
-      terminalPath.value = resolved
-      if (pwdTracker) pwdTracker.setPwd(sessionId(), resolved)
-
-      // Already browsing this path: skip readdir so locate does not flash the tree.
-      // (Refresh button is the intentional full reload.)
-      if (sameRemotePath(resolved, currentPath.value) && sftpReady.value) {
-        return true
-      }
-      const ok = await loadDirectory(resolved)
-      if (ok) return true
+    const mode: 'locate' | 'follow' = useLiveShellPwd ? 'locate' : 'follow'
+    for (const logical of uniqueCleanPaths([livePwd, tracked])) {
+      if (await openLogicalPath(logical, mode)) return true
     }
 
+    // Last resort on locate: SFTP session cwd. Do not treat it as shell pwd.
     if (useLiveShellPwd) {
+      const sftpCwd = await tryRealpath('.')
+      if (sftpCwd && (await loadDirectory(sftpCwd))) return true
       error.value = t('sftp.cannotGetCwd')
     }
     return false

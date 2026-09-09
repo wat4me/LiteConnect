@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
   extractJsonStringField,
+  formatToolRunArgs,
   formatToolRunDisplay,
   serializeToolRunForHistory,
   toolRunDefaultOpen,
 } from './aiToolRunDisplay'
 
 describe('formatToolRunDisplay', () => {
-  it('does not put save_connection passwords into the hint', () => {
+  it('keeps save_connection passwords in the original args', () => {
+    const args = JSON.stringify({
+      host: '10.0.0.8',
+      username: 'root',
+      password: 'super-secret',
+      connect: true,
+    })
     const view = formatToolRunDisplay({
       name: 'save_connection',
-      args: JSON.stringify({
-        host: '10.0.0.8',
-        username: 'root',
-        password: 'super-secret',
-        connect: true,
-      }),
+      args,
       content: JSON.stringify({
         id: 'abc',
         name: 'root@10.0.0.8',
@@ -24,8 +26,14 @@ describe('formatToolRunDisplay', () => {
         created: true,
       }),
     })
-    expect(view.hint).not.toContain('super-secret')
     expect(view.hint).toContain('10.0.0.8')
+    expect(formatToolRunArgs(args)).toContain('super-secret')
+    expect(JSON.parse(serializeToolRunForHistory({
+      name: 'save_connection',
+      args,
+      content: JSON.stringify({ created: true, host: '10.0.0.8', username: 'root' }),
+      isError: false,
+    }).args).password).toBe('super-secret')
   })
 
   it('extracts exec stdout instead of dumping JSON escapes', () => {
@@ -113,7 +121,7 @@ describe('formatToolRunDisplay', () => {
       content: JSON.stringify({ exitCode: 0, stdout: '12:00:01 up 3 days', stderr: '' }, null, 2),
       isError: false,
     })
-    expect(stored.args).toBe('uptime')
+    expect(JSON.parse(stored.args)).toEqual({ sessionId: 'aaa', command: 'uptime' })
     expect(JSON.parse(stored.content)).toEqual({
       exitCode: 0,
       stdout: '12:00:01 up 3 days',
@@ -134,7 +142,7 @@ describe('formatToolRunDisplay', () => {
       }),
       isError: false,
     })
-    expect(stored.args).toBe('')
+    expect(stored.args).toBe('{}')
     expect(stored.content).toBe('web · deploy@10.0.0.8  ok')
     const view = formatToolRunDisplay({ name: 'list_sessions', args: stored.args, content: stored.content })
     expect(view.summary).toEqual({ kind: 'sessions', count: 1 })
@@ -143,5 +151,11 @@ describe('formatToolRunDisplay', () => {
 
   it('keeps tool runs collapsed by default', () => {
     expect(toolRunDefaultOpen()).toBe(false)
+  })
+
+  it('pretty-prints JSON arguments without masking secrets', () => {
+    const text = formatToolRunArgs(JSON.stringify({ password: 'x', host: 'a' }))
+    expect(text).toContain('"password": "x"')
+    expect(text).toContain('"host": "a"')
   })
 })

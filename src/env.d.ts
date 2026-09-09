@@ -78,6 +78,7 @@ export type {
   AiChatSegment,
   AiChatStreamPayload,
   AiConversationThread,
+  AiFunctionToolCall,
   AiHistoryRecord,
   AiModel,
   AiProvider,

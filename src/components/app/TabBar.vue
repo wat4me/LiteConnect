@@ -17,6 +17,7 @@ const props = defineProps<{
   latencyMap: Record<string, number> | null
   latencyEnabled: boolean
   unreadSessions?: Set<string>
+  aiApprovalSessions?: Set<string>
   /** 当前是否在连接管理页（高亮「返回连接列表」） */
   homeActive?: boolean
   disconnectedSessionIds?: Set<string>
@@ -61,6 +62,12 @@ function latencyColor(ms: number): string {
 
 function hasGroupUnread(group: { sessions: { id: string }[] }): boolean {
   const set = props.unreadSessions
+  if (!set) return false
+  return group.sessions.some((s) => set.has(s.id))
+}
+
+function hasGroupAiApproval(group: { sessions: { id: string }[] }): boolean {
+  const set = props.aiApprovalSessions
   if (!set) return false
   return group.sessions.some((s) => set.has(s.id))
 }
@@ -260,7 +267,12 @@ onBeforeUnmount(() => {
         <div class="tab-indicator" :class="{ down: isGroupDisconnected(group) }"></div>
         <span class="tab-name">{{ group.connectionName }}</span>
         <span
-          v-if="unreadSessions && group.connectionId !== activeGroupId && hasGroupUnread(group)"
+          v-if="aiApprovalSessions && group.connectionId !== activeGroupId && hasGroupAiApproval(group)"
+          class="tab-approval-dot"
+          :title="t('ai.approvalHintAction')"
+        ></span>
+        <span
+          v-else-if="unreadSessions && group.connectionId !== activeGroupId && hasGroupUnread(group)"
           class="tab-unread-dot"
         ></span>
         <span v-if="group.sessions.length > 1" class="tab-count">{{ group.sessions.length }}</span>
@@ -550,7 +562,8 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
-.tab-unread-dot {
+.tab-unread-dot,
+.tab-approval-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -558,6 +571,10 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--bg-secondary);
   animation: tab-unread-pulse 1.6s ease-in-out infinite;
+}
+
+.tab-approval-dot {
+  background: var(--warning);
 }
 
 .tab.active .tab-unread-dot {

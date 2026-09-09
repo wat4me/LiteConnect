@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import LeftToolbar from '@/components/workspace/LeftToolbar.vue'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
 import type { Connection } from '@/env.d'
@@ -41,7 +42,9 @@ const props = defineProps<{
   /** All open sessions across host tabs — keep terminals mounted when switching hosts */
   allSessions: Session[]
   unreadSessions: Set<string>
+  aiApprovalSessions?: Set<string>
   showAiUnread: boolean
+  showAiApproval?: boolean
 
   aiSidebarVisible: boolean
   sidebarVisible: boolean
@@ -84,6 +87,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'jump-ai-approval', sessionId: string): void
   (e: 'toggle-ai'): void
   (e: 'toggle-files'): void
   (e: 'toggle-monitor'): void
@@ -124,6 +128,26 @@ const emit = defineEmits<{
   (e: 'send-to-batch', command: string): void
   (e: 'clear-batch-initial'): void
 }>()
+
+const { t } = useI18n()
+
+const approvalHint = computed(() => {
+  const set = props.aiApprovalSessions
+  if (!set || set.size === 0) return null
+  const hidden: string[] = []
+  for (const id of set) {
+    if (!(id === props.activeSessionId && props.aiSidebarVisible)) hidden.push(id)
+  }
+  if (!hidden.length) return null
+  const sessionId = hidden[0]
+  const session = props.allSessions.find((item) => item.id === sessionId)
+  return {
+    sessionId,
+    current: sessionId === props.activeSessionId,
+    name: session?.connectionName || '',
+    extra: hidden.length - 1,
+  }
+})
 
 const terminalWorkspaceRef = ref<{
   focusActiveTerminal: () => boolean
@@ -177,10 +201,11 @@ watch(
       :batch-active="batchPanelVisible"
       :snippets-active="snippetsPanelVisible"
       :show-ai-unread="showAiUnread"
+      :show-ai-approval="showAiApproval"
       :active-transfers="globalActiveTransfers"
       :docker-active="!!dockerMode"
       :docker-disabled="!dockerButtonEnabled && !dockerTabOpen"
-      :side-panels-disabled="false"
+      :side-panels-disabled="!!dockerMode"
       @toggle-ai="emit('toggle-ai')"
       @toggle-files="emit('toggle-files')"
       @toggle-monitor="emit('toggle-monitor')"
@@ -240,6 +265,19 @@ watch(
     ></div>
 
     <div class="workspace-main">
+      <div v-if="approvalHint" class="ai-approval-bar">
+        <span class="ai-approval-bar-text">
+          {{
+            approvalHint.current
+              ? t('ai.approvalHintCurrent')
+              : t('ai.approvalHintNamed', { name: approvalHint.name })
+          }}
+          <template v-if="approvalHint.extra">{{ t('ai.approvalHintMore', { n: approvalHint.extra }) }}</template>
+        </span>
+        <button type="button" class="ai-approval-bar-btn" @click="emit('jump-ai-approval', approvalHint.sessionId)">
+          {{ t('ai.approvalHintAction') }}
+        </button>
+      </div>
       <div class="terminal-host">
         <TerminalWorkspace
           ref="terminalWorkspaceRef"
@@ -249,6 +287,7 @@ watch(
           :all-sessions="allSessions"
           :live-session-ids="liveSessionIds"
           :unread-sessions="unreadSessions"
+          :ai-approval-sessions="aiApprovalSessions"
           :split-mode="splitMode"
           :split-ratio="splitRatio"
           :is-split="isSplit"
@@ -393,6 +432,43 @@ watch(
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.ai-approval-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--warning) 16%, var(--bg-secondary));
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border-color));
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.ai-approval-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-approval-bar-btn {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--warning);
+  color: var(--bg-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-approval-bar-btn:hover {
+  filter: brightness(1.05);
 }
 
 .terminal-host {

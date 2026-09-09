@@ -19,6 +19,7 @@ const props = defineProps<{
   activeSessionId: string | null
   connectionId: string
   unreadSessions?: Set<string>
+  aiApprovalSessions?: Set<string>
   disconnectedSessionIds?: Set<string>
   /** Terminal container element used to compute the drop side during tab drag */
   terminalContainer?: HTMLElement | null
@@ -188,6 +189,11 @@ function onTabClick(sessionId: string) {
             :title="t('terminal.disconnected')"
           ></span>
           <span
+            v-else-if="aiApprovalSessions && session.id !== activeSessionId && aiApprovalSessions.has(session.id)"
+            class="sub-tab-approval-dot"
+            :title="t('ai.approvalHintAction')"
+          ></span>
+          <span
             v-else-if="unreadSessions && session.id !== activeSessionId && unreadSessions.has(session.id)"
             class="sub-tab-unread-dot"
           ></span>
@@ -318,13 +324,18 @@ function onTabClick(sessionId: string) {
   opacity: 0.85;
 }
 
-.sub-tab-unread-dot {
+.sub-tab-unread-dot,
+.sub-tab-approval-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--danger);
   flex-shrink: 0;
   animation: sub-tab-unread-pulse 1.6s ease-in-out infinite;
+}
+
+.sub-tab-approval-dot {
+  background: var(--warning);
 }
 
 .sub-tab-disconnected-dot {

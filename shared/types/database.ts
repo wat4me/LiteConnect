@@ -56,6 +56,11 @@ export interface DbConnection {
   updatedAt: number
 }
 
+export type DbQueryBatchMeta = {
+  statementCount: number
+  successCount: number
+}
+
 export interface DbQueryResult {
   columns: string[]
   rows: Array<Record<string, unknown>>
@@ -65,6 +70,13 @@ export interface DbQueryResult {
   insertId?: number | string
   durationMs: number
   hasResultSet: boolean
+  /** Present when the editor ran more than one statement in a single request. */
+  batch?: DbQueryBatchMeta
+  /** Server TX state after this query (SQL BEGIN/COMMIT/ROLLBACK or leftover pin). */
+  transaction?: {
+    inTransaction: boolean
+    autocommit: boolean
+  }
 }
 
 export interface DbSessionInfo {

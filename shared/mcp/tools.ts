@@ -283,24 +283,32 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'read_file',
     title: 'Read a remote file',
     description:
-      'Read a remote file over SFTP. Large files are not rejected: pass offset/length to page through them (max 256 KiB per call). Response includes size, eof, and nextOffset. encoding=utf8 (default) or base64.',
+      'Read a slice of a remote text file over SFTP. Default: first 200 lines, also capped at 50 KiB; long lines are clipped. Pass startLine (1-based) + limit to page. Do not dump whole logs or configs — use grep to find matches, then read around those lines. For binary, encoding=base64 with offset/length (max 50 KiB).',
     inputSchema: {
       type: 'object',
       properties: {
         sessionId: SESSION_ID,
         path: REMOTE_PATH,
+        startLine: {
+          type: 'integer',
+          description: '1-based line to start reading (default 1). Ignored when offset/length is set without startLine.',
+        },
+        limit: {
+          type: 'integer',
+          description: 'Max lines to return (1–500, default 200).',
+        },
         offset: {
           type: 'integer',
-          description: 'Byte offset to start reading (default 0).',
+          description: 'Byte offset for binary paging. Use with length. Default line mode is preferred for text.',
         },
         length: {
           type: 'integer',
-          description: 'Max bytes to return (1–262144). Default 262144.',
+          description: 'Max bytes for binary paging (1–51200).',
         },
         encoding: {
           type: 'string',
           enum: ['utf8', 'base64'],
-          description: 'Decode as UTF-8 text or return raw bytes as base64. Default utf8.',
+          description: 'utf8 (default, line window) or base64 (byte window).',
         },
       },
       required: ['sessionId', 'path'],
@@ -415,6 +423,63 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
         path: REMOTE_PATH,
       },
       required: ['sessionId', 'path'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: 'grep',
+    title: 'Search remote file contents',
+    description:
+      'Search remote files for a regex/text pattern. Uses rg if installed, otherwise grep. Returns up to 100 matches with path and line number. Prefer this over read_file for logs and configs. Optional include glob such as *.conf or *.log.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: SESSION_ID,
+        path: {
+          type: 'string',
+          description: 'Absolute remote file or directory to search. Parent-directory segments (`..`) are rejected.',
+        },
+        pattern: {
+          type: 'string',
+          description: 'Search pattern (rg/grep). Single line, max 200 characters.',
+        },
+        include: {
+          type: 'string',
+          description: 'Optional glob to limit files, e.g. *.log or *.conf.',
+        },
+      },
+      required: ['sessionId', 'path', 'pattern'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+      idempotentHint: true,
+    },
+  },
+  {
+    name: 'glob',
+    title: 'Find remote files by glob',
+    description:
+      'Find remote files matching a glob (e.g. *.log, nginx*.conf) under path. Max 100 paths. Prefer this over walking list_dir recursively. Uses rg --files if installed, otherwise find -name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: SESSION_ID,
+        path: REMOTE_PATH,
+        pattern: {
+          type: 'string',
+          description: 'Glob such as *.log or *.conf. No spaces or shell metacharacters.',
+        },
+      },
+      required: ['sessionId', 'path', 'pattern'],
       additionalProperties: false,
     },
     annotations: {

@@ -41,6 +41,7 @@ import { join } from 'path'
 import {
   broadcast,
   clearOwnersForWebContents,
+  getDbWindow,
   getPrimaryWindow,
 } from './window/windowRegistry'
 import type { McpHttpGateway } from './mcp/httpGateway'
@@ -154,7 +155,18 @@ app.whenReady().then(async () => {
   installAppBackgroundProtocol(() => settingsStore.getAppBackgroundDir())
   // First-window IPC so the renderer can call as soon as the window loads.
   registerStoreHandlers(getMainWindow, credentialStore, settingsStore)
-  registerWindowHandlers(credentialStore, settingsStore)
+  registerWindowHandlers(credentialStore, settingsStore, {
+    // DB sessions can only be created from the dedicated DB window; drop them
+    // when that window closes so they do not leak in the main process.
+    onDbWindowClosed: () => {
+      try {
+        void dbManager.disconnectAll()
+      } catch (err) {
+        console.warn('[Main] db disconnect on DB window close failed:', err)
+      }
+    },
+    reopenMainWindow: () => openMainWindow(),
+  })
   registerShellCommandHistoryHandlers(shellCommandHistoryStore)
   registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog)
   dbManager.setTunnelDeps(credentialStore, knownHosts)
@@ -163,7 +175,8 @@ app.whenReady().then(async () => {
     dbManager,
     dbQueryHistoryStore,
     credentialStore,
-    getMainWindow,
+    // DB UI lives in the dedicated DB window: route db events / dialogs there.
+    () => getDbWindow() ?? getPrimaryWindow(),
   )
   registerUpdaterHandlers(getMainWindow, settingsStore)
 

@@ -12,6 +12,12 @@ import {
 import { buildWhereClauseOracle } from '../browse/browseFilter'
 import { BrowseCountCache } from '../browse/browsePagination'
 import { planSqlRowLimit } from '../sql/sqlLimit'
+import { runSqlBatch } from '../sql/sqlBatch'
+import {
+  applyTxCommand,
+  classifyTxStatement,
+  splitExecutableSql,
+} from '../../../shared/sqlStatement'
 import type { DbDriver, DbExportStreamHandlers } from '../driver'
 import type {
   DbBrowseOptions,
@@ -548,6 +554,7 @@ export class OracleDriver implements DbDriver {
   async query(sessionId: string, sql: string, options?: DbQueryOptions): Promise<DbQueryResult> {
     const session = this.requireSession(sessionId)
     const trimmed = validateSqlInput(sql)
+    const statements = splitExecutableSql(trimmed, 'oracle')
     const { maxRows, timeoutMs } = clampQueryLimits(options)
     const queryId =
       typeof options?.queryId === 'string' && options.queryId.trim()
@@ -567,6 +574,7 @@ export class OracleDriver implements DbDriver {
     const usePinned = !!(pin && pin.inTransaction)
     const conn = usePinned ? pin!.connection : await session.pool.getConnection()
     const start = Date.now()
+    let endedInTx = usePinned
     try {
       if (queryId) {
         this.activeQueries.set(queryId, { sessionId, connection: conn, cancelled: false })
@@ -583,66 +591,58 @@ export class OracleDriver implements DbDriver {
         session.database = useDb
       }
 
-      if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-        throw cancelledError()
-      }
-
       conn.callTimeout = Math.floor(timeoutMs)
 
-      const plan = planSqlRowLimit(trimmed, maxRows, 'oracle')
-      if (plan.mode === 'unsupported') {
-        throw new Error(plan.error)
+      const executeOne = async (stmt: string): Promise<DbQueryResult> => {
+        if (queryId && this.activeQueries.get(queryId)?.cancelled) {
+          throw cancelledError()
+        }
+        const elapsed = Date.now() - start
+        if (elapsed >= timeoutMs) {
+          throw Object.assign(new Error('Query timed out'), { code: 'NJS-040' })
+        }
+        return this.executeOnConn(conn, stmt, {
+          maxRows,
+          start,
+          queryId,
+          autoCommit: endedInTx || usePinned ? false : true,
+        })
       }
 
-      const sqlToRun =
-        plan.mode === 'rewrite'
-          ? plan.sql
-          : plan.mode === 'stream' || plan.mode === 'plain' || plan.mode === 'none'
-            ? trimmed
-            : trimmed
-      // rewrite uses maxRows+1 semantics; stream/plain also fetch maxRows+1 and slice
-      const fetchCap =
-        plan.mode === 'rewrite' || plan.mode === 'stream' ? maxRows + 1 : maxRows + 1
+      let result: DbQueryResult
+      if (statements.length <= 1) {
+        const stmt = statements[0] || trimmed
+        result = await executeOne(stmt)
+        endedInTx = applyTxCommand(endedInTx, classifyTxStatement(stmt, 'oracle'))
+      } else {
+        const batch = await runSqlBatch({
+          statements,
+          dialect: 'oracle',
+          startedInTransaction: usePinned,
+          executeOne,
+          rollback: async () => {
+            await conn.rollback()
+          },
+        })
+        result = batch.result
+        endedInTx = batch.inTransaction
+      }
 
-      const result = await conn.execute(sqlToRun, [], {
-        outFormat: oracledb.OUT_FORMAT_OBJECT,
-        maxRows: fetchCap,
-        autoCommit: usePinned ? false : true,
+      result = {
+        ...result,
+        transaction: { inTransaction: endedInTx, autocommit: !endedInTx },
+      }
+
+      await this.settleQueryConnection({
+        sessionId,
+        clientKey,
+        conn,
+        usePinned,
+        endedInTx,
+        database: useDb || (usePinned ? pin!.database : session.database),
       })
 
-      if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-        throw cancelledError()
-      }
-
-      const durationMs = Date.now() - start
-      const hasMeta = !!(result.metaData && result.metaData.length)
-      const hasRows = Array.isArray(result.rows)
-      if (hasMeta || hasRows) {
-        const { columns, rows: mapped } = mapRows(result as Result<Record<string, unknown>>)
-        const allowTruncate = plan.mode === 'rewrite' || plan.mode === 'stream'
-        const truncated = allowTruncate && mapped.length > maxRows
-        const rows = truncated ? mapped.slice(0, maxRows) : mapped
-        return {
-          columns,
-          rows,
-          rowCount: rows.length,
-          truncated,
-          durationMs,
-          hasResultSet: true,
-        }
-      }
-
-      const rowsAffected =
-        typeof result.rowsAffected === 'number' ? result.rowsAffected : undefined
-      return {
-        columns: [],
-        rows: [],
-        rowCount: 0,
-        truncated: false,
-        affectedRows: rowsAffected,
-        durationMs,
-        hasResultSet: false,
-      }
+      return result
     } catch (err: any) {
       if (queryId && this.activeQueries.get(queryId)?.cancelled) {
         throw cancelledError()
@@ -651,17 +651,130 @@ export class OracleDriver implements DbDriver {
       if (/NJS-040|DPI-1010|broken|canceled|cancelled|user requested cancel/i.test(msg)) {
         throw cancelledError()
       }
+      const holding =
+        !!clientKey
+        && this.pinnedClients.get(this.pinKey(sessionId, clientKey))?.connection === conn
+      if (!holding) {
+        try {
+          await conn.rollback()
+        } catch {}
+      }
       throw err
     } finally {
       if (queryId) this.activeQueries.delete(queryId)
       try {
         conn.callTimeout = 0
       } catch {}
-      if (!usePinned) {
+      const hold =
+        !!clientKey
+        && this.pinnedClients.get(this.pinKey(sessionId, clientKey))?.connection === conn
+      if (!hold) {
         try {
           await conn.close()
         } catch {}
       }
+    }
+  }
+
+  private async settleQueryConnection(opts: {
+    sessionId: string
+    clientKey: string | null
+    conn: Connection
+    usePinned: boolean
+    endedInTx: boolean
+    database: string | null
+  }): Promise<void> {
+    const { sessionId, clientKey, conn, usePinned, endedInTx, database } = opts
+    if (endedInTx) {
+      conn.autoCommit = false
+      if (clientKey) {
+        const existing = this.pinnedClients.get(this.pinKey(sessionId, clientKey))
+        if (existing?.connection === conn) {
+          existing.inTransaction = true
+          existing.database = database
+          return
+        }
+        this.pinnedClients.set(this.pinKey(sessionId, clientKey), {
+          sessionId,
+          clientKey,
+          connection: conn,
+          inTransaction: true,
+          database,
+        })
+        return
+      }
+      try {
+        await conn.rollback()
+      } catch {}
+      try {
+        conn.autoCommit = true
+      } catch {}
+      return
+    }
+    if (usePinned && clientKey) {
+      this.pinnedClients.delete(this.pinKey(sessionId, clientKey))
+      try {
+        conn.autoCommit = true
+      } catch {}
+    }
+  }
+
+  private async executeOnConn(
+    conn: Connection,
+    sql: string,
+    opts: {
+      maxRows: number
+      start: number
+      queryId: string | null
+      autoCommit: boolean
+    },
+  ): Promise<DbQueryResult> {
+    const { maxRows, start, queryId, autoCommit } = opts
+    const plan = planSqlRowLimit(sql, maxRows, 'oracle')
+    if (plan.mode === 'unsupported') {
+      throw new Error(plan.error)
+    }
+
+    const sqlToRun = plan.mode === 'rewrite' ? plan.sql : sql
+    const fetchCap = maxRows + 1
+    const result = await conn.execute(sqlToRun, [], {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+      maxRows: fetchCap,
+      autoCommit,
+    })
+
+    if (queryId && this.activeQueries.get(queryId)?.cancelled) {
+      throw cancelledError()
+    }
+
+    const durationMs = Date.now() - start
+    const hasMeta = !!(result.metaData && result.metaData.length)
+    const hasRows = Array.isArray(result.rows)
+    if (hasMeta || hasRows) {
+      const { columns, rows: mapped } = mapRows(result as Result<Record<string, unknown>>)
+      const allowTruncate = plan.mode === 'rewrite' || plan.mode === 'stream'
+      const truncated = allowTruncate && mapped.length > maxRows
+      const rows = truncated ? mapped.slice(0, maxRows) : mapped
+      return {
+        columns,
+        rows,
+        rowCount: rows.length,
+        truncated,
+        durationMs,
+        hasResultSet: true,
+      }
+    }
+
+    const rowsAffected =
+      typeof result.rowsAffected === 'number' ? result.rowsAffected : undefined
+    return {
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      truncated: false,
+      affectedRows: rowsAffected,
+      durationMs,
+      hasResultSet: false,
     }
   }
 

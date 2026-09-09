@@ -48,12 +48,16 @@ function renderInlineMarkdown(value: string): string {
     if (!safeUrl) return match
     return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`
   })
-  rendered = rendered.replace(/(?<![="'])https?:\/\/[^\s<>"')]+/g, (url: string) => {
-    const safeUrl = sanitizeExternalUrl(url)
-    if (!safeUrl) return url
-    const escapedUrl = escapeHtml(safeUrl)
-    return `<a href="${escapedUrl}" target="_blank" rel="noreferrer noopener">${escapedUrl}</a>`
-  })
+  // Stop before ASCII `)` and CJK punctuation so `（… https://x.com）` keeps the closing `）`.
+  rendered = rendered.replace(
+    /(?<![="'])https?:\/\/[^\s<>"')（）【】《》「」『』。，、；：！？]+/g,
+    (url: string) => {
+      const safeUrl = sanitizeExternalUrl(url)
+      if (!safeUrl) return url
+      const escapedUrl = escapeHtml(safeUrl)
+      return `<a href="${escapedUrl}" target="_blank" rel="noreferrer noopener">${escapedUrl}</a>`
+    },
+  )
   rendered = rendered.replace(/\x00/g, '<').replace(/\x01/g, '>')
   return rendered
 }
@@ -74,6 +78,44 @@ function splitTableRow(line: string): string[] {
   return row.split('|').map((c) => c.trim())
 }
 
+type FenceOpen = { char: '`' | '~'; length: number; info: string }
+
+/**
+ * CommonMark fenced code: 0–3 spaces, 3+ backticks/tildes, optional info string.
+ * A closer must use the same marker, be at least as long, and have no info string
+ * (` ```bash ` must not close an outer ` ```markdown ` fence).
+ */
+function parseFenceLine(line: string): FenceOpen | null {
+  const m = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/)
+  if (!m) return null
+  const marker = m[2]
+  const char = marker[0] as '`' | '~'
+  const rest = m[3]
+  if (char === '`' && rest.includes('`')) return null
+  return { char, length: marker.length, info: rest.trim() }
+}
+
+function isClosingFence(line: string, open: FenceOpen): boolean {
+  const parsed = parseFenceLine(line)
+  if (!parsed) return false
+  if (parsed.char !== open.char) return false
+  if (parsed.length < open.length) return false
+  return parsed.info.length === 0
+}
+
+function fenceLanguage(info: string): string {
+  return (info.split(/\s+/)[0] || '')
+}
+
+/** Short line used as a section title immediately above a code fence (chat-model habit). */
+function isCaptionLine(line: string): boolean {
+  const t = line.trim()
+  if (!t || t.length > 40) return false
+  if (/[。！？]$/.test(t)) return false
+  if (/^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)/.test(t)) return false
+  return true
+}
+
 export function useMarkdownRenderer() {
   function parseMarkdown(markdown: string): MarkdownBlock[] {
     const lines = markdown.split(/\r?\n/)
@@ -82,11 +124,53 @@ export function useMarkdownRenderer() {
     let listItems: Array<{ ordered: boolean; text: string; depth: number }> = []
     let code: string[] | null = null
     let codeLanguage = ''
+    let openFence: FenceOpen | null = null
+
+    const closeCodeFence = () => {
+      if (!code) return
+      const codeBody = code.join('\n')
+      const lang = (codeLanguage || '').toLowerCase()
+      // ```markdown / ```md is a demo of markdown — render as markdown, not a code card
+      if (lang === 'markdown' || lang === 'md') {
+        const nested = parseMarkdown(codeBody)
+        blocks.push(...nested)
+      } else {
+        blocks.push({ type: 'code', content: codeBody, language: codeLanguage })
+      }
+      code = null
+      codeLanguage = ''
+      openFence = null
+    }
 
     const flushParagraph = () => {
       if (paragraph.length === 0) return
       blocks.push({ type: 'html', content: `<p>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>` })
       paragraph = []
+    }
+
+    const nextNonBlankIsFence = (fromIndex: number): boolean => {
+      for (let i = fromIndex + 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue
+        return !!parseFenceLine(lines[i])
+      }
+      return false
+    }
+
+    const emitCaption = (line: string) => {
+      blocks.push({ type: 'html', content: `<h3>${renderInlineMarkdown(line.trim())}</h3>` })
+    }
+
+    /** Keep "建议的下一步" out of the preceding paragraph and render it as a heading. */
+    const flushParagraphBeforeFence = () => {
+      if (paragraph.length === 0) return
+      const last = paragraph[paragraph.length - 1]
+      if (isCaptionLine(last)) {
+        paragraph.pop()
+        flushParagraph()
+        emitCaption(last)
+        return
+      }
+      flushParagraph()
     }
 
     const flushList = () => {
@@ -147,36 +231,31 @@ export function useMarkdownRenderer() {
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex]
-      const fence = line.match(/^```(\S*)\s*$/)
-      if (fence) {
-        if (code) {
-          const codeBody = code.join('\n')
-          const lang = (codeLanguage || '').toLowerCase()
-          // ```markdown / ```md is a demo of markdown — render as markdown, not a code card
-          if (lang === 'markdown' || lang === 'md') {
-            const nested = parseMarkdown(codeBody)
-            blocks.push(...nested)
-          } else {
-            blocks.push({ type: 'code', content: codeBody, language: codeLanguage })
-          }
-          code = null
-          codeLanguage = ''
-        } else {
-          flushParagraph()
-          flushList()
-          code = []
-          codeLanguage = fence[1] || ''
+      if (code && openFence) {
+        if (isClosingFence(line, openFence)) {
+          closeCodeFence()
+          continue
         }
-        continue
-      }
-
-      if (code) {
         code.push(line)
         continue
       }
 
+      const fence = parseFenceLine(line)
+      if (fence) {
+        flushParagraphBeforeFence()
+        flushList()
+        code = []
+        openFence = fence
+        codeLanguage = fenceLanguage(fence.info)
+        continue
+      }
+
       if (!line.trim()) {
-        flushParagraph()
+        if (nextNonBlankIsFence(lineIndex)) {
+          flushParagraphBeforeFence()
+        } else {
+          flushParagraph()
+        }
         flushList()
         continue
       }
@@ -240,15 +319,7 @@ export function useMarkdownRenderer() {
     }
 
     // Streaming: unclosed fence — markdown/md still render as markdown
-    if (code) {
-      const codeBody = code.join('\n')
-      const lang = (codeLanguage || '').toLowerCase()
-      if (lang === 'markdown' || lang === 'md') {
-        blocks.push(...parseMarkdown(codeBody))
-      } else {
-        blocks.push({ type: 'code', content: codeBody, language: codeLanguage })
-      }
-    }
+    if (code) closeCodeFence()
     flushParagraph()
     flushList()
     return blocks

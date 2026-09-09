@@ -277,6 +277,8 @@ describe('SshMcpRuntime', () => {
       content: 'file-body',
       eof: true,
       size: 9,
+      startLine: 1,
+      lineCount: 1,
     })
 
     const dir = await runtime.call('list_dir', { sessionId: SESSION_ID, path: '/var' })
@@ -420,6 +422,36 @@ describe('SshMcpRuntime', () => {
     const rest = await runtime.call('read_file', { sessionId: SESSION_ID, path: '/var/log/app.log', offset: 2, length: 2 })
     expect(rest.structuredContent).toMatchObject({ content: 'CD', eof: true })
     expect(ssh.sftpReadFileRange).toHaveBeenCalled()
+  })
+
+  it('searches with grep and does not dump the whole file', async () => {
+    const { runtime, ssh } = makeRuntime({
+      executeSessionExec: vi.fn(async (_id: string, command: string) => {
+        if (String(command).startsWith('rg ')) {
+          return {
+            stdout: '/var/log/app.log:4:disk is full\n/var/log/app.log:9:disk again\n',
+            stderr: '',
+            exitCode: 0,
+            truncated: false,
+          }
+        }
+        return { stdout: '', stderr: 'grep: not found', exitCode: 127, truncated: false }
+      }),
+    })
+    const result = await runtime.call('grep', {
+      sessionId: SESSION_ID,
+      path: '/var/log',
+      pattern: 'disk',
+      include: '*.log',
+    })
+    expect(result.isError).toBe(false)
+    expect(result.structuredContent).toMatchObject({
+      engine: 'rg',
+      count: 2,
+      truncated: false,
+    })
+    expect((result.structuredContent as { matches: Array<{ line: number }> }).matches[0].line).toBe(4)
+    expect(ssh.executeSessionExec).toHaveBeenCalled()
   })
 
   it('starts a background job and returns it from get_job', async () => {
