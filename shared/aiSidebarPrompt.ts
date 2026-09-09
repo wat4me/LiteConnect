@@ -29,7 +29,7 @@ export function sshToolSystemAddendum(session: {
   return [
     '你可以使用 SSH 工具查看和操作当前侧栏打开的这台主机，不要空口猜测磁盘、进程、日志或配置。',
     'exec / read_file / grep / glob / write_file / list_dir 默认就在这台机上执行，不要传 sessionId，也不要切换到其它主机。',
-    '只读查看会自动执行。修改、提权、写文件、PTY、断开会话要等用户在对话里点「允许」。会不可逆破坏系统的操作会被直接拦截，不要尝试绕过。',
+    '只读查看会自动执行。修改、提权、写文件、PTY、断开会话要等用户在对话里点「允许」。高危操作同样要等用户点「允许」，不会直接拦截。',
     AI_DECLARED_RISK_PROMPT_ZH,
     '长任务用 exec(background=true) 然后 get_job。不要去连其它主机或结束用户正在用的终端。',
     '需要安装向导、菜单、方向键时用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端。exec 仍是非交互命令。大文件用 upload_file / download_file。',
@@ -65,7 +65,7 @@ const SIDEBAR_HIDDEN_TOOLS = new Set([
 ])
 
 const EXEC_CHAT_DESCRIPTION =
-  'Run a non-interactive command on the current sidebar host (separate exec channel, not the user terminal). Not for TTY prompts. Use stdin for a one-shot answer. Foreground timeout 1s–10min (default 30s). Longer work: background=true then get_job. Destructive/privileged commands need approval.'
+  'Run a non-interactive command on the current sidebar host (separate exec channel, not the user terminal). Not for TTY prompts. Use stdin for a one-shot answer. Foreground timeout 1s–10min (default 30s). Longer work: background=true then get_job. Destructive, privileged, and high-risk commands need approval.'
 
 function omitSessionRoutingFromChatParameters(schema: Record<string, unknown>): Record<string, unknown> {
   const properties =

@@ -27,19 +27,18 @@ describe('assessAiToolCall', () => {
     expect(rm.risk).toBe('destructive')
   })
 
-  it('auto-runs read-only exec in ask-write mode, but asks for rm', () => {
-    expect(assessAiToolCall('exec', { command: 'df -h', risk: 'read' }, 'ask-write').action).toBe('allow')
-    const rm = assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'write' }, 'ask-write')
-    expect(rm.action).toBe('ask')
-    expect(rm.risk).toBe('destructive')
-  })
-
-  it('never allows deleting / even if the model declares privileged', () => {
-    for (const mode of ['ask', 'ask-write', 'readonly', 'auto'] as const) {
-      const gate = assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, mode)
-      expect(gate.action).toBe('deny')
-      if (gate.action === 'deny') expect(gate.code).toBe('FORBIDDEN')
+  it('asks for high-risk commands instead of hard-blocking them', () => {
+    for (const mode of ['ask', 'auto'] as const) {
+      const rm = assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, mode)
+      expect(rm.action).toBe('ask')
+      expect(rm.risk).toBe('forbidden')
+      const power = assessAiToolCall('exec', { command: 'uptime; who; last -n 5 reboot', risk: 'read' }, mode)
+      expect(power.action).toBe('ask')
+      expect(power.risk).toBe('forbidden')
     }
+    const readonly = assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, 'readonly')
+    expect(readonly.action).toBe('deny')
+    if (readonly.action === 'deny') expect(readonly.code).toBe('READONLY_MODE')
   })
 
   it('treats save_connection as a write that asks in ask mode', () => {
@@ -59,9 +58,10 @@ describe('assessAiToolCall', () => {
     expect(assessAiToolCall('exec', { command: 'uptime', risk: 'read' }, 'readonly').action).toBe('allow')
   })
 
-  it('auto still blocks forbidden, allows destructive', () => {
+  it('auto allows ordinary destructive, but still asks for high-risk', () => {
     expect(assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'write' }, 'auto').action).toBe('allow')
-    expect(assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, 'auto').action).toBe('deny')
+    expect(assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, 'auto').action).toBe('ask')
+    expect(assessAiToolCall('exec', { command: 'reboot now', risk: 'write' }, 'auto').action).toBe('ask')
   })
 
   it('treats pty_open as destructive that must be confirmed in ask mode', () => {
@@ -72,6 +72,7 @@ describe('assessAiToolCall', () => {
 
   it('sanitizes unknown permission values to ask', () => {
     expect(sanitizeAiToolPermission('nope')).toBe('ask')
+    expect(sanitizeAiToolPermission('ask-write')).toBe('ask')
     expect(sanitizeAiToolPermission('readonly')).toBe('readonly')
   })
 
@@ -110,8 +111,14 @@ describe('assessAiToolCall', () => {
     expect(gate.risk).toBe('destructive')
   })
 
+  it('still rejects an empty command', () => {
+    const gate = assessAiToolCall('exec', { command: '   ', risk: 'write' }, 'ask')
+    expect(gate.action).toBe('deny')
+    if (gate.action === 'deny') expect(gate.code).toBe('FORBIDDEN')
+  })
+
   it('treats mkdir as write, not read', () => {
-    const gate = assessAiToolCall('exec', { command: 'mkdir /tmp/a', risk: 'write' }, 'ask-write')
+    const gate = assessAiToolCall('exec', { command: 'mkdir /tmp/a', risk: 'write' }, 'ask')
     expect(gate.action).toBe('ask')
     expect(gate.risk).toBe('write')
   })

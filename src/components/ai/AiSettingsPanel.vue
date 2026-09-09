@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../../env.d.ts'
 import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
-import { DEFAULT_AI_TOOL_PERMISSION } from '@shared/aiToolPolicy'
+import { DEFAULT_AI_TOOL_PERMISSION, sanitizeAiToolPermission } from '@shared/aiToolPolicy'
 import { firstAiModelId, inferContextWindowTokens, parseAiModels } from '@shared/aiContext'
 import AppIcon from '../icons/AppIcon.vue'
 
@@ -34,13 +34,12 @@ function cloneSettings(settings?: AiSettings | null): AiSettings {
     ...p,
     models: parseAiModels(p.models),
   }))
-  raw.toolPermission = raw.toolPermission || DEFAULT_AI_TOOL_PERMISSION
+  raw.toolPermission = sanitizeAiToolPermission(raw.toolPermission)
   return raw
 }
 
 const permissionModes: Array<{ id: AiToolPermissionMode; label: string; desc: string }> = [
   { id: 'ask', label: t('ai.toolPermissionAsk'), desc: t('ai.toolPermissionAskDesc') },
-  { id: 'ask-write', label: t('ai.toolPermissionAskWrite'), desc: t('ai.toolPermissionAskWriteDesc') },
   { id: 'readonly', label: t('ai.toolPermissionReadonly'), desc: t('ai.toolPermissionReadonlyDesc') },
   { id: 'auto', label: t('ai.toolPermissionAuto'), desc: t('ai.toolPermissionAutoDesc') },
 ]
@@ -151,7 +150,7 @@ async function saveSettings() {
     activeModel: draftSettings.value.activeModel.trim(),
     systemPrompt: draftSettings.value.systemPrompt,
     temperature: 0.7,
-    toolPermission: draftSettings.value.toolPermission || DEFAULT_AI_TOOL_PERMISSION,
+    toolPermission: sanitizeAiToolPermission(draftSettings.value.toolPermission),
   }
   if (next.providers.length === 0) {
     ElMessage.warning(t('ai.needProvider'))

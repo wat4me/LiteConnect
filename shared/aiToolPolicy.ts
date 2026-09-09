@@ -1,7 +1,7 @@
 import { classifyCommand } from './mcp/classify'
 import type { CommandClass } from './mcp/types'
 
-export const AI_TOOL_PERMISSION_MODES = ['ask', 'ask-write', 'readonly', 'auto'] as const
+export const AI_TOOL_PERMISSION_MODES = ['ask', 'readonly', 'auto'] as const
 export type AiToolPermissionMode = (typeof AI_TOOL_PERMISSION_MODES)[number]
 export const DEFAULT_AI_TOOL_PERMISSION: AiToolPermissionMode = 'ask'
 export const AI_TOOL_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000
@@ -65,6 +65,7 @@ export function isAiToolPermissionMode(value: unknown): value is AiToolPermissio
 }
 
 export function sanitizeAiToolPermission(raw: unknown): AiToolPermissionMode {
+  if (raw === 'ask-write') return 'ask'
   return isAiToolPermissionMode(raw) ? raw : DEFAULT_AI_TOOL_PERMISSION
 }
 
@@ -120,11 +121,11 @@ export const AI_DECLARED_RISK_PROMPT_ZH = [
   '- read（只读）：只查看，不改变文件、配置、进程或服务',
   '- write（修改）：会创建、改写、删除、移动，或改变进程/服务/配置',
   '- privileged（提权）：需要提升权限才能执行',
-  '少报会被拒绝，请用主机给出的级别重试。会不可逆破坏系统的操作属于禁止项，即报 privileged 也会拦截，不要重试。',
+  '少报会被拒绝，请用主机给出的级别重试。高危操作要等用户点「允许」后才会执行。',
 ].join('\n')
 
 export const AI_DECLARED_RISK_PARAM_DESCRIPTION =
-  'Required. Host risk: read = inspect only, no state change; write = create/change/delete/move, or change process/service/config; privileged = needs elevated privileges. Understating is rejected — retry with the host level. Overstating is allowed. Irreversible system-destroying operations are forbidden even as privileged.'
+  'Required. Host risk: read = inspect only, no state change; write = create/change/delete/move, or change process/service/config; privileged = needs elevated privileges. Understating is rejected — retry with the host level. Overstating is allowed. High-risk operations wait for the user to allow them.'
 
 export function formatAiRiskReclassifyContent(
   gate: Extract<AiToolGate, { action: 'reclassify' }>,
@@ -189,7 +190,13 @@ export function assessAiToolCall(
   const described = describeAiToolRisk(name, args)
   const { risk, reason } = described
   if (risk === 'forbidden') {
-    return { action: 'deny', risk, code: 'FORBIDDEN', reason }
+    if (reason === 'empty command') {
+      return { action: 'deny', risk, code: 'FORBIDDEN', reason }
+    }
+    if (mode === 'readonly') {
+      return { action: 'deny', risk, code: 'READONLY_MODE', reason: 'write tools are disabled in read-only mode' }
+    }
+    return { action: 'ask', risk, reason }
   }
 
   if (toolRequiresDeclaredRisk(name)) {
@@ -221,9 +228,6 @@ export function assessAiToolCall(
     case 'readonly':
       if (isRead) return { action: 'allow', risk, reason }
       return { action: 'deny', risk, code: 'READONLY_MODE', reason: 'write tools are disabled in read-only mode' }
-    case 'ask-write':
-      if (isRead) return { action: 'allow', risk, reason }
-      return { action: 'ask', risk, reason }
     case 'auto':
       return { action: 'allow', risk, reason }
     case 'ask':

@@ -30,3 +30,15 @@ it('writes to the original thread after the active thread changes and refuses de
   expect(store.threads.find(t => t.id === 'old')?.messages.map(m => m.content)).toEqual(['question', 'final'])
   await expect(upsertAiHistoryRecord('session', record, 'deleted')).rejects.toThrow('no longer exists')
 })
+
+it('adopts the client thread id on the first write when no history exists yet', async () => {
+  await upsertAiHistoryRecord(
+    'fresh-session',
+    { id: 'u', role: 'user', content: 'hi', createdAt: 1 },
+    'client-thread',
+  )
+  const store = await readAiSessionStore('fresh-session')
+  expect(store.activeThreadId).toBe('client-thread')
+  expect(store.threads.map((thread) => thread.id)).toEqual(['client-thread'])
+  expect(store.threads[0].messages.map((m) => m.content)).toEqual(['hi'])
+})

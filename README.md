@@ -2,7 +2,7 @@
 
 LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
 
-当前版本：**1.0.10**
+当前版本：**1.0.11**
 
 ## 功能
 
@@ -121,16 +121,15 @@ AI 通过主进程 MCP runtime 调工具，走独立 exec / SFTP / agent PTY，*
 
 **权限**
 
-默认每次远端命令、写文件、PTY 或断开会话都要你在对话里点「允许」。可在 AI 设置里改：
+默认只读查看自动执行，写文件、删除、提权、PTY 或断开会话要你在对话里点「允许」。可在 AI 设置里改：
 
 | 模式 | 行为 |
 |---|---|
-| 每次确认（推荐） | 查会话列表等只读盘点可自动进行；exec / 写文件 / PTY / 断开需确认 |
-| 只读自动，写入需确认 | `df` / `ps` / 读文件等自动执行；`rm`、写文件、sudo、断开会话仍要确认 |
+| 只读自动，修改需确认（推荐） | `df` / `ps` / 读文件等自动执行；写文件、删除、sudo、PTY、断开需确认 |
 | 只允许只读 | 只跑查看类操作 |
-| 自动执行 | 不再询问（不推荐） |
+| 自动执行 | 普通修改不再询问（不推荐） |
 
-删根目录、`mkfs`、灌盘、关机等禁止命令**始终拦截**，与权限模式无关。回复里不会复述 `save_connection` 提交的密码或私钥。
+删根目录、`mkfs`、灌盘、关机等高危命令**不会自动执行**，即使选了「自动执行」也要你点「允许」。回复里不会复述 `save_connection` 提交的密码或私钥。
 
 ### MCP
 
@@ -179,7 +178,7 @@ AI 通过主进程 MCP runtime 调工具，走独立 exec / SFTP / agent PTY，*
 
 - 工具定义和执行路径相同（`shared/mcp` + `electron/mcp`）
 - 外部 MCP 客户端默认 **拒绝破坏性命令**（`deny-destructive`）；应用内 AI 则按上面的确认策略，通过后再以 `auto` 交给 runtime
-- 禁止类命令两边都会拦
+- 高危命令在侧栏要你点允许；MCP 默认仍拒绝，确认后的 `auto` 才会执行
 - 都不使用用户正在看的交互式终端：`exec` 是独立通道；需要安装向导、方向键时用 agent PTY（每 SSH 会话最多 2 个）
 - MCP **不会**走 Docker sock 或数据库隧道，只操作交互式 `SSHManager` 会话
 - 知道 Token 的本机程序可以列出/连接已保存主机，也可以 `save_connection` 新增主机（使用它提供的账号）
@@ -188,7 +187,7 @@ AI 通过主进程 MCP runtime 调工具，走独立 exec / SFTP / agent PTY，*
 
 - 默认关闭；只应在本机、且没有不受信任软件时开启
 - 不要把 Token 发到网上或填进远程 Agent
-- 破坏性 / 提权命令默认拒绝；禁止命令始终拒绝
+- 破坏性 / 提权 / 高危命令默认拒绝；侧栏点允许后才会执行
 - 单次 `exec` 命令最长 5000 字符；`read_file` 默认 200 行 / 50 KiB（可用 startLine 翻页）；写文件单次最多 256 KiB；本机上传下载最多 64 MiB
 
 ### 工作区与交互
@@ -343,8 +342,8 @@ npm run electron:build
 
 ```bash
 # 先把 package.json 的 version 改成新版本并提交
-git tag v1.0.10
-git push origin v1.0.10
+git tag v1.0.11
+git push origin v1.0.11
 ```
 
 工作流见 `.github/workflows/release.yml`，三个任务并行：

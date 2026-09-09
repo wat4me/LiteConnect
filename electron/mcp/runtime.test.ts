@@ -211,7 +211,7 @@ describe('SshMcpRuntime', () => {
 
     const forbidden = await runtime.call('exec', { sessionId: SESSION_ID, command: 'rm -rf /' })
     expect(forbidden.isError).toBe(true)
-    expect((forbidden.structuredContent as { code: string }).code).toBe('FORBIDDEN')
+    expect((forbidden.structuredContent as { code: string }).code).toBe('DESTRUCTIVE_DENIED')
     expect(ssh.executeSessionExec).not.toHaveBeenCalled()
   })
 
@@ -236,8 +236,8 @@ describe('SshMcpRuntime', () => {
     expect(dest.isError).toBe(false)
     expect(ssh.executeSessionExec).toHaveBeenCalled()
     const forbidden = await runtime.call('exec', { sessionId: SESSION_ID, command: 'rm -rf /' }, { approvalMode: 'auto' })
-    expect(forbidden.isError).toBe(true)
-    expect((forbidden.structuredContent as { code: string }).code).toBe('FORBIDDEN')
+    expect(forbidden.isError).toBe(false)
+    expect(ssh.executeSessionExec).toHaveBeenCalledTimes(2)
   })
 
   it('runs a destructive command after approval', async () => {

@@ -6,16 +6,14 @@ export type PolicyDecision =
 
 /**
  * Default is fail-closed for anything that can mutate or escalate.
- * `auto` still never allows `forbidden`.
+ * High-risk (`forbidden`) commands use the same gate as destructive: the AI
+ * sidebar always asks first, then calls with `auto` after the user allows.
  */
 export function decideCommandPolicy(
   classification: CommandClassification,
   mode: ApprovalMode = 'deny-destructive',
 ): PolicyDecision {
   const cls = classification.class
-  if (cls === 'forbidden') {
-    return { allow: false, code: 'FORBIDDEN', reason: classification.reason }
-  }
   if (cls === 'read-only' || cls === 'safe') {
     return { allow: true }
   }

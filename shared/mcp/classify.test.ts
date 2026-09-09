@@ -97,10 +97,16 @@ describe('decideCommandPolicy', () => {
     if (!priv.allow) expect(priv.code).toBe('PRIVILEGED_DENIED')
   })
 
-  it('never allows forbidden even in auto', () => {
+  it('auto allows high-risk commands after the UI already confirmed', () => {
     const d = decideCommandPolicy(classifyCommand('rm -rf /'), 'auto')
+    expect(d.allow).toBe(true)
+    expect(decideCommandPolicy(classifyCommand('reboot now'), 'auto').allow).toBe(true)
+  })
+
+  it('still denies high-risk commands under the default MCP gate', () => {
+    const d = decideCommandPolicy(classifyCommand('rm -rf /'))
     expect(d.allow).toBe(false)
-    if (!d.allow) expect(d.code).toBe('FORBIDDEN')
+    if (!d.allow) expect(d.code).toBe('DESTRUCTIVE_DENIED')
   })
 
   it('ask-destructive returns APPROVAL_REQUIRED', () => {

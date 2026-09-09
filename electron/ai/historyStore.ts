@@ -350,15 +350,16 @@ function storeFromLegacyMessages(messages: AiHistoryRecord[]): AiSessionStore {
 async function readAiSessionStoreFromDisk(sessionId: string): Promise<{
   store: AiSessionStore
   rawThreadCount: number | null
+  created?: boolean
 }> {
   const historyPath = getAiHistoryPath(sessionId)
   if (!existsSync(historyPath)) {
-    return { store: createEmptyStore(), rawThreadCount: null }
+    return { store: createEmptyStore(), rawThreadCount: null, created: true }
   }
   const data = await readFile(historyPath, 'utf-8')
   const trimmed = data.trim()
   if (!trimmed) {
-    return { store: createEmptyStore(), rawThreadCount: null }
+    return { store: createEmptyStore(), rawThreadCount: null, created: true }
   }
 
   try {
@@ -412,8 +413,8 @@ async function writeAiSessionStoreUnlocked(sessionId: string, store: AiSessionSt
 
 export async function readAiSessionStoreAndGc(sessionId: string): Promise<AiSessionStore> {
   return runAiStoreTask(sessionId, async () => {
-    const { store, rawThreadCount } = await readAiSessionStoreFromDisk(sessionId)
-    if (rawThreadCount != null && store.threads.length < rawThreadCount) {
+    const { store, rawThreadCount, created } = await readAiSessionStoreFromDisk(sessionId)
+    if (created || (rawThreadCount != null && store.threads.length < rawThreadCount)) {
       await writeAiSessionStoreUnlocked(sessionId, store)
     }
     return store
@@ -460,7 +461,22 @@ export async function writeAiHistoryRecords(sessionId: string, records: AiHistor
 export async function upsertAiHistoryRecord(sessionId: string, record: any, threadId?: string): Promise<void> {
   const next = normalizeAiHistoryRecord(record)
   await mutateAiSessionStore(sessionId, (store) => {
-    const active = threadId ? store.threads.find((thread) => thread.id === threadId) : getActiveThread(store)
+    let active = threadId ? store.threads.find((thread) => thread.id === threadId) : getActiveThread(store)
+    if (!active && threadId) {
+      const hasAnyMessages = store.threads.some((thread) => thread.messages.length > 0)
+      if (hasAnyMessages) throw new Error('AI conversation no longer exists')
+      const now = next.createdAt || Date.now()
+      active = {
+        id: threadId,
+        title: '',
+        titleGenerated: false,
+        createdAt: now,
+        updatedAt: now,
+        messages: [],
+      }
+      store.threads = [active]
+      store.activeThreadId = threadId
+    }
     if (!active) throw new Error('AI conversation no longer exists')
     const idx = active.messages.findIndex((r) => r.id === next.id)
     if (idx >= 0) active.messages[idx] = next

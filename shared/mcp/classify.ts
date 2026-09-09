@@ -247,6 +247,7 @@ const SAFE_BINARIES = new Set([
   'systemctl',
 ])
 
+/** High-risk patterns. Class `forbidden` means always confirm — not hard-deny. */
 const FORBIDDEN_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   { re: /\brm\s+(-[a-zA-Z]*\s+)*-r[a-zA-Z]*f[a-zA-Z]*\s+\/(\s|\*|\/|\.|$|['"])/i, reason: 'recursive delete of /' },
   { re: /\brm\s+(-[a-zA-Z]*\s+)*-f[a-zA-Z]*r[a-zA-Z]*\s+\/(\s|\*|\/|\.|$|['"])/i, reason: 'recursive delete of /' },

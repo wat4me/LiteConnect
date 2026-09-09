@@ -109,8 +109,9 @@ function approvalRiskLabel(risk?: AiToolRun['risk']): string {
 }
 
 function approvalCopy(run: AiToolRun): string {
-  if (run.risk === 'forbidden') return t('ai.toolAskForbidden')
-  if (run.risk === 'destructive' || run.risk === 'privileged') return t('ai.toolAskDanger')
+  if (run.risk === 'destructive' || run.risk === 'privileged' || run.risk === 'forbidden') {
+    return t('ai.toolAskDanger')
+  }
   return t('ai.toolAskHint')
 }
 
@@ -656,7 +657,6 @@ function handleClearMessages() {
           <button
             type="button"
             class="tool-approval-btn primary"
-            :disabled="run.risk === 'forbidden'"
             @click="resolveToolApproval(run.id, true)"
           >
             {{ t('ai.toolAllow') }}
