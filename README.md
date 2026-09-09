@@ -2,7 +2,7 @@
 
 LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
 
-当前版本：**1.0.7**
+当前版本：**1.0.9**
 
 ## 功能
 
@@ -336,6 +336,20 @@ npm run electron:build
 ```
 
 安装包输出目录为 `release/`（见 `electron-builder.yml`）。Windows 默认打 NSIS x64 安装包。
+
+## 发版
+
+公开仓库用 GitHub Actions 的 `windows-latest` 打包并上传 Release（标准 runner 免费）。推送与 `package.json` 一致的版本 tag 即可：
+
+```bash
+# 先把 package.json 的 version 改成新版本并提交
+git tag v1.0.9
+git push origin v1.0.9
+```
+
+工作流见 `.github/workflows/release.yml`。产物是 NSIS 安装包和 `latest.yml`（给 `electron-updater`）。未做 Windows 代码签名，SmartScreen 可能提示未知来源。
+
+也可在 Actions 里手动跑 **Release**（不打 tag）：只上传构建产物，不创建 GitHub Release。
 
 ## npm scripts
 

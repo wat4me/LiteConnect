@@ -64,6 +64,8 @@ publish:
   provider: github
   owner: wat4me
   repo: LiteConnect
+  # Default is draft; auto-updater cannot see drafts on a public repo.
+  releaseType: release
 win:
   target:
     - target: nsis
