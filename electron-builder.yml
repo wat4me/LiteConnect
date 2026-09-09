@@ -50,13 +50,7 @@ files:
 asarUnpack:
   - node_modules/ssh2/**/*
   - node_modules/oracledb/**/*
-# Optional, independently installed X11 server. Keep it outside app.asar so
-# the renderer/main process can launch it after explicit user confirmation.
 extraResources:
-  - from: build/third-party/vcxsrv-64.1.20.14.0.installer.exe
-    to: third-party/vcxsrv-64.1.20.14.0.installer.exe
-  - from: build/third-party/VcXsrv-NOTICE.txt
-    to: third-party/VcXsrv-NOTICE.txt
   # Tray icon (read by electron/window/tray.ts from process.resourcesPath)
   - from: build/LiteConnect.png
     to: LiteConnect.png
@@ -72,6 +66,28 @@ win:
       arch:
         - x64
   icon: build/LiteConnect.ico
+  extraResources:
+    # Optional X11 server for Windows. Keep outside asar so main can launch it.
+    - from: build/third-party/vcxsrv-64.1.20.14.0.installer.exe
+      to: third-party/vcxsrv-64.1.20.14.0.installer.exe
+    - from: build/third-party/VcXsrv-NOTICE.txt
+      to: third-party/VcXsrv-NOTICE.txt
+mac:
+  target:
+    - dmg
+    - zip
+  icon: build/LiteConnect.png
+  category: public.app-category.developer-tools
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/LiteConnect.png
+  category: Network
+  maintainer: LiteConnect
 nsis:
   oneClick: false
   perMachine: false

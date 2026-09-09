@@ -15,7 +15,23 @@ concurrency:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            cache_paths: |
+              ~\AppData\Local\electron\Cache
+              ~\AppData\Local\electron-builder\Cache
+          - os: macos-latest
+            cache_paths: |
+              ~/Library/Caches/electron
+              ~/Library/Caches/electron-builder
+          - os: ubuntu-latest
+            cache_paths: |
+              ~/.cache/electron
+              ~/.cache/electron-builder
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -26,10 +42,8 @@ jobs:
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
-          path: |
-            ~\AppData\Local\electron\Cache
-            ~\AppData\Local\electron-builder\Cache
-          key: electron-windows-${{ hashFiles('package-lock.json') }}
+          path: ${{ matrix.cache_paths }}
+          key: electron-${{ matrix.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
         run: npm ci
       - name: Check tag matches package.json
@@ -60,8 +74,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/v')
         with:
-          name: LiteConnect-windows-x64
+          name: LiteConnect-${{ matrix.os }}
           path: |
             release/*.exe
-            release/latest.yml
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml
           if-no-files-found: error

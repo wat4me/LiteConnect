@@ -335,19 +335,27 @@ npm run build
 npm run electron:build
 ```
 
-安装包输出目录为 `release/`（见 `electron-builder.yml`）。Windows 默认打 NSIS x64 安装包。
+安装包输出目录为 `release/`（见 `electron-builder.yml`）。本机 `npm run electron:build` 只打当前操作系统的包。
 
 ## 发版
 
-公开仓库用 GitHub Actions 的 `windows-latest` 打包并上传 Release（标准 runner 免费）。推送与 `package.json` 一致的版本 tag 即可：
+公开仓库用 GitHub Actions 标准 runner 打包（Windows / macOS / Linux 均免费）。推送与 `package.json` 一致的版本 tag：
 
 ```bash
 # 先把 package.json 的 version 改成新版本并提交
-git tag v1.0.9
-git push origin v1.0.9
+git tag v1.0.10
+git push origin v1.0.10
 ```
 
-工作流见 `.github/workflows/release.yml`。产物是 NSIS 安装包和 `latest.yml`（给 `electron-updater`）。未做 Windows 代码签名，SmartScreen 可能提示未知来源。
+工作流见 `.github/workflows/release.yml`，三个任务并行：
+
+| 平台 | 产物 |
+|---|---|
+| Windows x64 | NSIS `LiteConnect Setup *.exe`、`latest.yml` |
+| macOS (Actions 为 Apple Silicon) | `.dmg`、`.zip`、`latest-mac.yml` |
+| Linux x64 | `.AppImage`、`.deb`、`latest-linux.yml` |
+
+未做代码签名：Windows 可能被 SmartScreen 拦截；macOS 需右键「打开」，或执行 `xattr -cr /Applications/LiteConnect.app`。VcXsrv 只打进 Windows 包。
 
 也可在 Actions 里手动跑 **Release**（不打 tag）：只上传构建产物，不创建 GitHub Release。
 
