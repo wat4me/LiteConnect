@@ -44,6 +44,7 @@ type AiSessionState = {
   persisting: boolean
   activeThreadId: string
   threads: AiThreadSummary[]
+  activeRequestId: string | null
   loaded: boolean
 }
 
@@ -68,15 +69,16 @@ function titleGenKey(sessionId: string, threadId: string): string {
 function getAiSessionState(sessionId: string): AiSessionState {
   let state = aiSessionStates.get(sessionId)
   if (!state) {
-    state = {
+    state = reactive({
       messages: reactive([]) as ChatItem[],
       input: '',
       loading: false,
       persisting: false,
       activeThreadId: '',
       threads: reactive([]) as AiThreadSummary[],
+      activeRequestId: null,
       loaded: false,
-    }
+    })
     aiSessionStates.set(sessionId, state)
   }
   return state
@@ -114,16 +116,17 @@ export function useAiChat() {
     }),
   )
 
-  let activeStreamUnsubscribe: (() => void) | null = null
-  let activeRequestId: string | null = null
-  let activeStreamSessionId: string | null = null
 
   function onReplyComplete(cb: (sessionId: string) => void): () => void {
     return onAiReplyComplete(cb)
   }
 
-  async function resolveToolApproval(runId: string, approved: boolean): Promise<void> {
-    if (!activeRequestId || !runId) return
+  async function resolveToolApproval(sessionId: string, runId: string, approved: boolean): Promise<void> {
+    const state = getAiSessionState(sessionId)
+    const activeRequestId = state.activeRequestId
+    if (!activeRequestId || !state.loading || !state.messages.some(message =>
+      message.streaming && message.toolRuns?.some(run => run.id === runId && run.status === 'ask'),
+    )) return
     try {
       await window.LiteConnect.aiResolveToolApproval(activeRequestId, runId, approved)
     } catch {
@@ -131,9 +134,9 @@ export function useAiChat() {
     }
   }
 
-  async function stopGeneration(sessionId?: string): Promise<boolean> {
+  async function stopGeneration(sessionId: string): Promise<boolean> {
+    const activeRequestId = getAiSessionState(sessionId).activeRequestId
     if (!activeRequestId) return false
-    if (sessionId && activeStreamSessionId && sessionId !== activeStreamSessionId) return false
     try {
       await window.LiteConnect.aiAbortChatStream(activeRequestId)
       return true
@@ -268,7 +271,7 @@ export function useAiChat() {
     const state = getAiSessionState(sessionId)
     const pending =
       state.loading &&
-      state.messages.some((message) => (message.toolRuns || []).some((run) => run.status === 'ask'))
+      state.messages.some((message) => message.streaming && (message.toolRuns || []).some((run) => run.status === 'ask'))
     syncAiApprovalPending(sessionId, pending)
   }
 
@@ -553,10 +556,10 @@ export function useAiChat() {
       if (patch.toolRuns) refreshApprovalPending(sessionId)
     }
 
+    let activeStreamUnsubscribe: (() => void) | null = null
     try {
       const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      activeRequestId = requestId
-      activeStreamSessionId = sessionId
+      state.activeRequestId = requestId
       activeStreamUnsubscribe = window.LiteConnect.onAiChatStream(requestId, (payload: AiChatStreamPayload) => {
         const current = getAssistantMessage()
         if (payload.type === 'content') {
@@ -624,8 +627,7 @@ export function useAiChat() {
       } finally {
         activeStreamUnsubscribe?.()
         activeStreamUnsubscribe = null
-        activeRequestId = null
-        activeStreamSessionId = null
+        state.activeRequestId = null
       }
     } catch (err: any) {
       // Transport/storage failures are shown locally; main owns all assistant writes.
@@ -638,8 +640,13 @@ export function useAiChat() {
     } finally {
       activeStreamUnsubscribe?.()
       activeStreamUnsubscribe = null
-      activeRequestId = null
-      activeStreamSessionId = null
+      state.activeRequestId = null
+      for (const run of getAssistantMessage().toolRuns || []) {
+        if (run.status === 'ask') {
+          run.status = 'denied'
+          run.isError = true
+        }
+      }
       updateAssistantMessage({ streaming: false })
       setSessionLoading(sessionId, false)
       const summary = state.threads.find(thread => thread.id === state.activeThreadId)

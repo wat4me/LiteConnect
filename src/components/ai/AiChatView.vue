@@ -631,6 +631,7 @@ async function copyText(text: string, key: string) {
           <span class="tool-run-state" :title="toolRunStateTitle(message, item.run)">{{ toolRunStateLabel(message, item.run) }}</span>
         </summary>
         <template v-if="isToolRunOpen(message, item.run)">
+        <p v-if="item.run.reason" class="tool-ask-copy">{{ t('ai.toolExplanation') }}：{{ item.run.reason }}</p>
         <p v-if="item.run.status === 'blocked'" class="tool-ask-copy">{{ t('ai.toolAskForbidden') }}</p>
         <p v-if="item.run.status === 'reclassify'" class="tool-ask-copy">{{ t('ai.toolReclassifyHint') }}</p>
         <pre v-if="toolArgsText(item.run) && item.run.status !== 'denied'" class="tool-run-args">{{ toolArgsText(item.run) }}</pre>

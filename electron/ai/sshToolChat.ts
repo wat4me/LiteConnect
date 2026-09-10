@@ -19,6 +19,8 @@ export function bindSessionArgs(args: unknown, sessionId: string): Record<string
   if (sessionId) {
     next.sessionId = sessionId
     delete next.sessionIds
+    delete next.group
+    delete next.connectMissing
   }
   return next
 }

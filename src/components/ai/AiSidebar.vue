@@ -17,7 +17,6 @@ import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConver
 import { flattenConversationForApi } from '@shared/aiMessages'
 import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
 import { formatToolRunArgs, formatToolRunDisplay } from '@shared/aiToolRunDisplay'
-import { formatClassifyReason } from '@/utils/ai/classifyReason'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
 
@@ -63,6 +62,7 @@ const {
 const messages = ref<ChatItem[]>([])
 const input = ref('')
 const loading = ref(false)
+watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
 const showSettings = ref(false)
 const showHistory = ref(false)
 const showModelSwitcher = ref(false)
@@ -89,6 +89,7 @@ const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
 const pendingApprovals = computed(() => {
   const runs: AiToolRun[] = []
   for (const message of messages.value) {
+    if (!message.streaming) continue
     for (const run of message.toolRuns || []) {
       if (run.status === 'ask') runs.push(run)
     }
@@ -650,14 +651,14 @@ function handleClearMessages() {
           <span v-if="approvalRiskLabel(run.risk)" class="tool-approval-risk" :data-risk="run.risk">{{ approvalRiskLabel(run.risk) }}</span>
           <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
         </div>
+        <p v-if="run.reason" class="tool-approval-reason">{{ t('ai.toolExplanation') }}：{{ run.reason }}</p>
         <pre v-if="approvalHint(run)" class="tool-approval-hint" :title="approvalHint(run)">{{ approvalHint(run) }}</pre>
-        <p v-if="run.reason && run.risk !== 'read'" class="tool-approval-reason">{{ formatClassifyReason(run.reason, t) }}</p>
         <div class="tool-approval-actions">
-          <button type="button" class="tool-approval-btn" @click="resolveToolApproval(run.id, false)">{{ t('ai.toolDeny') }}</button>
+          <button type="button" class="tool-approval-btn" @click="resolveToolApproval(props.sessionId, run.id, false)">{{ t('ai.toolDeny') }}</button>
           <button
             type="button"
             class="tool-approval-btn primary"
-            @click="resolveToolApproval(run.id, true)"
+            @click="resolveToolApproval(props.sessionId, run.id, true)"
           >
             {{ t('ai.toolAllow') }}
           </button>

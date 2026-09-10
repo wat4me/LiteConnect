@@ -7,6 +7,24 @@ afterEach(() => vi.useRealTimers())
 const target = { sessionId: 'session', threadId: 'thread', assistantMessageId: 'reply', createdAt: 1 }
 
 describe('main-process stream persistence', () => {
+  it('finalizes pending approval on execution failure before saving', async () => {
+    const records: AiHistoryRecord[] = []
+    const events: AiChatStreamPayload[] = []
+    const result = await runPersistedAiReply({
+      target,
+      save: async record => { records.push(record) },
+      publish: event => { events.push(event) },
+      run: async emit => {
+        emit({ type: 'tool', value: { id: 't', name: 'exec', phase: 'ask', args: '{}', reason: 'explanation' } })
+        throw new Error('connection lost')
+      },
+    })
+    expect(result.error).toBe(true)
+    expect(result.toolRuns?.[0]).toMatchObject({ status: 'denied', reason: 'explanation', isError: true })
+    expect(records.at(-1)?.toolRuns?.[0].status).toBe('denied')
+    expect(events.at(-1)).toMatchObject({ type: 'tool', value: { phase: 'denied' } })
+  })
+
   it('saves continuous output and tool boundaries even when publishing throws', async () => {
     vi.useFakeTimers()
     const records: AiHistoryRecord[] = []

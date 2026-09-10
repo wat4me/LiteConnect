@@ -319,8 +319,6 @@ export async function runAiChatStream(opts: {
             content: formatAiRiskReclassifyContent(gate),
             structuredContent: {
               code: gate.code,
-              expected: gate.expected,
-              declared: gate.declared,
               message: gate.reason,
             },
           }
@@ -328,7 +326,7 @@ export async function runAiChatStream(opts: {
           status = 'blocked'
           result = {
             isError: true,
-            content: `${gate.code}: ${gate.reason}`,
+            content: `${gate.code}: 当前设置仅允许申报为 read 的操作；本次申报为 ${gate.risk}，未执行。`,
             structuredContent: { code: gate.code, message: gate.reason },
           }
         } else if (gate.action === 'ask') {
@@ -443,6 +441,9 @@ export async function runAiChatStream(opts: {
     }
     throw err
   } finally {
+    for (const [key, pending] of pendingToolApprovals) {
+      if (key.startsWith(`${requestId}::`)) pending.finish(false)
+    }
     cleanupStream()
   }
 }

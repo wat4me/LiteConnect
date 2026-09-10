@@ -82,6 +82,16 @@ export async function runPersistedAiReply(opts: {
       append('content', record.content)
     }
   } finally {
+    // A terminated request can no longer receive approval, including checkpoint failures.
+    for (const run of record.toolRuns || []) {
+      if (run.status === 'ask') {
+        emit({ type: 'tool', value: {
+          id: run.id, name: run.name, phase: 'denied',
+          content: 'REQUEST_ENDED: The request ended before this tool was approved; it was not executed.',
+          isError: true,
+        } })
+      }
+    }
     await checkpoint.stop()
     await save()
   }

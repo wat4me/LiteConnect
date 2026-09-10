@@ -1,158 +1,63 @@
 import { describe, expect, it } from 'vitest'
 import {
-  assessAiToolCall,
-  formatAiRiskReclassifyContent,
-  omitDeclaredRiskArg,
-  sanitizeAiToolPermission,
-  toDeclaredRisk,
+  assessAiToolCall, formatAiRiskReclassifyContent, omitDeclaredRiskArg,
+  sanitizeAiToolPermission, AI_TOOL_EXPLANATION_MAX_CHARS,
 } from './aiToolPolicy'
 
-describe('assessAiToolCall', () => {
-  it('auto-allows grep and glob as read tools', () => {
-    expect(assessAiToolCall('grep', { path: '/var/log', pattern: 'error' }, 'ask').action).toBe('allow')
-    expect(assessAiToolCall('glob', { path: '/etc', pattern: '*.conf' }, 'ask').action).toBe('allow')
+const explanation = '检查磁盘占用，仅读取信息，不修改文件或服务。'
+
+describe('declared AI permission policy', () => {
+  it.each(['docker system df -v', 'last -n 5 reboot', 'custom-inspect --json'])('honors the read declaration for %s without keyword classification', command => {
+    expect(assessAiToolCall('exec', { command, risk: 'read', explanation }, 'ask')).toEqual({ action: 'allow', risk: 'read', reason: explanation })
   })
 
-  it('auto-allows inventory tools even in ask mode', () => {
-    const gate = assessAiToolCall('list_sessions', {}, 'ask')
-    expect(gate).toEqual({ action: 'allow', risk: 'read', reason: 'list_sessions' })
+  it.each(['read', 'write', 'privileged'] as const)('applies each mode to a %s declaration', risk => {
+    const args = { command: 'df -h', risk, explanation }
+    expect(assessAiToolCall('exec', args, 'ask').action).toBe(risk === 'read' ? 'allow' : 'ask')
+    expect(assessAiToolCall('exec', args, 'readonly').action).toBe(risk === 'read' ? 'allow' : 'deny')
+    expect(assessAiToolCall('exec', args, 'auto').action).toBe('allow')
   })
 
-  it('auto-runs read-only exec in ask mode, but asks for writes', () => {
-    const gate = assessAiToolCall('exec', { command: 'ps -ef', risk: 'read' }, 'ask')
-    expect(gate.action).toBe('allow')
-    expect(gate.risk).toBe('read')
-    const rm = assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'write' }, 'ask')
-    expect(rm.action).toBe('ask')
-    expect(rm.risk).toBe('destructive')
+  it('does not impose a separate high-risk command gate', () => {
+    const args = { command: 'reboot', risk: 'write', explanation: '重启服务器，会中断当前连接和运行中的服务。' }
+    expect(assessAiToolCall('exec', args, 'ask').action).toBe('ask')
+    expect(assessAiToolCall('exec', args, 'auto').action).toBe('allow')
   })
 
-  it('asks for high-risk commands instead of hard-blocking them', () => {
-    for (const mode of ['ask', 'auto'] as const) {
-      const rm = assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, mode)
-      expect(rm.action).toBe('ask')
-      expect(rm.risk).toBe('forbidden')
-      const power = assessAiToolCall('exec', { command: 'uptime; who; last -n 5 reboot', risk: 'read' }, mode)
-      expect(power.action).toBe('ask')
-      expect(power.risk).toBe('forbidden')
-    }
-    const readonly = assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, 'readonly')
-    expect(readonly.action).toBe('deny')
-    if (readonly.action === 'deny') expect(readonly.code).toBe('READONLY_MODE')
+  it.each(['exec', 'service_control', 'pty_write', 'read_file', 'write_file', 'grep', 'get_job'])('requires declaration metadata for %s', tool => {
+    expect(assessAiToolCall(tool, {}, 'auto')).toMatchObject({ action: 'reclassify', code: 'RISK_REQUIRED' })
+    expect(assessAiToolCall(tool, { risk: 'read' }, 'auto')).toMatchObject({ action: 'reclassify', code: 'EXPLANATION_REQUIRED' })
+    expect(assessAiToolCall(tool, { risk: 'read', explanation }, 'ask').action).toBe('allow')
   })
 
-  it('treats save_connection as a write that asks in ask mode', () => {
-    const gate = assessAiToolCall(
-      'save_connection',
-      { host: '10.0.0.8', username: 'root', password: 'x' },
-      'ask',
-    )
-    expect(gate.action).toBe('ask')
-    expect(gate.risk).toBe('write')
+  it.each(['', 'READ', 'destructive', 'forbidden', null, 1])('rejects invalid risk %s', risk => {
+    expect(assessAiToolCall('exec', { risk, explanation }, 'auto')).toMatchObject({ action: 'reclassify', code: 'RISK_REQUIRED' })
   })
 
-  it('readonly mode blocks writes and destructive exec', () => {
-    expect(assessAiToolCall('write_file', { path: '/tmp/a', content: 'x' }, 'readonly').action).toBe('deny')
-    expect(assessAiToolCall('save_connection', { host: '10.0.0.8', username: 'root', password: 'x' }, 'readonly').action).toBe('deny')
-    expect(assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'write' }, 'readonly').action).toBe('deny')
-    expect(assessAiToolCall('exec', { command: 'uptime', risk: 'read' }, 'readonly').action).toBe('allow')
+  it.each([undefined, null, '', '  ', {}, 123, 'x'.repeat(AI_TOOL_EXPLANATION_MAX_CHARS + 1)])('rejects missing or malformed explanations', explanation => {
+    expect(assessAiToolCall('exec', { risk: 'read', explanation }, 'auto')).toMatchObject({ action: 'reclassify', code: 'EXPLANATION_REQUIRED' })
   })
 
-  it('auto allows ordinary destructive, but still asks for high-risk', () => {
-    expect(assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'write' }, 'auto').action).toBe('allow')
-    expect(assessAiToolCall('exec', { command: 'rm -rf /', risk: 'privileged' }, 'auto').action).toBe('ask')
-    expect(assessAiToolCall('exec', { command: 'reboot now', risk: 'write' }, 'auto').action).toBe('ask')
+  it('retains the explanation as plain text and strips metadata from execution args', () => {
+    const args = { command: 'df -h', risk: 'read', explanation: '  <说明>仅查询</说明>  ', sessionId: 's' }
+    expect(assessAiToolCall('exec', args).reason).toBe('<说明>仅查询</说明>')
+    expect(omitDeclaredRiskArg(args)).toEqual({ command: 'df -h', sessionId: 's' })
+    expect(args.explanation).toBe('  <说明>仅查询</说明>  ')
   })
 
-  it('treats pty_open as destructive that must be confirmed in ask mode', () => {
-    const gate = assessAiToolCall('pty_open', { sessionId: 'x' }, 'ask')
-    expect(gate.action).toBe('ask')
-    expect(gate.risk).toBe('destructive')
+  it('requests valid JSON fields without inventing a host risk level', () => {
+    const gate = assessAiToolCall('exec', { risk: 'read' })
+    if (gate.action !== 'reclassify') throw new Error('expected invalid request')
+    const content = formatAiRiskReclassifyContent(gate)
+    expect(content).toContain('EXPLANATION_REQUIRED')
+    expect(content).toContain('explanation')
+    expect(content).not.toContain('主机判定')
+    expect(content).not.toContain('RISK_UNDERSTATED')
   })
 
-  it('sanitizes unknown permission values to ask', () => {
-    expect(sanitizeAiToolPermission('nope')).toBe('ask')
+  it('keeps permission mode migration', () => {
     expect(sanitizeAiToolPermission('ask-write')).toBe('ask')
-    expect(sanitizeAiToolPermission('readonly')).toBe('readonly')
-  })
-
-  it('rejects exec when the model omits risk, so it can retry with a declaration', () => {
-    const gate = assessAiToolCall('exec', { command: 'df -h' }, 'ask')
-    expect(gate.action).toBe('reclassify')
-    if (gate.action === 'reclassify') {
-      expect(gate.code).toBe('RISK_REQUIRED')
-      expect(gate.expected).toBe('read')
-    }
-  })
-
-  it('rejects when the model understates write as read', () => {
-    const gate = assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'read' }, 'ask')
-    expect(gate.action).toBe('reclassify')
-    if (gate.action === 'reclassify') {
-      expect(gate.code).toBe('RISK_UNDERSTATED')
-      expect(gate.declared).toBe('read')
-      expect(gate.expected).toBe('write')
-      expect(gate.risk).toBe('destructive')
-    }
-  })
-
-  it('rejects when the model understates privileged as write', () => {
-    const gate = assessAiToolCall('exec', { command: 'sudo systemctl restart nginx', risk: 'write' }, 'auto')
-    expect(gate.action).toBe('reclassify')
-    if (gate.action === 'reclassify') {
-      expect(gate.code).toBe('RISK_UNDERSTATED')
-      expect(gate.expected).toBe('privileged')
-    }
-  })
-
-  it('allows an overstated declaration (privileged for a write)', () => {
-    const gate = assessAiToolCall('exec', { command: 'rm -rf /tmp/x', risk: 'privileged' }, 'auto')
-    expect(gate.action).toBe('allow')
-    expect(gate.risk).toBe('destructive')
-  })
-
-  it('still rejects an empty command', () => {
-    const gate = assessAiToolCall('exec', { command: '   ', risk: 'write' }, 'ask')
-    expect(gate.action).toBe('deny')
-    if (gate.action === 'deny') expect(gate.code).toBe('FORBIDDEN')
-  })
-
-  it('treats mkdir as write, not read', () => {
-    const gate = assessAiToolCall('exec', { command: 'mkdir /tmp/a', risk: 'write' }, 'ask')
-    expect(gate.action).toBe('ask')
-    expect(gate.risk).toBe('write')
-  })
-})
-
-describe('declared-risk helpers', () => {
-  it('maps host risks onto the three-level scale', () => {
-    expect(toDeclaredRisk('read')).toBe('read')
-    expect(toDeclaredRisk('write')).toBe('write')
-    expect(toDeclaredRisk('destructive')).toBe('write')
-    expect(toDeclaredRisk('privileged')).toBe('privileged')
-    expect(toDeclaredRisk('forbidden')).toBe('write')
-  })
-
-  it('strips risk before MCP execution', () => {
-    expect(omitDeclaredRiskArg({ command: 'df -h', risk: 'read', sessionId: 's' })).toEqual({
-      command: 'df -h',
-      sessionId: 's',
-    })
-  })
-
-  it('tells the model which risk to retry with', () => {
-    const text = formatAiRiskReclassifyContent({
-      action: 'reclassify',
-      risk: 'destructive',
-      code: 'RISK_UNDERSTATED',
-      reason: 'declared read, host write',
-      declared: 'read',
-      expected: 'write',
-    })
-    expect(text).toContain('RISK_UNDERSTATED')
-    expect(text).toContain('risk 设为 "write"')
-    expect(text).toContain('不要改用更低的 risk 绕过')
-    expect(text).toContain('read（只读）')
-    expect(text).not.toMatch(/\b(df|ps|rm|sudo|mkfs)\b/)
+    expect(sanitizeAiToolPermission('invalid')).toBe('ask')
+    expect(sanitizeAiToolPermission('auto')).toBe('auto')
   })
 })

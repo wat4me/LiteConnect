@@ -11,6 +11,8 @@ import {
 
 describe('sshToolChat helpers', () => {
   it('always pins sidebar tool calls to the bound session', () => {
+    expect(bindSessionArgs({ sessionId: 'other', sessionIds: ['other'], group: 'prod', connectMissing: true, command: 'hostname' }, 'sid-1'))
+      .toEqual({ sessionId: 'sid-1', command: 'hostname' })
     expect(bindSessionArgs({ command: 'df -h' }, 'sid-1')).toEqual({ command: 'df -h', sessionId: 'sid-1' })
     expect(bindSessionArgs({ sessionId: 'keep', command: 'ls' }, 'sid-1')).toEqual({
       sessionId: 'sid-1',
@@ -69,7 +71,7 @@ describe('sshToolChat helpers', () => {
     expect(sanitizeTrackedCwd('v/v5-automation-servers')).toBe('')
   })
 
-  it('requires a declared risk on exec but not on inventory tools', () => {
+  it('requires a declared risk and explanation on every sidebar tool', () => {
     const tools = sshToolsForChat()
     const exec = tools.find((t) => t.function.name === 'exec')
     expect(exec?.function.parameters.required).toEqual(expect.arrayContaining(['command', 'risk']))
@@ -82,6 +84,10 @@ describe('sshToolChat helpers', () => {
     expect(exec?.function.parameters.properties).not.toHaveProperty('sessionId')
     expect(exec?.function.parameters.properties).not.toHaveProperty('group')
     expect(exec?.function.description).not.toMatch(/list_sessions|connect/)
+    for (const tool of tools) {
+      expect(tool.function.parameters.required).toEqual(expect.arrayContaining(['risk', 'explanation']))
+      expect(tool.function.parameters.properties).toHaveProperty('explanation', expect.objectContaining({ type: 'string', minLength: 1, maxLength: 500 }))
+    }
   })
 
   it('hides session-switching tools from the sidebar', () => {
