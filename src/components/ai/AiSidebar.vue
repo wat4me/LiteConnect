@@ -73,13 +73,14 @@ const showModelSwitcher = ref(false)
 const threadSummaries = ref(getSessionState(props.sessionId).threads)
 const consumedSelectionIds = new Set<number>()
 const settingsPanelRef = ref<InstanceType<typeof AiSettingsPanel> | null>(null)
-const historyButtonRef = ref<HTMLButtonElement | null>(null)
-const settingsButtonRef = ref<HTMLButtonElement | null>(null)
 const modelSwitcherButtonRef = ref<HTMLButtonElement | null>(null)
 const modelSwitcherDropdownRef = ref<HTMLElement | null>(null)
 const modelSwitcherStyle = ref<Record<string, string>>({})
-const popoverRef = ref<HTMLElement | null>(null)
-const popoverStyle = ref<Record<string, string>>({})
+const historyQuery = ref('')
+const filteredHistoryItems = computed(() => {
+  const query = historyQuery.value.trim().toLocaleLowerCase()
+  return historyItems.value.filter(item => item.title.toLocaleLowerCase().includes(query))
+})
 
 const hasApiConfigured = computed(() => {
   const list = settings.value.providers || []
@@ -233,9 +234,7 @@ function syncFromState() {
 onMounted(() => {
   syncFromState()
   ensureInitialLoad().catch(() => {})
-  document.addEventListener('pointerdown', closePopoverOnOutsideClick)
   document.addEventListener('keydown', closePopoverOnEscape)
-  window.addEventListener('resize', repositionPopover)
 })
 
 onActivated(() => {
@@ -244,9 +243,7 @@ onActivated(() => {
 
 onBeforeUnmount(() => {
   saveSessionInput(props.sessionId, input.value)
-  document.removeEventListener('pointerdown', closePopoverOnOutsideClick)
   document.removeEventListener('keydown', closePopoverOnEscape)
-  window.removeEventListener('resize', repositionPopover)
 })
 
 watch(
@@ -461,6 +458,7 @@ async function openSettingsCta() {
 
 async function openSettingsPanel() {
   showHistory.value = false
+  showModelSwitcher.value = false
   try {
     await refreshSettings()
   } catch (err: any) {
@@ -469,7 +467,6 @@ async function openSettingsPanel() {
   showSettings.value = true
   await nextTick()
   settingsPanelRef.value?.applyExternal(settings.value)
-  await positionPopover(settingsButtonRef.value, 330)
 }
 
 function closeSettingsPanel() {
@@ -477,10 +474,11 @@ function closeSettingsPanel() {
 }
 
 async function openHistoryPanel() {
+  historyQuery.value = ''
+  showModelSwitcher.value = false
   showHistory.value = true
   showSettings.value = false
   await nextTick()
-  await positionPopover(historyButtonRef.value, 330)
 }
 
 function closeHistoryPanel() {
@@ -494,49 +492,6 @@ function formatHistoryTime(timestamp: number) {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-async function positionPopover(trigger: HTMLElement | null, preferredWidth: number) {
-  if (!trigger) return
-  const rect = trigger.getBoundingClientRect()
-  const width = Math.min(preferredWidth, window.innerWidth - 16)
-  // Provisional placement below trigger; refined after popover mounts
-  const provisionalLeft = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
-  popoverStyle.value = {
-    top: `${rect.bottom + 8}px`,
-    left: `${provisionalLeft}px`,
-    width: `${width}px`,
-  }
-  await nextTick()
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  })
-  const el = popoverRef.value
-  if (!el) return
-  const size = { width: el.offsetWidth || width, height: el.offsetHeight || 200 }
-  const pos = placePopupNearAnchor(rect, size, { align: 'end', gap: 8 })
-  const next: Record<string, string> = {
-    top: `${pos.top}px`,
-    left: `${pos.left}px`,
-    width: `${width}px`,
-  }
-  if (pos.maxHeight > 0) next.maxHeight = `${pos.maxHeight}px`
-  popoverStyle.value = next
-}
-
-function repositionPopover() {
-  if (showSettings.value) void positionPopover(settingsButtonRef.value, 330)
-  else if (showHistory.value) void positionPopover(historyButtonRef.value, 330)
-}
-
-function closePopoverOnOutsideClick(event: PointerEvent) {
-  if (!showSettings.value && !showHistory.value) return
-  const target = event.target
-  if (!(target instanceof Node)) return
-  if (popoverRef.value?.contains(target)) return
-  if (historyButtonRef.value?.contains(target) || settingsButtonRef.value?.contains(target)) return
-  closeSettingsPanel()
-  closeHistoryPanel()
 }
 
 function closePopoverOnEscape(event: KeyboardEvent) {
@@ -612,7 +567,7 @@ function handleClearMessages() {
 
 <template>
   <div class="ai-sidebar">
-    <div class="ai-header">
+    <div v-show="!showSettings && !showHistory" class="ai-header">
       <div class="ai-header-title-area">
         <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
       </div>
@@ -626,10 +581,10 @@ function handleClearMessages() {
         >
           <AppIcon name="plus" size="sm" />
         </button>
-        <button ref="historyButtonRef" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
+        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
           <AppIcon name="history" size="sm" />
         </button>
-        <button ref="settingsButtonRef" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
+        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
           <AppIcon name="settings" size="sm" />
         </button>
         <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('ai.closePanel')">
@@ -638,7 +593,7 @@ function handleClearMessages() {
       </div>
     </div>
 
-    <div class="ai-body">
+    <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
         :messages="messages"
         :has-api-configured="hasApiConfigured"
@@ -655,7 +610,7 @@ function handleClearMessages() {
       />
     </div>
 
-    <div v-if="pendingApprovals.length" class="tool-approval-stack">
+    <div v-if="pendingApprovals.length && !showSettings && !showHistory" class="tool-approval-stack">
       <div
         v-for="run in pendingApprovals"
         :key="run.id"
@@ -691,7 +646,7 @@ function handleClearMessages() {
       </div>
     </div>
 
-    <form class="composer" @submit.prevent="sendMessage">
+    <form v-show="!showSettings && !showHistory" class="composer" @submit.prevent="sendMessage">
       <textarea
         v-model="input"
         class="composer-input"
@@ -800,15 +755,10 @@ function handleClearMessages() {
       ></div>
     </Teleport>
 
-  </div>
-
-  <Teleport to="body">
     <div
       v-if="showSettings"
-      ref="popoverRef"
-      class="ai-popover ai-settings-popover"
-      :style="popoverStyle"
-      role="dialog"
+      class="ai-page ai-settings-page"
+      role="region"
       :aria-label="t('ai.settings')"
     >
       <AiSettingsPanel
@@ -821,24 +771,24 @@ function handleClearMessages() {
 
     <section
       v-if="showHistory"
-      ref="popoverRef"
-      class="ai-popover ai-history-popover"
-      :style="popoverStyle"
-      role="dialog"
+      class="ai-page ai-history-page"
+      role="region"
       :aria-label="t('ai.history')"
     >
       <div class="ai-layer-header">
         <div class="ai-layer-heading">
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :aria-label="t('common.back')" @click="closeHistoryPanel"><AppIcon name="chevron-left" size="sm" /></button>
           <span class="ai-layer-title">{{ t('ai.history') }}</span>
-          <span class="ai-layer-subtitle">{{ t('ai.title') }}</span>
+          <span class="ai-layer-subtitle">{{ historyItems.length || '' }}</span>
         </div>
         <div class="ai-layer-actions">
           <button
             type="button"
             class="ui-btn ui-btn-xs ui-btn-ghost"
-            :disabled="historyItems.length === 0"
+            v-if="historyItems.length > 0"
             @click="handleClearAllHistory"
           >
+            <AppIcon name="delete" size="sm" />
             {{ t('ai.clearAllHistory') }}
           </button>
           <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.closeHistory')" @click="closeHistoryPanel">
@@ -846,10 +796,11 @@ function handleClearMessages() {
           </button>
         </div>
       </div>
-      <div v-if="historyItems.length === 0" class="ai-history-empty">{{ t('ai.emptyHistory') }}</div>
+      <label v-if="historyItems.length" class="ai-history-search"><AppIcon name="search" size="sm" /><input v-model="historyQuery" :placeholder="t('ai.searchHistory')" :aria-label="t('ai.searchHistory')" /></label>
+      <div v-if="!filteredHistoryItems.length" class="ai-history-empty"><AppIcon name="history" size="2xl" /><span>{{ t(historyItems.length ? 'ai.noMatchingHistory' : 'ai.emptyHistory') }}</span></div>
       <div v-else class="ai-history-list">
         <div
-          v-for="item in historyItems"
+          v-for="item in filteredHistoryItems"
           :key="item.id"
           class="ai-history-item"
           :class="{ active: item.active }"
@@ -861,6 +812,7 @@ function handleClearMessages() {
             @click="handleSwitchConversation(item.id)"
           >
             <span class="ai-history-item-title">{{ item.title }}</span>
+            <span v-if="item.active" class="ai-history-current"><AppIcon name="check" size="xs" />{{ t('common.current') }}</span>
             <span class="ai-history-item-meta">
               {{ t('ai.messageCount', { count: item.messageCount, time: formatHistoryTime(item.createdAt) }) }}
             </span>
@@ -876,7 +828,7 @@ function handleClearMessages() {
         </div>
       </div>
     </section>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>
@@ -891,39 +843,44 @@ function handleClearMessages() {
   overflow: hidden;
 }
 
-.ai-popover {
-  position: fixed;
-  z-index: 10500;
+.ai-page {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
-  max-height: calc(100vh - 16px);
-}
-
-.ai-settings-popover {
-  width: min(330px, calc(100vw - 16px));
-  height: min(420px, calc(100vh - 96px));
-}
-
-.ai-settings-popover :deep(.settings-box) {
   flex: 1;
   min-height: 0;
-  max-height: none;
-  border-bottom: none;
+  overflow: hidden;
+  background: var(--bg-primary);
 }
-
-.ai-history-popover {
-  width: min(330px, calc(100vw - 16px));
-  height: min(260px, calc(100vh - 96px));
+.ai-settings-page :deep(.settings-box) {
+  flex: 1;
+  min-height: 0;
 }
-
+.ai-history-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+.ai-history-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.ai-history-search:focus-within {
+  border-color: var(--accent);
+}
 .ai-layer-header {
   min-height: 48px;
-  padding: 8px 10px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -965,6 +922,7 @@ function handleClearMessages() {
 }
 
 .ai-history-list {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 6px;
@@ -1018,7 +976,8 @@ function handleClearMessages() {
   opacity: 0;
 }
 
-.ai-history-item:hover .ai-history-item-delete {
+.ai-history-item:hover .ai-history-item-delete,
+.ai-history-item:focus-within .ai-history-item-delete {
   opacity: 1;
 }
 
@@ -1029,10 +988,21 @@ function handleClearMessages() {
 
 .ai-history-item-title {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
   font-size: 12px;
   font-weight: 600;
+}
+
+.ai-history-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  font-size: 11px;
 }
 
 .ai-history-item-meta {
@@ -1041,7 +1011,13 @@ function handleClearMessages() {
 }
 
 .ai-history-empty {
-  padding: 18px 10px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
   color: var(--text-secondary);
   font-size: 12px;
   text-align: center;
