@@ -10,6 +10,7 @@ const info = ref<{ version: string; electron: string; platform: string } | null>
 const autoUpdateEnabled = ref(false)
 const autoUpdateBusy = ref(false)
 const checking = ref(false)
+const downloadBusy = ref(false)
 const updateStatus = ref<UpdateStatus | null>(null)
 let stopUpdateStatus: (() => void) | null = null
 
@@ -45,7 +46,7 @@ async function toggleAutoUpdate() {
 async function checkNow() {
   if (checking.value) return
   checking.value = true
-  updateStatus.value = { status: 'checking' }
+
   try {
     const result = await window.LiteConnect.checkForUpdates()
     if (!result.ok) {
@@ -63,11 +64,31 @@ async function checkNow() {
   }
 }
 
-function installNow() {
-  void window.LiteConnect.quitAndInstall()
+async function retryDownload() {
+  downloadBusy.value = true
+  try {
+    const result = await window.LiteConnect.downloadUpdate()
+    if (!result.ok) updateStatus.value = { status: 'error', version: updateStatus.value?.version, message: result.error }
+  } catch (err: any) {
+    updateStatus.value = { status: 'error', version: updateStatus.value?.version, message: err?.message || t('about.checkFailed') }
+  } finally { downloadBusy.value = false }
+}
+
+async function installNow() {
+  try { await window.LiteConnect.quitAndInstall() }
+  catch (err: any) { ElMessage.error(err?.message || t('about.checkFailed')) }
 }
 
 onMounted(async () => {
+  let receivedEvent = false
+  stopUpdateStatus = window.LiteConnect.onUpdateStatus((status) => {
+    receivedEvent = true
+    updateStatus.value = status
+  })
+  try {
+    const snapshot = await window.LiteConnect.getUpdateStatus()
+    if (!receivedEvent) updateStatus.value = snapshot
+  } catch { /* Older main process may not expose a snapshot. */ }
   try {
     info.value = await window.LiteConnect.getAppInfo()
   } catch {
@@ -78,9 +99,6 @@ onMounted(async () => {
   } catch {
     autoUpdateEnabled.value = false
   }
-  stopUpdateStatus = window.LiteConnect.onUpdateStatus((status) => {
-    updateStatus.value = status
-  })
 })
 
 onBeforeUnmount(() => {
@@ -143,6 +161,13 @@ onBeforeUnmount(() => {
         <button type="button" class="ui-btn ui-btn-sm" :disabled="checking" @click="checkNow">
           {{ checking ? t('about.checking') : t('about.checkNow') }}
         </button>
+        <button
+          v-if="updateStatus?.version && (updateStatus.status === 'available' || updateStatus.status === 'error')"
+          type="button"
+          class="ui-btn ui-btn-sm"
+          :disabled="downloadBusy"
+          @click="retryDownload"
+        >{{ t('about.retryDownload') }}</button>
         <button
           v-if="updateStatus?.status === 'downloaded'"
           type="button"

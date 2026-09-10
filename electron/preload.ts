@@ -791,6 +791,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('db:mergeQueryHistoryLegacy', items),
 
   // Auto-updater
+  getUpdateStatus: () => ipcRenderer.invoke('updater:status'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),
   quitAndInstall: () => ipcRenderer.invoke('updater:install'),

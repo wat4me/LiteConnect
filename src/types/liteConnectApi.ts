@@ -684,6 +684,7 @@ export interface LiteConnectApi {
   dbClearQueryHistory: (connectionId?: string) => Promise<DbQueryHistoryItem[]>
   dbMergeQueryHistoryLegacy: (items: unknown[]) => Promise<DbQueryHistoryItem[]>
 
+  getUpdateStatus: () => Promise<UpdateStatus | null>
   checkForUpdates: () => Promise<{ ok: boolean; info?: any; error?: string }>
   downloadUpdate: () => Promise<{ ok: boolean; error?: string }>
   quitAndInstall: () => Promise<void>

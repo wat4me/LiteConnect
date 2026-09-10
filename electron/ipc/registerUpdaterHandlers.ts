@@ -1,3 +1,4 @@
+import type { UpdateStatus } from '../../shared/types/app'
 import { ipcMain, BrowserWindow } from 'electron'
 import type { AppUpdater } from 'electron-updater'
 import { SettingsStore } from '../store/settingsStore'
@@ -12,33 +13,50 @@ export function registerUpdaterHandlers(getMainWindow: MainWindowGetter, setting
   let autoUpdater: AppUpdater | null = null
   let loadPromise: Promise<AppUpdater> | null = null
   let listenersBound = false
+  let status: UpdateStatus | null = null
+  let download: Promise<void> | null = null
+  function publish(next: UpdateStatus) {
+    status = next
+    safeSend(getMainWindow(), 'updater:status', next)
+  }
+  function startDownload(updater: AppUpdater): Promise<void> {
+    if (download) return download
+    if (status?.status === 'downloaded') return Promise.resolve()
+    publish({ status: 'downloading', version: status?.version, progress: 0 })
+    download = Promise.resolve().then(() => updater.downloadUpdate()).then(() => {}).catch((err) => {
+      publish({ status: 'error', version: status?.version, message: err instanceof Error ? err.message : String(err) })
+      throw err
+    }).finally(() => { download = null })
+    return download
+  }
 
   function bindListeners(updater: AppUpdater) {
     if (listenersBound) return
     listenersBound = true
     updater.logger = console
-    updater.autoDownload = true
+    updater.autoDownload = false
     updater.autoInstallOnAppQuit = true
 
     updater.on('checking-for-update', () => {
-      safeSend(getMainWindow(), 'updater:status', { status: 'checking' })
+      publish({ status: 'checking' })
     })
     updater.on('update-available', (info) => {
       const skippedVersion = settingsStore.getSkippedUpdateVersion()
       if (info.version === skippedVersion) return
-      safeSend(getMainWindow(), 'updater:status', { status: 'available', version: info.version })
+      publish({ status: 'available', version: info.version })
+      void startDownload(updater).catch(() => {})
     })
     updater.on('update-not-available', (info) => {
-      safeSend(getMainWindow(), 'updater:status', { status: 'not-available', version: info.version })
+      publish({ status: 'not-available', version: info.version })
     })
     updater.on('download-progress', (progress) => {
-      safeSend(getMainWindow(), 'updater:status', { status: 'downloading', progress: progress.percent })
+      publish({ status: 'downloading', version: status?.version, progress: progress.percent })
     })
     updater.on('update-downloaded', (info) => {
-      safeSend(getMainWindow(), 'updater:status', { status: 'downloaded', version: info.version })
+      publish({ status: 'downloaded', version: info.version })
     })
     updater.on('error', (err) => {
-      safeSend(getMainWindow(), 'updater:status', { status: 'error', message: err.message })
+      publish({ status: 'error', version: status?.version, message: err.message })
     })
   }
 
@@ -59,17 +77,23 @@ export function registerUpdaterHandlers(getMainWindow: MainWindowGetter, setting
     if (!settingsStore.getAutoUpdateEnabled()) return
     setTimeout(() => {
       void getUpdater()
-        .then((updater) => updater.checkForUpdates())
+        .then((updater) => {
+          if (!settingsStore.getAutoUpdateEnabled() || download || status?.status === 'downloaded') return
+          return updater.checkForUpdates()
+        })
         .catch(() => {})
     }, 8000)
   }).catch((err) => {
     console.error('[Updater Init]', err)
   })
 
+  ipcMain.handle('updater:status', () => status)
+
   ipcMain.handle('updater:check', async () => {
     try {
       await settingsStore.init()
       const updater = await getUpdater()
+      if (download || status?.status === 'downloaded') return { ok: true, info: { version: status?.version } }
       const result = await updater.checkForUpdates()
       return { ok: true, info: result?.updateInfo }
     } catch (err: any) {
@@ -81,7 +105,7 @@ export function registerUpdaterHandlers(getMainWindow: MainWindowGetter, setting
     try {
       await settingsStore.init()
       const updater = await getUpdater()
-      await updater.downloadUpdate()
+      await startDownload(updater)
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }
@@ -90,6 +114,7 @@ export function registerUpdaterHandlers(getMainWindow: MainWindowGetter, setting
 
   ipcMain.handle('updater:install', async () => {
     const updater = await getUpdater()
+    if (status?.status !== 'downloaded') throw new Error('Update is not downloaded yet')
     updater.quitAndInstall()
   })
 

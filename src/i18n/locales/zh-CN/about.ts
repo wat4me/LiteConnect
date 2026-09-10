@@ -17,9 +17,10 @@ export default {
     available: '发现新版本 {version}',
     notAvailable: '当前已是最新版本',
     downloading: '正在下载更新… {progress}%',
+    retryDownload: '下载 / 重试更新',
     downloaded: '更新已下载，退出应用后会自动安装',
     installNow: '退出并安装',
-    error: '检查失败：{message}',
+    error: '更新失败：{message}',
     checkFailed: '检查更新失败',
   },
 } as const
