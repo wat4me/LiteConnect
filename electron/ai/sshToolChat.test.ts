@@ -101,5 +101,17 @@ describe('sshToolChat helpers', () => {
     expect(names).toContain('exec')
     expect(names).toContain('read_file')
     expect(names).toContain('grep')
+    expect(names).toContain('edit_file')
+  })
+
+  it('exposes edit_file with its own description and declared-risk parameters', () => {
+    const edit = sshToolsForChat().find((t) => t.function.name === 'edit_file')
+    expect(edit?.function.description).toContain('oldString')
+    const params = edit?.function.parameters as { properties: Record<string, unknown>; required: string[] }
+    expect(Object.keys(params.properties)).toEqual(
+      expect.arrayContaining(['path', 'oldString', 'newString', 'replaceAll', 'risk', 'explanation']),
+    )
+    expect(params.required).toEqual(expect.arrayContaining(['path', 'oldString', 'newString', 'risk', 'explanation']))
+    expect(params.required).not.toContain('sessionId')
   })
 })

@@ -27,6 +27,7 @@ import {
 import { cancelJob, execCommand, getJob, runForegroundExec } from './tools/exec'
 import {
   downloadFile,
+  editFileTool,
   listDir,
   readFileTool,
   statPath,
@@ -94,6 +95,7 @@ export class SshMcpRuntime {
         case 'disconnect':
           return disconnectSessions(host, input)
         case 'exec':
+          await readyCommandClassifier()
           return await execCommand(host, input, approvalMode)
         case 'list_jobs':
           return this.ok({ jobs: this.jobs.list().map((j) => this.jobs.summary(j)) })
@@ -109,6 +111,8 @@ export class SshMcpRuntime {
           return await globTool(host, input)
         case 'write_file':
           return await writeFileTool(host, input)
+        case 'edit_file':
+          return await editFileTool(host, input)
         case 'download_file':
           return await downloadFile(host, input)
         case 'upload_file':
@@ -120,6 +124,7 @@ export class SshMcpRuntime {
         case 'tail_file':
           return await tailFile(host, input)
         case 'service_control':
+          await readyCommandClassifier()
           return await serviceControl(host, input, approvalMode)
         case 'pty_open':
           return await ptyOpen(host, input)
@@ -235,6 +240,21 @@ export class SshMcpRuntime {
 
   private error(code: SshMcpToolErrorCode, message: string, cls?: SshMcpErrorPayload['class']): SshMcpToolResult<SshMcpErrorPayload> {
     return resultError(code, message, cls)
+  }
+}
+
+/**
+ * Install the AST engine before classifying a command. Imported lazily so that
+ * unrelated tool calls never pay for the wasm, and never fatal: if it fails the
+ * classifier keeps running in text mode, which fails closed on anything it
+ * cannot decide.
+ */
+async function readyCommandClassifier(): Promise<void> {
+  try {
+    const { ensureBashAstReady } = await import('./bashParser')
+    await ensureBashAstReady()
+  } catch (err) {
+    console.warn('[MCP] bash AST unavailable, classifying with text rules:', err)
   }
 }
 

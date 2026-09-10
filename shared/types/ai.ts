@@ -75,6 +75,10 @@ export interface AiToolRun {
   status?: AiToolRunStatus
   risk?: AiToolRisk
   reason?: string
+  /** One-line `+N / -M` summary for the pending file rewrite, if any. */
+  diffSummary?: string
+  /** Unified diff shown on the approval card when the call rewrites a file. */
+  diffPreview?: string
 }
 
 export interface AiChatResult {
@@ -123,9 +127,8 @@ export interface AiHistoryRecord {
 
 export interface AiConversationThread {
   id: string
+  /** First user message, verbatim. Always re-derived; never model-generated. */
   title: string
-  /** True after model-generated title; provisional first-user-message titles stay false. */
-  titleGenerated?: boolean
   createdAt: number
   updatedAt: number
   messages: AiHistoryRecord[]
@@ -140,7 +143,6 @@ export interface AiSessionStore {
 export interface AiThreadSummary {
   id: string
   title: string
-  titleGenerated?: boolean
   createdAt: number
   updatedAt: number
   messageCount: number
@@ -163,6 +165,10 @@ export type AiChatStreamPayload =
         risk?: AiToolRisk
         reason?: string
         status?: AiToolRunStatus
+        /** One-line `+N / -M` summary for the pending file rewrite. */
+        diffSummary?: string
+        /** Unified diff for file rewrites, so approval is not blind. */
+        diffPreview?: string
       }
     }
   | { type: 'done' }

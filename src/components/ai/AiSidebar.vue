@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiSettings, AiToolRun } from '../../env.d.ts'
@@ -18,6 +18,8 @@ import { flattenConversationForApi } from '@shared/aiMessages'
 import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
 import { formatToolRunArgs, formatToolRunDisplay } from '@shared/aiToolRunDisplay'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
+import { diffPreviewRows } from '@/utils/ai/diffPreviewRows'
+import { threadTitleTooltip } from '@/utils/ai/threadTitle'
 import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
 
 const { t } = useI18n()
@@ -39,6 +41,8 @@ const emit = defineEmits<{
 
 const {
   settings,
+  refreshSettings,
+  replaceSettings,
   activeProvider,
   displayModelName,
   activeContextWindowTokens,
@@ -124,6 +128,9 @@ const currentThreadTitle = computed(() => {
   return title || t('ai.newConversationTitle')
 })
 
+/** Titles are the raw first user message; the tooltip carries all of it. */
+const currentThreadTitleTip = computed(() => threadTitleTooltip(currentThreadTitle.value))
+
 const contextDroppedCount = computed(() => {
   if (loading.value || messages.value.some((m) => m.streaming)) return 0
   const conv = flattenConversationForApi(messages.value)
@@ -183,6 +190,8 @@ const historyItems = computed(() =>
     .map((thread) => ({
       id: thread.id,
       title: thread.title || t('ai.newConversationTitle'),
+      /** Hover shows the untouched first user message. */
+      tip: threadTitleTooltip(thread.title),
       createdAt: thread.updatedAt || thread.createdAt,
       messageCount: thread.messageCount,
       active: thread.active || thread.id === getSessionState(props.sessionId).activeThreadId,
@@ -227,6 +236,10 @@ onMounted(() => {
   document.addEventListener('pointerdown', closePopoverOnOutsideClick)
   document.addEventListener('keydown', closePopoverOnEscape)
   window.addEventListener('resize', repositionPopover)
+})
+
+onActivated(() => {
+  void refreshSettings().catch(() => {})
 })
 
 onBeforeUnmount(() => {
@@ -274,7 +287,7 @@ async function ensureInitialLoad() {
   if (!initialLoadPromise) {
     initialLoadPromise = (async () => {
       try {
-        settings.value = await window.LiteConnect.getAiSettings()
+        await refreshSettings()
         settingsPanelRef.value?.applyExternal(settings.value)
       } catch (err: any) {
         ElMessage.warning(err?.message || t('ai.loadSettingsFailed'))
@@ -380,7 +393,7 @@ async function handleDeleteMessage(messageId: string) {
 }
 
 function onSettingsSaved(next: AiSettings) {
-  settings.value = next
+  replaceSettings(next)
 }
 
 async function switchModel(providerId: string, model: string) {
@@ -388,7 +401,7 @@ async function switchModel(providerId: string, model: string) {
   if (!model) return
   try {
     const updated = await window.LiteConnect.switchAiModel(providerId, model)
-    settings.value = updated
+    replaceSettings(updated)
     settingsPanelRef.value?.applyExternal(updated)
   } catch (err: any) {
     ElMessage.warning(err?.message || t('ai.switchModelFailed'))
@@ -443,16 +456,19 @@ async function handleStop() {
 }
 
 async function openSettingsCta() {
-  showSettings.value = true
-  showHistory.value = false
-  await nextTick()
-  await positionPopover(settingsButtonRef.value, 330)
+  await openSettingsPanel()
 }
 
 async function openSettingsPanel() {
-  showSettings.value = true
   showHistory.value = false
+  try {
+    await refreshSettings()
+  } catch (err: any) {
+    ElMessage.warning(err?.message || t('ai.loadSettingsFailed'))
+  }
+  showSettings.value = true
   await nextTick()
+  settingsPanelRef.value?.applyExternal(settings.value)
   await positionPopover(settingsButtonRef.value, 330)
 }
 
@@ -598,7 +614,7 @@ function handleClearMessages() {
   <div class="ai-sidebar">
     <div class="ai-header">
       <div class="ai-header-title-area">
-        <div class="ai-title" :title="currentThreadTitle">{{ currentThreadTitle }}</div>
+        <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
       </div>
       <div class="ai-header-actions">
         <button
@@ -651,8 +667,17 @@ function handleClearMessages() {
           <span v-if="approvalRiskLabel(run.risk)" class="tool-approval-risk" :data-risk="run.risk">{{ approvalRiskLabel(run.risk) }}</span>
           <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
         </div>
-        <p v-if="run.reason" class="tool-approval-reason">{{ t('ai.toolExplanation') }}：{{ run.reason }}</p>
+        <p v-if="run.reason" class="tool-approval-reason">{{ run.reason }}</p>
         <pre v-if="approvalHint(run)" class="tool-approval-hint" :title="approvalHint(run)">{{ approvalHint(run) }}</pre>
+        <div v-if="run.diffSummary || run.diffPreview" class="tool-approval-diff">
+          <div v-if="run.diffSummary" class="tool-approval-diff-summary">{{ run.diffSummary }}</div>
+          <pre v-if="run.diffPreview" class="tool-approval-diff-body"><span
+            v-for="(row, i) in diffPreviewRows(run.diffPreview)"
+            :key="i"
+            class="diff-row"
+            :class="`diff-${row.kind}`"
+          >{{ row.text }}</span></pre>
+        </div>
         <div class="tool-approval-actions">
           <button type="button" class="tool-approval-btn" @click="resolveToolApproval(props.sessionId, run.id, false)">{{ t('ai.toolDeny') }}</button>
           <button
@@ -832,7 +857,7 @@ function handleClearMessages() {
           <button
             type="button"
             class="ai-history-item-main"
-            :title="item.title"
+            :title="item.tip || item.title"
             @click="handleSwitchConversation(item.id)"
           >
             <span class="ai-history-item-title">{{ item.title }}</span>
@@ -886,6 +911,7 @@ function handleClearMessages() {
 
 .ai-settings-popover :deep(.settings-box) {
   flex: 1;
+  min-height: 0;
   max-height: none;
   border-bottom: none;
 }
@@ -1382,6 +1408,55 @@ function handleClearMessages() {
   word-break: break-word;
   max-height: 72px;
   overflow: auto;
+}
+
+.tool-approval-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tool-approval-diff-summary {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.tool-approval-diff-body {
+  margin: 0;
+  padding: 5px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.tool-approval-diff-body .diff-row {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 8px;
+  white-space: pre;
+  color: var(--text-primary);
+}
+
+.tool-approval-diff-body .diff-head,
+.tool-approval-diff-body .diff-hunk {
+  color: var(--text-secondary);
+}
+
+.tool-approval-diff-body .diff-add {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.tool-approval-diff-body .diff-del {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
 }
 
 .tool-approval-reason {

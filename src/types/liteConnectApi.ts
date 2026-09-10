@@ -194,27 +194,15 @@ export interface LiteConnectApi {
   ) => Promise<AiChatResult>
   aiAbortChatStream: (requestId: string) => Promise<boolean>
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) => Promise<boolean>
-  aiGenerateConversationTitle: (payload: {
-    userText: string
-    assistantText?: string
-    sessionId?: string
-    threadId?: string
-  }) => Promise<{ title: string }>
   getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
   setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
-  aiSetThreadTitle: (
-    sessionId: string,
-    threadId: string,
-    title: string,
-  ) => Promise<{ ok: boolean }>
   aiCreateConversation: (
     sessionId: string,
     payload: {
       threadId?: string
       messages?: AiHistoryRecord[]
       title?: string
-      titleGenerated?: boolean
     },
   ) => Promise<AiSessionStore>
   appendAiSessionHistory: (sessionId: string, record: AiHistoryRecord, threadId?: string) => Promise<void>

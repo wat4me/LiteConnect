@@ -283,7 +283,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'read_file',
     title: 'Read a remote file',
     description:
-      'Read a slice of a remote text file over SFTP. Default: first 200 lines, also capped at 50 KiB; long lines are clipped. Pass startLine (1-based) + limit to page. Do not dump whole logs or configs — use grep to find matches, then read around those lines. For binary, encoding=base64 with offset/length (max 50 KiB).',
+      'Read a slice of a remote text file over SFTP. Default: first 200 lines, also capped at 50 KiB; long lines are clipped. Pass startLine (1-based) + limit to page. Lines are returned prefixed with `absoluteLineNumber<TAB>`, which is a locator only — never copy that prefix into edit_file or write_file. Do not dump whole logs or configs — use grep to find matches, then read around those lines. For binary, encoding=base64 with offset/length (max 50 KiB).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -310,6 +310,11 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
           enum: ['utf8', 'base64'],
           description: 'utf8 (default, line window) or base64 (byte window).',
         },
+        lineNumbers: {
+          type: 'boolean',
+          description:
+            'Default true: prefix each line with its absolute line number so the text can be located and edited precisely. Set false only when the raw text is needed verbatim.',
+        },
       },
       required: ['sessionId', 'path'],
       additionalProperties: false,
@@ -325,7 +330,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'write_file',
     title: 'Write a remote file',
     description:
-      'Create or overwrite a remote file over SFTP. Max 256 KiB per call. encoding=utf8 (default) or base64. Use upload_file for larger local files on the operator PC. Parent directories must already exist.',
+      'Create or overwrite a remote file over SFTP. Max 256 KiB per call. encoding=utf8 (default) or base64. Use upload_file for larger local files on the operator PC. Use this to create a new file or to replace a whole file; to change part of an existing file use edit_file instead, which sends only the changed fragment and yields a reviewable diff. Parent directories must already exist.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -342,6 +347,39 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
         },
       },
       required: ['sessionId', 'path', 'content'],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: 'edit_file',
+    title: 'Edit a remote file in place',
+    description:
+      'Replace an exact string in an existing remote text file. This is the preferred way to change a config or script: unlike write_file it sends only the changed fragment, leaves the rest of the file byte-identical, and produces a small reviewable diff for the approval prompt. oldString is matched literally (no regex) against the current file content and must occur exactly once unless replaceAll=true; if it is missing or ambiguous the edit fails and tells you how to fix it, so copy oldString verbatim from read_file (without its line-number prefix) and include enough surrounding lines to be unique. The file must be a text file no larger than 256 KiB. Use write_file instead only to create a new file or to replace the whole file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: SESSION_ID,
+        path: REMOTE_PATH,
+        oldString: {
+          type: 'string',
+          description:
+            'Exact existing text to replace, copied verbatim from read_file and excluding the line-number prefix. Include surrounding lines when the text is not unique.',
+        },
+        newString: {
+          type: 'string',
+          description: 'Replacement text. Pass an empty string to delete oldString. Must differ from oldString.',
+        },
+        replaceAll: {
+          type: 'boolean',
+          description: 'Default false: require a unique match. Set true to replace every occurrence (e.g. renaming).',
+        },
+      },
+      required: ['sessionId', 'path', 'oldString', 'newString'],
       additionalProperties: false,
     },
     annotations: {
@@ -436,7 +474,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'grep',
     title: 'Search remote file contents',
     description:
-      'Search remote files for a regex/text pattern. Uses rg if installed, otherwise grep. Returns up to 100 matches with path and line number. Prefer this over read_file for logs and configs. Optional include glob such as *.conf or *.log.',
+      'Search remote files for a regex/text pattern. Uses rg if installed, otherwise grep. Returns up to 100 matches with path and line number. Prefer this over read_file for logs and configs. Optional include glob such as *.conf or *.log. contextLines adds N lines before and after each hit (rows carry context:true and do not count as hits). tailBytes searches only the last N bytes of each file and still reports absolute line numbers — use it for "recent" log triage instead of grepping whole files.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -452,6 +490,16 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
         include: {
           type: 'string',
           description: 'Optional glob to limit files, e.g. *.log or *.conf.',
+        },
+        contextLines: {
+          type: 'integer',
+          description:
+            'Lines of context to include before and after each match (like grep -C). 0–10. Context rows are marked and are not counted as matches.',
+        },
+        tailBytes: {
+          type: 'integer',
+          description:
+            'Search only the last N bytes of each file (max 8 MiB) and report absolute line numbers. Best for "what happened recently" in large logs. Uses grep, capped at 20 files.',
         },
       },
       required: ['sessionId', 'path', 'pattern'],

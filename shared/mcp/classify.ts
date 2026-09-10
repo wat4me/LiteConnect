@@ -1,5 +1,7 @@
+import type { BashFlatCommand, BashParseResult } from './bashParse'
+import { stripQuotes } from './bashParse'
 import { MCP_MAX_COMMAND_CHARS } from './limits'
-import type { CommandClass, CommandClassification } from './types'
+import type { CommandClass, CommandClassification, CommandUncertainty } from './types'
 
 const CLASS_RANK: Record<CommandClass, number> = {
   'read-only': 0,
@@ -51,11 +53,9 @@ const READ_ONLY_BINARIES = new Set([
   'tr',
   'echo',
   'printf',
-  'env',
   'printenv',
   'which',
   'type',
-  'command',
   'whereis',
   'getent',
   'groups',
@@ -85,7 +85,6 @@ const READ_ONLY_BINARIES = new Set([
   'findmnt',
   'dmesg',
   'sysctl',
-  'uname',
   'lsb_release',
   'timedatectl',
   'hostnamectl',
@@ -125,9 +124,48 @@ const READ_ONLY_BINARIES = new Set([
   'strings',
   'jq',
   'yq',
+  // Shell builtins that only touch the current shell's own state.
+  'cd',
+  'pushd',
+  'popd',
+  'dirs',
+  'export',
+  'unset',
+  'set',
+  'shopt',
+  'let',
+  'shift',
+  'times',
+  'wait',
+  'disown',
+  'sleep',
+  'declare',
+  'local',
+  'readonly',
+  'typeset',
+  'enable',
+  'hash',
 ])
 
-const PRIVILEGED_BINARIES = new Set(['sudo', 'su', 'doas', 'pkexec', 'runuser', 'ksu'])
+/** Shells whose `-c` payload we re-parse; anything else about them is handled by bashParse. */
+const SHELL_BINARIES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'csh', 'tcsh', 'fish'])
+
+const PRIVILEGE_WRAPPERS = new Set(['sudo', 'doas', 'pkexec', 'su', 'runuser'])
+
+const TRANSPARENT_WRAPPERS = new Set([
+  'env',
+  'nohup',
+  'time',
+  'timeout',
+  'nice',
+  'ionice',
+  'setsid',
+  'stdbuf',
+  'command',
+  'builtin',
+  'exec',
+  'xargs',
+])
 
 const DESTRUCTIVE_BINARIES = new Set([
   'rm',
@@ -203,14 +241,10 @@ const SAFE_BINARIES = new Set([
   'ln',
   'git',
   'npm',
-  'npx',
   'yarn',
   'pnpm',
   'pip',
   'pip3',
-  'python',
-  'python3',
-  'node',
   'make',
   'cmake',
   'cargo',
@@ -244,8 +278,102 @@ const SAFE_BINARIES = new Set([
   'helm',
   'terraform',
   'ansible',
-  'systemctl',
 ])
+
+/**
+ * Programs that execute code handed to them. We cannot read that code, so the
+ * only honest verdict is "ask" — which is also what safecmd and
+ * agent-permissions settled on. They used to sit in `SAFE_BINARIES`, where a
+ * single `python3 -c "import shutil; shutil.rmtree('/')"` rode through `auto`.
+ */
+const INTERPRETERS = new Set([
+  'python',
+  'python2',
+  'python3',
+  'perl',
+  'ruby',
+  'php',
+  'node',
+  'nodejs',
+  'lua',
+  'luajit',
+  'tclsh',
+  'wish',
+  'osascript',
+  'deno',
+  'bun',
+  'rscript',
+  'julia',
+  'groovy',
+])
+
+/** Flags that make an interpreter treat the next token as code. */
+const INLINE_CODE_FLAGS = new Set(['-c', '-e', '-E', '-r', '--eval', '--exec'])
+
+/**
+ * Flags that only ever print something.
+ *
+ * A program invoked with nothing but these has no operand to act on, so it
+ * cannot reach the filesystem through its arguments. For a program we have no
+ * entry for, that is the strongest evidence available — and refusing to use it
+ * is what produced cards that accused the model of lying about `nginx -v`.
+ *
+ * Note the empty case is *not* covered: a bare `reboot`, `shutdown` or `nginx`
+ * really does start something, so the flag set must be non-empty.
+ */
+const INFORMATIONAL_FLAGS = new Set([
+  '--version',
+  '-version',
+  '-V',
+  '--help',
+  '-help',
+  '-h',
+  '-?',
+  '--usage',
+])
+
+function isInformationalProbe(args: string[]): boolean {
+  const tokens = args.map(stripQuotes).filter((token) => token.length > 0)
+  if (!tokens.length) return false
+  if (tokens.every((token) => INFORMATIONAL_FLAGS.has(token.toLowerCase()))) return true
+  // `-v` is `--version` for nginx and "verbose" for sshd, so it is not
+  // informational in general — but alone it still cannot be pointed at a target.
+  return tokens.length === 1 && tokens[0].toLowerCase() === '-v'
+}
+
+function hasInlineCode(args: string[]): boolean {
+  return args.some((arg) => INLINE_CODE_FLAGS.has(stripQuotes(arg)))
+}
+
+/**
+ * The directory prefixes a naive write can brick: shell redirects and `tee`
+ * into these are treated as forbidden rather than merely destructive.
+ */
+const CRITICAL_WRITE_PREFIX = /^\/(etc|boot|sys|proc|dev)\//i
+const AUTHORIZED_KEYS = /(^|\/)\.ssh\/authorized_keys$/i
+
+const CATASTROPHIC_DELETE_BINARIES = new Set(['rm', 'rmdir', 'shred', 'wipe', 'srm'])
+const CATASTROPHIC_TARGETS = new Set([
+  '/',
+  '/*',
+  '/.',
+  '~',
+  '~/',
+  '$home',
+  '${home}',
+  '/etc',
+  '/usr',
+  '/var',
+  '/boot',
+  '/root',
+  '/home',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib64',
+])
+
+const AWK_BINARIES = new Set(['awk', 'gawk', 'mawk', 'nawk'])
 
 /** High-risk patterns. Class `forbidden` means always confirm — not hard-deny. */
 const FORBIDDEN_PATTERNS: Array<{ re: RegExp; reason: string }> = [
@@ -258,6 +386,7 @@ const FORBIDDEN_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   { re: /\b(init|telinit)\s+[06]\b/i, reason: 'host power action' },
   { re: /\b(curl|wget)\b[\s\S]*\|\s*(ba)?sh\b/i, reason: 'download piped to a shell' },
   { re: /\|\s*(ba)?sh\b/i, reason: 'pipe to a shell' },
+  { re: /\|\s*(zsh|dash|ksh|ash|fish|csh|tcsh)\b/i, reason: 'pipe to a shell' },
   { re: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/i, reason: 'fork bomb' },
   { re: /\b(iptables|ip6tables)\s+-F\b/i, reason: 'flush firewall' },
   { re: /\bnft\s+flush\b/i, reason: 'flush firewall' },
@@ -272,7 +401,9 @@ const FORBIDDEN_PATTERNS: Array<{ re: RegExp; reason: string }> = [
 
 const DESTRUCTIVE_GIT = /\bgit\s+(reset\s+--hard|clean\s|push\s+--force|push\s+-f)\b/i
 const DESTRUCTIVE_SED = /\bsed\s+[^\n]*-i\b/
-const DESTRUCTIVE_FIND = /\bfind\b[\s\S]*\s(-delete|-exec\s+rm\b)/i
+const DESTRUCTIVE_FIND = /\bfind\b[\s\S]*\s(-delete|-exec(dir)?\s)/
+const DESTRUCTIVE_RSYNC = /\brsync\b[\s\S]*\s--delete\b/
+const AWK_EXECUTES = /\bsystem\s*\(|\|\s*"/
 const DESTRUCTIVE_SYSTEMCTL =
   /\bsystemctl\s+(start|stop|restart|reload|enable|disable|mask|unmask|isolate|kill|reset-failed)\b/i
 const READONLY_SYSTEMCTL = /\bsystemctl\s+(status|show|cat|is-active|is-enabled|is-failed|list-units|list-unit-files|list-jobs)\b/i
@@ -283,6 +414,24 @@ const READONLY_DOCKER = /\b(docker|podman)\s+(ps|logs|inspect|images|info|versio
 export type CommandValidation =
   | { ok: true; command: string }
   | { ok: false; reason: string }
+
+/**
+ * The AST engine is installed at runtime (it needs a wasm parser). Until then —
+ * and in unit tests that only exercise the text helpers — classification falls
+ * back to the older text splitter. The fallback is strictly weaker, so callers
+ * that care should `await ensureBashAstReady()` first (electron/mcp/bashParser).
+ */
+export type CommandFlattener = (command: string) => BashParseResult | null
+
+let commandFlattener: CommandFlattener | null = null
+
+export function setCommandFlattener(flattener: CommandFlattener | null): void {
+  commandFlattener = flattener
+}
+
+export function hasCommandFlattener(): boolean {
+  return commandFlattener !== null
+}
 
 export function validateMcpCommand(command: unknown): CommandValidation {
   if (typeof command !== 'string' || !command.trim()) {
@@ -298,7 +447,238 @@ export function validateMcpCommand(command: unknown): CommandValidation {
 }
 
 export function classifyCommand(command: string): CommandClassification {
-  const normalized = normalizeCommand(command)
+  if (!command.trim()) {
+    return { class: 'forbidden', binary: '', reason: 'empty command' }
+  }
+
+  const flattened = flattenSafely(command)
+  if (flattened) return classifyFlattened(flattened)
+
+  return classifyByText(normalizeCommand(command))
+}
+
+function flattenSafely(command: string): BashParseResult | null {
+  if (!commandFlattener) return null
+  try {
+    return commandFlattener(command)
+  } catch {
+    // A parser failure must never turn into a silent "allow".
+    return null
+  }
+}
+
+function classifyFlattened(flat: BashParseResult): CommandClassification {
+  const rootBinary = firstBinaryOf(flat)
+
+  for (const haystack of flat.forbiddenHaystack) {
+    for (const rule of FORBIDDEN_PATTERNS) {
+      if (rule.re.test(haystack)) {
+        return { class: 'forbidden', binary: rootBinary, reason: rule.reason }
+      }
+    }
+  }
+
+  for (const rawTarget of flat.writeTargets) {
+    const target = stripQuotes(rawTarget)
+    if (CRITICAL_WRITE_PREFIX.test(target) || AUTHORIZED_KEYS.test(target)) {
+      return { class: 'forbidden', binary: rootBinary, reason: `write to a critical path (${target})` }
+    }
+  }
+
+  let worst: CommandClassification = {
+    class: 'read-only',
+    binary: rootBinary,
+    reason: 'allowlisted read-only command',
+  }
+  for (const command of flat.commands) {
+    const next = classifyFlatCommand(command)
+    const rank = CLASS_RANK[next.class]
+    const worstRank = CLASS_RANK[worst.class]
+    // Same class can come from different evidence. `ls; mystery-daemon` ranks
+    // both nodes `destructive`, but only one of them was actually observed, so
+    // prefer that one: the card must not blame the model on a guess.
+    if (rank > worstRank || (rank === worstRank && !next.uncertainty && worst.uncertainty)) {
+      worst = next
+    }
+  }
+
+  const opaqueReason = flat.opaque[0]
+  const writeTarget = flat.writeTargets[0]
+  const readTarget = flat.readTargets[0]
+  // A definite write outranks a guess when both are present: it is the one
+  // claim we are entitled to make in the strongest terms.
+  const escalation = writeTarget
+    ? `shell write redirection (${stripQuotes(writeTarget)})`
+    : opaqueReason ||
+      (flat.parseErrors > 0 ? 'command could not be parsed cleanly' : '') ||
+      (flat.depthExceeded ? 'nested command depth limit reached' : '') ||
+      (readTarget ? `shell input redirection (${stripQuotes(readTarget)})` : '')
+
+  if (escalation && CLASS_RANK[worst.class] < CLASS_RANK.destructive) {
+    const uncertainty: CommandUncertainty | undefined = writeTarget
+      ? undefined
+      : opaqueReason || readTarget
+        ? 'uninspectable'
+        : flat.parseErrors > 0 || flat.depthExceeded
+          ? 'unparsed'
+          : undefined
+    return {
+      class: 'destructive',
+      binary: worst.binary || rootBinary,
+      reason: escalation,
+      ...(uncertainty ? { uncertainty } : {}),
+    }
+  }
+  return worst
+}
+
+function classifyFlatCommand(command: BashFlatCommand): CommandClassification {
+  const binary = command.binary
+  if (command.dynamicName) {
+    return {
+      class: 'destructive',
+      binary: '',
+      reason: 'command name is computed at runtime',
+      uncertainty: 'runtime-name',
+    }
+  }
+  if (command.opaqueReason) {
+    return { class: 'destructive', binary, reason: command.opaqueReason, uncertainty: 'uninspectable' }
+  }
+  if (!binary) {
+    return { class: 'read-only', binary: '', reason: 'variable assignment only' }
+  }
+  if (PRIVILEGE_WRAPPERS.has(binary)) {
+    return { class: 'privileged', binary, reason: `privileged wrapper (${binary})` }
+  }
+  if (SHELL_BINARIES.has(binary)) {
+    return { class: 'read-only', binary, reason: `${binary} running inspectable code` }
+  }
+  if (TRANSPARENT_WRAPPERS.has(binary)) {
+    return command.expanded
+      ? { class: 'read-only', binary, reason: `transparent wrapper (${binary})` }
+      : {
+          class: 'destructive',
+          binary,
+          reason: `cannot inspect what ${binary} runs`,
+          uncertainty: 'uninspectable',
+        }
+  }
+  // `nginx -v`, `java -version`, `sshd --help` — printing usage is the one thing
+  // we can establish about a program without knowing anything else about it.
+  if (isInformationalProbe(command.args)) {
+    return { class: 'read-only', binary, reason: `${binary}: version/help probe (no operands)` }
+  }
+  if (CATASTROPHIC_DELETE_BINARIES.has(binary) && deletesCatastrophicTarget(command.args)) {
+    return { class: 'forbidden', binary, reason: `recursive delete of a system path (${binary})` }
+  }
+  if (DESTRUCTIVE_GIT.test(command.maskedText)) {
+    return { class: 'destructive', binary, reason: 'destructive git command' }
+  }
+  if (DESTRUCTIVE_SED.test(command.maskedText)) {
+    return { class: 'destructive', binary, reason: 'in-place sed' }
+  }
+  if (DESTRUCTIVE_FIND.test(command.maskedText)) {
+    return { class: 'destructive', binary, reason: 'find delete/exec' }
+  }
+  if (DESTRUCTIVE_RSYNC.test(command.maskedText)) {
+    return { class: 'destructive', binary, reason: 'rsync --delete' }
+  }
+  if (AWK_BINARIES.has(binary) && AWK_EXECUTES.test(command.text)) {
+    return { class: 'destructive', binary, reason: 'awk runs a shell command' }
+  }
+
+  if (binary === 'systemctl') {
+    if (READONLY_SYSTEMCTL.test(command.maskedText)) {
+      return { class: 'read-only', binary, reason: 'systemctl status/query' }
+    }
+    if (DESTRUCTIVE_SYSTEMCTL.test(command.maskedText)) {
+      return { class: 'destructive', binary, reason: 'systemctl mutation' }
+    }
+    return { class: 'destructive', binary, reason: 'systemctl (not a query)' }
+  }
+
+  if (binary === 'journalctl') {
+    if (READONLY_JOURNALCTL.test(command.maskedText)) {
+      return { class: 'read-only', binary, reason: 'journalctl read' }
+    }
+    return { class: 'destructive', binary, reason: 'journalctl vacuum/mutate' }
+  }
+
+  if (binary === 'docker' || binary === 'podman') {
+    if (READONLY_DOCKER.test(command.maskedText)) return { class: 'read-only', binary, reason: `${binary} inspect/list` }
+    if (DESTRUCTIVE_DOCKER.test(command.maskedText)) return { class: 'destructive', binary, reason: `${binary} mutation` }
+    return { class: 'safe', binary, reason: `${binary} command` }
+  }
+
+  if (binary === 'mount') {
+    const rest = command.maskedText.replace(/^mount\s*/, '').trim()
+    if (!rest || /^-l\b/.test(rest) || /^--show/.test(rest)) {
+      return { class: 'read-only', binary, reason: 'list mounts' }
+    }
+    return { class: 'destructive', binary, reason: 'mount filesystem' }
+  }
+
+  if (binary === 'crontab' && /\bcrontab\s+-l\b/.test(command.maskedText)) {
+    return { class: 'read-only', binary, reason: 'crontab -l' }
+  }
+
+  if (DESTRUCTIVE_BINARIES.has(binary)) {
+    return { class: 'destructive', binary, reason: `destructive binary (${binary})` }
+  }
+  if (READ_ONLY_BINARIES.has(binary)) {
+    return { class: 'read-only', binary, reason: 'allowlisted read-only command' }
+  }
+  if (SAFE_BINARIES.has(binary)) {
+    return { class: 'safe', binary, reason: `non-destructive mutation (${binary})` }
+  }
+  if (INTERPRETERS.has(binary)) {
+    return hasInlineCode(command.args)
+      ? {
+          class: 'destructive',
+          binary,
+          reason: `${binary}: code passed inline`,
+          uncertainty: 'inline-script',
+        }
+      : {
+          class: 'destructive',
+          binary,
+          reason: `${binary}: script body is not readable from here`,
+          uncertainty: 'uninspectable',
+        }
+  }
+  // Fail closed: we do not know this program, so a human should look at it.
+  return {
+    class: 'destructive',
+    binary,
+    reason: `unrecognised command (${binary})`,
+    uncertainty: 'unknown-program',
+  }
+}
+
+function deletesCatastrophicTarget(args: string[]): boolean {
+  let recursive = false
+  const targets: string[] = []
+  for (const raw of args) {
+    const arg = stripQuotes(raw)
+    if (!arg) continue
+    if (arg.startsWith('-') && arg.length > 1) {
+      if (/^-[A-Za-z]*[rR]/.test(arg)) recursive = true
+      continue
+    }
+    targets.push(arg)
+  }
+  if (!recursive) return false
+  return targets.some((target) => CATASTROPHIC_TARGETS.has(target.replace(/\/+$/, '') || '/'))
+}
+
+function firstBinaryOf(flat: BashParseResult): string {
+  const root = flat.commands.find((c) => c.origin === 'root' && c.binary)
+  if (root) return root.binary
+  return flat.commands.find((c) => c.binary)?.binary ?? ''
+}
+
+function classifyByText(normalized: string): CommandClassification {
   if (!normalized) {
     return { class: 'forbidden', binary: '', reason: 'empty command' }
   }
@@ -332,8 +712,21 @@ function classifySegment(segment: string): CommandClassification {
     return { class: 'safe', binary: '', reason: 'unparsed command' }
   }
 
-  if (PRIVILEGED_BINARIES.has(binary)) {
+  if (PRIVILEGE_WRAPPERS.has(binary)) {
     return { class: 'privileged', binary, reason: `privileged wrapper (${binary})` }
+  }
+
+  if (/[$`]/.test(binary)) {
+    return {
+      class: 'destructive',
+      binary: '',
+      reason: 'command name is computed at runtime',
+      uncertainty: 'runtime-name',
+    }
+  }
+
+  if (!hasWriteRedirect(segment) && isInformationalProbe(segmentArgs(segment))) {
+    return { class: 'read-only', binary, reason: `${binary}: version/help probe (no operands)` }
   }
 
   if (DESTRUCTIVE_GIT.test(segment)) {
@@ -343,7 +736,10 @@ function classifySegment(segment: string): CommandClassification {
     return { class: 'destructive', binary, reason: 'in-place sed' }
   }
   if (DESTRUCTIVE_FIND.test(segment)) {
-    return { class: 'destructive', binary, reason: 'find delete/exec rm' }
+    return { class: 'destructive', binary, reason: 'find delete/exec' }
+  }
+  if (DESTRUCTIVE_RSYNC.test(segment)) {
+    return { class: 'destructive', binary, reason: 'rsync --delete' }
   }
   if (hasWriteRedirect(segment)) {
     return { class: 'destructive', binary, reason: 'shell write redirection' }
@@ -396,7 +792,24 @@ function classifySegment(segment: string): CommandClassification {
     return { class: 'safe', binary, reason: `non-destructive mutation (${binary})` }
   }
 
-  return { class: 'safe', binary, reason: 'unlisted command treated as safe mutation' }
+  if (INTERPRETERS.has(binary)) {
+    return hasInlineCode(segmentArgs(segment))
+      ? { class: 'destructive', binary, reason: `${binary}: code passed inline`, uncertainty: 'inline-script' }
+      : {
+          class: 'destructive',
+          binary,
+          reason: `${binary}: script body is not readable from here`,
+          uncertainty: 'uninspectable',
+        }
+  }
+
+  // Fail closed: an unknown program gets a human look.
+  return {
+    class: 'destructive',
+    binary,
+    reason: `unrecognised command (${binary})`,
+    uncertainty: 'unknown-program',
+  }
 }
 
 function normalizeCommand(command: string): string {
@@ -466,15 +879,31 @@ export function splitCommandSegments(command: string): string[] {
   return segments
 }
 
-function commandBinary(segment: string): string {
+const ASSIGNMENT_PREFIX = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/
+
+function stripAssignmentPrefix(segment: string): string {
   let rest = segment.trim()
-  while (/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/.test(rest)) {
-    rest = rest.replace(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/, '')
-  }
-  const match = rest.match(/^("([^"]+)"|'([^']+)'|(\S+))/)
-  const raw = match?.[2] || match?.[3] || match?.[4] || ''
+  while (ASSIGNMENT_PREFIX.test(rest)) rest = rest.replace(ASSIGNMENT_PREFIX, '')
+  return rest
+}
+
+function commandWord(segment: string): string {
+  const match = stripAssignmentPrefix(segment).match(/^("([^"]+)"|'([^']+)'|(\S+))/)
+  return match?.[2] || match?.[3] || match?.[4] || ''
+}
+
+function commandBinary(segment: string): string {
+  const raw = commandWord(segment)
   const base = raw.split(/[/\\]/).pop() || raw
   return base.toLowerCase()
+}
+
+/** Everything after the command word, quotes preserved. */
+function segmentArgs(segment: string): string[] {
+  const rest = stripAssignmentPrefix(segment)
+  const match = rest.match(/^("([^"]+)"|'([^']+)'|(\S+))/)
+  if (!match) return []
+  return rest.slice(match[0].length).trim().split(/\s+/).filter(Boolean)
 }
 
 function firstBinary(command: string): string {
@@ -508,6 +937,8 @@ function hasWriteRedirect(segment: string): boolean {
       continue
     }
     if (ch !== '>') continue
+    // `2>&1`, `>&2`, `2>&-` duplicate or close a descriptor; nothing is written.
+    if (segment[i + 1] === '&') continue
     const prev = i > 0 ? segment[i - 1] : ''
     if (prev === '2' || prev === '1' || prev === '&') {
       const rest = segment.slice(i + 1).trim()

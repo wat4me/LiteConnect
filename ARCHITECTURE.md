@@ -117,10 +117,11 @@ Do not merge these — they have different lifecycles and security boundaries:
 | `sqlRisk.ts` | Dangerous SQL risk assessment (main + renderer) |
 | `dbConnectionUrl.ts` | Connection URL / JDBC / Easy Connect parsing |
 | `mcp/*` | SSH tool schemas, command classification, output truncation |
+| `mcp/bashParse.ts` | Bash AST → flat command list (pure; the parser is injected) |
 
 Renderer `Window.LiteConnect` lives in `src/types/liteConnectApi.ts`. `src/env.d.ts` only declares `Window` and re-exports shared types.
 
-AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; HTTP/parse lives in `electron/ai/providerHttp.ts`, session JSON in `electron/ai/historyStore.ts`, tool loop in `electron/ai/chatStream.ts`.
+AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; HTTP/parse lives in `electron/ai/providerHttp.ts`, session JSON in `electron/ai/historyStore.ts`, tool loop in `electron/ai/chatStream.ts`. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
 
 Settings IPC is composed from `electron/ipc/settings/*.ts`. New settings go through `settings:getAll` / `settings:setMany` (`AppSettingsAll` + `SettingsStore.applyMany`), not a new one-off get/set channel.
 

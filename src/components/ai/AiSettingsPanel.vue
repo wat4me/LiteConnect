@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../../env.d.ts'
@@ -45,9 +45,16 @@ const permissionModes: Array<{ id: AiToolPermissionMode; label: string; desc: st
 ]
 
 const draftSettings = ref<AiSettings>(cloneSettings(props.modelValue))
-
 const editingProviderId = ref<string | null>(null)
 const testingProvider = ref(false)
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (!value || editingProviderId.value) return
+    draftSettings.value = cloneSettings(value)
+  },
+)
 
 const editingProvider = computed<AiProvider | null>(() => {
   if (!editingProviderId.value) return null
@@ -64,7 +71,7 @@ function addProvider() {
     name: t('ai.newProvider'),
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
-    models: [],
+    models: [{ id: '' }],
   }
   draftSettings.value.providers.push(newProvider)
   editingProviderId.value = newProvider.id
@@ -156,7 +163,11 @@ async function saveSettings() {
     ElMessage.warning(t('ai.needProvider'))
     return
   }
-  if (!next.activeProviderId) {
+  if (next.providers.some((p) => p.models.length === 0)) {
+    ElMessage.warning(t('ai.needModel'))
+    return
+  }
+  if (!next.activeProviderId || !next.providers.some((p) => p.id === next.activeProviderId)) {
     next.activeProviderId = next.providers[0].id
   }
   const activeP = next.providers.find((p) => p.id === next.activeProviderId)
@@ -168,11 +179,16 @@ async function saveSettings() {
     next.activeModel = firstAiModelId(activeP.models)
   }
 
-  await window.LiteConnect.setAiSettings(next)
-  draftSettings.value = JSON.parse(JSON.stringify(next))
-  ElMessage.success(t('ai.settingsSaved'))
-  editingProviderId.value = null
-  emit('saved', next)
+  try {
+    await window.LiteConnect.setAiSettings(next)
+    const confirmed = await window.LiteConnect.getAiSettings().catch(() => next)
+    draftSettings.value = cloneSettings(confirmed)
+    ElMessage.success(t('ai.settingsSaved'))
+    editingProviderId.value = null
+    emit('saved', confirmed)
+  } catch (err: any) {
+    ElMessage.warning(err?.message || t('ai.saveSettingsFailed'))
+  }
 }
 
 /** Sync draft when parent reloads settings (e.g. after model switch) */
@@ -210,7 +226,7 @@ defineExpose({ applyExternal })
         <div class="provider-item-info" @click="editingProviderId = provider.id">
           <div class="provider-item-name">{{ provider.name }}</div>
           <div class="provider-item-meta">
-            {{ t('ai.modelCount', { count: provider.models.length }) }}
+            {{ provider.models.length ? t('ai.modelCount', { count: provider.models.length }) : t('ai.noModels') }}
             <span v-if="provider.id === draftSettings.activeProviderId" class="provider-active-tag">{{ t('common.current') }}</span>
           </div>
         </div>
@@ -302,7 +318,7 @@ defineExpose({ applyExternal })
         <button type="button" class="ui-btn ui-btn-sm" :disabled="testingProvider" @click="testProvider">
           {{ testingProvider ? t('ai.testingProvider') : t('ai.testProvider') }}
         </button>
-        <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="editingProviderId = null">{{ t('common.done') }}</button>
+        <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="saveSettings">{{ t('ai.saveSettings') }}</button>
       </div>
     </template>
   </div>
@@ -360,6 +376,7 @@ defineExpose({ applyExternal })
   border-radius: 6px;
   background: var(--bg-secondary);
   transition: border-color 0.15s;
+  flex-shrink: 0;
 }
 
 .provider-item.active {

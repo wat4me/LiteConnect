@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createLineCollector, takeCompleteLines } from './fileWindow'
+import { createLineCollector, prefixLineNumbers, takeCompleteLines } from './fileWindow'
 
 describe('takeCompleteLines', () => {
   it('holds a partial line until a newline or eof', () => {
@@ -47,5 +47,28 @@ describe('createLineCollector', () => {
     expect(r.clippedLine).toBe(true)
     expect(r.lines[0].endsWith('…')).toBe(true)
     expect(r.lines[0].length).toBeLessThanOrEqual(8)
+  })
+})
+
+describe('prefixLineNumbers', () => {
+  it('right-aligns the number and uses a tab', () => {
+    expect(prefixLineNumbers(['a', 'b', 'c'], 1)).toBe('1\ta\n2\tb\n3\tc')
+  })
+
+  it('pads to the width of the last line number', () => {
+    expect(prefixLineNumbers(['x'], 99)).toBe('99\tx')
+    expect(prefixLineNumbers(['a', 'b'], 99)).toBe(' 99\ta\n100\tb')
+  })
+
+  it('keeps absolute numbering when paging from an offset', () => {
+    expect(prefixLineNumbers(['a', 'b'], 200)).toBe('200\ta\n201\tb')
+  })
+
+  it('preserves leading whitespace in the content', () => {
+    expect(prefixLineNumbers(['  indented'], 1)).toBe('1\t  indented')
+  })
+
+  it('returns an empty string for no lines', () => {
+    expect(prefixLineNumbers([], 1)).toBe('')
   })
 })

@@ -121,24 +121,15 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) =>
     ipcRenderer.invoke('ai:resolveToolApproval', requestId, callId, approved),
-  aiGenerateConversationTitle: (payload: {
-    userText: string
-    assistantText?: string
-    sessionId?: string
-    threadId?: string
-  }) => ipcRenderer.invoke('ai:generateConversationTitle', payload),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
   setAiSessionStore: (sessionId: string, store: any) => ipcRenderer.invoke('ai:setSessionStore', sessionId, store),
-  aiSetThreadTitle: (sessionId: string, threadId: string, title: string) =>
-    ipcRenderer.invoke('ai:setThreadTitle', sessionId, threadId, title),
   aiCreateConversation: (
     sessionId: string,
     payload: {
       threadId?: string
       messages?: any[]
       title?: string
-      titleGenerated?: boolean
     },
   ) => ipcRenderer.invoke('ai:createConversation', sessionId, payload),
   appendAiSessionHistory: (sessionId: string, record: any, threadId?: string) =>

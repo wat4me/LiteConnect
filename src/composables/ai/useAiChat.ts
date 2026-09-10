@@ -19,6 +19,7 @@ import { flattenConversationForApi } from '@shared/aiMessages'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
 import { syncAiApprovalPending } from './useAiApprovalHint'
 import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
+import { threadTitleFromMessages } from '@/utils/ai/threadTitle'
 import { getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 
 export type ChatItem = {
@@ -49,21 +50,9 @@ type AiSessionState = {
 }
 
 const aiSessionStates = new Map<string, AiSessionState>()
-/** Prevent concurrent title jobs per session+thread */
-const titleGenerationInFlight = new Set<string>()
 
 function createThreadId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function titleFromMessages(messages: Array<{ role: string; content: string }>): string {
-  const firstUser = messages.find((m) => m.role === 'user' && m.content.trim())
-  if (!firstUser) return ''
-  return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 80)
-}
-
-function titleGenKey(sessionId: string, threadId: string): string {
-  return `${sessionId}::${threadId}`
 }
 
 function getAiSessionState(sessionId: string): AiSessionState {
@@ -84,20 +73,39 @@ function getAiSessionState(sessionId: string): AiSessionState {
   return state
 }
 
+function emptyAiSettings(): AiSettings {
+  return {
+    providers: [],
+    activeProviderId: null,
+    activeModel: '',
+    systemPrompt: '',
+    toolPermission: 'ask',
+  }
+}
+
+/** One copy for every sidebar instance — providers are app-wide, not per SSH session. */
+const settings = ref<AiSettings>(emptyAiSettings())
+let settingsEpoch = 0
+
+function replaceAiSettings(next: AiSettings) {
+  settingsEpoch += 1
+  settings.value = next
+}
+
+async function refreshAiSettings(): Promise<AiSettings> {
+  const epoch = ++settingsEpoch
+  const next = await window.LiteConnect.getAiSettings()
+  if (epoch !== settingsEpoch) return settings.value
+  settings.value = next
+  return next
+}
+
 export function useAiChat() {
   function cwdForSession(sessionId: string): string | undefined {
     const cwd = getSftpListedCwd(sessionId).trim()
     if (!cwd.startsWith('/') || cwd.length > 4096 || /[\0\r\n]/.test(cwd)) return undefined
     return cwd
   }
-
-  const settings = ref<AiSettings>({
-    providers: [],
-    activeProviderId: null,
-    activeModel: '',
-    systemPrompt: '',
-    toolPermission: 'ask',
-  })
 
   const activeProvider = computed(() =>
     settings.value.providers.find((p) => p.id === settings.value.activeProviderId) || settings.value.providers[0] || null
@@ -232,6 +240,8 @@ export function useAiChat() {
       status: run.status,
       risk: run.risk,
       reason: run.reason,
+      diffSummary: run.diffSummary,
+      diffPreview: run.diffPreview,
     }))
   }
 
@@ -298,7 +308,6 @@ export function useAiChat() {
         {
           id,
           title: '',
-          titleGenerated: false,
           createdAt: Date.now(),
           updatedAt: Date.now(),
           messages: [],
@@ -318,7 +327,6 @@ export function useAiChat() {
       .map((thread) => ({
         id: thread.id,
         title: thread.title || t('ai.newConversationTitle'),
-        titleGenerated: thread.titleGenerated === true,
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
         messageCount: thread.messages.length,
@@ -330,21 +338,15 @@ export function useAiChat() {
     state.activeThreadId = store.activeThreadId
   }
 
+  /**
+   * Thread titles are always the first user message, so they are re-derived
+   * on every persist instead of being frozen once (no model-written titles).
+   */
   function resolveThreadTitle(
     messages: Array<{ role: string; content: string }>,
-    existing: { title?: string; titleGenerated?: boolean } | undefined,
-    localSummary?: AiThreadSummary,
-  ): { title: string; titleGenerated: boolean } {
-    if (localSummary?.titleGenerated && localSummary.title?.trim()) {
-      return { title: localSummary.title.trim().slice(0, 80), titleGenerated: true }
-    }
-    if (existing?.titleGenerated && existing.title?.trim()) {
-      return { title: existing.title.trim().slice(0, 80), titleGenerated: true }
-    }
-    return {
-      title: titleFromMessages(messages) || existing?.title || '',
-      titleGenerated: false,
-    }
+    existing?: { title?: string },
+  ): string {
+    return threadTitleFromMessages(messages) || existing?.title?.trim() || ''
   }
 
   function applyThreadMessages(state: AiSessionState, thread: AiConversationThread | undefined) {
@@ -369,11 +371,9 @@ export function useAiChat() {
     if (store.threads.length === 0) {
       const threadId = state.activeThreadId || createThreadId()
       const local = state.threads.find((t) => t.id === threadId)
-      const resolved = resolveThreadTitle(state.messages, undefined, local)
       store.threads.push({
         id: threadId,
-        title: resolved.title,
-        titleGenerated: resolved.titleGenerated,
+        title: resolveThreadTitle(state.messages, local),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
@@ -397,9 +397,7 @@ export function useAiChat() {
       .filter((m) => !m.streaming)
       .map(toHistoryRecord)
     const localSummary = state.threads.find((t) => t.id === active!.id)
-    const resolved = resolveThreadTitle(active.messages, active, localSummary)
-    active.title = resolved.title
-    active.titleGenerated = resolved.titleGenerated
+    active.title = resolveThreadTitle(active.messages, { title: active.title || localSummary?.title })
     active.updatedAt = Date.now()
     pruneEmptyThreadsLocal(store)
     return store
@@ -436,9 +434,7 @@ export function useAiChat() {
       // Keep local thread title/meta roughly in sync without full reload
       const current = state.threads.find((t) => t.id === state.activeThreadId)
       if (current) {
-        if (!current.titleGenerated) {
-          current.title = titleFromMessages(state.messages) || current.title
-        }
+        current.title = threadTitleFromMessages(state.messages) || current.title
         current.updatedAt = Date.now()
         current.messageCount = state.messages.filter((m) => !m.streaming).length
         current.active = true
@@ -449,62 +445,6 @@ export function useAiChat() {
     }
   }
 
-  /**
-   * After the first successful assistant reply, ask the model for a short title.
-   * Non-blocking. Title HTTP is aborted when user opens a new conversation.
-   */
-  async function maybeGenerateThreadTitle(sessionId: string): Promise<void> {
-    const state = getAiSessionState(sessionId)
-    // Capture thread id + message snapshot up front — user may click 新开对话
-    // while the network request is still in flight.
-    const threadId = state.activeThreadId
-    if (!threadId) return
-
-    const summary = state.threads.find((t) => t.id === threadId)
-    if (summary?.titleGenerated) return
-
-    const firstUser = state.messages.find((m) => m.role === 'user' && m.content.trim())
-    const firstAssistant = state.messages.find(
-      (m) => m.role === 'assistant' && !m.error && !m.streaming && m.content.trim(),
-    )
-    if (!firstUser || !firstAssistant) return
-
-    const userText = firstUser.content
-    const assistantText = firstAssistant.content
-
-    const key = titleGenKey(sessionId, threadId)
-    if (titleGenerationInFlight.has(key)) return
-    titleGenerationInFlight.add(key)
-
-    try {
-      const result = await window.LiteConnect.aiGenerateConversationTitle({
-        userText,
-        assistantText,
-        sessionId,
-        threadId,
-      })
-      const clean = (result?.title || '').replace(/\s+/g, ' ').trim().slice(0, 40)
-      // Empty = soft fail / aborted; keep provisional first-user-message title
-      if (!clean) return
-
-      // Atomic title patch on disk (safe if active thread already switched)
-      const { ok } = await window.LiteConnect.aiSetThreadTitle(sessionId, threadId, clean)
-      if (!ok) return
-
-      const now = Date.now()
-      const local = state.threads.find((t) => t.id === threadId)
-      if (local) {
-        local.title = clean
-        local.titleGenerated = true
-        local.updatedAt = now
-        state.threads.sort((a, b) => b.updatedAt - a.updatedAt)
-      }
-    } catch {
-      // Soft feature — never surface toasts; provisional title stays
-    } finally {
-      titleGenerationInFlight.delete(key)
-    }
-  }
 
   async function loadHistory(sessionId: string): Promise<ChatItem[]> {
     const state = getAiSessionState(sessionId)
@@ -594,6 +534,9 @@ export function useAiChat() {
             status,
             risk: incoming.risk ?? prev?.risk,
             reason: incoming.reason ?? prev?.reason,
+            // Kept for later phases so the card keeps showing what was approved.
+            diffSummary: incoming.diffSummary ?? prev?.diffSummary,
+            diffPreview: incoming.diffPreview ?? prev?.diffPreview,
           }
           if (idx >= 0) Object.assign(runs[idx], nextRun)
           else runs.push(nextRun)
@@ -654,10 +597,6 @@ export function useAiChat() {
         summary.messageCount = state.messages.length
         summary.updatedAt = Date.now()
       }
-    }
-    const finalAssistant = getAssistantMessage()
-    if (finalAssistant && !finalAssistant.error && finalAssistant.content.trim()) {
-      void maybeGenerateThreadTitle(sessionId)
     }
     notifyAiReplyComplete(sessionId)
     return true
@@ -814,11 +753,6 @@ export function useAiChat() {
       .filter((m) => !m.streaming)
       .map(toHistoryRecord)
 
-    // Drop in-flight title job for the thread we are leaving (renderer side)
-    if (leavingThreadId) {
-      titleGenerationInFlight.delete(titleGenKey(sessionId, leavingThreadId))
-    }
-
     try {
       // Main process: under write lock, flush messages + abort title HTTP + push empty thread
       // cloneForIpc: messages/usage may still carry Vue Proxies if read from reactive state
@@ -828,7 +762,6 @@ export function useAiChat() {
           threadId: leavingThreadId || undefined,
           messages,
           title: localSummary?.title || undefined,
-          titleGenerated: localSummary?.titleGenerated === true,
         }),
       )
 
@@ -900,7 +833,6 @@ export function useAiChat() {
       const empty: AiConversationThread = {
         id: createThreadId(),
         title: '',
-        titleGenerated: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
@@ -939,7 +871,6 @@ export function useAiChat() {
     const empty: AiConversationThread = {
       id: createThreadId(),
       title: '',
-      titleGenerated: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
@@ -982,6 +913,8 @@ export function useAiChat() {
 
   return {
     settings,
+    refreshSettings: refreshAiSettings,
+    replaceSettings: replaceAiSettings,
     activeProvider,
     displayModelName,
     activeContextWindowTokens,

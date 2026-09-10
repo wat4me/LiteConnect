@@ -1,6 +1,6 @@
 {
   "name": "lite-connect",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Lightweight multi-protocol connection manager (SSH, database) with embedded terminal",
   "author": "LiteConnect",
   "main": "dist-electron/main.js",
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean:electron": "node scripts/clean-electron-out.mjs",
-    "build": "npm run typecheck && npm run clean:electron && vite build",
+    "build": "npm run typecheck && npm run clean:electron && vite build && node scripts/copy-bash-wasm.mjs",
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder"
@@ -39,7 +39,8 @@
     "ssh2": "^1.15.0",
     "uuid": "^10.0.0",
     "vue": "^3.5.12",
-    "vue-i18n": "^10.0.7"
+    "vue-i18n": "^10.0.7",
+    "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

@@ -274,7 +274,8 @@ describe('SshMcpRuntime', () => {
     expect(file.isError).toBe(false)
     expect(file.structuredContent).toMatchObject({
       path: '/etc/os-release',
-      content: 'file-body',
+      content: '1\tfile-body',
+      lineNumbers: true,
       eof: true,
       size: 9,
       startLine: 1,
@@ -422,6 +423,108 @@ describe('SshMcpRuntime', () => {
     const rest = await runtime.call('read_file', { sessionId: SESSION_ID, path: '/var/log/app.log', offset: 2, length: 2 })
     expect(rest.structuredContent).toMatchObject({ content: 'CD', eof: true })
     expect(ssh.sftpReadFileRange).toHaveBeenCalled()
+  })
+
+  it('replaces a unique match with edit_file and writes the whole file back', async () => {
+    const written: Buffer[] = []
+    const { runtime } = makeRuntime({
+      sftpReadFileRange: vi.fn(async (_id: string, _path: string, offset: number, length: number) => ({
+        buffer: Buffer.from('listen 80;\nserver_name a.b;\n').subarray(offset, offset + length),
+        size: 28,
+        eof: true,
+      })),
+      sftpWriteBuffer: vi.fn(async (_id: string, _path: string, buffer: Buffer) => {
+        written.push(buffer)
+      }),
+    })
+    const result = await runtime.call('edit_file', {
+      sessionId: SESSION_ID,
+      path: '/etc/nginx.conf',
+      oldString: 'listen 80;',
+      newString: 'listen 8080;',
+    })
+    expect(result.isError).toBe(false)
+    expect(result.structuredContent).toMatchObject({ path: '/etc/nginx.conf', replaced: 1 })
+    expect(written[0]?.toString('utf8')).toBe('listen 8080;\nserver_name a.b;\n')
+  })
+
+  it('refuses an ambiguous match unless replaceAll is set', async () => {
+    const written: Buffer[] = []
+    const body = 'listen 80;\nlisten 80;\n'
+    const { runtime } = makeRuntime({
+      sftpReadFileRange: vi.fn(async (_id: string, _path: string, offset: number, length: number) => ({
+        buffer: Buffer.from(body).subarray(offset, offset + length),
+        size: body.length,
+        eof: true,
+      })),
+      sftpWriteBuffer: vi.fn(async (_id: string, _path: string, buffer: Buffer) => {
+        written.push(buffer)
+      }),
+    })
+    const ambiguous = await runtime.call('edit_file', {
+      sessionId: SESSION_ID,
+      path: '/etc/nginx.conf',
+      oldString: 'listen 80;',
+      newString: 'listen 8080;',
+    })
+    expect(ambiguous.isError).toBe(true)
+    expect((ambiguous.structuredContent as { code: string }).code).toBe('NOT_UNIQUE')
+    expect(ambiguous.content).toContain('replaceAll=true')
+    expect(written).toHaveLength(0)
+
+    const all = await runtime.call('edit_file', {
+      sessionId: SESSION_ID,
+      path: '/etc/nginx.conf',
+      oldString: 'listen 80;',
+      newString: 'listen 8080;',
+      replaceAll: true,
+    })
+    expect(all.isError).toBe(false)
+    expect(all.structuredContent).toMatchObject({ replaced: 2 })
+    expect(written[0]?.toString('utf8')).toBe('listen 8080;\nlisten 8080;\n')
+  })
+
+  it('reports a missing match instead of writing', async () => {
+    const written: Buffer[] = []
+    const { runtime } = makeRuntime({
+      sftpWriteBuffer: vi.fn(async (_id: string, _path: string, buffer: Buffer) => {
+        written.push(buffer)
+      }),
+    })
+    const result = await runtime.call('edit_file', {
+      sessionId: SESSION_ID,
+      path: '/etc/nginx.conf',
+      oldString: 'nothing like this',
+      newString: 'x',
+    })
+    expect(result.isError).toBe(true)
+    expect((result.structuredContent as { code: string }).code).toBe('NOT_FOUND')
+    expect(result.content).toContain('read_file')
+    expect(written).toHaveLength(0)
+  })
+
+  it('refuses to edit binary files and oversized files', async () => {
+    const binary = makeRuntime({
+      sftpReadFileRange: vi.fn(async () => ({ buffer: Buffer.from('a\u0000b'), size: 3, eof: true })),
+    })
+    const binaryResult = await binary.runtime.call('edit_file', {
+      sessionId: SESSION_ID,
+      path: '/var/lib/x.db',
+      oldString: 'a',
+      newString: 'b',
+    })
+    expect((binaryResult.structuredContent as { code: string }).code).toBe('NOT_A_TEXT_FILE')
+
+    const huge = makeRuntime({
+      sftpReadFileRange: vi.fn(async () => ({ buffer: Buffer.alloc(0), size: 99_999_999, eof: true })),
+    })
+    const hugeResult = await huge.runtime.call('edit_file', {
+      sessionId: SESSION_ID,
+      path: '/var/log/huge.log',
+      oldString: 'a',
+      newString: 'b',
+    })
+    expect((hugeResult.structuredContent as { code: string }).code).toBe('FILE_TOO_LARGE')
   })
 
   it('searches with grep and does not dump the whole file', async () => {

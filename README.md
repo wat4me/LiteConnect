@@ -2,7 +2,7 @@
 
 LiteConnect 是一个面向开发者和运维人员的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
 
-当前版本：**1.0.12**
+当前版本：**1.0.13**
 
 - [AI 助手](#ai-助手)：围绕当前 SSH 主机提问、调用工具、审批操作并保存对话。
 - [MCP 接入](#mcp让外部-ai-客户端使用-ssh-工具)：把 SSH 工具提供给本机外部 AI 客户端。
@@ -184,7 +184,7 @@ LiteConnect 提供可选的本机 MCP 服务，将 SSH 工具开放给支持 Str
 | 主机与会话 | `list_connections`、`list_groups`、`list_sessions`、`connect`、`save_connection`、`disconnect` |
 | 命令与任务 | `exec`、`list_jobs`、`get_job`、`cancel_job`；支持后台任务，以及按 `sessionIds` / `group` 广播 |
 | 文件定位 | `glob` 查找路径、`grep` 检索内容 |
-| 文件与传输 | `read_file`、`write_file`、`list_dir`、`stat_path`、`tail_file`、`upload_file`、`download_file` |
+| 文件与传输 | `read_file`（返回带行号）、`write_file`、`edit_file`（精确替换，改已有文件优先用它）、`list_dir`、`stat_path`、`tail_file`、`upload_file`、`download_file` |
 | 服务与监控 | `service_control`、`get_metrics` |
 | Agent PTY | `pty_open`、`pty_write`、`pty_read`、`pty_resize`、`pty_close`、`pty_list` |
 
@@ -197,10 +197,20 @@ LiteConnect 提供可选的本机 MCP 服务，将 SSH 工具开放给支持 Str
 | 模型配置 | 在 LiteConnect 中配置提供商和模型 | 由外部客户端管理 |
 | 是否需要开启 MCP 服务 | 不需要 | 需要 |
 | 主机范围 | 绑定当前 SSH 会话 | 可发现、连接多个主机，并广播命令 |
-| 权限策略 | 模型提交 JSON 申请，按 AI 设置自动执行或等待用户审批 | 使用运行时默认 `deny-destructive` 命令策略 |
+| 权限策略 | 模型提交 JSON 申请，按 AI 设置自动执行或等待用户审批；命令另有一次独立判级，申报低于实际风险时强制转为审批 | 使用运行时默认 `deny-destructive` 命令策略 |
 | 审批入口 | LiteConnect 对话中的允许 / 拒绝按钮 | 不会转入侧栏审批；被策略拒绝时向客户端返回错误 |
 
 两种入口共用工具运行时，但侧栏会裁剪工具和路由参数，并增加权限申请字段。**修改侧栏 AI 的权限模式，不会放开外部 MCP 的默认策略。** MCP 命令策略会拒绝被分类为破坏性、提权或高危的命令；这不等同于整个 MCP 服务只读，文件写入、传输、连接管理等工具也在开放范围内。
+
+#### 命令判级
+
+`exec` 与 `service_control` 的命令由 `shared/mcp/classify.ts` 判级为 `read-only` / `safe` / `destructive` / `privileged` / `forbidden`，取整条命令行里最严重的那一条。判级走 **bash 语法树**（`shared/mcp/bashParse.ts` + `electron/mcp/bashParser.ts` 加载随包分发的 `tree-sitter-bash.wasm`），因此：
+
+- `cat $(rm -rf ~)`、`` echo `rm -rf /` ``、`bash -c "..."`、`eval "..."`、`sudo` / `env` / `xargs` 后面的命令都会被展开并逐条判级，最多递归 4 层；
+- `grep -rn "rm -rf" src/` 里引号中的内容是字符串而不是命令，**不会误判**；
+- 判不准的一律 fail-closed：未知程序、运行时才知道的命令名、`bash deploy.sh` 这类读不到内容的脚本、解析不干净的命令行，都会升级为需要审批。
+
+侧栏 AI 侧，模型自报的 `risk` 仍是「要不要问你」的依据，判级只作为**只升不降**的下限：申报 `read` 而实际是破坏性命令时，无论权限模式是自动还是询问，都会强制弹审批；`forbidden` 命令在任何模式下都不会被自动放行。解析器加载失败时判级回退到文本切分（并在主进程日志中提示降级），纯文本模式仍会 fail-closed，但会失去上面三条能力。
 
 MCP 操作现有 SSH 管理器中的会话，不提供 Docker socket 或数据库隧道的专用工具。执行通道与用户终端独立。
 
@@ -208,7 +218,8 @@ MCP 操作现有 SSH 管理器中的会话，不提供 Docker socket 或数据�
 
 - 仅把 Token 配置给可信的本机客户端；持有 Token 的程序可以访问已保存连接，并调用开放的工具。
 - 不要把 Token 提交到仓库、公开分享或配置给远程 Agent。停用 MCP 不影响内置 AI 侧栏。
-- 单次 `exec` 命令最长 5000 字符；`read_file` 默认 200 行 / 50 KiB，支持 `startLine` 分页；单次写文件最多 256 KiB，本机上传下载最多 64 MiB。
+- 单次 `exec` 命令最长 5000 字符；`read_file` 默认 200 行 / 50 KiB，支持 `startLine` 分页；单次写文件最多 256 KiB，`edit_file` 限 256 KiB 以内的文本文件，本机上传下载最多 64 MiB。
+- `write_file` 与 `edit_file` 待审批时，审批卡会先读取远端原文件、内联展示真实的 unified diff（新增绿 / 删除红），不再让用户盲批。
 
 ### 工作区与交互
 

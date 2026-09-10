@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { classifyCommand, splitCommandSegments, validateMcpCommand } from './classify'
+import { classifyCommand, hasCommandFlattener, splitCommandSegments, validateMcpCommand } from './classify'
 import { decideCommandPolicy } from './policy'
+
+/**
+ * These cases run against the text fallback: no AST engine is installed in this
+ * file. The AST verdicts — and the bypass table that motivated the engine —
+ * live in electron/mcp/bashParser.test.ts.
+ */
+describe('text fallback', () => {
+  it('is the engine in use when no wasm parser has been installed', () => {
+    expect(hasCommandFlattener()).toBe(false)
+  })
+})
 
 describe('validateMcpCommand', () => {
   it('rejects empty, NUL, and overlong commands', () => {
@@ -76,7 +87,20 @@ describe('classifyCommand', () => {
     expect(c.binary).toBe('rm')
   })
 
-  it('still forbids lethal text even when quoted (fail closed)', () => {
+  it('fails closed on programs it does not know', () => {
+    expect(classifyCommand('definitely-not-a-real-binary --wipe').class).toBe('destructive')
+    expect(classifyCommand('node -e "process.exit(1)"').class).toBe('destructive')
+    expect(classifyCommand('python3 -c "print(1)"').class).toBe('destructive')
+  })
+
+  it('treats shell builtins that only touch shell state as read-only', () => {
+    expect(classifyCommand('cd /srv && ls').class).toBe('read-only')
+    expect(classifyCommand('export FOO=bar').class).toBe('read-only')
+  })
+
+  it('forbids lethal text even when quoted (the fallback cannot tell)', () => {
+    // The AST engine reads this correctly as read-only: `echo` prints a string.
+    // Recorded here as the known cost of running without the parser.
     expect(classifyCommand('echo "rm -rf /"').class).toBe('forbidden')
   })
 })

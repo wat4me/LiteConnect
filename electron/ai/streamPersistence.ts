@@ -50,6 +50,8 @@ export async function runPersistedAiReply(opts: {
         isError: incoming.isError === true || ['denied', 'blocked', 'reclassify'].includes(incoming.phase),
         risk: incoming.risk ?? run.risk,
         reason: incoming.reason ?? run.reason,
+        diffSummary: incoming.diffSummary ?? run.diffSummary,
+        diffPreview: incoming.diffPreview ?? run.diffPreview,
       })
     }
     if (payload.type !== 'done') checkpoint.schedule(payload.type === 'tool')

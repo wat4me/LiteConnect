@@ -13,6 +13,7 @@ export const SSH_MCP_TOOL_NAMES = [
   'grep',
   'glob',
   'write_file',
+  'edit_file',
   'download_file',
   'upload_file',
   'list_dir',
@@ -38,10 +39,33 @@ export type CommandClass = 'read-only' | 'safe' | 'destructive' | 'privileged' |
 
 export type ApprovalMode = 'auto' | 'ask-destructive' | 'deny-destructive'
 
+/**
+ * Why a class is a fail-closed *guess* rather than an observed risk.
+ *
+ * The distinction matters because it decides what we are allowed to tell the
+ * user. `rm -rf /tmp/a` declared as `read` is a caught under-declaration and the
+ * card may say so. `nginx -v` declared as `read` is just a program we have no
+ * entry for, and telling the user the model lied about it would be false —
+ * after which no warning from this card is worth reading.
+ */
+export type CommandUncertainty =
+  /** No entry for this program, so its behaviour is unknown. */
+  | 'unknown-program'
+  /** An interpreter was handed code inline (`python3 -c '…'`). */
+  | 'inline-script'
+  /** The code being run lives in a script file or on stdin, unreadable here. */
+  | 'uninspectable'
+  /** The command name is computed at runtime (`$X -rf /`). */
+  | 'runtime-name'
+  /** The command did not parse cleanly, so we cannot vouch for what we saw. */
+  | 'unparsed'
+
 export type CommandClassification = {
   class: CommandClass
   binary: string
   reason: string
+  /** Set when `class` is fail-closed, not observed. Absent means "we know". */
+  uncertainty?: CommandUncertainty
 }
 
 export type SshMcpToolAnnotations = {

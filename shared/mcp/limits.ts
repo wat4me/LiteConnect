@@ -16,8 +16,20 @@ export const MCP_AI_RESULT_MAX_LINES = 200
 export const MCP_READ_CHUNK_BYTES = 8 * 1024
 export const MCP_MAX_READ_FILE_BYTES = MCP_READ_MAX_BYTES
 export const MCP_MAX_WRITE_FILE_BYTES = 256 * 1024
+/**
+ * edit_file reads the whole file, rewrites it, and writes it back — so the file
+ * must fit the write budget or the edit could not be persisted anyway.
+ */
+export const MCP_EDIT_MAX_FILE_BYTES = MCP_MAX_WRITE_FILE_BYTES
 export const MCP_GREP_MAX_MATCHES = 100
 export const MCP_GREP_MAX_LINE_CHARS = 2_000
+/** grep -C context: enough to read around a hit, small enough to keep results usable. */
+export const MCP_GREP_MAX_CONTEXT_LINES = 10
+export const MCP_GREP_MAX_OUTPUT_LINES = 600
+/** grep tailBytes: search only the newest slice of each file (log triage). */
+export const MCP_GREP_MAX_TAIL_BYTES = 8 * 1024 * 1024
+/** Tail mode runs one grep per file, so the file list has to stay bounded. */
+export const MCP_GREP_TAIL_MAX_FILES = 20
 export const MCP_GLOB_MAX_RESULTS = 100
 export const MCP_SEARCH_TIMEOUT_MS = 15_000
 export const MCP_SEARCH_PATTERN_MAX = 200

@@ -1,3 +1,4 @@
+import { AI_TOOL_DIFF_MAX_CHARS } from '../../shared/aiToolDiff'
 import { app } from 'electron'
 import { existsSync } from 'fs'
 import { mkdir, readFile, writeFile } from 'fs/promises'
@@ -12,7 +13,6 @@ import type {
   AiToolRun,
 } from '../../shared/types/ai'
 import { extractAiUsage } from './providerHttp'
-import { abortTitleGeneration } from './titleAbort'
 
 export type { AiConversationThread, AiHistoryRecord, AiSessionStore }
 
@@ -32,17 +32,19 @@ export function createThreadId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Titles keep as much of the first user message as is worth storing. */
+const TITLE_MAX = 200
+
 export function titleFromMessages(messages: AiHistoryRecord[]): string {
   const firstUser = messages.find((m) => m.role === 'user' && m.content.trim())
   if (!firstUser) return ''
-  return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, 80)
+  return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
 }
 
 export function createEmptyThread(now = Date.now()): AiConversationThread {
   return {
     id: createThreadId(),
     title: '',
-    titleGenerated: false,
     createdAt: now,
     updatedAt: now,
     messages: [],
@@ -147,6 +149,8 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
       status,
       risk,
       reason: typeof rec.reason === 'string' ? rec.reason.slice(0, 500) : undefined,
+      diffSummary: typeof rec.diffSummary === 'string' ? rec.diffSummary.slice(0, 500) : undefined,
+      diffPreview: typeof rec.diffPreview === 'string' ? rec.diffPreview.slice(0, AI_TOOL_DIFF_MAX_CHARS) : undefined,
     })
   }
   return out.length ? out : undefined
@@ -210,15 +214,14 @@ function normalizeThread(raw: any): AiConversationThread | null {
     typeof raw.updatedAt === 'number'
       ? raw.updatedAt
       : messages[messages.length - 1]?.createdAt || createdAt
-  const titleGenerated = raw.titleGenerated === true
+  // Always derive: titles are the first user message, so a stored (previously
+  // model-generated) value must never win over the transcript.
   const title =
-    typeof raw.title === 'string' && raw.title.trim()
-      ? raw.title.trim().slice(0, 80)
-      : titleFromMessages(messages)
+    titleFromMessages(messages) ||
+    (typeof raw.title === 'string' ? raw.title.trim().slice(0, TITLE_MAX) : '')
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : createThreadId(),
     title,
-    titleGenerated,
     createdAt,
     updatedAt,
     messages,
@@ -451,9 +454,7 @@ export async function writeAiHistoryRecords(sessionId: string, records: AiHistor
   await mutateAiSessionStore(sessionId, (store) => {
     const active = getActiveThread(store)
     active.messages = records.map((r) => normalizeAiHistoryRecord(r)).sort((a, b) => a.createdAt - b.createdAt)
-    if (!active.titleGenerated) {
-      active.title = titleFromMessages(active.messages) || active.title
-    }
+    active.title = titleFromMessages(active.messages) || active.title
     active.updatedAt = Date.now()
   })
 }
@@ -469,7 +470,6 @@ export async function upsertAiHistoryRecord(sessionId: string, record: any, thre
       active = {
         id: threadId,
         title: '',
-        titleGenerated: false,
         createdAt: now,
         updatedAt: now,
         messages: [],
@@ -482,31 +482,9 @@ export async function upsertAiHistoryRecord(sessionId: string, record: any, thre
     if (idx >= 0) active.messages[idx] = next
     else active.messages.push(next)
     active.messages.sort((a, b) => a.createdAt - b.createdAt)
-    if (!active.titleGenerated) {
-      active.title = titleFromMessages(active.messages) || active.title
-    }
+    active.title = titleFromMessages(active.messages) || active.title
     active.updatedAt = Date.now()
   })
-}
-
-export async function setThreadGeneratedTitle(
-  sessionId: string,
-  threadId: string,
-  title: string,
-): Promise<boolean> {
-  const clean = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 40)
-  if (!clean) return false
-
-  let updated = false
-  await mutateAiSessionStore(sessionId, (store) => {
-    const thread = store.threads.find((t) => t.id === threadId)
-    if (!thread || thread.titleGenerated) return
-    thread.title = clean
-    thread.titleGenerated = true
-    thread.updatedAt = Date.now()
-    updated = true
-  })
-  return updated
 }
 
 export async function createNewConversationAtomic(
@@ -515,7 +493,6 @@ export async function createNewConversationAtomic(
     threadId?: string
     messages?: any[]
     title?: string
-    titleGenerated?: boolean
   },
 ): Promise<AiSessionStore> {
   return mutateAiSessionStore(sessionId, (store) => {
@@ -543,15 +520,8 @@ export async function createNewConversationAtomic(
         .sort((a, b) => a.createdAt - b.createdAt)
     }
 
-    if (payload.titleGenerated && typeof payload.title === 'string' && payload.title.trim()) {
-      active.title = payload.title.trim().slice(0, 80)
-      active.titleGenerated = true
-    } else if (!active.titleGenerated) {
-      active.title = titleFromMessages(active.messages) || active.title || ''
-    }
+    active.title = titleFromMessages(active.messages) || (payload.title || '').trim().slice(0, TITLE_MAX)
     active.updatedAt = now
-
-    abortTitleGeneration(sessionId, active.id)
 
     const fresh = createEmptyThread(now)
     store.threads.push(fresh)

@@ -47,6 +47,8 @@ files:
   - node_modules/ssh2/**/*
   - node_modules/tweetnacl/**/*
   - node_modules/xtend/**/*
+  # Bash grammar runtime for the command classifier (external in the main build)
+  - node_modules/web-tree-sitter/**/*
 asarUnpack:
   - node_modules/ssh2/**/*
   - node_modules/oracledb/**/*

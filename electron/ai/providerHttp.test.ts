@@ -5,7 +5,6 @@ import {
   getAiChatCompletionsUrl,
   normalizeAiBaseUrl,
   normalizeAiContent,
-  sanitizeGeneratedTitle,
   toApiChatMessages,
   validateAiMessages,
 } from './providerHttp'
@@ -84,15 +83,10 @@ describe('extractAiUsage / normalizeAiContent', () => {
   })
 })
 
-describe('clampTemperature / sanitizeGeneratedTitle', () => {
+describe('clampTemperature', () => {
   it('clamps temperature to 0–2', () => {
     expect(clampTemperature(9)).toBe(2)
     expect(clampTemperature(-1)).toBe(0)
     expect(clampTemperature('x')).toBe(0.7)
-  })
-
-  it('strips title prefixes and quotes', () => {
-    expect(sanitizeGeneratedTitle('标题：磁盘检查')).toBe('磁盘检查')
-    expect(sanitizeGeneratedTitle('新对话')).toBe('')
   })
 })

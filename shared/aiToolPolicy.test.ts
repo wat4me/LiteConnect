@@ -24,7 +24,7 @@ describe('declared AI permission policy', () => {
     expect(assessAiToolCall('exec', args, 'auto').action).toBe('allow')
   })
 
-  it.each(['exec', 'service_control', 'pty_write', 'read_file', 'write_file', 'grep', 'get_job'])('requires declaration metadata for %s', tool => {
+  it.each(['exec', 'service_control', 'pty_write', 'read_file', 'write_file', 'edit_file', 'grep', 'get_job'])('requires declaration metadata for %s', tool => {
     expect(assessAiToolCall(tool, {}, 'auto')).toMatchObject({ action: 'reclassify', code: 'RISK_REQUIRED' })
     expect(assessAiToolCall(tool, { risk: 'read' }, 'auto')).toMatchObject({ action: 'reclassify', code: 'EXPLANATION_REQUIRED' })
     expect(assessAiToolCall(tool, { risk: 'read', explanation }, 'ask').action).toBe('allow')

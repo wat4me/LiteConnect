@@ -25,6 +25,8 @@ import {
   type AiToolRunStatus,
 } from '../../shared/aiToolPolicy'
 import { appendFinalAssistantTurn } from '../../shared/aiMessages'
+import { applyCommandFloor, commandContentRisk } from './commandFloor'
+import { buildFileChangeDiffPreview } from './toolDiffPreview'
 import type { AiChatMessage, AiChatStreamPayload, AiResolvedConfig, AiToolRun } from '../../shared/types/ai'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import { isValidUUID } from '../utils/validation'
@@ -283,9 +285,23 @@ export async function runAiChatStream(opts: {
           parseToolCallArguments(call.function.arguments),
           boundSessionId,
         )
-        const gate = assessAiToolCall(call.function.name, boundArgs, currentToolPermission())
+        // The declaration decides whether to ask; the command classifier is an
+        // escalate-only floor on top of it, so a call labelled `read` that is
+        // really a delete cannot ride through `auto` mode unexamined.
+        const toolPermission = currentToolPermission()
+        const gate = applyCommandFloor(
+          assessAiToolCall(call.function.name, boundArgs, toolPermission),
+          commandContentRisk(call.function.name, boundArgs),
+          toolPermission,
+        )
         const mcpArgs = omitDeclaredRiskArg(boundArgs)
         const callArgs = call.function.arguments || '{}'
+        // Approval should not be blind: diff the file we are about to rewrite.
+        // edit_file yields a small focused diff; write_file a whole-file one.
+        const diffPreview =
+          gate.action === 'ask' && (call.function.name === 'write_file' || call.function.name === 'edit_file')
+            ? await buildFileChangeDiffPreview(sshMcpRuntime, call.function.name, mcpArgs)
+            : undefined
         send({
           type: 'tool',
           value: {
@@ -302,6 +318,9 @@ export async function runAiChatStream(opts: {
             args: callArgs,
             risk: gate.risk,
             reason: gate.reason,
+            ...(diffPreview
+              ? { diffSummary: diffPreview.summary, diffPreview: diffPreview.diff }
+              : {}),
           },
         })
 

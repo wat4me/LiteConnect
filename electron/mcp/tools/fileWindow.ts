@@ -152,3 +152,19 @@ export function createLineCollector(window: FileLineWindow) {
 }
 
 export const READ_CHUNK_BYTES = MCP_READ_CHUNK_BYTES
+
+/**
+ * `cat -n` style prefix — right-aligned absolute line number, then a TAB, then
+ * the content — so an agent can cite a line and page from it reliably. Callers
+ * that need raw bytes (diffing for the approval card) opt out.
+ *
+ * The prefix is metadata, not content: it must never be fed back into
+ * `write_file`/`edit_file` text.
+ */
+export function prefixLineNumbers(lines: string[], startLine: number): string {
+  if (lines.length === 0) return ''
+  const width = String(startLine + lines.length - 1).length
+  return lines
+    .map((line, i) => `${String(startLine + i).padStart(width)}\t${line}`)
+    .join('\n')
+}

@@ -114,6 +114,19 @@ async function loadDeferredMain(): Promise<void> {
     }
   })()
 
+  // The command classifier gets its AST engine here. Without it the classifier
+  // silently falls back to text splitting, which cannot see inside `$()`,
+  // `bash -c` or heredocs — so a failure is worth a loud log.
+  const bashAstP = (async () => {
+    try {
+      const { initBashAst } = await import('./mcp/bashParser')
+      const status = await initBashAst()
+      if (!status.ok) console.error('[Main Bash AST] classifier degraded to text mode:', status.reason)
+    } catch (err) {
+      console.error('[Main Bash AST]', err)
+    }
+  })()
+
   const dockerP = (async () => {
     const { DockerSshSessionHost } = await import('./docker/sshSessionHost')
     const { DockerService } = await import('./docker/service')
@@ -148,7 +161,7 @@ async function loadDeferredMain(): Promise<void> {
     }
   })()
 
-  await Promise.all([x11P, dockerP, mcpAiP])
+  await Promise.all([x11P, dockerP, mcpAiP, bashAstP])
 }
 
 app.whenReady().then(async () => {

@@ -10,7 +10,7 @@ it('recovers the full reply without stream events and never writes assistant sna
   const records: AiHistoryRecord[] = []
   const reply: AiChatResult = {
     content: 'complete', reasoningContent: 'plan',
-    toolRuns: [{ id: 't', name: 'grep', args: '{}', content: 'match', status: 'done', isError: false }],
+    toolRuns: [{ id: 't', name: 'grep', args: '{}', content: 'match', status: 'done', isError: false, diffSummary: 'changed', diffPreview: '-old\n+new' }],
     segments: [{ kind: 'reasoning', text: 'plan' }, { kind: 'tool', runId: 't' }, { kind: 'content', text: 'complete' }],
   }
   const invoke = vi.fn(async () => reply)
@@ -21,7 +21,6 @@ it('recovers the full reply without stream events and never writes assistant sna
     },
     onAiChatStream: () => () => {}, // Simulate the UI missing every notification.
     aiChatStream: invoke,
-    aiGenerateConversationTitle: async () => undefined,
   } })
   const chat = useAiChat()
   const state = chat.getSessionState('projection-test')

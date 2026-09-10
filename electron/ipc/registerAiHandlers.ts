@@ -8,13 +8,11 @@ import {
   getActiveThread,
   normalizeSessionStore,
   readAiSessionStoreAndGc,
-  setThreadGeneratedTitle,
   upsertAiHistoryRecord,
   writeAiHistoryRecords,
   writeAiSessionStore,
 } from '../ai/historyStore'
 import { abortAiChatStream, createAiStreamControl, resolveToolApproval, runAiChatStream } from '../ai/chatStream'
-import { generateConversationTitle } from '../ai/conversationTitle'
 import type { AiChatStreamOptions } from '../../shared/types/ai'
 import { runAiChatCompletion } from '../ai/chatCompletion'
 import { runPersistedAiReply } from '../ai/streamPersistence'
@@ -62,21 +60,6 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
     }
     await writeAiSessionStore(sessionId, normalizeSessionStore(store))
   })
-
-  ipcMain.handle(
-    'ai:setThreadTitle',
-    async (_event, sessionId: string, threadId: string, title: string) => {
-      if (!sessionId || typeof sessionId !== 'string') return { ok: false }
-      if (!threadId || typeof threadId !== 'string') return { ok: false }
-      if (typeof title !== 'string') return { ok: false }
-      try {
-        const ok = await setThreadGeneratedTitle(sessionId, threadId, title)
-        return { ok }
-      } catch {
-        return { ok: false }
-      }
-    },
-  )
 
   ipcMain.handle('ai:createConversation', async (_event, sessionId: string, payload: any) => {
     if (!sessionId || typeof sessionId !== 'string') {
@@ -154,19 +137,4 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
     },
   )
 
-  ipcMain.handle('ai:generateConversationTitle', async (_event, payload: any) => {
-    try {
-      await ensureSettingsReady()
-      const settings = settingsStore.getAiResolvedConfig()
-      return await generateConversationTitle({
-        settings,
-        userText: typeof payload?.userText === 'string' ? payload.userText : '',
-        assistantText: typeof payload?.assistantText === 'string' ? payload.assistantText : '',
-        sessionId: typeof payload?.sessionId === 'string' ? payload.sessionId : '',
-        threadId: typeof payload?.threadId === 'string' ? payload.threadId : '',
-      })
-    } catch {
-      return { title: '' }
-    }
-  })
 }

@@ -48,3 +48,7 @@ install.ps1
 # Local Playwright / automation scratch
 .playwright-cli/
 
+# Local agent state and session memory
+.workbuddy/
+.antigravitycli/
+

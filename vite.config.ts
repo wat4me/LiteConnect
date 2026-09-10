@@ -36,6 +36,8 @@ export default defineConfig({
             rollupOptions: {
               // Native / complex Node drivers must not be rolled into main.js
               // (bundling `pg` causes TDZ: Cannot access 'Bt' before initialization).
+              // web-tree-sitter loads its own wasm runtime next to itself, so it
+              // must stay in node_modules too.
               external: [
                 'ssh2',
                 'mysql2',
@@ -47,6 +49,7 @@ export default defineConfig({
                 'pg-types',
                 'pgpass',
                 'oracledb',
+                'web-tree-sitter',
               ],
             },
           },

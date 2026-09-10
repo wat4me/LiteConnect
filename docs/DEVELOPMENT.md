@@ -115,8 +115,8 @@ npm run electron:build
 
 ```bash
 # 先把 package.json 的 version 改成新版本并提交
-git tag v1.0.12
-git push origin v1.0.12
+git tag v1.0.13
+git push origin v1.0.13
 ```
 
 工作流见 `.github/workflows/release.yml`，三个任务并行：

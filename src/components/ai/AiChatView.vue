@@ -229,6 +229,11 @@ function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
   return toolOpenState.get(toolRunKey(message, run)) === true
 }
 
+/** 单行化的 AI 操作说明，用于折叠态的工具行内展示（完整文本走 title 悬浮）。 */
+function toolRunDescText(run: AiToolRun): string {
+  return (run.reason || '').replace(/\s+/g, ' ').trim()
+}
+
 function onToolRunToggle(message: ChatItem, run: AiToolRun, event: Event) {
   const el = event.currentTarget as HTMLDetailsElement
   if (!el || el.tagName !== 'DETAILS') return
@@ -627,11 +632,18 @@ async function copyText(text: string, key: string) {
         <summary class="tool-run-head">
           <span class="tool-run-name">{{ toolNameLabel(item.run.name) }}</span>
           <span v-if="toolRiskLabel(item.run.risk)" class="tool-run-risk" :data-risk="item.run.risk">{{ toolRiskLabel(item.run.risk) }}</span>
+          <span
+            v-if="!isToolRunOpen(message, item.run) && toolRunDescText(item.run)"
+            class="tool-run-desc"
+            :title="toolRunDescText(item.run)"
+          >{{ toolRunDescText(item.run) }}</span>
           <span v-if="isToolRunOpen(message, item.run) && toolView(item.run).hint" class="tool-run-hint" :title="toolView(item.run).hint">{{ toolView(item.run).hint }}</span>
           <span class="tool-run-state" :title="toolRunStateTitle(message, item.run)">{{ toolRunStateLabel(message, item.run) }}</span>
         </summary>
         <template v-if="isToolRunOpen(message, item.run)">
-        <p v-if="item.run.reason" class="tool-ask-copy">{{ t('ai.toolExplanation') }}：{{ item.run.reason }}</p>
+        <p v-if="item.run.reason" class="tool-ask-copy">{{ item.run.reason }}</p>
+        <p v-if="item.run.diffSummary" class="tool-ask-copy">{{ item.run.diffSummary }}</p>
+        <pre v-if="item.run.diffPreview" class="tool-run-out">{{ item.run.diffPreview }}</pre>
         <p v-if="item.run.status === 'blocked'" class="tool-ask-copy">{{ t('ai.toolAskForbidden') }}</p>
         <p v-if="item.run.status === 'reclassify'" class="tool-ask-copy">{{ t('ai.toolReclassifyHint') }}</p>
         <pre v-if="toolArgsText(item.run) && item.run.status !== 'denied'" class="tool-run-args">{{ toolArgsText(item.run) }}</pre>
@@ -1494,9 +1506,21 @@ async function copyText(text: string, key: string) {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
-.tool-run-hint {
-  flex: 1;
+.tool-run-desc {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text-secondary) 85%, transparent);
+  cursor: help;
+}
+
+.tool-run-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

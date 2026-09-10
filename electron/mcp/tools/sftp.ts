@@ -1,6 +1,7 @@
 import { mkdir, stat } from 'fs/promises'
 import { dirname } from 'path'
 import {
+  MCP_EDIT_MAX_FILE_BYTES,
   MCP_MAX_DIR_ENTRIES,
   MCP_MAX_READ_FILE_BYTES,
   MCP_MAX_TRANSFER_BYTES,
@@ -9,10 +10,11 @@ import {
   MCP_READ_MAX_LINE_CHARS,
   MCP_TAIL_MAX_BYTES,
 } from '../../../shared/mcp/limits'
+import { applyExactEdit } from '../../../shared/exactEdit'
 import type { SshMcpDirEntry, SshMcpToolResult } from '../../../shared/mcp/types'
 import { clampLength, clampLines, clampOffset, parseEncoding, requireLocalPath, requireRemotePath } from '../args'
 import type { McpRuntimeHost } from '../runtimeHost'
-import { clampReadLimit, clampReadStartLine, createLineCollector, READ_CHUNK_BYTES } from './fileWindow'
+import { clampReadLimit, clampReadStartLine, createLineCollector, prefixLineNumbers, READ_CHUNK_BYTES } from './fileWindow'
 
 function wantsByteWindow(input: Record<string, unknown>): boolean {
   if (parseEncoding(input.encoding) === 'base64') return true
@@ -83,9 +85,13 @@ export async function readFileTool(host: McpRuntimeHost, input: Record<string, u
   const window = collector.result()
   host.touch(session.sessionId)
   const truncated = window.hitByteCap || window.hitLineCap || window.clippedLine || !eof
+  // Line numbers are the locator an agent edits against, so they are on by
+  // default. Callers that need raw text (approval-card diffing) pass false.
+  const lineNumbers = input.lineNumbers !== false
   return host.ok({
     path,
-    content: window.lines.join('\n'),
+    content: lineNumbers ? prefixLineNumbers(window.lines, window.startLine) : window.lines.join('\n'),
+    lineNumbers,
     encoding: 'utf8',
     startLine: window.startLine,
     lineCount: window.lines.length,
@@ -95,6 +101,97 @@ export async function readFileTool(host: McpRuntimeHost, input: Record<string, u
     eof: eof && !window.hitByteCap,
     truncated,
   })
+}
+
+/**
+ * Read an entire text file, refusing anything we could not write back or that
+ * is not text. Returns a discriminated result so the caller maps it to a tool
+ * error without throwing.
+ */
+async function readWholeTextFile(
+  host: McpRuntimeHost,
+  session: { sessionId: string; generation: number },
+  path: string,
+): Promise<{ ok: true; text: string } | { ok: false; code: string; message: string }> {
+  const chunks: Buffer[] = []
+  let bytePos = 0
+  let tooLarge = false
+  let binary = false
+
+  await host.withSftp(session.sessionId, session.generation, async () => {
+    for (;;) {
+      const ranged = await host.ssh.sftpReadFileRange(session.sessionId, path, bytePos, READ_CHUNK_BYTES)
+      // Fail fast on size before pulling the whole thing over the wire.
+      if (bytePos === 0 && ranged.size > MCP_EDIT_MAX_FILE_BYTES) {
+        tooLarge = true
+        return
+      }
+      if (bytePos === 0 && ranged.buffer.includes(0)) {
+        binary = true
+        return
+      }
+      chunks.push(ranged.buffer)
+      bytePos += ranged.buffer.length
+      if (ranged.eof || ranged.buffer.length === 0) break
+    }
+  })
+
+  if (tooLarge) {
+    return {
+      ok: false,
+      code: 'FILE_TOO_LARGE',
+      message:
+        `File is larger than the ${MCP_EDIT_MAX_FILE_BYTES}-byte edit limit. ` +
+        'Use exec with a text tool (for example sed -i) for this file, or edit a smaller one.',
+    }
+  }
+  if (binary) {
+    return {
+      ok: false,
+      code: 'NOT_A_TEXT_FILE',
+      message: 'File is binary; edit_file only handles text. Use exec or upload_file instead.',
+    }
+  }
+  return { ok: true, text: Buffer.concat(chunks).toString('utf8') }
+}
+
+/**
+ * Exact-string edit. Applied against the file content read at edit time, so a
+ * stale or hallucinated oldString simply fails to match instead of overwriting
+ * whatever is on disk now.
+ */
+export async function editFileTool(host: McpRuntimeHost, input: Record<string, unknown>): Promise<SshMcpToolResult> {
+  const session = host.requireSession(input.sessionId)
+  const path = requireRemotePath(input.path)
+  if (typeof input.oldString !== 'string') {
+    return host.error('INVALID_ARGUMENTS', 'oldString is required')
+  }
+  if (typeof input.newString !== 'string') {
+    return host.error('INVALID_ARGUMENTS', 'newString is required')
+  }
+  const replaceAll = input.replaceAll === true
+
+  const current = await readWholeTextFile(host, session, path)
+  if (!current.ok) return host.error(current.code, current.message)
+
+  const edit = applyExactEdit(current.text, input.oldString, input.newString, replaceAll)
+  if (!edit.ok) {
+    return host.error(edit.code, `${edit.message} ${edit.hint}`.trim())
+  }
+
+  const buffer = Buffer.from(edit.text, 'utf8')
+  if (buffer.length > MCP_MAX_WRITE_FILE_BYTES) {
+    return host.error(
+      'FILE_TOO_LARGE',
+      `Edit would grow the file past the ${MCP_MAX_WRITE_FILE_BYTES}-byte write limit.`,
+    )
+  }
+
+  await host.withSftp(session.sessionId, session.generation, () =>
+    host.ssh.sftpWriteBuffer(session.sessionId, path, buffer),
+  )
+  host.touch(session.sessionId)
+  return host.ok({ path, replaced: edit.replaced, bytes: buffer.length, encoding: 'utf8' })
 }
 
 export async function writeFileTool(host: McpRuntimeHost, input: Record<string, unknown>): Promise<SshMcpToolResult> {
