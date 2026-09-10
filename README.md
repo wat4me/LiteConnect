@@ -1,11 +1,21 @@
 # LiteConnect
 
-LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
+LiteConnect 是一个面向开发者和运维人员的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
 
 当前版本：**1.0.12**
 
 - [AI 助手](#ai-助手)：围绕当前 SSH 主机提问、调用工具、审批操作并保存对话。
 - [MCP 接入](#mcp让外部-ai-客户端使用-ssh-工具)：把 SSH 工具提供给本机外部 AI 客户端。
+
+## 下载与开始使用
+
+从 [GitHub Releases](https://github.com/wat4me/LiteConnect/releases) 下载适合系统的安装包：Windows 安装程序、macOS DMG / ZIP，或 Linux AppImage / DEB。
+
+1. 新建 SSH 或数据库连接，填写地址与认证信息并连接。
+2. 在 SSH 工作区使用终端、SFTP、监控和 Docker 功能。
+3. 需要 AI 协助时，在侧栏配置模型后提问；需要外部 AI 客户端访问 SSH 时，在设置中启用 MCP。
+
+安装包尚未签名，Windows 可能出现 SmartScreen 提示，macOS 可能需要右键选择「打开」。
 
 ## 功能
 
@@ -72,25 +82,9 @@ LiteConnect 是一个基于 Electron、Vue 3 和 TypeScript 的多协议连接�
 - 支持显式事务状态和提交/回滚操作
 - 可配置危险 SQL 二次确认与只读模式
 
-#### Oracle 说明
+#### Oracle 连接
 
-| 项 | 说明 |
-|---|---|
-| 驱动 | [node-oracledb](https://node-oracledb.readthedocs.io/)（`oracledb`） |
-| 默认模式 | **Thin**（无需安装 Oracle Instant Client） |
-| 默认端口 | `1521` |
-| 连接字段 `database` | **Service Name**（Easy Connect：`host:port/service`）；也可粘贴完整 connectString / 连接描述符 |
-| 导航「库」 | Schema（owner），不是 PDB 列表 |
-| 分页 | Oracle 12c+ `OFFSET … FETCH NEXT …` |
-| 建库 | 无 MySQL 式 CREATE DATABASE；UI 提供 `CREATE USER` 示例，需 DBA 权限在服务端执行 |
-| Thick / Wallet | 可选后续增强；当前优先 Thin |
-
-**集成验收建议**
-
-- [ ] 12c+ / 19c / 21c 直连，Service Name 与完整 connectString
-- [ ] SSH 隧道到内网 Oracle（主机填 SSH 侧可达地址）
-- [ ] `SELECT 1 FROM DUAL`、表树展开、分页、查询取消、事务提交/回滚、表导出取消
-- [ ] 错误信息无明文密码 / connect string 泄露
+Oracle 默认无需安装 Instant Client。默认端口为 `1521`，「数据库」字段填写 Service Name，也可以粘贴完整连接描述符。导航树按 Schema / Owner 展示，表数据分页适用于 Oracle 12c 及以上版本。
 
 ### 服务器监控
 
@@ -130,17 +124,7 @@ AI 侧栏直接使用应用内工具运行时，**不需要开启 MCP HTTP 服�
 
 #### 权限申请与用户审批
 
-每次侧栏工具调用都必须在 JSON 参数中携带 `risk` 和 `explanation`。例如，申请重启服务：
-
-```json
-{
-  "command": "systemctl restart nginx",
-  "risk": "write",
-  "explanation": "重启 nginx 以应用配置，可能短暂影响网站连接。"
-}
-```
-
-`risk` 只能是 `read`（只读）、`write`（修改）或 `privileged`（提权）。模型需用中文解释操作目的、涉及的资源和预期影响；`explanation` 必须是 1–500 字符的非空说明。缺少或无效的字段会导致本次不执行，要求模型补全申请。这两个字段用于应用审批，不会传给远端命令。
+AI 每次操作都会申报「只读」「修改」或「提权」，并说明操作目的、涉及的文件或服务及可能影响。需要审批时，对话中会显示操作说明和参数，由你选择允许或拒绝；申请信息不完整时不会执行。
 
 | AI 权限模式 | 按模型申报的级别处理 |
 |---|---|
@@ -148,7 +132,7 @@ AI 侧栏直接使用应用内工具运行时，**不需要开启 MCP HTTP 服�
 | 只允许只读 | 仅执行申报为 `read` 的调用，拒绝修改和提权申请 |
 | 自动执行 | 合法申报的三种级别均可执行，不再弹出工具审批 |
 
-应用校验申请格式并执行上述策略，**不再根据命令关键词重新判定侧栏调用的风险等级**。因此「只允许只读」依赖模型如实申报，并非操作系统级只读沙箱；「自动执行」也没有额外的高危命令确认。远端操作仍受 SSH 登录账号的实际权限约束。
+权限模式依据 AI 申报的级别处理。「只允许只读」依赖模型判断，不是系统级只读隔离；「自动执行」包含修改和提权操作，不会额外弹出高危命令确认。远端操作仍受 SSH 登录账号的实际权限约束。
 
 审批绑定具体请求和 SSH 会话，切换到其他主机不会批准另一条请求；重新打开侧栏后仍可处理正在等待的审批。拒绝、等待超时（5 分钟）或取消请求后，未获批准的调用不会执行，待审批状态会结束。
 
@@ -156,7 +140,7 @@ AI 侧栏直接使用应用内工具运行时，**不需要开启 MCP HTTP 服�
 
 - 正在输出的正文和推理段以纯文本显示，结束后再渲染 Markdown、代码块和链接。
 - 工具卡片默认折叠，点击展开后才格式化并显示参数和结果；超长内容限制展示长度，避免大量输出拖慢页面。
-- 模型请求、工具执行和助手消息保存由主进程负责，前端负责显示。流式输出会定期保存检查点，工具执行前后也会保存，持续输出不会一直推迟中途保存。
+- 对话会在输出过程中定期保存，工具执行前后也会保存。切换侧栏或折叠工具卡片不会中断保存。
 - 展开或折叠卡片不影响历史保存。历史包含助手输出、工具参数、结果和状态；工具结果本身仍受采集及存储长度限制，不能把历史当作无限量的原始日志归档。
 - 取消或异常结束时会保存已有内容，并结束残留的待审批状态。进程意外退出时，只能恢复最后成功写入的检查点。
 
@@ -246,79 +230,9 @@ MCP 操作现有 SSH 管理器中的会话，不提供 Docker socket 或数据�
 - 快捷键、粘贴确认和其他交互选项
 - 安装包可通过 GitHub Releases 检查更新（electron-updater）
 
-## 技术组成
-
-| 部分 | 使用的库或技术 |
-|---|---|
-| 桌面运行时 | Electron 41 |
-| 渲染层 | Vue 3、Vue I18n、Element Plus |
-| 语言 | TypeScript |
-| 构建与测试 | Vite、Vitest、vue-tsc、electron-builder |
-| 自动更新 | electron-updater |
-| SSH/SFTP | ssh2 |
-| 终端 | xterm.js |
-| SQL 编辑器 | CodeMirror 6 |
-| MySQL | mysql2 |
-| PostgreSQL | pg |
-| Oracle | oracledb（Thin 优先） |
-
-## 代码结构
-
-```text
-LiteConnect/
-├── electron/                    # Electron 主进程
-│   ├── db/                      # 数据库会话、驱动、SSH 隧道、查询与导出
-│   │   └── drivers/             # MySQL / PostgreSQL / Oracle 驱动
-│   ├── docker/                  # Docker API 传输、容器操作、日志与 exec
-│   ├── ai/                      # Chat Completions 流式请求、工具循环、会话历史
-│   ├── mcp/                     # SSH MCP runtime、HTTP 网关、工具实现
-│   ├── ipc/                     # renderer/main IPC 注册与输入校验
-│   ├── ssh/                     # SSH、SFTP、转发、监控和传输任务
-│   ├── store/                   # 连接、凭据、设置、查询历史与命令历史
-│   ├── utils/                   # 主进程通用工具
-│   ├── window/                  # BrowserWindow 创建、多窗口注册
-│   ├── main.ts                  # 主进程入口和退出清理
-│   └── preload.ts               # 暴露给 renderer 的受控 API
-├── shared/                      # main 与 renderer 共用的纯逻辑
-├── src/                         # Vue renderer
-│   ├── components/              # 按域划分的 UI 组件
-│   │   ├── ai/                  # AI 侧栏与设置
-│   │   ├── connections/         # 连接列表、表单与凭据
-│   │   ├── database/            # 数据库工作区
-│   │   ├── docker/              # Docker 工作区（含容器终端）
-│   │   ├── sftp/                # SFTP 侧栏与传输
-│   │   ├── settings/            # 设置子页
-│   │   ├── terminal/            # 终端标签与分屏
-│   │   └── icons/               # 应用图标组件
-│   ├── composables/             # 会话和 UI 状态逻辑（按域分子目录）
-│   ├── i18n/                    # renderer 国际化配置与文案
-│   ├── styles/                  # 全局样式
-│   ├── utils/                   # renderer 纯工具和策略
-│   ├── views/                   # 连接、数据库和设置页面
-│   ├── App.vue
-│   └── main.ts                  # renderer 入口
-├── scripts/                     # 仓库维护脚本
-├── build/                       # electron-builder 资源与第三方安装器
-├── public/                      # renderer 静态资源
-├── electron-builder.yml
-├── vite.config.ts
-├── vitest.config.ts
-└── package.json
-```
-
-### 主进程与渲染进程
-
-- `electron/main.ts` 创建各 service/manager 并注册 IPC。
-- `electron/preload.ts` 通过 context bridge 暴露有限的调用接口。
-- `electron/ipc/` 负责 IPC 参数校验和调用主进程服务。
-- `electron/window/` 管理主窗口与独立会话窗口。
-- `src/components/` 和 `src/composables/` 负责界面及 renderer 状态。
-- SSH、数据库和 Docker 的 socket、stream、日志、exec 及连接资源由主进程持有。
-- 应用内 AI 与外部 MCP 客户端共用 `electron/mcp` 工具运行时；HTTP 网关仅绑定 loopback。
-
 ## 本地数据
 
-应用数据保存在 Electron `userData` 目录。Windows 默认位于 `%APPDATA%\lite-connect\`（由 `package.json` 的 `name` 决定，不是界面上的产品名）。
+连接配置、应用设置和对话历史保存在本机。Windows 默认数据目录为 `%APPDATA%\lite-connect\`。
 
 从旧版安装升级时，NSIS 安装包会在目标目录尚无 `connections.json` / `db-connections.json` / `groups.json` 的情况下，将 `%APPDATA%\lite-ssh` 复制到 `%APPDATA%\lite-connect`（不覆盖已有连接数据；便携/绿色版不走此逻辑）。
 
@@ -333,78 +247,11 @@ LiteConnect/
 | `shell-command-history.json` | 按连接记录的 Shell 命令历史 |
 | `ai-history/` | AI 对话历史 |
 
-连接密码、私钥和数据库密码通过 Electron `safeStorage` 加密后保存；是否可用由当前操作系统环境决定。
+连接密码、私钥和数据库密码在系统加密服务可用时加密保存；加密能力取决于操作系统环境。
 
-## 开发
+## 开发与贡献
 
-建议使用 Node.js 18 或更高版本及 npm 9 或更高版本。
-
-安装依赖：
-
-```bash
-npm install
-```
-
-启动开发环境：
-
-```bash
-npm run dev
-```
-
-类型检查和测试：
-
-```bash
-npm run typecheck
-npm test
-```
-
-构建应用：
-
-```bash
-npm run build
-```
-
-生成桌面安装包：
-
-```bash
-npm run electron:build
-```
-
-安装包输出目录为 `release/`（见 `electron-builder.yml`）。本机 `npm run electron:build` 只打当前操作系统的包。
-
-## 发版
-
-公开仓库用 GitHub Actions 标准 runner 打包（Windows / macOS / Linux 均免费）。推送与 `package.json` 一致的版本 tag：
-
-```bash
-# 先把 package.json 的 version 改成新版本并提交
-git tag v1.0.12
-git push origin v1.0.12
-```
-
-工作流见 `.github/workflows/release.yml`，三个任务并行：
-
-| 平台 | 产物 |
-|---|---|
-| Windows x64 | NSIS `LiteConnect Setup *.exe`、`latest.yml` |
-| macOS (Actions 为 Apple Silicon) | `.dmg`、`.zip`、`latest-mac.yml` |
-| Linux x64 | `.AppImage`、`.deb`、`latest-linux.yml` |
-
-未做代码签名：Windows 可能被 SmartScreen 拦截；macOS 需右键「打开」，或执行 `xattr -cr /Applications/LiteConnect.app`。VcXsrv 只打进 Windows 包。
-
-也可在 Actions 里手动跑 **Release**（不打 tag）：只上传构建产物，不创建 GitHub Release。
-
-## npm scripts
-
-| 命令 | 作用 |
-|---|---|
-| `npm run dev` | 启动 Vite 和 Electron 开发环境 |
-| `npm run typecheck` | 运行 Vue/TypeScript 类型检查 |
-| `npm test` | 运行 Vitest 测试 |
-| `npm run test:watch` | 以 watch 模式运行测试 |
-| `npm run build` | 类型检查并构建 renderer 和 Electron 代码 |
-| `npm run preview` | 预览 renderer 构建结果 |
-| `npm run electron:build` | 构建并使用 electron-builder 打包 |
+源码结构、本地开发、测试、构建与发版步骤见 [开发指南](docs/DEVELOPMENT.md)。
 
 ## 许可
 
