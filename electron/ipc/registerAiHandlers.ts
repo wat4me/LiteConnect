@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
 import type { SshMcpRuntime } from '../mcp/runtime'
-import { testAiProviderConfig, validateAiSettings } from '../ai/providerHttp'
+import { listAiProviderModels, testAiProviderConfig, validateAiSettings } from '../ai/providerHttp'
 import {
   createNewConversationAtomic,
   getActiveThread,
@@ -39,6 +39,8 @@ export function registerAiHandlers(settingsStore: SettingsStore, sshMcpRuntime?:
     }
     return await settingsStore.switchAiModel(providerId, model)
   })
+
+  ipcMain.handle('ai:listModels', (_event, provider) => listAiProviderModels(provider))
 
   ipcMain.handle('ai:testProvider', async (_event, provider: any) => {
     await testAiProviderConfig(provider)

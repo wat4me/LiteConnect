@@ -4,6 +4,7 @@ export type { AiToolPermissionMode, AiToolRisk, AiToolRunStatus }
 
 export interface AiModel {
   id: string
+  displayName?: string
   /** Full context window in tokens. Unset / 0 = models.dev default, else 300000. */
   contextWindowTokens?: number
 }

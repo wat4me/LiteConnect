@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   getAiSettings: () => ipcRenderer.invoke('settings:getAiSettings'),
   setAiSettings: (settings: any) => ipcRenderer.invoke('settings:setAiSettings', settings),
   switchAiModel: (providerId: string, model: string) => ipcRenderer.invoke('settings:switchAiModel', providerId, model),
+  listAiModels: (provider: { baseUrl: string; apiKey: string }) => ipcRenderer.invoke('ai:listModels', provider),
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => ipcRenderer.invoke('ai:testProvider', provider),
   aiChat: (messages: any[]) => ipcRenderer.invoke('ai:chat', messages),
   aiChatStream: (requestId: string, messages: any[], opts: AiChatStreamOptions) =>

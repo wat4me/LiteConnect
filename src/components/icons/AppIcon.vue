@@ -11,6 +11,7 @@
 import { computed } from 'vue'
 
 export type AppIconName =
+  | 'shield'
   | 'close'
   | 'plus'
   | 'search'
@@ -473,6 +474,7 @@ const iconStyle = computed(() => {
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <line x1="12" y1="3" x2="12" y2="21" />
     </template>
+    <template v-else-if="name === 'shield'"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" /><path d="m9 12 2 2 4-4" /></template>
     <!-- lock -->
     <template v-else-if="name === 'lock'">
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />

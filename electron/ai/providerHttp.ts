@@ -40,6 +40,34 @@ export function getAiChatCompletionsUrl(baseUrl: string): string {
   return `${normalized}/chat/completions`
 }
 
+export function getAiModelsUrl(baseUrl: string): string {
+  return `${normalizeAiBaseUrl(baseUrl).replace(/\/chat\/completions$/, '')}/models`
+}
+
+export async function listAiProviderModels(provider: { baseUrl: string; apiKey: string }): Promise<string[]> {
+  const url = getAiModelsUrl(provider.baseUrl)
+  const apiKey = provider.apiKey?.trim()
+  if (!apiKey) throw new Error('AI API key is required')
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` }, signal: controller.signal,
+    })
+    if (!response.ok) throw new Error(`获取模型失败 (HTTP ${response.status})，请检查 API 地址和密钥，或手动添加模型`)
+    const body = await response.json()
+    if (!Array.isArray(body?.data)) throw new Error('服务未返回兼容的模型列表，请手动添加模型')
+    return [...new Set<string>(body.data.flatMap((item: { id?: unknown }) =>
+      typeof item?.id === 'string' && item.id.trim() ? [item.id.trim()] : [],
+    ))].sort()
+  } catch (error: any) {
+    if (error?.name === 'AbortError') throw new Error('获取模型超时，请重试或手动添加模型')
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function testAiProviderConfig(provider: any): Promise<void> {
   if (!provider || typeof provider !== 'object') throw new Error('Invalid AI provider')
   const baseUrl = normalizeAiBaseUrl(provider.baseUrl)

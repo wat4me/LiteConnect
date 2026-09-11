@@ -185,6 +185,7 @@ export interface LiteConnectApi {
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
   switchAiModel: (providerId: string, model: string) => Promise<AiSettings>
+  listAiModels: (provider: { baseUrl: string; apiKey: string }) => Promise<string[]>
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean }>
   aiChat: (messages: AiChatMessage[]) => Promise<AiChatResult>
   aiChatStream: (

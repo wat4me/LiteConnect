@@ -210,6 +210,7 @@ export function resolveContextWindowTokens(model?: string, override?: number | n
 }
 
 export type AiModelSpec = {
+  displayName?: string
   id: string
   contextWindowTokens?: number
 }
@@ -220,7 +221,7 @@ export function parseAiModel(raw: unknown): AiModelSpec | null {
     return id ? { id } : null
   }
   if (!raw || typeof raw !== 'object') return null
-  const rec = raw as { id?: unknown; name?: unknown; contextWindowTokens?: unknown }
+  const rec = raw as { id?: unknown; displayName?: unknown; name?: unknown; contextWindowTokens?: unknown }
   const id =
     typeof rec.id === 'string' && rec.id.trim()
       ? rec.id.trim()
@@ -229,7 +230,9 @@ export function parseAiModel(raw: unknown): AiModelSpec | null {
         : ''
   if (!id) return null
   const contextWindowTokens = clampContextWindowTokens(rec.contextWindowTokens)
-  return contextWindowTokens ? { id, contextWindowTokens } : { id }
+  const model: AiModelSpec = contextWindowTokens ? { id, contextWindowTokens } : { id }
+  if (typeof rec.displayName === 'string' && rec.displayName.trim()) model.displayName = rec.displayName.trim()
+  return model
 }
 
 export function parseAiModels(raw: unknown): AiModelSpec[] {

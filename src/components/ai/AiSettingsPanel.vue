@@ -49,6 +49,43 @@ const editingProviderId = ref<string | null>(null)
 const testingProvider = ref(false)
 const saving = ref(false)
 const showApiKey = ref(false)
+const fetchingModels = ref(false)
+const fetchedModels = ref<string[] | null>(null)
+const modelQuery = ref('')
+const selectedModels = ref<string[]>([])
+const fetchError = ref('')
+const filteredModels = computed(() => (fetchedModels.value || []).filter(id => id.toLowerCase().includes(modelQuery.value.toLowerCase())))
+function isModelAdded(id: string) { return editingProvider.value?.models.some(m => m.id.trim() === id) }
+watch(editingProviderId, () => { fetchedModels.value = null; fetchError.value = ''; selectedModels.value = []; modelQuery.value = '' })
+async function fetchModels() {
+  const provider = editingProvider.value
+  if (!provider || fetchingModels.value) return
+  fetchingModels.value = true
+  fetchError.value = ''
+  fetchedModels.value = null
+  selectedModels.value = []
+  const baseUrl = provider.baseUrl
+  const apiKey = provider.apiKey
+  try {
+    const models = await window.LiteConnect.listAiModels({ baseUrl, apiKey })
+    if (editingProvider.value === provider && provider.baseUrl === baseUrl && provider.apiKey === apiKey) fetchedModels.value = models
+  } catch (error: any) {
+    if (editingProvider.value === provider) fetchError.value = error?.message || t('ai.fetchModelsFailed')
+  } finally { fetchingModels.value = false }
+}
+function addSelectedModels() {
+  const provider = editingProvider.value
+  if (!provider) return
+  for (const id of selectedModels.value) if (!isModelAdded(id)) provider.models.push({ id })
+  selectedModels.value = []
+  fetchedModels.value = null
+}
+function makeDefaultModel(model: AiModel) {
+  const provider = editingProvider.value
+  if (!provider || !model.id.trim()) return
+  provider.models = [model, ...provider.models.filter(m => m !== model)]
+  if (draftSettings.value.activeProviderId === provider.id) draftSettings.value.activeModel = model.id.trim()
+}
 const newProviderId = ref<string | null>(null)
 
 watch(editingProviderId, () => { showApiKey.value = false })
@@ -72,6 +109,12 @@ const editingProvider = computed<AiProvider | null>(() => {
   return draftSettings.value.providers.find((p) => p.id === editingProviderId.value) || null
 })
 
+watch(() => [editingProvider.value?.baseUrl, editingProvider.value?.apiKey], () => {
+  fetchedModels.value = null
+  selectedModels.value = []
+  fetchError.value = ''
+})
+
 function generateProviderId(): string {
   return `prov-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -82,7 +125,7 @@ function addProvider() {
     name: t('ai.newProvider'),
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
-    models: [{ id: '' }],
+    models: [],
   }
   draftSettings.value.providers.push(newProvider)
   editingProviderId.value = newProvider.id
@@ -188,7 +231,7 @@ async function saveSettings() {
     ElMessage.warning(t('ai.needBaseUrl'))
     return
   }
-  if (!next.activeModel && activeP && activeP.models.length > 0) {
+  if (activeP && !activeP.models.some(m => m.id === next.activeModel)) {
     next.activeModel = firstAiModelId(activeP.models)
   }
 
@@ -248,25 +291,20 @@ defineExpose({ applyExternal })
           </span>
         </button>
         <div class="provider-item-actions">
-          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :aria-label="t('ai.editProvider')" @click="editingProviderId = provider.id"><AppIcon name="edit" size="sm" /></button>
-          <button
-            v-if="provider.id !== draftSettings.activeProviderId && provider.models.length > 0"
-            type="button"
-            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
-            :title="t('ai.setActiveProvider')"
-            @click="setActiveProvider(provider)"
-          >
-            <AppIcon name="check" size="xs" />
-          </button>
-          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.delete')" @click="deleteProvider(provider.id)">
-            <AppIcon name="delete" size="xs" />
-          </button>
+          <button v-if="provider.id !== draftSettings.activeProviderId && provider.models.length" type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="setActiveProvider(provider)">{{ t('ai.setActiveProvider') }}</button>
+          <details class="provider-more">
+            <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')">⋯</summary>
+            <div class="provider-more-menu">
+              <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="editingProviderId = provider.id">{{ t('ai.editProvider') }}</button>
+              <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="deleteProvider(provider.id)">{{ t('common.delete') }}</button>
+            </div>
+          </details>
         </div>
       </div>
 
       <div class="permission-box">
         <span class="field-label">{{ t('ai.toolPermission') }}</span>
-        <p class="permission-hint">{{ t('ai.toolPermissionHint') }}</p>
+        <details class="permission-hint"><summary>{{ t('ai.permissionDetails') }}</summary><p>{{ t('ai.toolPermissionHint') }}</p></details>
         <label
           v-for="mode in permissionModes"
           :key="mode.id"
@@ -298,36 +336,40 @@ defineExpose({ applyExternal })
 
       <div class="provider-models-header">
         <span class="field-label">{{ t('ai.modelList') }}</span>
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="addModelToProvider(editingProvider)" :title="t('ai.addModel')">
-          <AppIcon name="plus" size="sm" />
-        </button>
+        <div class="provider-item-actions">
+          <button type="button" class="ui-btn ui-btn-xs" :disabled="fetchingModels || !editingProvider.baseUrl.trim() || !editingProvider.apiKey.trim()" @click="fetchModels">{{ t(fetchingModels ? 'ai.fetchingModels' : 'ai.fetchModels') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="addModelToProvider(editingProvider)">{{ t('ai.manualModel') }}</button>
+        </div>
       </div>
-      <div v-if="editingProvider.models.length" class="model-column-labels"><span>{{ t('ai.modelName') }}</span><span>{{ t('ai.contextWindow') }}</span><span /></div>
-      <div v-if="editingProvider.models.length === 0" class="provider-empty">
-        {{ t('ai.noModels') }}
+      <p v-if="fetchError" class="model-fetch-error" role="alert">{{ fetchError }}</p>
+      <div v-if="fetchedModels !== null" class="model-picker">
+        <input v-model="modelQuery" class="ui-input ui-input-sm" :placeholder="t('ai.searchModels')" :aria-label="t('ai.searchModels')" />
+        <div class="model-picker-list">
+          <label v-for="id in filteredModels" :key="id" class="model-choice">
+            <input v-model="selectedModels" type="checkbox" :value="id" :disabled="isModelAdded(id)" />
+            <span>{{ id }}</span><small v-if="isModelAdded(id)">{{ t('ai.modelAdded') }}</small>
+          </label>
+          <p v-if="!filteredModels.length" class="provider-empty">{{ t('ai.noMatchingModels') }}</p>
+        </div>
+        <div class="provider-item-actions">
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-primary" :disabled="!selectedModels.length" @click="addSelectedModels">{{ t('ai.addSelectedModels', { count: selectedModels.length }) }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="fetchedModels = null">{{ t('common.cancel') }}</button>
+        </div>
       </div>
-      <div
-        v-for="(model, index) in editingProvider.models"
-        :key="index"
-        class="model-input-row"
-      >
-        <input :aria-label="t('ai.modelName')" v-model="model.id" class="ui-input ui-input-sm model-input" placeholder="gpt-4o-mini" />
-        <input
-          class="ui-input ui-input-sm model-window-input"
-          type="number"
-          min="4096"
-          max="4000000"
-          step="1000"
-          :value="modelWindowValue(model)"
-          :placeholder="modelWindowPlaceholder(model)"
-          :title="t('ai.contextWindowHint')"
-          :aria-label="t('ai.contextWindow')"
-          @input="setModelWindowValue(model, ($event.target as HTMLInputElement).value)"
-        />
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('ai.deleteModel')" @click="removeModelFromProvider(editingProvider, index)">
-          <AppIcon name="close" size="xs" />
-        </button>
-      </div>
+      <p class="permission-hint">{{ t('ai.modelContextNote') }}</p>
+      <div v-if="!editingProvider.models.length" class="provider-empty">{{ t('ai.noModels') }}</div>
+      <details v-for="(model, index) in editingProvider.models" :key="index" class="model-editor" :open="!model.id">
+        <summary><span>{{ model.displayName || model.id || t('ai.addModel') }}</span><small v-if="index === 0">{{ t('ai.defaultModel') }}</small></summary>
+        <div class="model-fields">
+          <label class="field-label">{{ t('ai.modelName') }}<input v-model="model.id" class="ui-input ui-input-sm" placeholder="gpt-4o-mini" /></label>
+          <label class="field-label">{{ t('ai.modelDisplayName') }}<input v-model="model.displayName" class="ui-input ui-input-sm" :placeholder="model.id" /></label>
+          <label class="field-label">{{ t('ai.contextWindow') }}<input class="ui-input ui-input-sm" type="number" min="4096" max="4000000" step="1000" :value="modelWindowValue(model)" :placeholder="modelWindowPlaceholder(model)" :title="t('ai.contextWindowHint')" @input="setModelWindowValue(model, ($event.target as HTMLInputElement).value)" /></label>
+          <div class="provider-item-actions">
+            <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :disabled="!model.id.trim() || index === 0" @click="makeDefaultModel(model)">{{ t('ai.setDefaultModel') }}</button>
+            <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="removeModelFromProvider(editingProvider, index)">{{ t('ai.deleteModel') }}</button>
+          </div>
+        </div>
+      </details>
 
     </template>
     </div>
@@ -575,4 +617,17 @@ defineExpose({ applyExternal })
 }
 
 
+.model-picker, .model-editor { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; }
+.model-picker-list { max-height: 220px; overflow-y: auto; margin: 8px 0; }
+.model-choice { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12px; color: var(--text-primary); }
+.model-choice span { overflow-wrap: anywhere; flex: 1; }
+.model-choice small, .model-editor small { color: var(--text-secondary); font-size: 11px; }
+.model-editor summary { cursor: pointer; font-size: 12px; color: var(--text-primary); overflow-wrap: anywhere; }
+.model-editor summary small { margin-left: 8px; }
+.model-fields { display: grid; gap: 10px; padding-top: 12px; }
+.model-fields label { display: grid; gap: 5px; }
+.model-fetch-error { font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
+.provider-more { position: relative; }
+.provider-more summary { list-style: none; cursor: pointer; padding: 4px 8px; color: var(--text-secondary); }
+.provider-more-menu { position: absolute; right: 0; top: 100%; z-index: 5; display: grid; padding: 6px; white-space: nowrap; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 16px #0002; }
 </style>

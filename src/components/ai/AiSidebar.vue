@@ -12,6 +12,8 @@ import {
 import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
+import AiComposerSelector from './AiComposerSelector.vue'
+import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
 import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConversationUsage } from '@shared/aiContext'
 import { flattenConversationForApi } from '@shared/aiMessages'
@@ -76,6 +78,45 @@ const settingsPanelRef = ref<InstanceType<typeof AiSettingsPanel> | null>(null)
 const modelSwitcherButtonRef = ref<HTMLButtonElement | null>(null)
 const modelSwitcherDropdownRef = ref<HTMLElement | null>(null)
 const modelSwitcherStyle = ref<Record<string, string>>({})
+const sidebarRef = ref<HTMLElement | null>(null)
+const composerInputRef = ref<HTMLTextAreaElement | null>(null)
+let composerObserver: ResizeObserver | undefined
+function resizeComposer() {
+  const el = composerInputRef.value
+  const panel = sidebarRef.value
+  if (!el || !panel || !el.getClientRects().length) return
+  const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 19.5
+  const form = el.closest('form')!
+  const formStyle = getComputedStyle(form)
+  const toolbarHeight = form.querySelector('.composer-actions')?.getBoundingClientRect().height || 30
+  const statusHeight = panel.querySelector('.composer-context-warning')?.getBoundingClientRect().height || 0
+  const chromeHeight = statusHeight + 4 + toolbarHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) + 2
+  const maxHeight = Math.max(lineHeight * 2, Math.min(lineHeight * 8, panel.clientHeight * 0.3 - chromeHeight))
+  el.style.height = '0px'
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`
+}
+function onComposerKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229 || event.shiftKey) return
+  event.preventDefault()
+  void sendMessage()
+}
+const composerModelLabel = computed(() => activeProvider.value?.models.find(m => m.id === displayModelName.value)?.displayName || displayModelName.value)
+const permissionLabel = computed(() => t(`ai.permissionShort${settings.value.toolPermission === 'auto' ? 'Auto' : settings.value.toolPermission === 'readonly' ? 'Readonly' : 'Ask'}`))
+const savingComposer = ref(false)
+const permissionOptions = computed(() => ['ask', 'auto', 'readonly'].map(value => ({ value, label: t(`ai.permission_${value}`), description: t(`ai.permissionDesc_${value}`) })))
+async function savePermission(value: string) {
+  if (loading.value || savingComposer.value) return
+  savingComposer.value = true
+  try {
+    // Read the latest shared settings so another SSH panel's changes are preserved.
+    const next = await window.LiteConnect.getAiSettings()
+    next.toolPermission = value as AiToolPermissionMode
+    await window.LiteConnect.setAiSettings(next)
+    replaceSettings(await window.LiteConnect.getAiSettings())
+  } catch (err: any) { ElMessage.warning(err?.message || t('ai.saveSettingsFailed')) }
+  finally { savingComposer.value = false }
+}
+watch([input, showSettings, showHistory], () => { void nextTick(resizeComposer) })
 const historyQuery = ref('')
 const filteredHistoryItems = computed(() => {
   const query = historyQuery.value.trim().toLocaleLowerCase()
@@ -88,7 +129,7 @@ const hasApiConfigured = computed(() => {
 })
 
 let initialLoadPromise: Promise<void> | null = null
-const canSend = computed(() => input.value.trim().length > 0 && !loading.value)
+const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value)
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
 const pendingApprovals = computed(() => {
@@ -152,8 +193,6 @@ const contextUsedTokens = computed(() =>
 
 const contextBudgetTokens = computed(() => activeContextWindowTokens.value)
 
-const CONTEXT_RING = { size: 20, radius: 7 }
-
 const contextRatio = computed(() => {
   const budget = contextBudgetTokens.value
   if (budget <= 0) return 0
@@ -161,19 +200,13 @@ const contextRatio = computed(() => {
 })
 
 const contextTone = computed<'ok' | 'warn' | 'danger'>(() => {
-  if (contextDroppedCount.value > 0 || contextRatio.value >= 0.85) return 'danger'
-  if (contextRatio.value >= 0.6) return 'warn'
+  if (contextRatio.value >= 0.95) return 'danger'
+  if (contextRatio.value >= 0.8) return 'warn'
   return 'ok'
 })
 
-const contextRingDash = computed(() => {
-  const circ = 2 * Math.PI * CONTEXT_RING.radius
-  const filled = circ * contextRatio.value
-  return { circ, filled }
-})
-
 /** Last billed turn vs the model window. Composer draft is not counted. */
-const showContextMeter = computed(() => contextUsedTokens.value > 0)
+const showContextMeter = computed(() => contextRatio.value >= 0.7)
 
 const contextMeterTitle = computed(() =>
   t('ai.contextUsage', {
@@ -210,7 +243,7 @@ const modelSwitcherGroups = computed(() => {
         return {
           providerId: p.id,
           model: id,
-          label: id,
+          label: m.displayName || id,
           active: p.id === settings.value.activeProviderId && id === settings.value.activeModel,
         }
       }).filter((item) => item.model),
@@ -232,16 +265,21 @@ function syncFromState() {
 }
 
 onMounted(() => {
+  composerObserver = new ResizeObserver(resizeComposer)
+  if (sidebarRef.value) composerObserver.observe(sidebarRef.value)
   syncFromState()
+  void nextTick(resizeComposer)
   ensureInitialLoad().catch(() => {})
   document.addEventListener('keydown', closePopoverOnEscape)
 })
 
 onActivated(() => {
+  void nextTick(resizeComposer)
   void refreshSettings().catch(() => {})
 })
 
 onBeforeUnmount(() => {
+  composerObserver?.disconnect()
   saveSessionInput(props.sessionId, input.value)
   document.removeEventListener('keydown', closePopoverOnEscape)
 })
@@ -395,7 +433,7 @@ function onSettingsSaved(next: AiSettings) {
 
 async function switchModel(providerId: string, model: string) {
   showModelSwitcher.value = false
-  if (!model) return
+  if (!model || loading.value || savingComposer.value) return
   try {
     const updated = await window.LiteConnect.switchAiModel(providerId, model)
     replaceSettings(updated)
@@ -433,7 +471,7 @@ watch(showModelSwitcher, (open) => {
 
 async function handleSendText(text: string): Promise<boolean> {
   const content = text.trim()
-  if (!content) return false
+  if (!content || savingComposer.value) return false
   loading.value = true
   const result = await sendText(props.sessionId, content, syncMessages)
   loading.value = getSessionState(props.sessionId).loading
@@ -560,18 +598,19 @@ async function runCodeToTerminal(code: string) {
   }
 }
 
-function handleClearMessages() {
-  clearMessages(props.sessionId, syncMessages)
-}
 </script>
 
 <template>
-  <div class="ai-sidebar">
+  <div ref="sidebarRef" class="ai-sidebar">
     <div v-show="!showSettings && !showHistory" class="ai-header">
       <div class="ai-header-title-area">
         <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
       </div>
       <div class="ai-header-actions">
+        <details class="header-more">
+          <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')">⋯</summary>
+          <button type="button" class="ui-btn ui-btn-sm" @click="clearCurrentHistory">{{ t('ai.clearChat') }}</button>
+        </details>
         <button
           type="button"
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
@@ -646,51 +685,19 @@ function handleClearMessages() {
       </div>
     </div>
 
-    <form v-show="!showSettings && !showHistory" class="composer" @submit.prevent="sendMessage">
+    <div v-show="!showSettings && !showHistory" class="composer-area">
+    <form class="composer" @submit.prevent="sendMessage">
       <textarea
+        ref="composerInputRef"
         v-model="input"
         class="composer-input"
+        :aria-label="t('ai.inputPlaceholder')"
         rows="2"
         :placeholder="t('ai.inputPlaceholder')"
         :title="t('ai.inputHint')"
-        @keydown.enter.exact.prevent="sendMessage"
-        @keydown.shift.enter.stop
-        @keydown.ctrl.enter.prevent="sendMessage"
-        @keydown.meta.enter.prevent="sendMessage"
+        @keydown="onComposerKeydown"
       />
       <div class="composer-actions">
-        <button type="button" class="composer-clear" :title="t('ai.clearChat')" @click="handleClearMessages">
-          <AppIcon name="delete" size="sm" />
-        </button>
-        <span
-          v-if="showContextMeter"
-          class="context-ring"
-          :class="contextTone"
-          :aria-label="contextMeterTitle"
-        >
-          <svg
-            :width="CONTEXT_RING.size"
-            :height="CONTEXT_RING.size"
-            :viewBox="`0 0 ${CONTEXT_RING.size} ${CONTEXT_RING.size}`"
-            aria-hidden="true"
-          >
-            <circle
-              class="context-ring-track"
-              :cx="CONTEXT_RING.size / 2"
-              :cy="CONTEXT_RING.size / 2"
-              :r="CONTEXT_RING.radius"
-            />
-            <circle
-              class="context-ring-fill"
-              :cx="CONTEXT_RING.size / 2"
-              :cy="CONTEXT_RING.size / 2"
-              :r="CONTEXT_RING.radius"
-              :stroke-dasharray="`${contextRingDash.filled} ${contextRingDash.circ}`"
-              :transform="`rotate(-90 ${CONTEXT_RING.size / 2} ${CONTEXT_RING.size / 2})`"
-            />
-          </svg>
-          <span class="context-ring-tip" role="tooltip">{{ contextMeterTitle }}</span>
-        </span>
         <div class="composer-actions-right">
           <div class="model-switcher-wrap">
             <button
@@ -698,14 +705,18 @@ function handleClearMessages() {
               ref="modelSwitcherButtonRef"
               type="button"
               class="ai-model-switcher"
+              :disabled="loading || savingComposer"
+              :aria-expanded="showModelSwitcher"
+              aria-haspopup="menu"
               :class="{ active: showModelSwitcher }"
               @click="showModelSwitcher = !showModelSwitcher"
               :title="activeProvider ? `${activeProvider.name} · ${displayModelName}` : displayModelName"
             >
-              <span class="ai-model-switcher-name">{{ displayModelName }}</span>
+              <span class="ai-model-switcher-name">{{ composerModelLabel }}</span>
               <AppIcon name="chevron-down" size="xs" />
             </button>
           </div>
+          <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :short-label="t(`ai.permissionCompact_${settings.toolPermission || 'ask'}`)" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
           <button
             v-if="loading"
             type="button"
@@ -715,12 +726,14 @@ function handleClearMessages() {
           >
             {{ t('common.stop') }}
           </button>
-          <button v-else type="submit" class="send-btn" :disabled="!canSend">
+          <button v-else type="submit" class="send-btn" :aria-label="t('ai.sendMessage')" :disabled="!canSend">
             <AppIcon name="send" size="sm" />
           </button>
         </div>
       </div>
+      <span v-if="showContextMeter" class="composer-context-warning" :class="contextTone" :title="contextMeterTitle" role="status">{{ t('ai.contextPercent', { n: Math.round(contextRatio * 100) }) }}</span>
     </form>
+    </div>
 
     <Teleport to="body">
       <div
@@ -729,6 +742,7 @@ function handleClearMessages() {
         class="model-switcher-dropdown"
         :style="modelSwitcherStyle"
       >
+        <div class="model-context-info">{{ contextMeterTitle }} · {{ Math.round(contextRatio * 100) }}%</div>
         <div
           v-for="group in modelSwitcherGroups"
           :key="group.providerId"
@@ -743,7 +757,7 @@ function handleClearMessages() {
             :class="{ active: item.active }"
             @click="switchModel(item.providerId, item.model)"
           >
-            <span>{{ item.label }}</span>
+            <span class="model-option-label">{{ item.label }}<small v-if="item.label !== item.model">{{ item.model }}</small></span>
             <AppIcon v-if="item.active" name="check" size="sm" />
           </button>
         </div>
@@ -1066,7 +1080,8 @@ function handleClearMessages() {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  max-width: 128px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 28px;
   padding: 2px 8px;
   border: 1px solid var(--border-color);
@@ -1159,6 +1174,9 @@ function handleClearMessages() {
 }
 
 .composer-actions-right {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1184,8 +1202,9 @@ function handleClearMessages() {
 
 .composer-input {
   resize: none;
-  min-height: 40px;
-  max-height: 140px;
+  min-height: 0;
+  overflow-y: auto;
+  flex-shrink: 0;
   border: none;
   outline: none;
   padding: 0;
@@ -1198,96 +1217,6 @@ function handleClearMessages() {
 
 .composer-input::placeholder {
   color: var(--text-secondary);
-}
-
-.composer-clear {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.composer-clear:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.context-ring {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin: 0 -4px;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
-
-.context-ring svg {
-  display: block;
-  pointer-events: none;
-}
-
-.context-ring:hover {
-  background: var(--hover-bg);
-}
-
-.context-ring-tip {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  z-index: 6;
-  padding: 4px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
-  color: var(--text-primary);
-  font-size: 11px;
-  line-height: 1.3;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-}
-
-.context-ring:hover .context-ring-tip {
-  opacity: 1;
-  visibility: visible;
-}
-
-.context-ring-track,
-.context-ring-fill {
-  fill: none;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  pointer-events: none;
-}
-
-.context-ring-track {
-  stroke: var(--border-color);
-}
-
-.context-ring-fill {
-  stroke: var(--success);
-  transition: stroke-dasharray 0.2s ease, stroke 0.2s ease;
-}
-
-.context-ring.warn .context-ring-fill {
-  stroke: var(--warning);
-}
-
-.context-ring.danger .context-ring-fill {
-  stroke: var(--danger);
 }
 
 .stop-btn {
@@ -1305,7 +1234,8 @@ function handleClearMessages() {
 }
 
 .composer {
-  margin: 4px 14px 14px;
+  flex-shrink: 0;
+  margin: 0;
   padding: 10px 12px 8px;
   border: 1px solid var(--border-color);
   border-radius: 14px;
@@ -1487,5 +1417,30 @@ function handleClearMessages() {
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.composer-permission { border: 0; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; padding: 4px; }
+.model-option-label { overflow-wrap: anywhere; min-width: 0; }
+.model-option-label small { display: block; color: var(--text-secondary); font-size: 10px; margin-top: 3px; }
+.header-more { position: relative; }
+.header-more summary { cursor: pointer; list-style: none; padding: 4px 6px; color: var(--text-secondary); }
+.header-more > button { position: absolute; top: 100%; right: 0; z-index: 10; white-space: nowrap; background: var(--bg-primary); }
+.composer-area { flex-shrink: 0; margin: 4px 14px 12px; container-type: inline-size; container-name: ai-composer; min-width: 0; }
+.composer-permission:hover { color: var(--text-primary); }
+.send-btn, .stop-btn { flex-shrink: 0; }
+.composer { padding: 10px; gap: 8px; }
+.composer-actions-right { width: 100%; gap: 6px; min-width: 0; }
+.composer-permission-selector { display: flex; margin-left: auto; flex-shrink: 0; }
+.model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; }
+.ai-model-switcher { height: 34px; min-height: 34px; width: auto; gap: 8px; font-family: inherit; font-size: 11px; padding: 0 7px; justify-content: space-between; }
+.ai-model-switcher:disabled { cursor: not-allowed; opacity: .5; }
+.send-btn, .stop-btn { width: 38px; height: 38px; min-width: 38px; padding: 0; font-size: 11px; margin-left: 0; }
+.composer-context-warning { font-size: 10px; color: var(--text-secondary); text-align: right; }
+.composer-context-warning.warn { color: var(--warning); }
+.composer-context-warning.danger { color: var(--danger); font-weight: 600; }
+.model-context-info { padding: 6px; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); }
+@container ai-composer (max-width: 220px) {
+  .composer-actions-right { display: grid; grid-template-columns: minmax(0, 1fr) 38px; column-gap: 12px; row-gap: 3px; }
+  .model-switcher-wrap { grid-column: 1; }
+  .send-btn, .stop-btn { grid-column: 2; grid-row: 1 / 3; margin-left: 0; }
 }
 </style>
