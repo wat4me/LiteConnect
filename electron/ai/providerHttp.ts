@@ -1,3 +1,4 @@
+import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
 import {
   clampContextWindowTokens,
   packAiMessages,
@@ -118,6 +119,7 @@ export function validateAiSettings(settings: any): {
   systemPrompt: string
   temperature: number
   contextWindowTokens?: number
+  maxToolRounds: number
   toolPermission: ReturnType<typeof sanitizeAiToolPermission>
 } {
   if (!settings || typeof settings !== 'object') {
@@ -141,6 +143,7 @@ export function validateAiSettings(settings: any): {
     activeModel: typeof settings.activeModel === 'string' ? settings.activeModel.trim() : '',
     systemPrompt: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : '',
     temperature: clampTemperature(settings.temperature),
+    maxToolRounds: normalizeAiToolRounds(settings.maxToolRounds),
     contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
     toolPermission: sanitizeAiToolPermission(settings.toolPermission),
   }

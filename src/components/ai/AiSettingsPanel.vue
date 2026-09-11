@@ -6,6 +6,7 @@ import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../.
 import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
 import { DEFAULT_AI_TOOL_PERMISSION, sanitizeAiToolPermission } from '@shared/aiToolPolicy'
 import { firstAiModelId, inferContextWindowTokens, parseAiModels } from '@shared/aiContext'
+import { normalizeAiToolRounds, MAX_AI_TOOL_ROUNDS } from '@shared/aiToolLimits'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
@@ -34,6 +35,7 @@ function cloneSettings(settings?: AiSettings | null): AiSettings {
     ...p,
     models: parseAiModels(p.models),
   }))
+  raw.maxToolRounds = normalizeAiToolRounds(raw.maxToolRounds)
   raw.toolPermission = sanitizeAiToolPermission(raw.toolPermission)
   return raw
 }
@@ -213,6 +215,7 @@ async function saveSettings() {
     activeModel: draftSettings.value.activeModel.trim(),
     systemPrompt: draftSettings.value.systemPrompt,
     temperature: 0.7,
+    maxToolRounds: normalizeAiToolRounds(draftSettings.value.maxToolRounds),
     toolPermission: sanitizeAiToolPermission(draftSettings.value.toolPermission),
   }
   if (next.providers.length === 0) {
@@ -302,6 +305,11 @@ defineExpose({ applyExternal })
         </div>
       </div>
 
+      <div class="permission-box">
+        <label for="ai-tool-rounds" class="field-label">{{ t('ai.maxToolRounds') }}</label>
+        <input id="ai-tool-rounds" v-model.number="draftSettings.maxToolRounds" class="ui-input ui-input-sm" type="number" min="1" :max="MAX_AI_TOOL_ROUNDS" step="1" aria-describedby="ai-tool-rounds-hint" @blur="draftSettings.maxToolRounds = normalizeAiToolRounds(draftSettings.maxToolRounds)" />
+        <p id="ai-tool-rounds-hint" class="permission-hint">{{ t('ai.maxToolRoundsHint') }}</p>
+      </div>
       <div class="permission-box">
         <span class="field-label">{{ t('ai.toolPermission') }}</span>
         <details class="permission-hint"><summary>{{ t('ai.permissionDetails') }}</summary><p>{{ t('ai.toolPermissionHint') }}</p></details>

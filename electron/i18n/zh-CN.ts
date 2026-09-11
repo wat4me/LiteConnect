@@ -80,6 +80,7 @@ export default {
       '远程转发 {remoteHost}:{remotePort}→{localHost}:{localPort} 失败: {error}',
   },
   ai: {
+    toolRoundLimitReached: '已达到本次对话的工具调用上限（{count} 轮），调查已暂停，尚未确认任务完成。输入“继续”可接着处理，也可以在 AI 设置中调整上限。',
     defaultSystemPrompt: [
       '你是 LiteConnect 内置的 AI 助手，主要帮助用户理解和处理 SSH 终端、Linux 命令、报错排查、服务运维和文件操作问题。',
       '请默认使用简体中文回答；只有当用户明确要求其他语言，或需要保留原始命令、日志、错误信息、配置字段时，才使用对应语言。',

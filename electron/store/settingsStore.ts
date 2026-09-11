@@ -1,3 +1,4 @@
+import { normalizeAiToolRounds, DEFAULT_AI_TOOL_ROUNDS } from '../../shared/aiToolLimits'
 /**
  * Persisted app settings. Public API stays on this class so IPC callers do not change.
  * New keys: add to AppSettingsAll, then getAll() + applyMany(). Prefer settings:setMany
@@ -927,6 +928,7 @@ export class SettingsStore {
   }
 
   getAiSettings(): {
+    maxToolRounds: number
     providers: any[]
     activeProviderId: string | null
     activeModel: string
@@ -955,6 +957,7 @@ export class SettingsStore {
         ? ai.systemPrompt
         : getDefaultAiSystemPrompt(),
       temperature: this.clampAiTemperature(ai.temperature),
+      maxToolRounds: normalizeAiToolRounds(ai.maxToolRounds),
       contextWindowTokens: clampContextWindowTokens(ai.contextWindowTokens),
       toolPermission: sanitizeAiToolPermission(ai.toolPermission),
     }
@@ -973,6 +976,7 @@ export class SettingsStore {
       activeModel: '',
       systemPrompt: getDefaultAiSystemPrompt(),
       temperature: 0.7,
+      maxToolRounds: DEFAULT_AI_TOOL_ROUNDS,
       toolPermission: sanitizeAiToolPermission(undefined),
     }
   }
@@ -1004,6 +1008,7 @@ export class SettingsStore {
       activeModel: typeof settings.activeModel === 'string' ? settings.activeModel.trim() : '',
       systemPrompt: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : getDefaultAiSystemPrompt(),
       temperature: this.clampAiTemperature(settings.temperature),
+      maxToolRounds: normalizeAiToolRounds(settings.maxToolRounds ?? this.settings.ai?.maxToolRounds),
       // Keep reading leftover global value; new saves omit it when unset.
       contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
       toolPermission: sanitizeAiToolPermission(
@@ -1025,6 +1030,7 @@ export class SettingsStore {
   }
 
   getAiResolvedConfig(): {
+    maxToolRounds: number
     baseUrl: string
     model: string
     apiKey: string
@@ -1042,6 +1048,7 @@ export class SettingsStore {
         apiKey: '',
         systemPrompt: settings.systemPrompt,
         temperature: settings.temperature,
+      maxToolRounds: settings.maxToolRounds,
         contextWindowTokens: settings.contextWindowTokens,
         toolPermission: settings.toolPermission,
       }
@@ -1053,6 +1060,7 @@ export class SettingsStore {
       apiKey: provider.apiKey,
       systemPrompt: settings.systemPrompt,
       temperature: settings.temperature,
+      maxToolRounds: settings.maxToolRounds,
       contextWindowTokens: resolveModelContextWindow({
         model,
         models: provider.models,

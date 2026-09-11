@@ -14,6 +14,7 @@ import {
 import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { activeTimelineTurnId, collectChatTimelineTurns } from '@/utils/ai/chatTimeline'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
+import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -231,7 +232,7 @@ function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
 
 /** 单行化的 AI 操作说明，用于折叠态的工具行内展示（完整文本走 title 悬浮）。 */
 function toolRunDescText(run: AiToolRun): string {
-  return (run.reason || '').replace(/\s+/g, ' ').trim()
+  return splitToolReason(run.reason).explanation.replace(/\s+/g, ' ').trim()
 }
 
 function onToolRunToggle(message: ChatItem, run: AiToolRun, event: Event) {
@@ -641,7 +642,8 @@ async function copyText(text: string, key: string) {
           <span class="tool-run-state" :title="toolRunStateTitle(message, item.run)">{{ toolRunStateLabel(message, item.run) }}</span>
         </summary>
         <template v-if="isToolRunOpen(message, item.run)">
-        <p v-if="item.run.reason" class="tool-ask-copy">{{ item.run.reason }}</p>
+        <p v-if="splitToolReason(item.run.reason).explanation" class="tool-ask-copy"><strong>{{ t('ai.toolExplanationLabel') }}</strong>{{ splitToolReason(item.run.reason).explanation }}</p>
+        <p v-if="splitToolReason(item.run.reason).notice" class="tool-ask-copy tool-policy-notice"><strong>{{ t('ai.toolPolicyNoticeLabel') }}</strong>{{ splitToolReason(item.run.reason).notice }}</p>
         <p v-if="item.run.diffSummary" class="tool-ask-copy">{{ item.run.diffSummary }}</p>
         <pre v-if="item.run.diffPreview" class="tool-run-out">{{ item.run.diffPreview }}</pre>
         <p v-if="item.run.status === 'blocked'" class="tool-ask-copy">{{ t('ai.toolAskForbidden') }}</p>
@@ -1671,4 +1673,6 @@ async function copyText(text: string, key: string) {
     color: var(--accent);
   }
 }
+.tool-policy-notice { color: var(--warning); }
+.tool-policy-notice strong { font-weight: 600; }
 </style>

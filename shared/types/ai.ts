@@ -18,6 +18,8 @@ export interface AiProvider {
 }
 
 export interface AiSettings {
+  /** Per user message, not individual tool count. */
+  maxToolRounds?: number
   providers: AiProvider[]
   activeProviderId: string | null
   activeModel: string
@@ -31,6 +33,7 @@ export interface AiSettings {
 }
 
 export interface AiResolvedConfig {
+  maxToolRounds?: number
   baseUrl: string
   model: string
   apiKey: string

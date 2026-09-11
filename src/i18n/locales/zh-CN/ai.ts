@@ -1,5 +1,9 @@
 export default {
   ai: {
+    toolExplanationLabel: '操作说明（AI）：',
+    toolPolicyNoticeLabel: '权限提示（应用）：',
+    maxToolRounds: '每次对话的工具调用轮数上限',
+    maxToolRoundsHint: '默认 50 轮，可设为 1–200 轮。每次发送消息重新计数，一轮可能调用多个工具；达到上限后会提示暂停。保存后对新发起的回复生效。',
     permissionTitle: '操作权限',
     permission_ask: '执行需确认', permission_auto: '自动执行', permission_readonly: '只读',
     permissionCompact_ask: '确认', permissionCompact_auto: '自动', permissionCompact_readonly: '只读',

@@ -4,7 +4,6 @@ export {
   sshToolsForChat,
 } from '../../shared/aiSidebarPrompt'
 
-export const MAX_SSH_TOOL_ROUNDS = 8
 
 export type AccumulatedToolCall = {
   id: string

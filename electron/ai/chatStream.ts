@@ -1,3 +1,5 @@
+import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
+import { t } from '../i18n'
 import { runAiChatCompletion } from './chatCompletion'
 import {
   isContextLengthError,
@@ -7,7 +9,6 @@ import {
   accumulateToolCallDeltas,
   bindSessionArgs,
   looksLikeToolsUnsupported,
-  MAX_SSH_TOOL_ROUNDS,
   parseToolCallArguments,
   sshToolsForChat,
   sshToolSystemAddendum,
@@ -205,7 +206,8 @@ export async function runAiChatStream(opts: {
       return generated.length ? generated : undefined
     }
 
-    for (let round = 0; round < (toolsEnabled ? MAX_SSH_TOOL_ROUNDS : 1); round++) {
+    const maxToolRounds = normalizeAiToolRounds(settings.maxToolRounds)
+    for (let round = 0; round < (toolsEnabled ? maxToolRounds : 1); round++) {
       if (abortController.signal.aborted) break
 
       let response = await openStream(apiMessages, toolsEnabled)
@@ -419,6 +421,14 @@ export async function runAiChatStream(opts: {
           toolCallId: call.id,
           content: result.content,
         })
+        await opts.checkpoint?.()
+      }
+      if (round + 1 === maxToolRounds && !abortController.signal.aborted) {
+        const notice = t('ai.toolRoundLimitReached', { count: maxToolRounds })
+        contentParts.push(notice)
+        lastRoundContent = notice
+        lastRoundReasoning = ''
+        send({ type: 'content', value: `\n\n${notice}` })
         await opts.checkpoint?.()
       }
     }

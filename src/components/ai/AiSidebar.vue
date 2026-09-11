@@ -10,6 +10,7 @@ import {
   normalizeTerminalText,
 } from '@/utils/terminal/terminalPaste'
 import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
+import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiComposerSelector from './AiComposerSelector.vue'
@@ -661,7 +662,8 @@ async function runCodeToTerminal(code: string) {
           <span v-if="approvalRiskLabel(run.risk)" class="tool-approval-risk" :data-risk="run.risk">{{ approvalRiskLabel(run.risk) }}</span>
           <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
         </div>
-        <p v-if="run.reason" class="tool-approval-reason">{{ run.reason }}</p>
+        <p v-if="splitToolReason(run.reason).explanation" class="tool-approval-reason"><strong>{{ t('ai.toolExplanationLabel') }}</strong>{{ splitToolReason(run.reason).explanation }}</p>
+        <p v-if="splitToolReason(run.reason).notice" class="tool-approval-reason tool-policy-notice"><strong>{{ t('ai.toolPolicyNoticeLabel') }}</strong>{{ splitToolReason(run.reason).notice }}</p>
         <pre v-if="approvalHint(run)" class="tool-approval-hint" :title="approvalHint(run)">{{ approvalHint(run) }}</pre>
         <div v-if="run.diffSummary || run.diffPreview" class="tool-approval-diff">
           <div v-if="run.diffSummary" class="tool-approval-diff-summary">{{ run.diffSummary }}</div>
@@ -1443,4 +1445,6 @@ async function runCodeToTerminal(code: string) {
   .model-switcher-wrap { grid-column: 1; }
   .send-btn, .stop-btn { grid-column: 2; grid-row: 1 / 3; margin-left: 0; }
 }
+.tool-policy-notice { color: var(--warning); }
+.tool-policy-notice strong { font-weight: 600; }
 </style>
