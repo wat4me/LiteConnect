@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog, shell, clipboard, safeStorage } from 'electron'
+import os from 'node:os'
 import { CredentialStore } from '../store/credentialStore'
 import { SettingsStore } from '../store/settingsStore'
 import {
@@ -261,6 +262,12 @@ export function registerStoreHandlers(
       return false
     }
   })
+
+  // The real scratch directory, so the renderer can refuse drops whose paths are
+  // unpacked copies (archive viewers hand out `%TEMP%` files). Resolving it here
+  // is authoritative — the renderer cannot read env vars, and guessing
+  // `%LOCALAPPDATA%\Temp` by name would miss a redirected `%TEMP%`.
+  ipcMain.handle('fs:getTempDir', () => os.tmpdir())
 
   ipcMain.handle('dialog:readPrivateKey', async () => {
     const mainWindow = getMainWindow()

@@ -18,7 +18,11 @@ describe('useSftpUpload', () => {
       LiteConnect: {
         sftpUpload,
         sftpUploadDirectory,
-        getPathForFile,
+        getPathForFile: (file: any) => {
+          if (file && file.path) return file.path
+          return getPathForFile(file)
+        },
+        isLocalDirectory: vi.fn(async (p: string) => p === 'C:/tmp/photos'),
       },
     } as unknown as Window & typeof globalThis
   })
@@ -35,21 +39,15 @@ describe('useSftpUpload', () => {
     })
 
     upload.onDropTarget('/incoming/')
+    // Two listings that share no parent directory => unrelated, stay flat.
+    // (The folder-inference path is covered by useDragDrop's own tests.)
     await upload.onDrop({
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
       dataTransfer: {
-        items: [
-          {
-            kind: 'file',
-            getAsFile: () => ({ name: 'notes.txt' }),
-            webkitGetAsEntry: () => ({ isDirectory: false }),
-          },
-          {
-            kind: 'file',
-            getAsFile: () => ({ name: 'photos' }),
-            webkitGetAsEntry: () => ({ isDirectory: true }),
-          },
+        files: [
+          { name: 'notes.txt', path: 'C:/home/notes.txt' },
+          { name: 'photos.dcm', path: 'D:/media/photos.dcm' },
         ],
       },
     } as unknown as DragEvent)
@@ -57,20 +55,21 @@ describe('useSftpUpload', () => {
 
     expect(sftpUpload).toHaveBeenCalledWith(
       'session-1',
-      'C:/tmp/notes.txt',
+      'C:/home/notes.txt',
       '/incoming',
       'notes.txt',
       expect.stringMatching(/^ul-/),
       { conflict: 'overwrite' },
     )
-    expect(sftpUploadDirectory).toHaveBeenCalledWith(
+    expect(sftpUpload).toHaveBeenCalledWith(
       'session-1',
-      'C:/tmp/photos',
+      'D:/media/photos.dcm',
       '/incoming',
-      'photos',
+      'photos.dcm',
       expect.stringMatching(/^ul-/),
       { conflict: 'overwrite' },
     )
+    expect(sftpUploadDirectory).not.toHaveBeenCalled()
     expect(onQueued).toHaveBeenCalledWith('upload')
     expect(upload.showUploadConfirm.value).toBe(false)
     expect(upload.uploadFiles.value).toEqual([])

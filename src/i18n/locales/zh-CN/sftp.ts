@@ -76,6 +76,7 @@ export default {
     transferFilesProgress: '{done}/{total} 个文件',
     transferFilesFailed: '{n} 失败',
     confirmUpload: '确认上传',
+    uploadRejectedArchive: '无法上传压缩包里的条目：它们只是解压到临时目录的副本，原路径已丢失。请先解压到本地文件夹，再拖该文件夹上传。',
     uploadFilesTo: '将以下文件上传到：',
     uploadContentsTo: '将以下内容上传到（文件夹会递归上传全部子文件）：',
     folder: '文件夹',

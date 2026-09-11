@@ -517,6 +517,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
 
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
+  /** Real scratch directory (`os.tmpdir()`), used to refuse archive-viewer drops. */
+  getTempDir: (): Promise<string> => ipcRenderer.invoke('fs:getTempDir'),
+
   readPrivateKeyFile: () => ipcRenderer.invoke('dialog:readPrivateKey'),
 
   shellOpenPath: (filePath: string) => ipcRenderer.invoke('shell:openPath', filePath),

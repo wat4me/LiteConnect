@@ -187,6 +187,9 @@ const {
   sessionId: () => props.sessionId,
   currentPath,
   onQueued: () => openTransfersTab('upload'),
+  onDropRejected: () => {
+    ElMessage.warning(t('sftp.uploadRejectedArchive'))
+  },
 })
 
 const {

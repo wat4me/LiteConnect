@@ -450,6 +450,9 @@ export interface LiteConnectApi {
 
   getPathForFile: (file: File) => string
 
+  /** Real scratch directory (`os.tmpdir()`), used to refuse archive-viewer drops. */
+  getTempDir: () => Promise<string>
+
   readPrivateKeyFile: () => Promise<string | null>
 
   shellOpenPath: (filePath: string) => Promise<string>

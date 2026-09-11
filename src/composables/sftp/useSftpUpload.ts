@@ -12,6 +12,8 @@ export function useSftpUpload(deps: {
   sessionId: () => string
   currentPath: Ref<string>
   onQueued: (direction: 'upload') => void
+  /** Surfaces a rejected drop (nothing uploadable) as a user-visible hint. */
+  onDropRejected?: () => void
 }) {
   const showUploadConfirm = ref(false)
   const uploadFiles = ref<DropUploadItem[]>([])
@@ -61,6 +63,7 @@ export function useSftpUpload(deps: {
   } = useDragDrop(
     handleItemsDropped,
     () => dropTargetPath.value || deps.currentPath.value || '/',
+    () => deps.onDropRejected?.(),
   )
 
   watch(isDragOver, (v) => {

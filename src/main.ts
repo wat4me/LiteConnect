@@ -12,9 +12,18 @@ import './styles/main.css'
 import './styles/settings.css'
 import i18n, { initLocaleFromStorage } from './i18n'
 import { migrateLegacyLocalStorage } from '@/utils/shared/legacyStorageMigrate'
+import { setScratchDirs } from '@/composables/sftp/useDragDrop'
 
 migrateLegacyLocalStorage()
 initLocaleFromStorage()
+
+// Teach the drop handler where this machine's scratch directory lives, so files
+// unpacked there by an archive viewer (dragged out of a .zip/.rar) can be
+// refused instead of uploaded as copies. Resolved in the main process; failure
+// just leaves the screening off rather than breaking app startup.
+void window.LiteConnect?.getTempDir?.()
+  .then((dir) => { if (dir) setScratchDirs([dir]) })
+  .catch(() => {})
 
 const app = createApp(App)
 app.use(i18n)
