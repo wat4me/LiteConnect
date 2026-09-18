@@ -1,0 +1,548 @@
+import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import type { Connection } from '../../env.d'
+import { t } from '../../i18n'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
+import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
+import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
+import type { Session, ConnectionGroup } from '@/domain/session/types'
+import { createConnectionAttemptGate } from '@/utils/connections/connectionAttemptGate'
+
+export type { Session, ConnectionGroup }
+
+export const HOME_ID = '__home__'
+
+export interface SidebarDeps {
+  sidebarVisible: Ref<boolean>
+  aiSidebarVisible: Ref<boolean>
+  sidebarGroupId: Ref<string | null>
+  sidebarSessionId: Ref<string | null>
+  fileSidebarRef: Ref<any>
+  setSidebarTarget: (groupId: string | null, sessionId: string | null) => void
+  syncSidebarState: () => void
+}
+
+export function useSessionManager(deps: {
+  pwdTracker: TerminalPwdTracker
+  disposeAiSession?: (sessionId: string) => void
+}) {
+  const connections = ref<Connection[]>([])
+  const recentConnections = ref<Connection[]>([])
+  const groups = ref<ConnectionGroup[]>([])
+  const activeGroupId = ref<string>(HOME_ID)
+  const connectingConnectionIds = ref<Set<string>>(new Set())
+
+  let sidebar: SidebarDeps | null = null
+
+  function connectSidebar(s: SidebarDeps) {
+    sidebar = s
+  }
+
+  function requireSidebar(): SidebarDeps {
+    if (!sidebar) {
+      throw new Error('Sidebar deps not connected. Call connectSidebar() before using session operations.')
+    }
+    return sidebar
+  }
+
+  const isHomeActive = computed(() => activeGroupId.value === HOME_ID)
+
+  const activeGroup = computed(() => {
+    if (isHomeActive.value) return null
+    return groups.value.find((g) => g.connectionId === activeGroupId.value) || null
+  })
+
+  const activeSessionId = computed(() => activeGroup.value?.activeSessionId || null)
+
+  const activeSession = computed(() => {
+    if (!activeGroup.value?.activeSessionId) return null
+    return (
+      activeGroup.value.sessions.find((s) => s.id === activeGroup.value!.activeSessionId) || null
+    )
+  })
+
+  function getLastSessionId(group: ConnectionGroup | null): string | null {
+    if (!group || group.sessions.length === 0) return null
+    return group.sessions[group.sessions.length - 1].id
+  }
+
+  function getGroupByConnectionId(connectionId: string | null): ConnectionGroup | null {
+    if (!connectionId) return null
+    return groups.value.find((g) => g.connectionId === connectionId) || null
+  }
+
+  function getGroupBySessionId(sessionId: string): ConnectionGroup | null {
+    return (
+      groups.value.find((g) => g.sessions.some((s) => s.id === sessionId)) || null
+    )
+  }
+
+  async function loadConnections() {
+    connections.value = await window.LiteConnect.getConnections()
+  }
+
+  async function loadRecentConnections() {
+    recentConnections.value = await window.LiteConnect.getRecentConnections()
+  }
+
+  function hydrateConnectionData(data: { connections: Connection[]; recentConnections: Connection[] }) {
+    connections.value = [...data.connections]
+    recentConnections.value = [...data.recentConnections]
+  }
+
+  async function initSessionPwd(sessionId: string) {
+    try {
+      const home = (await window.LiteConnect.sftpExecHome(sessionId)).trim()
+      if (home) {
+        deps.pwdTracker.initSession(sessionId, home)
+        if (!getSftpListedCwd(sessionId)) setSftpListedCwd(sessionId, home)
+      }
+    } catch (err) {
+      console.warn('[PWD] Failed to initialize session home:', err)
+    }
+  }
+
+  /**
+   * Serialize connects per connectionId so concurrent multi-tab reconnects
+   * each get their own session (instead of silently dropping the second call).
+   * Entry points are deduplicated separately; explicit new-terminal actions
+   * still create one session per request for the intentional multi-session UX.
+   */
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
+  let workspaceReady = false
+
+  function schedulePersistWorkspace() {
+    if (!workspaceReady) return
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      void persistWorkspaceTabs()
+    }, 400)
+  }
+
+  async function persistWorkspaceTabs() {
+    try {
+      const enabled = await window.LiteConnect.getWorkspaceRestoreEnabled?.()
+      if (!enabled) return
+      if (groups.value.length === 0) {
+        await window.LiteConnect.setWorkspaceTabs(null)
+        return
+      }
+      await window.LiteConnect.setWorkspaceTabs({
+        version: 1,
+        homeActive: activeGroupId.value === HOME_ID,
+        activeConnectionId: activeGroupId.value === HOME_ID ? null : activeGroupId.value,
+        groups: groups.value.map((g) => ({
+          connectionId: g.connectionId,
+          sessionCount: g.sessions.length,
+          sessionIds: g.sessions.map((session) => session.id),
+          activeIndex: Math.max(
+            0,
+            g.sessions.findIndex((s) => s.id === g.activeSessionId),
+          ),
+        })),
+      })
+    } catch {
+      // ignore persist failures
+    }
+  }
+
+  function restorePendingGroup(
+    conn: Connection,
+    sessionCount: number,
+    activeIndex: number,
+    sessionIds?: string[],
+  ) {
+    if (groups.value.some((g) => g.connectionId === conn.id)) return
+    const count = Math.max(1, Math.min(8, sessionCount))
+    const sessions: Session[] = []
+    for (let i = 0; i < count; i++) {
+      sessions.push({
+        id: sessionIds?.[i] || crypto.randomUUID(),
+        connectionId: conn.id,
+        connectionName: conn.name,
+        tabNumber: i + 1,
+        pending: true,
+      })
+    }
+    const idx = Math.min(Math.max(0, activeIndex), sessions.length - 1)
+    groups.value.push({
+      connectionId: conn.id,
+      connectionName: conn.name,
+      sessions,
+      activeSessionId: sessions[idx].id,
+      nextTabNumber: count + 1,
+    })
+  }
+
+  async function restoreWorkspaceTabs() {
+    try {
+      const enabled = await window.LiteConnect.getWorkspaceRestoreEnabled?.()
+      if (!enabled) return
+      const saved = await window.LiteConnect.getWorkspaceTabs()
+      if (!saved?.groups?.length) return
+      if (connections.value.length === 0) await loadConnections()
+      for (const g of saved.groups) {
+        const conn = connections.value.find((c) => c.id === g.connectionId)
+        if (!conn) continue
+        restorePendingGroup(conn, g.sessionCount, g.activeIndex, g.sessionIds)
+      }
+      if (saved.homeActive || !saved.activeConnectionId) {
+        activeGroupId.value = HOME_ID
+      } else if (groups.value.some((g) => g.connectionId === saved.activeConnectionId)) {
+        activeGroupId.value = saved.activeConnectionId
+      } else if (groups.value[0]) {
+        activeGroupId.value = groups.value[0].connectionId
+      }
+    } catch {
+      // ignore
+    } finally {
+      workspaceReady = true
+    }
+  }
+
+  watch(
+    () =>
+      groups.value.map((g) => `${g.connectionId}:${g.sessions.length}:${g.activeSessionId}`).join('|')
+      + `|${activeGroupId.value}`,
+    () => schedulePersistWorkspace(),
+  )
+
+  function onWorkspaceRestoreSetting(e: Event) {
+    const enabled = (e as CustomEvent<{ enabled?: boolean }>).detail?.enabled === true
+    if (enabled) void persistWorkspaceTabs()
+  }
+
+  onMounted(() => {
+    window.addEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+  })
+
+  const connectTail = new Map<string, Promise<void>>()
+  const entryAttemptGate = createConnectionAttemptGate<string | null>()
+
+  function setConnectionPending(connectionId: string, pending: boolean) {
+    const next = new Set(connectingConnectionIds.value)
+    if (pending) next.add(connectionId)
+    else next.delete(connectionId)
+    connectingConnectionIds.value = next
+  }
+
+  async function createSession(connectionId: string): Promise<string | null> {
+    const prev = connectTail.get(connectionId) ?? Promise.resolve()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const chained = prev.catch(() => {}).then(() => gate)
+    connectTail.set(connectionId, chained)
+
+    await prev.catch(() => {})
+    try {
+      let conn = connections.value.find((c) => c.id === connectionId)
+      if (!conn) {
+        await loadConnections()
+        conn = connections.value.find((c) => c.id === connectionId)
+      }
+      if (!conn) return null
+
+      const sessionId = await window.LiteConnect.sshConnect(connectionId)
+      // 真正连上后清零自动重试计数
+      clearAutoReconnectAttempts(connectionId)
+      void initSessionPwd(sessionId)
+      conn = connections.value.find((c) => c.id === connectionId) || conn
+      let group = groups.value.find((g) => g.connectionId === connectionId)
+
+      // Defensive: skip if this session id is already listed (should not happen after
+      // main-process stopped sharing in-flight connect promises).
+      if (group?.sessions.some((s) => s.id === sessionId)) {
+        group.activeSessionId = sessionId
+        activeGroupId.value = connectionId
+        return sessionId
+      }
+
+      const session: Session = {
+        id: sessionId,
+        connectionId,
+        connectionName: conn.name,
+        tabNumber: 0,
+      }
+
+      if (group) {
+        session.tabNumber = group.nextTabNumber++
+        group.sessions.push(session)
+        group.activeSessionId = sessionId
+      } else {
+        session.tabNumber = 1
+        group = {
+          connectionId,
+          connectionName: conn.name,
+          sessions: [session],
+          activeSessionId: sessionId,
+          nextTabNumber: 2,
+        }
+        groups.value.push(group)
+      }
+
+      activeGroupId.value = connectionId
+      const sb = requireSidebar()
+      sb.setSidebarTarget(connectionId, sessionId)
+      sb.aiSidebarVisible.value = false
+      sb.sidebarVisible.value = true
+      await window.LiteConnect.recordRecentConnection(connectionId)
+      await loadRecentConnections()
+      // Reflect useCount / lastConnectedAt in local list when stats are enabled
+      try {
+        const statsOn = await window.LiteConnect.getConnectionUsageStatsEnabled()
+        if (statsOn) {
+          const now = Date.now()
+          connections.value = connections.value.map((item) =>
+            item.id === connectionId
+              ? {
+                  ...item,
+                  useCount: (item.useCount || 0) + 1,
+                  lastConnectedAt: now,
+                }
+              : item,
+          )
+        }
+      } catch {
+        // ignore stats refresh failures
+      }
+      return sessionId
+    } catch (err: any) {
+      console.error('SSH connection failed:', err)
+      const raw = err?.message || ''
+      const detailKey = sshDisconnectDetailKey(raw)
+      ElMessage.error(detailKey ? t(detailKey) : (raw || t('terminal.connectFailed')))
+      return null
+    } finally {
+      release()
+      if (connectTail.get(connectionId) === chained) {
+        connectTail.delete(connectionId)
+      }
+    }
+  }
+
+  function connectFromEntry(connectionId: string) {
+    return entryAttemptGate.run(
+      connectionId,
+      () => createSession(connectionId),
+      setConnectionPending,
+    )
+  }
+
+  function onConnect(connectionId: string) {
+    return connectFromEntry(connectionId)
+  }
+
+  function syncConnectionName(connection: Connection) {
+    connections.value = connections.value.map((item) =>
+      item.id === connection.id ? { ...item, ...connection } : item,
+    )
+    recentConnections.value = recentConnections.value.map((item) =>
+      item.id === connection.id ? { ...item, ...connection } : item,
+    )
+
+    const group = groups.value.find((item) => item.connectionId === connection.id)
+    if (!group) return
+
+    group.connectionName = connection.name
+    for (const session of group.sessions) {
+      session.connectionName = connection.name
+    }
+  }
+
+  function onSelectGroup(connectionId: string) {
+    activeGroupId.value = connectionId
+  }
+
+  function onSelectHome() {
+    activeGroupId.value = HOME_ID
+  }
+
+  function onQuickConnect(connectionId: string) {
+    return connectFromEntry(connectionId)
+  }
+
+  async function onCloseGroup(connectionId: string) {
+    const group = getGroupByConnectionId(connectionId)
+    if (!group) return
+
+    const sessionIds = group.sessions.map((s) => s.id)
+    for (const sessionId of sessionIds) {
+      deps.disposeAiSession?.(sessionId)
+      try {
+        await window.LiteConnect.sshDisconnect(sessionId)
+      } catch {}
+    }
+
+    const idx = groups.value.findIndex((g) => g.connectionId === connectionId)
+    if (idx !== -1) groups.value.splice(idx, 1)
+
+    const sb = requireSidebar()
+    if (sb.sidebarGroupId.value === connectionId) {
+      sb.setSidebarTarget(null, null)
+    }
+
+    if (activeGroupId.value === connectionId) {
+      activeGroupId.value = groups.value.length > 0 ? groups.value[0].connectionId : HOME_ID
+    }
+
+    sb.syncSidebarState()
+  }
+
+  function removeSessionFromState(sessionId: string) {
+    deps.disposeAiSession?.(sessionId)
+    const group = getGroupBySessionId(sessionId)
+    if (!group) return
+
+    const idx = group.sessions.findIndex((s) => s.id === sessionId)
+    if (idx === -1) return
+
+    group.sessions.splice(idx, 1)
+    deps.pwdTracker.removeSession(sessionId)
+    clearSftpListedCwd(sessionId)
+    const sb = requireSidebar()
+    sb.fileSidebarRef.value?.clearSessionState(sessionId)
+
+    if (group.activeSessionId === sessionId) {
+      group.activeSessionId = getLastSessionId(group)
+    }
+
+    if (
+      sb.sidebarGroupId.value === group.connectionId &&
+      sb.sidebarSessionId.value === sessionId
+    ) {
+      sb.sidebarSessionId.value =
+        group.activeSessionId || getLastSessionId(group)
+    }
+
+    if (group.sessions.length === 0) {
+      const groupIdx = groups.value.findIndex(
+        (item) => item.connectionId === group.connectionId,
+      )
+      if (groupIdx !== -1) groups.value.splice(groupIdx, 1)
+
+      if (sb.sidebarGroupId.value === group.connectionId) {
+        sb.setSidebarTarget(null, null)
+      }
+
+      if (activeGroupId.value === group.connectionId) {
+        activeGroupId.value =
+          groups.value.length > 0 ? groups.value[0].connectionId : HOME_ID
+      }
+    }
+
+    sb.syncSidebarState()
+  }
+
+  async function onCloseSession(sessionId: string) {
+    const group = getGroupBySessionId(sessionId)
+    if (group) clearAutoReconnectAttempts(group.connectionId)
+    deps.disposeAiSession?.(sessionId)
+    await window.LiteConnect.sshDisconnect(sessionId)
+    removeSessionFromState(sessionId)
+  }
+
+  function onSessionClosed(sessionId: string) {
+    removeSessionFromState(sessionId)
+  }
+
+  function onSelectSession(sessionId: string) {
+    if (!activeGroup.value) return
+    activeGroup.value.activeSessionId = sessionId
+    requireSidebar().setSidebarTarget(activeGroup.value.connectionId, sessionId)
+  }
+
+  function hasOpenSession(sessionId: string): boolean {
+    return groups.value.some((g) => g.sessions.some((s) => s.id === sessionId))
+  }
+
+  /**
+   * Attach a main-process session that already exists (e.g. after Host Key confirm
+   * on first connect). Avoids orphan sessions that never get a TerminalTab.
+   */
+  async function adoptSession(connectionId: string, sessionId: string) {
+    if (!sessionId || hasOpenSession(sessionId)) return
+
+    let conn = connections.value.find((c) => c.id === connectionId)
+    if (!conn) {
+      await loadConnections()
+      conn = connections.value.find((c) => c.id === connectionId)
+    }
+    if (!conn) return
+
+    clearAutoReconnectAttempts(connectionId)
+    void initSessionPwd(sessionId)
+
+    const session: Session = {
+      id: sessionId,
+      connectionId,
+      connectionName: conn.name,
+      tabNumber: 0,
+    }
+
+    let group = groups.value.find((g) => g.connectionId === connectionId)
+    if (group) {
+      session.tabNumber = group.nextTabNumber++
+      group.sessions.push(session)
+      group.activeSessionId = sessionId
+    } else {
+      session.tabNumber = 1
+      group = {
+        connectionId,
+        connectionName: conn.name,
+        sessions: [session],
+        activeSessionId: sessionId,
+        nextTabNumber: 2,
+      }
+      groups.value.push(group)
+    }
+
+    activeGroupId.value = connectionId
+    const sb = requireSidebar()
+    sb.setSidebarTarget(connectionId, sessionId)
+    sb.aiSidebarVisible.value = false
+    sb.sidebarVisible.value = true
+    await window.LiteConnect.recordRecentConnection(connectionId)
+    await loadRecentConnections()
+  }
+
+  return {
+    HOME_ID,
+    groups,
+    connections,
+    recentConnections,
+    connectingConnectionIds,
+    activeGroupId,
+    isHomeActive,
+    activeGroup,
+    activeSessionId,
+    activeSession,
+    createSession,
+    adoptSession,
+    hasOpenSession,
+    onConnect,
+    onCloseGroup,
+    onCloseSession,
+    removeSessionFromState,
+    syncConnectionName,
+    onSelectGroup,
+    onSelectHome,
+    onQuickConnect,
+    onSelectSession,
+    onSessionClosed,
+    loadConnections,
+    loadRecentConnections,
+    hydrateConnectionData,
+    getGroupByConnectionId,
+    getGroupBySessionId,
+    getLastSessionId,
+    connectSidebar,
+    restoreWorkspaceTabs,
+  }
+}

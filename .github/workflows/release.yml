@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            cache_paths: |
+              ~\AppData\Local\electron\Cache
+              ~\AppData\Local\electron-builder\Cache
+          - os: macos-latest
+            cache_paths: |
+              ~/Library/Caches/electron
+              ~/Library/Caches/electron-builder
+          - os: ubuntu-latest
+            cache_paths: |
+              ~/.cache/electron
+              ~/.cache/electron-builder
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.cache_paths }}
+          key: electron-${{ matrix.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Check tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      # Every platform builds privately. Publishing from inside the matrix makes
+      # the first completed platform expose an incomplete release to updaters.
+      - name: Package
+        run: npx electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiteConnect-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: LiteConnect-*
+          path: release
+          merge-multiple: true
+      - name: Verify complete updater release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f release/latest.yml
+          test -f release/latest-mac.yml
+          test -f release/latest-linux.yml
+          compgen -G 'release/*.exe' >/dev/null
+          compgen -G 'release/*.dmg' >/dev/null
+          compgen -G 'release/*.AppImage' >/dev/null
+          compgen -G 'release/*.deb' >/dev/null
+      # The release becomes public only here, after every platform and updater
+      # manifest has completed. Clients can never observe a half-built release.
+      - name: Publish complete GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml

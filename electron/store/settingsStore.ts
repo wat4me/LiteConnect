@@ -1,0 +1,1306 @@
+import { normalizeAiToolRounds, DEFAULT_AI_TOOL_ROUNDS } from '../../shared/aiToolLimits'
+/**
+ * Persisted app settings. Public API stays on this class so IPC callers do not change.
+ * New keys: add to AppSettingsAll, then getAll() + applyMany(). Prefer settings:setMany
+ * over a new one-off getter/setter IPC pair.
+ */
+import { app, safeStorage } from 'electron'
+import { join } from 'path'
+import { randomBytes } from 'crypto'
+import { DecryptionError, isValidUUID } from '../utils/validation'
+import { getAppDatabase, SINGLETONS } from './appDatabase'
+import { sealSecret } from '../utils/secretCrypto'
+import { appBackgroundImageUrl, sanitizeWallpaperFileName } from '../window/appBackgroundProtocol'
+import { getDefaultAiSystemPrompt, LEGACY_AI_SYSTEM_PROMPT } from '../utils/constants'
+import {
+  clampContextWindowTokens,
+  firstAiModelId,
+  parseAiModels,
+  resolveModelContextWindow,
+} from '../../shared/aiContext'
+import { t } from '../i18n'
+import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
+import { sanitizeAiToolPermission, type AiToolPermissionMode } from '../../shared/aiToolPolicy'
+import {
+  normalizeAiHistoryMaxMessages,
+  normalizeAiHistoryMaxThreads,
+} from '../../shared/aiHistoryLimits'
+import { normalizeConnectionSortMode, type ConnectionSortMode } from '../../shared/connectionSort'
+import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
+import {
+  DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
+  sanitizeTerminalPasteConfirmMaxChars,
+  TERMINAL_PASTE_CONFIRM_MAX_CHARS_OPTIONS as PASTE_MAX_CHARS_OPTIONS,
+} from './pasteConfirmMaxChars'
+import {
+  DB_DEFAULT_MAX_ROWS,
+  DB_DEFAULT_QUERY_TIMEOUT_SEC,
+  sanitizeDbDefaultMaxRows,
+  sanitizeDbDefaultQueryTimeoutSec,
+  sanitizeDbDefaultRunScope,
+  type DbDefaultRunScope,
+} from './dbQueryTabDefaults'
+import type {
+  AppSettingsAll,
+  AppSettingsAllPatch,
+  WorkspaceTabsState,
+} from '../../shared/types/settings'
+
+export type SettingsAll = AppSettingsAll
+export type SettingsAllPatch = AppSettingsAllPatch
+export type { WorkspaceTabsState }
+
+function normalizeWorkspaceSessionIds(raw: unknown, count: number): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const ids = Array.from(new Set(raw.filter(
+    (id: unknown): id is string => typeof id === 'string' && isValidUUID(id),
+  ))).slice(0, count)
+  return ids.length === count ? ids : undefined
+}
+
+export class SettingsStore {
+  private settings: Record<string, any> = {}
+  private readonly recentConnectionsLimit = 12
+  private initialized = false
+  private initPromise: Promise<void> | null = null
+  private migrated = false
+  private migratePromise: Promise<void> | null = null
+
+  /** JSON parse only. Theme / bootstrap getters are valid after this. */
+  async init(): Promise<void> {
+    if (this.initialized) return
+    if (!this.initPromise) {
+      this.initPromise = this.loadCore().then(() => {
+        this.initialized = true
+      })
+    }
+    await this.initPromise
+  }
+
+  async readThemeForWindow(): Promise<{
+    theme: string
+    customColors: { fontColor: string; bgColor: string } | null
+  }> {
+    await this.init()
+    const theme = this.getTheme()
+    return {
+      theme,
+      customColors: theme === 'custom' ? this.getCustomColors() : null,
+    }
+  }
+
+  /** AI key / legacy layout migrations. Safe to run after the first window. */
+  async initMigrations(): Promise<void> {
+    await this.init()
+    if (this.migrated) return
+    if (!this.migratePromise) {
+      this.migratePromise = this.runMigrations()
+        .then(() => {
+          this.migrated = true
+        })
+        .catch((err) => {
+          this.migratePromise = null
+          throw err
+        })
+    }
+    await this.migratePromise
+  }
+
+  private async loadCore(): Promise<void> {
+    this.settings = getAppDatabase().getSingleton<Record<string, any>>(SINGLETONS.settings) || {}
+  }
+
+  private async runMigrations(): Promise<void> {
+    if ('workspaceLayout' in this.settings) {
+      delete this.settings.workspaceLayout
+      await this.save()
+    }
+
+    if (this.needsLegacyAiMigration()) {
+      await this.migrateLegacyAi()
+    } else if (this.needsApiKeyMigration()) {
+      await this.migrateApiKey()
+    }
+  }
+
+  private needsLegacyAiMigration(): boolean {
+    const ai = this.settings.ai
+    if (!ai || typeof ai !== 'object') return false
+    return typeof ai.baseUrl === 'string' && !Array.isArray(ai.providers)
+  }
+
+  private async migrateLegacyAi(): Promise<void> {
+    const ai = this.settings.ai
+    if (!ai || typeof ai !== 'object') return
+    const rawApiKey = typeof ai.apiKey === 'string' ? ai.apiKey : ''
+    const apiKey = ai.apiKeyEncrypted ? this.decryptOrEmpty(rawApiKey) : rawApiKey
+    const baseUrl = typeof ai.baseUrl === 'string' && ai.baseUrl.trim() ? ai.baseUrl : 'https://api.openai.com/v1'
+    const model = typeof ai.model === 'string' && ai.model.trim() ? ai.model : 'gpt-4o-mini'
+    const providerId = 'default'
+    this.settings.ai = {
+      providers: [
+        {
+          id: providerId,
+          name: 'OpenAI',
+          baseUrl,
+          apiKey: this.encrypt(apiKey),
+          apiKeyEncrypted: safeStorage.isEncryptionAvailable() && !!apiKey,
+          models: [model],
+        },
+      ],
+      activeProviderId: providerId,
+      activeModel: model,
+      systemPrompt: typeof ai.systemPrompt === 'string' && ai.systemPrompt !== LEGACY_AI_SYSTEM_PROMPT
+        ? ai.systemPrompt
+        : getDefaultAiSystemPrompt(),
+    }
+    await this.save()
+  }
+
+  private needsApiKeyMigration(): boolean {
+    const ai = this.settings.ai
+    if (!ai || typeof ai !== 'object') return false
+    if (!Array.isArray(ai.providers)) return false
+    return ai.providers.some((p: any) => typeof p.apiKey === 'string' && p.apiKey && !p.apiKeyEncrypted)
+  }
+
+  private async migrateApiKey(): Promise<void> {
+    const ai = this.settings.ai
+    if (!ai || !Array.isArray(ai.providers)) return
+    let changed = false
+    for (const provider of ai.providers) {
+      if (typeof provider.apiKey === 'string' && provider.apiKey && !provider.apiKeyEncrypted) {
+        provider.apiKey = this.encrypt(provider.apiKey)
+        provider.apiKeyEncrypted = safeStorage.isEncryptionAvailable() && !!provider.apiKey
+        changed = true
+      }
+    }
+    if (changed) await this.save()
+  }
+
+  private async save(): Promise<void> {
+    getAppDatabase().setSingleton(SINGLETONS.settings, this.settings)
+  }
+
+  /** Resolved download directory (custom or OS default). */
+  getDownloadPath(): string {
+    return this.settings.downloadPath || app.getPath('downloads')
+  }
+
+  /** Always the OS "Downloads" folder (Electron app.getPath('downloads')). */
+  getDefaultDownloadPath(): string {
+    return app.getPath('downloads')
+  }
+
+  /**
+   * User-configured path only; empty string means "use system default".
+   * Prefer this when the UI needs to know whether a custom path is set.
+   */
+  getConfiguredDownloadPath(): string {
+    const p = this.settings.downloadPath
+    return typeof p === 'string' && p.trim() ? p.trim() : ''
+  }
+
+  async setDownloadPath(dirPath: string): Promise<void> {
+    this.settings.downloadPath = dirPath
+    await this.save()
+  }
+
+  getRecentConnectionIds(): string[] {
+    const ids = this.settings.recentConnectionIds
+    if (!Array.isArray(ids)) return []
+    return ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+  }
+
+  async recordRecentConnection(connectionId: string): Promise<void> {
+    const trimmedId = connectionId.trim()
+    if (!trimmedId) return
+
+    const ids = this.getRecentConnectionIds().filter((id) => id !== trimmedId)
+    ids.unshift(trimmedId)
+    this.settings.recentConnectionIds = ids.slice(0, this.recentConnectionsLimit)
+    await this.save()
+  }
+
+  async pruneRecentConnectionIds(validIds: string[]): Promise<void> {
+    const validSet = new Set(validIds)
+    const filtered = this.getRecentConnectionIds().filter((id) => validSet.has(id))
+    this.settings.recentConnectionIds = filtered
+    await this.save()
+  }
+
+  getTerminalFontSize(): number {
+    return this.settings.terminalFontSize || 14
+  }
+
+  async setTerminalFontSize(size: number): Promise<void> {
+    this.settings.terminalFontSize = Math.max(10, Math.min(24, size))
+    await this.save()
+  }
+
+  getTerminalFontFamily(): string {
+    const val = this.settings.terminalFontFamily
+    return typeof val === 'string' && val.trim() ? val.trim() : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
+  }
+
+  async setTerminalFontFamily(family: string): Promise<void> {
+    this.settings.terminalFontFamily = typeof family === 'string' && family.trim()
+      ? family.trim()
+      : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
+    await this.save()
+  }
+
+  /** Database client: SQL editor / grid monospace font (independent of terminal). */
+  getDbFontFamily(): string {
+    const val = this.settings.dbFontFamily
+    return typeof val === 'string' && val.trim()
+      ? val.trim()
+      : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
+  }
+
+  async setDbFontFamily(family: string): Promise<void> {
+    this.settings.dbFontFamily = typeof family === 'string' && family.trim()
+      ? family.trim()
+      : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
+    await this.save()
+  }
+
+  getDbFontSize(): number {
+    const n = this.settings.dbFontSize
+    if (typeof n !== 'number' || Number.isNaN(n)) return 13
+    return Math.max(10, Math.min(24, Math.round(n)))
+  }
+
+  async setDbFontSize(size: number): Promise<void> {
+    this.settings.dbFontSize = Math.max(10, Math.min(24, Math.round(size)))
+    await this.save()
+  }
+
+  /** Default rows-per-page when opening a table data tab. */
+  getDbPageSize(): number {
+    const n = this.settings.dbPageSize
+    const allowed = [50, 100, 200, 500]
+    if (typeof n === 'number' && allowed.includes(n)) return n
+    return 100
+  }
+
+  async setDbPageSize(size: number): Promise<void> {
+    const allowed = [50, 100, 200, 500]
+    this.settings.dbPageSize = allowed.includes(size) ? size : 100
+    await this.save()
+  }
+
+  /** Confirm DROP/TRUNCATE/UPDATE|DELETE without WHERE before run (DB-009). Default true. */
+  getDbConfirmDangerousSql(): boolean {
+    return this.settings.dbConfirmDangerousSql !== false
+  }
+
+  async setDbConfirmDangerousSql(enabled: boolean): Promise<void> {
+    this.settings.dbConfirmDangerousSql = !!enabled
+    await this.save()
+  }
+
+  /**
+   * Global default max rows for newly created query tabs (1..100000).
+   * Does not hot-overwrite open tabs or drafts with explicit values.
+   */
+  static readonly DEFAULT_DB_DEFAULT_MAX_ROWS = DB_DEFAULT_MAX_ROWS
+  static sanitizeDbDefaultMaxRows = sanitizeDbDefaultMaxRows
+
+  getDbDefaultMaxRows(): number {
+    return sanitizeDbDefaultMaxRows(this.settings.dbDefaultMaxRows)
+  }
+
+  async setDbDefaultMaxRows(n: number): Promise<void> {
+    this.settings.dbDefaultMaxRows = sanitizeDbDefaultMaxRows(n)
+    await this.save()
+  }
+
+  /**
+   * Global default query timeout for newly created query tabs (seconds, 1..600).
+   * Product default 120s; backend clamp remains authoritative at execute time.
+   */
+  static readonly DEFAULT_DB_DEFAULT_QUERY_TIMEOUT_SEC = DB_DEFAULT_QUERY_TIMEOUT_SEC
+  static sanitizeDbDefaultQueryTimeoutSec = sanitizeDbDefaultQueryTimeoutSec
+
+  getDbDefaultQueryTimeoutSec(): number {
+    return sanitizeDbDefaultQueryTimeoutSec(this.settings.dbDefaultQueryTimeoutSec)
+  }
+
+  async setDbDefaultQueryTimeoutSec(sec: number): Promise<void> {
+    this.settings.dbDefaultQueryTimeoutSec = sanitizeDbDefaultQueryTimeoutSec(sec)
+    await this.save()
+  }
+
+  /**
+   * Global default run scope for newly created query tabs.
+   * Per-tab popover still overrides; only seeds new tabs / legacy draft gaps.
+   */
+  static sanitizeDbDefaultRunScope = sanitizeDbDefaultRunScope
+
+  getDbDefaultRunScope(): DbDefaultRunScope {
+    return sanitizeDbDefaultRunScope(this.settings.dbDefaultRunScope)
+  }
+
+  async setDbDefaultRunScope(scope: string): Promise<void> {
+    this.settings.dbDefaultRunScope = sanitizeDbDefaultRunScope(scope)
+    await this.save()
+  }
+
+  /**
+   * How the titlebar SSH → DB switch opens the database module.
+   * Default `newWindow` keeps the dedicated OS window.
+   */
+  getDbOpenMode(): DbOpenMode {
+    return sanitizeDbOpenMode(this.settings.dbOpenMode)
+  }
+
+  /** UI theme follows data-theme; terminal palette can diverge (e.g. Dracula on dark UI). */
+  getTerminalPalette(): string {
+    const val = this.settings.terminalPalette
+    const allowed = ['auto', 'dark', 'light', 'eyecare', 'dracula', 'solarized-dark', 'solarized-light', 'monokai']
+    return typeof val === 'string' && allowed.includes(val) ? val : 'auto'
+  }
+
+  async setTerminalPalette(palette: string): Promise<void> {
+    this.settings.terminalPalette = palette
+    await this.save()
+  }
+
+  /** xterm scrollback lines (2k–20k). */
+  getTerminalScrollback(): number {
+    const n = this.settings.terminalScrollback
+    if (typeof n !== 'number' || Number.isNaN(n)) return 5000
+    return Math.max(2000, Math.min(20000, Math.round(n)))
+  }
+
+  async setTerminalScrollback(n: number): Promise<void> {
+    this.settings.terminalScrollback = Math.max(2000, Math.min(20000, Math.round(n)))
+    await this.save()
+  }
+
+  /** Confirm before pasting multi-line / long clipboard text. Default on. */
+  getTerminalPasteConfirmEnabled(): boolean {
+    return this.settings.terminalPasteConfirmEnabled !== false
+  }
+
+  async setTerminalPasteConfirmEnabled(enabled: boolean): Promise<void> {
+    this.settings.terminalPasteConfirmEnabled = enabled
+    await this.save()
+  }
+
+  /** Single-line paste confirm threshold (chars). Multiline always confirms when master switch on. */
+  static readonly TERMINAL_PASTE_CONFIRM_MAX_CHARS_OPTIONS = PASTE_MAX_CHARS_OPTIONS
+  static readonly DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS = PASTE_MAX_CHARS_DEFAULT
+  static sanitizeTerminalPasteConfirmMaxChars = sanitizeTerminalPasteConfirmMaxChars
+
+  getTerminalPasteConfirmMaxChars(): number {
+    return sanitizeTerminalPasteConfirmMaxChars(this.settings.terminalPasteConfirmMaxChars)
+  }
+
+  async setTerminalPasteConfirmMaxChars(n: number): Promise<void> {
+    this.settings.terminalPasteConfirmMaxChars = sanitizeTerminalPasteConfirmMaxChars(n)
+    await this.save()
+  }
+
+  /** Local shell history / parameter popup. Default off to preserve native SSH behavior. */
+  getTerminalCommandSuggestEnabled(): boolean {
+    return this.settings.terminalCommandSuggestEnabled === true
+  }
+
+  async setTerminalCommandSuggestEnabled(enabled: boolean): Promise<void> {
+    this.settings.terminalCommandSuggestEnabled = !!enabled
+    await this.save()
+  }
+
+  /** Default strategy when a local download path already exists. */
+  getDownloadConflictStrategy(): 'overwrite' | 'skip' | 'rename' {
+    const v = this.settings.downloadConflictStrategy
+    if (v === 'overwrite' || v === 'skip' || v === 'rename') return v
+    return 'rename'
+  }
+
+  async setDownloadConflictStrategy(strategy: string): Promise<void> {
+    if (strategy !== 'overwrite' && strategy !== 'skip' && strategy !== 'rename') {
+      throw new Error('Invalid download conflict strategy')
+    }
+    this.settings.downloadConflictStrategy = strategy
+    await this.save()
+  }
+
+  /** Concurrent files for directory SFTP transfer (default 3, clamp 1–8). */
+  getDirTransferConcurrency(): number {
+    const n = this.settings.dirTransferConcurrency
+    if (typeof n !== 'number' || !Number.isFinite(n)) return 3
+    return Math.max(1, Math.min(8, Math.round(n)))
+  }
+
+  async setDirTransferConcurrency(n: number): Promise<void> {
+    if (typeof n !== 'number' || !Number.isFinite(n)) {
+      throw new Error('Invalid directory transfer concurrency')
+    }
+    this.settings.dirTransferConcurrency = Math.max(1, Math.min(8, Math.round(n)))
+    await this.save()
+  }
+
+  /** On single-file failure during directory transfer: stop or continue. Default stop. */
+  getDirTransferFailPolicy(): 'continue' | 'stop' {
+    const v = this.settings.dirTransferFailPolicy
+    if (v === 'continue' || v === 'stop') return v
+    return 'stop'
+  }
+
+  async setDirTransferFailPolicy(policy: string): Promise<void> {
+    if (policy !== 'continue' && policy !== 'stop') {
+      throw new Error('Invalid directory transfer fail policy')
+    }
+    this.settings.dirTransferFailPolicy = policy
+    await this.save()
+  }
+
+  getAutoReconnectEnabled(): boolean {
+    return this.settings.autoReconnectEnabled !== false
+  }
+
+  async setAutoReconnectEnabled(enabled: boolean): Promise<void> {
+    this.settings.autoReconnectEnabled = enabled
+    await this.save()
+  }
+
+  /** When X11 forwarding is on and no local X is listening, try to start VcXsrv/Xming. Default on. */
+  getX11AutoStartEnabled(): boolean {
+    return this.settings.x11AutoStartEnabled !== false
+  }
+
+  async setX11AutoStartEnabled(enabled: boolean): Promise<void> {
+    this.settings.x11AutoStartEnabled = enabled
+    await this.save()
+  }
+
+  /** Optional full path to vcxsrv.exe / Xming.exe. Empty → auto-detect common install dirs. */
+  getX11ServerPath(): string {
+    const v = this.settings.x11ServerPath
+    return typeof v === 'string' ? v.trim() : ''
+  }
+
+  async setX11ServerPath(path: string): Promise<void> {
+    this.settings.x11ServerPath = typeof path === 'string' ? path.trim() : ''
+    await this.save()
+  }
+
+  getMcpHttpEnabled(): boolean {
+    return this.settings.mcpHttpEnabled === true
+  }
+
+  getMcpHttpPort(): number {
+    return sanitizeMcpHttpPort(this.settings.mcpHttpPort)
+  }
+
+  getMcpHttpToken(): string {
+    const raw = this.settings.mcpHttpToken
+    if (typeof raw !== 'string' || !raw) return ''
+    if (this.settings.mcpHttpTokenEncrypted) return this.decryptOrEmpty(raw)
+    return raw
+  }
+
+  async ensureMcpHttpToken(): Promise<string> {
+    const existing = this.getMcpHttpToken()
+    if (existing) return existing
+    return this.rotateMcpHttpToken()
+  }
+
+  async setMcpHttpEnabled(enabled: boolean): Promise<void> {
+    this.settings.mcpHttpEnabled = !!enabled
+    if (enabled) await this.ensureMcpHttpToken()
+    await this.save()
+  }
+
+  async setMcpHttpPort(port: number): Promise<void> {
+    this.settings.mcpHttpPort = sanitizeMcpHttpPort(port)
+    await this.save()
+  }
+
+  async rotateMcpHttpToken(): Promise<string> {
+    const token = randomBytes(32).toString('hex')
+    try {
+      this.settings.mcpHttpToken = this.encrypt(token)
+      this.settings.mcpHttpTokenEncrypted = true
+    } catch {
+      this.settings.mcpHttpToken = token
+      this.settings.mcpHttpTokenEncrypted = false
+    }
+    await this.save()
+    return token
+  }
+
+  getAutoReconnectMaxRetries(): number {
+    const n = this.settings.autoReconnectMaxRetries
+    if (typeof n !== 'number' || n < 0) return 5
+    return Math.min(20, Math.round(n))
+  }
+
+  async setAutoReconnectMaxRetries(n: number): Promise<void> {
+    this.settings.autoReconnectMaxRetries = Math.max(0, Math.min(20, Math.round(n)))
+    await this.save()
+  }
+
+  getCommandSnippets(): Array<{
+    id: string
+    name: string
+    command: string
+    group?: string
+    pinned?: boolean
+    sortOrder?: number
+    sendMode?: 'run' | 'fill'
+    hotkey?: string
+    useCount?: number
+    lastUsedAt?: number
+    createdAt: number
+    updatedAt: number
+  }> {
+    const list = this.settings.commandSnippets
+    if (!Array.isArray(list)) return []
+    return list
+      .filter((s: any) => s && typeof s.id === 'string' && typeof s.command === 'string')
+      .map((s: any, index: number) => this.normalizeSnippetRecord(s, index, false))
+  }
+
+  private normalizeSnippetRecord(s: any, index: number, bumpUpdatedAt: boolean) {
+    const now = Date.now()
+    const sendMode = s?.sendMode === 'fill' ? 'fill' : 'run'
+    const hotkey =
+      typeof s?.hotkey === 'string' && s.hotkey.trim() ? s.hotkey.trim().slice(0, 40) : undefined
+    return {
+      id: typeof s?.id === 'string' && s.id ? s.id : randomBytes(6).toString('hex'),
+      name: typeof s?.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 80) : t('common.unnamed'),
+      command: typeof s?.command === 'string' ? s.command.trim().slice(0, 8000) : '',
+      group: typeof s?.group === 'string' && s.group.trim() ? s.group.trim().slice(0, 40) : undefined,
+      pinned: s?.pinned === true,
+      sortOrder: typeof s?.sortOrder === 'number' && Number.isFinite(s.sortOrder) ? s.sortOrder : index,
+      sendMode: sendMode as 'run' | 'fill',
+      hotkey,
+      useCount: typeof s?.useCount === 'number' && s.useCount > 0 ? Math.round(s.useCount) : 0,
+      lastUsedAt: typeof s?.lastUsedAt === 'number' ? s.lastUsedAt : undefined,
+      createdAt: typeof s?.createdAt === 'number' ? s.createdAt : now,
+      updatedAt: bumpUpdatedAt
+        ? now
+        : typeof s?.updatedAt === 'number'
+          ? s.updatedAt
+          : now,
+    }
+  }
+
+  async setCommandSnippets(
+    snippets: Array<{
+      id?: string
+      name: string
+      command: string
+      group?: string
+      pinned?: boolean
+      sortOrder?: number
+      sendMode?: 'run' | 'fill'
+      hotkey?: string
+      useCount?: number
+      lastUsedAt?: number
+      createdAt?: number
+      updatedAt?: number
+    }>,
+  ): Promise<
+    Array<{
+      id: string
+      name: string
+      command: string
+      group?: string
+      pinned?: boolean
+      sortOrder?: number
+      sendMode?: 'run' | 'fill'
+      hotkey?: string
+      useCount?: number
+      lastUsedAt?: number
+      createdAt: number
+      updatedAt: number
+    }>
+  > {
+    const normalized = (Array.isArray(snippets) ? snippets : [])
+      .filter((s) => s && typeof s.command === 'string' && s.command.trim())
+      .slice(0, 200)
+      .map((s, index) => this.normalizeSnippetRecord(s, index, true))
+    this.settings.commandSnippets = normalized
+    await this.save()
+    return normalized
+  }
+
+  getRecentDownloadPaths(): string[] {
+    const paths = this.settings.recentDownloadPaths
+    if (!Array.isArray(paths)) return []
+    return paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
+  }
+
+  getCredentialAutoFillEnabled(): boolean {
+    return this.settings.credentialAutoFillEnabled === true
+  }
+
+  async setCredentialAutoFillEnabled(enabled: boolean): Promise<void> {
+    this.settings.credentialAutoFillEnabled = enabled
+    await this.save()
+  }
+
+  async addRecentDownloadPath(dirPath: string): Promise<void> {
+    const paths = this.getRecentDownloadPaths().filter((p) => p !== dirPath)
+    paths.unshift(dirPath)
+    this.settings.recentDownloadPaths = paths.slice(0, 5)
+    await this.save()
+  }
+
+  getLatencyEnabled(): boolean {
+    return this.settings.latencyEnabled !== false
+  }
+
+  async setLatencyEnabled(enabled: boolean): Promise<void> {
+    this.settings.latencyEnabled = enabled
+    await this.save()
+  }
+
+  /** Connection useCount / lastConnectedAt recording & list UI. Default on. */
+  getConnectionUsageStatsEnabled(): boolean {
+    return this.settings.connectionUsageStatsEnabled !== false
+  }
+
+  async setConnectionUsageStatsEnabled(enabled: boolean): Promise<void> {
+    this.settings.connectionUsageStatsEnabled = enabled
+    await this.save()
+  }
+
+  getConnectionSortMode(): ConnectionSortMode {
+    return normalizeConnectionSortMode(
+      this.settings.connectionSortMode,
+      this.getConnectionUsageStatsEnabled(),
+    )
+  }
+
+  /** Decorative cursor. Default off (native system cursor). */
+  getFancyCursorEnabled(): boolean {
+    return this.settings.fancyCursorEnabled === true
+  }
+
+  async setFancyCursorEnabled(enabled: boolean): Promise<void> {
+    this.settings.fancyCursorEnabled = enabled
+    await this.save()
+  }
+
+  /** ring | dot | trail | cross — default ring. */
+  getFancyCursorStyle(): string {
+    const v = this.settings.fancyCursorStyle
+    if (v === 'dot' || v === 'trail' || v === 'cross' || v === 'ring') return v
+    return 'ring'
+  }
+
+  async setFancyCursorStyle(style: string): Promise<void> {
+    const next =
+      style === 'dot' || style === 'trail' || style === 'cross' || style === 'ring' ? style : 'ring'
+    this.settings.fancyCursorStyle = next
+    await this.save()
+  }
+
+  getLatencyIntervalMs(): number {
+    const val = this.settings.latencyIntervalMs
+    if (typeof val !== 'number' || val < 1000) return 10000
+    if (val > 60000) return 60000
+    return val
+  }
+
+  async setLatencyIntervalMs(intervalMs: number): Promise<void> {
+    this.settings.latencyIntervalMs = Math.max(1000, Math.min(60000, Math.round(intervalMs)))
+    await this.save()
+  }
+
+  getMonitorEnabled(): boolean {
+    return this.settings.monitorEnabled !== false
+  }
+
+  async setMonitorEnabled(enabled: boolean): Promise<void> {
+    this.settings.monitorEnabled = enabled
+    await this.save()
+  }
+
+  getMonitorIntervalMs(): number {
+    const val = this.settings.monitorIntervalMs
+    if (typeof val !== 'number' || val < 2000) return 5000
+    if (val > 30000) return 30000
+    return val
+  }
+
+  async setMonitorIntervalMs(intervalMs: number): Promise<void> {
+    this.settings.monitorIntervalMs = Math.max(2000, Math.min(30000, Math.round(intervalMs)))
+    await this.save()
+  }
+
+  getAutoUpdateEnabled(): boolean {
+    // Default off: GitHub releases are often unreachable in restricted networks.
+    return this.settings.autoUpdateEnabled === true
+  }
+
+  async setAutoUpdateEnabled(enabled: boolean): Promise<void> {
+    this.settings.autoUpdateEnabled = enabled
+    await this.save()
+  }
+
+  getSkippedUpdateVersion(): string {
+    return this.settings.skippedUpdateVersion || ''
+  }
+
+  async setSkippedUpdateVersion(version: string): Promise<void> {
+    this.settings.skippedUpdateVersion = version
+    await this.save()
+  }
+
+  /** Remember open SSH tabs across restarts. Default off. */
+  getWorkspaceRestoreEnabled(): boolean {
+    return this.settings.workspaceRestoreEnabled === true
+  }
+
+  /** Hide to tray on window close instead of quitting. Default off. */
+  getCloseToTrayEnabled(): boolean {
+    return this.settings.closeToTrayEnabled === true
+  }
+
+  async setCloseToTrayEnabled(enabled: boolean): Promise<void> {
+    this.settings.closeToTrayEnabled = !!enabled
+    await this.save()
+  }
+
+  /** Global hotkey (Alt+Shift+L) to show/hide the window. Default off. */
+  getGlobalHotkeyEnabled(): boolean {
+    return this.settings.globalHotkeyEnabled === true
+  }
+
+  async setGlobalHotkeyEnabled(enabled: boolean): Promise<void> {
+    this.settings.globalHotkeyEnabled = !!enabled
+    await this.save()
+  }
+
+  /** Append remote shell output to per-session log files. Default off. */
+  getSessionLogEnabled(): boolean {
+    return this.settings.sessionLogEnabled === true
+  }
+
+  async setSessionLogEnabled(enabled: boolean): Promise<void> {
+    this.settings.sessionLogEnabled = !!enabled
+    await this.save()
+  }
+
+  async setWorkspaceRestoreEnabled(enabled: boolean): Promise<void> {
+    this.settings.workspaceRestoreEnabled = !!enabled
+    if (!enabled) delete this.settings.workspaceTabs
+    await this.save()
+  }
+
+  getWorkspaceTabs(): WorkspaceTabsState | null {
+    if (!this.getWorkspaceRestoreEnabled()) return null
+    const raw = this.settings.workspaceTabs
+    if (!raw || typeof raw !== 'object' || raw.version !== 1 || !Array.isArray(raw.groups)) return null
+    const groups = raw.groups
+      .filter((g: any) => g && typeof g.connectionId === 'string' && g.connectionId)
+      .slice(0, 30)
+      .map((g: any) => {
+        const sessionCount = Math.max(1, Math.min(8, Math.round(Number(g.sessionCount) || 1)))
+        const sessionIds = normalizeWorkspaceSessionIds(g.sessionIds, sessionCount)
+        return {
+          connectionId: String(g.connectionId),
+          sessionCount,
+          activeIndex: Math.max(0, Math.round(Number(g.activeIndex) || 0)),
+          ...(sessionIds ? { sessionIds } : {}),
+        }
+      })
+    if (groups.length === 0) return null
+    return {
+      version: 1,
+      homeActive: raw.homeActive === true,
+      activeConnectionId: typeof raw.activeConnectionId === 'string' ? raw.activeConnectionId : null,
+      groups,
+    }
+  }
+
+  async setWorkspaceTabs(state: WorkspaceTabsState | null): Promise<void> {
+    if (!this.getWorkspaceRestoreEnabled()) {
+      if (this.settings.workspaceTabs) {
+        delete this.settings.workspaceTabs
+        await this.save()
+      }
+      return
+    }
+    if (!state) {
+      delete this.settings.workspaceTabs
+      await this.save()
+      return
+    }
+    this.settings.workspaceTabs = {
+      version: 1,
+      homeActive: state.homeActive === true,
+      activeConnectionId: state.activeConnectionId || null,
+      groups: (state.groups || []).slice(0, 30).map((g) => {
+        const sessionCount = Math.max(1, Math.min(8, Math.round(g.sessionCount || 1)))
+        const sessionIds = normalizeWorkspaceSessionIds(g.sessionIds, sessionCount)
+        return {
+          connectionId: g.connectionId,
+          sessionCount,
+          activeIndex: Math.max(0, Math.round(g.activeIndex || 0)),
+          ...(sessionIds ? { sessionIds } : {}),
+        }
+      }),
+    }
+    await this.save()
+  }
+
+  getTheme(): string {
+    const t = this.settings.theme
+    return t === 'light' || t === 'eyecare' || t === 'custom' ? t : 'dark'
+  }
+
+  async setTheme(theme: string): Promise<void> {
+    this.settings.theme = theme
+    await this.save()
+  }
+
+  getCustomColors(): { fontColor: string; bgColor: string } | null {
+    const c = this.settings.customColors
+    if (!c || typeof c !== 'object') return null
+    if (typeof c.fontColor !== 'string' || typeof c.bgColor !== 'string') return null
+    return { fontColor: c.fontColor, bgColor: c.bgColor }
+  }
+
+  async setCustomColors(colors: { fontColor: string; bgColor: string }): Promise<void> {
+    this.settings.customColors = colors
+    await this.save()
+  }
+
+  /**
+   * Custom app wallpaper (file stored under userData/app-background/).
+   * `fileName` is basename only; empty means no image.
+   */
+  getAppBackground(): {
+    fileName: string
+    fit: 'cover' | 'contain' | 'fill'
+    overlay: number
+  } {
+    const raw = this.settings.appBackground
+    const rawName =
+      raw && typeof raw === 'object' && typeof raw.fileName === 'string' ? raw.fileName : ''
+    const fileName = sanitizeWallpaperFileName(rawName) || ''
+    const fit =
+      raw && typeof raw === 'object' && (raw.fit === 'contain' || raw.fit === 'fill' || raw.fit === 'cover')
+        ? raw.fit
+        : 'cover'
+    let overlay = 55
+    if (raw && typeof raw === 'object' && typeof raw.overlay === 'number') {
+      overlay = Math.max(0, Math.min(90, Math.round(raw.overlay)))
+    }
+    return { fileName, fit, overlay }
+  }
+
+  async setAppBackground(opts: {
+    fileName?: string
+    fit?: 'cover' | 'contain' | 'fill'
+    overlay?: number
+  }): Promise<void> {
+    const cur = this.getAppBackground()
+    const fit =
+      opts.fit === 'contain' || opts.fit === 'fill' || opts.fit === 'cover' ? opts.fit : cur.fit
+    const overlay =
+      typeof opts.overlay === 'number'
+        ? Math.max(0, Math.min(90, Math.round(opts.overlay)))
+        : cur.overlay
+    const fileName = typeof opts.fileName === 'string' ? opts.fileName : cur.fileName
+    this.settings.appBackground = { fileName, fit, overlay }
+    await this.save()
+  }
+
+  async clearAppBackgroundFile(): Promise<void> {
+    const cur = this.getAppBackground()
+    this.settings.appBackground = { fileName: '', fit: cur.fit, overlay: cur.overlay }
+    await this.save()
+  }
+
+  getAppBackgroundDir(): string {
+    return join(app.getPath('userData'), 'app-background')
+  }
+
+  private encrypt(value: string): string {
+    if (!value) return value
+    return sealSecret(value, {
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
+      unavailableMessage: t('crypto.encryptionUnavailable'),
+    }).value
+  }
+
+  private decrypt(value: string): string {
+    if (!value) return value
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        return safeStorage.decryptString(Buffer.from(value, 'base64'))
+      } catch {
+        throw new DecryptionError(t('crypto.apiKeyDecryptFailed'), 'apiKey')
+      }
+    }
+    return value
+  }
+
+  private decryptOrEmpty(value: string): string {
+    try {
+      return this.decrypt(value)
+    } catch {
+      return ''
+    }
+  }
+
+  getAiSettings(): {
+    maxToolRounds: number
+    providers: any[]
+    activeProviderId: string | null
+    activeModel: string
+    systemPrompt: string
+    temperature: number
+    contextWindowTokens?: number
+    toolPermission: AiToolPermissionMode
+    approvalNotifications: boolean
+    historyMaxThreads: number
+    historyMaxMessages: number
+  } {
+    const ai = this.settings.ai
+    if (!ai || !Array.isArray(ai.providers) || ai.providers.length === 0) {
+      return this.getDefaultAiSettings()
+    }
+    const providers = ai.providers.map((p: any) => this.normalizeAiProvider(p))
+    const activeProviderId = typeof ai.activeProviderId === 'string' && ai.activeProviderId
+      ? ai.activeProviderId
+      : (providers[0]?.id ?? null)
+    const activeProvider = providers.find((p: any) => p.id === activeProviderId) || providers[0]
+    const activeModel = typeof ai.activeModel === 'string' && ai.activeModel.trim()
+      ? ai.activeModel
+      : (firstAiModelId(activeProvider?.models) || 'gpt-4o-mini')
+    return {
+      providers,
+      activeProviderId,
+      activeModel,
+      systemPrompt: typeof ai.systemPrompt === 'string' && ai.systemPrompt !== LEGACY_AI_SYSTEM_PROMPT
+        ? ai.systemPrompt
+        : getDefaultAiSystemPrompt(),
+      temperature: this.clampAiTemperature(ai.temperature),
+      maxToolRounds: normalizeAiToolRounds(ai.maxToolRounds),
+      contextWindowTokens: clampContextWindowTokens(ai.contextWindowTokens),
+      toolPermission: sanitizeAiToolPermission(ai.toolPermission),
+      approvalNotifications: ai.approvalNotifications !== false,
+      historyMaxThreads: normalizeAiHistoryMaxThreads(ai.historyMaxThreads),
+      historyMaxMessages: normalizeAiHistoryMaxMessages(ai.historyMaxMessages),
+    }
+  }
+
+  private clampAiTemperature(raw: unknown): number {
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (Number.isNaN(n)) return 0.7
+    return Math.max(0, Math.min(2, Math.round(n * 100) / 100))
+  }
+
+  private getDefaultAiSettings() {
+    return {
+      providers: [],
+      activeProviderId: null,
+      activeModel: '',
+      systemPrompt: getDefaultAiSystemPrompt(),
+      temperature: 0.7,
+      maxToolRounds: DEFAULT_AI_TOOL_ROUNDS,
+      toolPermission: sanitizeAiToolPermission(undefined),
+      approvalNotifications: true,
+      historyMaxThreads: normalizeAiHistoryMaxThreads(undefined),
+      historyMaxMessages: normalizeAiHistoryMaxMessages(undefined),
+    }
+  }
+
+  private normalizeAiProvider(p: any): any {
+    const rawApiKey = typeof p.apiKey === 'string' ? p.apiKey : ''
+    const apiKey = p.apiKeyEncrypted ? this.decryptOrEmpty(rawApiKey) : rawApiKey
+    return {
+      id: typeof p.id === 'string' && p.id ? p.id : randomBytes(6).toString('hex'),
+      name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
+      baseUrl: typeof p.baseUrl === 'string' && p.baseUrl.trim() ? p.baseUrl.trim() : 'https://api.openai.com/v1',
+      apiKey,
+      models: parseAiModels(p.models),
+    }
+  }
+
+  async setAiSettings(settings: any): Promise<void> {
+    const providers = Array.isArray(settings.providers) ? settings.providers : []
+    this.settings.ai = {
+      providers: providers.map((p: any) => ({
+        id: typeof p.id === 'string' && p.id ? p.id : randomBytes(6).toString('hex'),
+        name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
+        baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '',
+        apiKey: this.encrypt(typeof p.apiKey === 'string' ? p.apiKey : ''),
+        apiKeyEncrypted: safeStorage.isEncryptionAvailable() && !!p.apiKey,
+        models: parseAiModels(p.models),
+      })),
+      activeProviderId: typeof settings.activeProviderId === 'string' ? settings.activeProviderId : (providers[0]?.id ?? null),
+      activeModel: typeof settings.activeModel === 'string' ? settings.activeModel.trim() : '',
+      systemPrompt: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : getDefaultAiSystemPrompt(),
+      temperature: this.clampAiTemperature(settings.temperature),
+      maxToolRounds: normalizeAiToolRounds(settings.maxToolRounds ?? this.settings.ai?.maxToolRounds),
+      // Keep reading leftover global value; new saves omit it when unset.
+      contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
+      toolPermission: sanitizeAiToolPermission(
+        settings.toolPermission ?? this.settings.ai?.toolPermission,
+      ),
+      approvalNotifications:
+        typeof settings.approvalNotifications === 'boolean'
+          ? settings.approvalNotifications
+          : this.settings.ai?.approvalNotifications !== false,
+      historyMaxThreads: normalizeAiHistoryMaxThreads(
+        settings.historyMaxThreads ?? this.settings.ai?.historyMaxThreads,
+      ),
+      historyMaxMessages: normalizeAiHistoryMaxMessages(
+        settings.historyMaxMessages ?? this.settings.ai?.historyMaxMessages,
+      ),
+    }
+    await this.save()
+  }
+
+  async switchAiModel(providerId: string, model: string): Promise<any> {
+    const ai = this.settings.ai
+    if (!ai || !Array.isArray(ai.providers)) return this.getAiSettings()
+    const provider = ai.providers.find((p: any) => p.id === providerId)
+    if (!provider) return this.getAiSettings()
+    ai.activeProviderId = providerId
+    ai.activeModel = model.trim() || firstAiModelId(provider.models)
+    await this.save()
+    return this.getAiSettings()
+  }
+
+  getAiResolvedConfig(): {
+    maxToolRounds: number
+    baseUrl: string
+    model: string
+    apiKey: string
+    systemPrompt: string
+    temperature: number
+    contextWindowTokens?: number
+    toolPermission: AiToolPermissionMode
+  } {
+    const settings = this.getAiSettings()
+    const provider = settings.providers.find((p: any) => p.id === settings.activeProviderId) || settings.providers[0]
+    if (!provider) {
+      return {
+        baseUrl: '',
+        model: '',
+        apiKey: '',
+        systemPrompt: settings.systemPrompt,
+        temperature: settings.temperature,
+      maxToolRounds: settings.maxToolRounds,
+        contextWindowTokens: settings.contextWindowTokens,
+        toolPermission: settings.toolPermission,
+      }
+    }
+    const model = settings.activeModel || firstAiModelId(provider.models)
+    return {
+      baseUrl: provider.baseUrl,
+      model,
+      apiKey: provider.apiKey,
+      systemPrompt: settings.systemPrompt,
+      temperature: settings.temperature,
+      maxToolRounds: settings.maxToolRounds,
+      contextWindowTokens: resolveModelContextWindow({
+        model,
+        models: provider.models,
+        fallback: settings.contextWindowTokens,
+      }),
+      toolPermission: settings.toolPermission,
+    }
+  }
+
+  getAll(): SettingsAll {
+    const bg = this.getAppBackground()
+    return {
+      theme: this.getTheme(),
+      customColors: this.getCustomColors(),
+      downloadPath: this.getDownloadPath(),
+      configuredDownloadPath: this.getConfiguredDownloadPath(),
+      defaultDownloadPath: this.getDefaultDownloadPath(),
+      terminalFontSize: this.getTerminalFontSize(),
+      terminalFontFamily: this.getTerminalFontFamily(),
+      terminalPalette: this.getTerminalPalette(),
+      terminalScrollback: this.getTerminalScrollback(),
+      terminalPasteConfirmEnabled: this.getTerminalPasteConfirmEnabled(),
+      terminalPasteConfirmMaxChars: this.getTerminalPasteConfirmMaxChars(),
+      terminalCommandSuggestEnabled: this.getTerminalCommandSuggestEnabled(),
+      downloadConflictStrategy: this.getDownloadConflictStrategy(),
+      dirTransferConcurrency: this.getDirTransferConcurrency(),
+      dirTransferFailPolicy: this.getDirTransferFailPolicy(),
+      dbFontFamily: this.getDbFontFamily(),
+      dbFontSize: this.getDbFontSize(),
+      dbPageSize: this.getDbPageSize(),
+      dbConfirmDangerousSql: this.getDbConfirmDangerousSql(),
+      dbDefaultMaxRows: this.getDbDefaultMaxRows(),
+      dbDefaultQueryTimeoutSec: this.getDbDefaultQueryTimeoutSec(),
+      dbDefaultRunScope: this.getDbDefaultRunScope(),
+      dbOpenMode: this.getDbOpenMode(),
+      latencyEnabled: this.getLatencyEnabled(),
+      latencyIntervalMs: this.getLatencyIntervalMs(),
+      connectionUsageStatsEnabled: this.getConnectionUsageStatsEnabled(),
+      connectionSortMode: this.getConnectionSortMode(),
+      fancyCursorEnabled: this.getFancyCursorEnabled(),
+      fancyCursorStyle: this.getFancyCursorStyle(),
+      appBackground: {
+        fileName: bg.fileName,
+        fit: bg.fit,
+        overlay: bg.overlay,
+        imageUrl: bg.fileName ? appBackgroundImageUrl(bg.fileName, Date.now()) : '',
+      },
+      monitorEnabled: this.getMonitorEnabled(),
+      monitorIntervalMs: this.getMonitorIntervalMs(),
+      autoReconnectEnabled: this.getAutoReconnectEnabled(),
+      workspaceRestoreEnabled: this.getWorkspaceRestoreEnabled(),
+      closeToTrayEnabled: this.getCloseToTrayEnabled(),
+      globalHotkeyEnabled: this.getGlobalHotkeyEnabled(),
+      sessionLogEnabled: this.getSessionLogEnabled(),
+      autoReconnectMaxRetries: this.getAutoReconnectMaxRetries(),
+      x11AutoStartEnabled: this.getX11AutoStartEnabled(),
+      x11ServerPath: this.getX11ServerPath(),
+      recentDownloadPaths: this.getRecentDownloadPaths(),
+    }
+  }
+
+  /** Apply many fields then persist once. Wallpaper file bytes are handled by IPC. */
+  async applyMany(patch: SettingsAllPatch): Promise<SettingsAll> {
+    if (patch.theme !== undefined) this.settings.theme = patch.theme
+    if (patch.customColors !== undefined) this.settings.customColors = patch.customColors
+    if (patch.downloadPath !== undefined) this.settings.downloadPath = patch.downloadPath
+    if (patch.terminalFontSize !== undefined) {
+      this.settings.terminalFontSize = Math.max(10, Math.min(24, Math.round(patch.terminalFontSize)))
+    }
+    if (patch.terminalFontFamily !== undefined) {
+      this.settings.terminalFontFamily =
+        typeof patch.terminalFontFamily === 'string' && patch.terminalFontFamily.trim()
+          ? patch.terminalFontFamily.trim()
+          : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
+    }
+    if (patch.terminalPalette !== undefined) {
+      const allowed = ['auto', 'dark', 'light', 'eyecare', 'dracula', 'solarized-dark', 'solarized-light', 'monokai']
+      if (allowed.includes(patch.terminalPalette)) this.settings.terminalPalette = patch.terminalPalette
+    }
+    if (patch.terminalScrollback !== undefined) {
+      this.settings.terminalScrollback = Math.max(2000, Math.min(20000, Math.round(patch.terminalScrollback)))
+    }
+    if (patch.terminalPasteConfirmEnabled !== undefined) {
+      this.settings.terminalPasteConfirmEnabled = !!patch.terminalPasteConfirmEnabled
+    }
+    if (patch.terminalPasteConfirmMaxChars !== undefined) {
+      this.settings.terminalPasteConfirmMaxChars = sanitizeTerminalPasteConfirmMaxChars(
+        patch.terminalPasteConfirmMaxChars,
+      )
+    }
+    if (patch.terminalCommandSuggestEnabled !== undefined) {
+      this.settings.terminalCommandSuggestEnabled = !!patch.terminalCommandSuggestEnabled
+    }
+    if (patch.downloadConflictStrategy !== undefined) {
+      const v = patch.downloadConflictStrategy
+      if (v === 'overwrite' || v === 'skip' || v === 'rename') this.settings.downloadConflictStrategy = v
+    }
+    if (patch.dirTransferConcurrency !== undefined) {
+      this.settings.dirTransferConcurrency = Math.max(1, Math.min(8, Math.round(patch.dirTransferConcurrency)))
+    }
+    if (patch.dirTransferFailPolicy !== undefined) {
+      if (patch.dirTransferFailPolicy === 'continue' || patch.dirTransferFailPolicy === 'stop') {
+        this.settings.dirTransferFailPolicy = patch.dirTransferFailPolicy
+      }
+    }
+    if (patch.dbFontFamily !== undefined) {
+      this.settings.dbFontFamily =
+        typeof patch.dbFontFamily === 'string' && patch.dbFontFamily.trim()
+          ? patch.dbFontFamily.trim()
+          : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
+    }
+    if (patch.dbFontSize !== undefined) {
+      this.settings.dbFontSize = Math.max(10, Math.min(24, Math.round(patch.dbFontSize)))
+    }
+    if (patch.dbPageSize !== undefined) {
+      const allowed = [50, 100, 200, 500]
+      this.settings.dbPageSize = allowed.includes(patch.dbPageSize) ? patch.dbPageSize : 100
+    }
+    if (patch.dbConfirmDangerousSql !== undefined) {
+      this.settings.dbConfirmDangerousSql = !!patch.dbConfirmDangerousSql
+    }
+    if (patch.dbDefaultMaxRows !== undefined) {
+      this.settings.dbDefaultMaxRows = sanitizeDbDefaultMaxRows(patch.dbDefaultMaxRows)
+    }
+    if (patch.dbDefaultQueryTimeoutSec !== undefined) {
+      this.settings.dbDefaultQueryTimeoutSec = sanitizeDbDefaultQueryTimeoutSec(patch.dbDefaultQueryTimeoutSec)
+    }
+    if (patch.dbDefaultRunScope !== undefined) {
+      this.settings.dbDefaultRunScope = sanitizeDbDefaultRunScope(patch.dbDefaultRunScope)
+    }
+    if (patch.dbOpenMode !== undefined) {
+      this.settings.dbOpenMode = sanitizeDbOpenMode(patch.dbOpenMode)
+    }
+    if (patch.latencyEnabled !== undefined) this.settings.latencyEnabled = !!patch.latencyEnabled
+    if (patch.latencyIntervalMs !== undefined) {
+      this.settings.latencyIntervalMs = Math.max(1000, Math.min(60000, Math.round(patch.latencyIntervalMs)))
+    }
+    if (patch.connectionUsageStatsEnabled !== undefined) {
+      this.settings.connectionUsageStatsEnabled = !!patch.connectionUsageStatsEnabled
+    }
+    if (patch.connectionSortMode !== undefined) {
+      this.settings.connectionSortMode = normalizeConnectionSortMode(
+        patch.connectionSortMode,
+        patch.connectionUsageStatsEnabled ?? this.getConnectionUsageStatsEnabled(),
+      )
+    } else if (patch.connectionUsageStatsEnabled === false) {
+      this.settings.connectionSortMode = 'manual'
+    }
+    if (patch.fancyCursorEnabled !== undefined) this.settings.fancyCursorEnabled = !!patch.fancyCursorEnabled
+    if (patch.fancyCursorStyle !== undefined) {
+      const s = patch.fancyCursorStyle
+      this.settings.fancyCursorStyle =
+        s === 'dot' || s === 'trail' || s === 'cross' || s === 'ring' ? s : 'ring'
+    }
+    if (patch.appBackground !== undefined) {
+      const cur = this.getAppBackground()
+      const next = patch.appBackground
+      const fit =
+        next.fit === 'contain' || next.fit === 'fill' || next.fit === 'cover' ? next.fit : cur.fit
+      const overlay =
+        typeof next.overlay === 'number' ? Math.max(0, Math.min(90, Math.round(next.overlay))) : cur.overlay
+      const fileName = typeof next.fileName === 'string' ? next.fileName : cur.fileName
+      this.settings.appBackground = { fileName, fit, overlay }
+    }
+    if (patch.monitorEnabled !== undefined) this.settings.monitorEnabled = !!patch.monitorEnabled
+    if (patch.monitorIntervalMs !== undefined) {
+      this.settings.monitorIntervalMs = Math.max(2000, Math.min(30000, Math.round(patch.monitorIntervalMs)))
+    }
+    if (patch.autoReconnectEnabled !== undefined) {
+      this.settings.autoReconnectEnabled = !!patch.autoReconnectEnabled
+    }
+    if (patch.workspaceRestoreEnabled !== undefined) {
+      this.settings.workspaceRestoreEnabled = !!patch.workspaceRestoreEnabled
+      if (!this.settings.workspaceRestoreEnabled) delete this.settings.workspaceTabs
+    }
+    if (patch.closeToTrayEnabled !== undefined) {
+      this.settings.closeToTrayEnabled = !!patch.closeToTrayEnabled
+    }
+    if (patch.globalHotkeyEnabled !== undefined) {
+      this.settings.globalHotkeyEnabled = !!patch.globalHotkeyEnabled
+    }
+    if (patch.sessionLogEnabled !== undefined) {
+      this.settings.sessionLogEnabled = !!patch.sessionLogEnabled
+    }
+    if (patch.autoReconnectMaxRetries !== undefined) {
+      this.settings.autoReconnectMaxRetries = Math.max(0, Math.min(20, Math.round(patch.autoReconnectMaxRetries)))
+    }
+    if (patch.x11AutoStartEnabled !== undefined) {
+      this.settings.x11AutoStartEnabled = !!patch.x11AutoStartEnabled
+    }
+    if (patch.x11ServerPath !== undefined) {
+      this.settings.x11ServerPath = typeof patch.x11ServerPath === 'string' ? patch.x11ServerPath.trim() : ''
+    }
+    await this.save()
+    return this.getAll()
+  }
+}

@@ -1,0 +1,277 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import type { McpHttpStatus } from '../../env.d'
+import { MCP_HTTP_DEFAULT_PORT } from '@shared/mcp/limits'
+
+const { t } = useI18n()
+
+const mcpStatus = ref<McpHttpStatus | null>(null)
+const mcpBusy = ref(false)
+const mcpPortDraft = ref(MCP_HTTP_DEFAULT_PORT)
+
+async function refreshMcpStatus() {
+  try {
+    const st = await window.LiteConnect.mcpGetHttpStatus()
+    mcpStatus.value = st
+    mcpPortDraft.value = st.port
+  } catch {
+    mcpStatus.value = null
+  }
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success(t('common.copied'))
+  } catch {
+    ElMessage.error(t('common.copyFailed'))
+  }
+}
+
+async function toggleMcp() {
+  if (!mcpStatus.value || mcpBusy.value) return
+  const next = !mcpStatus.value.enabled
+  if (next) {
+    try {
+      await appConfirm({
+        title: t('settingsMcp.enableTitle'),
+        message: t('settingsMcp.enableMessage'),
+        confirmText: t('settingsMcp.enableConfirm'),
+        tone: 'warning',
+      })
+    } catch {
+      return
+    }
+  }
+  mcpBusy.value = true
+  try {
+    mcpStatus.value = await window.LiteConnect.mcpSetHttpEnabled(next)
+    mcpPortDraft.value = mcpStatus.value.port
+  } catch (err: any) {
+    ElMessage.error(
+      t('settingsMcp.startFailed', {
+        error: typeof err?.message === 'string' ? err.message : String(err),
+      }),
+    )
+    await refreshMcpStatus()
+  } finally {
+    mcpBusy.value = false
+  }
+}
+
+async function applyMcpPort() {
+  if (mcpBusy.value) return
+  const port = Math.max(1024, Math.min(65535, Math.round(Number(mcpPortDraft.value)) || MCP_HTTP_DEFAULT_PORT))
+  mcpBusy.value = true
+  try {
+    mcpStatus.value = await window.LiteConnect.mcpSetHttpPort(port)
+    mcpPortDraft.value = mcpStatus.value.port
+  } catch (err: any) {
+    ElMessage.error(
+      t('settingsMcp.startFailed', {
+        error: typeof err?.message === 'string' ? err.message : String(err),
+      }),
+    )
+    await refreshMcpStatus()
+  } finally {
+    mcpBusy.value = false
+  }
+}
+
+async function rotateMcpToken() {
+  if (mcpBusy.value) return
+  try {
+    await appConfirm({
+      title: t('settingsMcp.rotateTitle'),
+      message: t('settingsMcp.rotateMessage'),
+      confirmText: t('settingsMcp.rotateConfirm'),
+      tone: 'warning',
+    })
+  } catch {
+    return
+  }
+  mcpBusy.value = true
+  try {
+    mcpStatus.value = await window.LiteConnect.mcpRotateHttpToken()
+  } finally {
+    mcpBusy.value = false
+  }
+}
+
+const shareCard = computed(() => {
+  const st = mcpStatus.value
+  if (!st) return ''
+  const health = st.url.replace(/\/mcp\/?$/, '/health')
+  return t('settingsMcp.shareCard', { url: st.url, token: st.token, health })
+})
+
+const authHeader = computed(() => {
+  const token = mcpStatus.value?.token
+  return token ? `Authorization: Bearer ${token}` : ''
+})
+
+const agentPrompt = computed(() => {
+  const st = mcpStatus.value
+  if (!st?.url || !st.token) return ''
+  return t('settingsMcp.agentPrompt', { url: st.url, token: st.token })
+})
+
+onMounted(() => {
+  void refreshMcpStatus()
+})
+</script>
+
+<template>
+  <section class="settings-content" data-setting="mcp">
+    <header class="content-header">
+      <h3>{{ t('settingsMcp.title') }}</h3>
+      <p>{{ t('settingsMcp.intro') }}</p>
+    </header>
+    <div class="settings-card">
+      <div class="settings-label" data-setting="mcp.service">{{ t('settingsMcp.service') }}</div>
+      <div class="toggle-row">
+        <span>{{ mcpStatus?.enabled ? t('settingsMcp.enabled') : t('settingsMcp.disabled') }}</span>
+        <button
+          type="button"
+          class="toggle-btn"
+          :class="{ active: !!mcpStatus?.enabled }"
+          :disabled="mcpBusy || !mcpStatus"
+          @click="toggleMcp"
+        >
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+      <p class="settings-hint">{{ t('settingsMcp.hint') }}</p>
+      <p class="settings-hint" :class="{ warn: !!mcpStatus?.lastError }">
+        <template v-if="mcpStatus?.listening">{{ t('settingsMcp.listening', { url: mcpStatus.url }) }}</template>
+        <template v-else-if="mcpStatus?.lastError">{{ t('settingsMcp.startFailed', { error: mcpStatus.lastError }) }}</template>
+        <template v-else>{{ t('settingsMcp.stopped') }}</template>
+      </p>
+      <div class="settings-label" style="margin-top: 12px" data-setting="mcp.port">{{ t('settingsMcp.port') }}</div>
+      <div class="path-row">
+        <input
+          v-model.number="mcpPortDraft"
+          class="settings-input mcp-port-input"
+          type="number"
+          min="1024"
+          max="65535"
+        />
+        <button type="button" class="ui-btn" :disabled="mcpBusy || !mcpStatus" @click="applyMcpPort">
+          {{ t('settingsMcp.applyPort') }}
+        </button>
+      </div>
+      <div class="settings-label" style="margin-top: 12px" data-setting="mcp.token">{{ t('settingsMcp.token') }}</div>
+      <div class="path-row">
+        <input class="settings-input" type="text" readonly :value="mcpStatus?.token || ''" />
+        <button
+          type="button"
+          class="ui-btn"
+          :disabled="!mcpStatus?.token"
+          @click="mcpStatus && copyText(mcpStatus.token)"
+        >
+          {{ t('settingsMcp.copyToken') }}
+        </button>
+        <button type="button" class="ui-btn" :disabled="mcpBusy || !mcpStatus" @click="rotateMcpToken">
+          {{ t('settingsMcp.rotate') }}
+        </button>
+      </div>
+      <div class="settings-label" style="margin-top: 16px">{{ t('settingsMcp.anyClient') }}</div>
+      <p class="settings-hint">{{ t('settingsMcp.anyClientHint') }}</p>
+      <dl class="mcp-facts">
+        <div>
+          <dt>{{ t('settingsMcp.endpoint') }}</dt>
+          <dd>{{ mcpStatus?.url || '—' }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('settingsMcp.transport') }}</dt>
+          <dd>{{ t('settingsMcp.transportValue') }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('settingsMcp.authHeader') }}</dt>
+          <dd>{{ authHeader || '—' }}</dd>
+        </div>
+      </dl>
+      <div class="path-row">
+        <button type="button" class="ui-btn ui-btn-sm" :disabled="!mcpStatus?.url" @click="mcpStatus && copyText(mcpStatus.url)">
+          {{ t('settingsMcp.copyUrl') }}
+        </button>
+        <button type="button" class="ui-btn ui-btn-sm" :disabled="!shareCard" @click="copyText(shareCard)">
+          {{ t('settingsMcp.copyShare') }}
+        </button>
+      </div>
+      <div class="settings-label" style="margin-top: 14px">{{ t('settingsMcp.genericHint') }}</div>
+      <pre class="mcp-snippet">{{ mcpStatus?.snippets.generic || '' }}</pre>
+      <button
+        type="button"
+        class="ui-btn ui-btn-sm"
+        :disabled="!mcpStatus"
+        @click="mcpStatus && copyText(mcpStatus.snippets.generic)"
+      >
+        {{ t('settingsMcp.copyGeneric') }}
+      </button>
+      <div class="settings-label" style="margin-top: 16px">{{ t('settingsMcp.copyAgentPrompt') }}</div>
+      <p class="settings-hint">{{ t('settingsMcp.agentPromptHint') }}</p>
+      <pre class="mcp-snippet">{{ agentPrompt || '—' }}</pre>
+      <button
+        type="button"
+        class="ui-btn ui-btn-sm"
+        :disabled="!agentPrompt"
+        @click="copyText(agentPrompt)"
+      >
+        {{ t('settingsMcp.copyAgentPrompt') }}
+      </button>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.mcp-port-input {
+  flex: 0 0 120px;
+  min-width: 120px;
+  width: 120px;
+}
+
+.mcp-facts {
+  margin: 10px 0 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.mcp-facts > div {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+}
+
+.mcp-facts dt {
+  margin: 0;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.mcp-facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.mcp-snippet {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+</style>

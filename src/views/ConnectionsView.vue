@@ -1,0 +1,636 @@
+<script setup lang="ts">
+import { defineAsyncComponent, ref, toRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import AppIcon from '../components/icons/AppIcon.vue'
+import GroupPanel from '../components/connections/GroupPanel.vue'
+import ConnectionRow from '../components/connections/ConnectionRow.vue'
+import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue'
+import type { Connection, Group } from '../env.d.ts'
+import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import { useConnectionList } from '@/composables/connections/useConnectionList'
+import { useBatchTest } from '@/composables/connections/useBatchTest'
+import { normalizeConnectionSortMode, type ConnectionSortMode } from '@shared/connectionSort'
+
+const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
+const CredentialManagerModal = defineAsyncComponent(() => import('../components/connections/CredentialManagerModal.vue'))
+
+const { t } = useI18n()
+
+const emit = defineEmits<{
+  (e: 'connect', connectionId: string): void
+  (e: 'connection-saved', connection: Connection): void
+  (e: 'open-settings', tab?: 'network'): void
+}>()
+
+const props = withDefaults(defineProps<{
+  initialData?: {
+    connections: Connection[]
+    groups: Group[]
+  } | null
+  initialDataPending?: boolean
+  connectingConnectionIds?: Set<string>
+}>(), {
+  initialData: null,
+  initialDataPending: false,
+  connectingConnectionIds: () => new Set<string>(),
+})
+
+const showForm = ref(false)
+const editingConnection = ref<Connection | null>(null)
+const showCredentialManager = ref(false)
+const pageRootRef = ref<HTMLElement | null>(null)
+const connectionsListRef = ref<HTMLElement | null>(null)
+const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
+
+/** useCount / lastConnected display & sort; default on */
+const usageStatsEnabled = ref(true)
+let sortModeReady = false
+let persistedSortMode: ConnectionSortMode = 'manual'
+let queuedSortMode: ConnectionSortMode = 'manual'
+let sortSaveRevision = 0
+let sortSaveQueue: Promise<void> = Promise.resolve()
+
+function onUsageStatsSettingsChange(e: Event) {
+  const detail = (e as CustomEvent<{ enabled?: boolean }>).detail
+  if (typeof detail?.enabled === 'boolean') {
+    usageStatsEnabled.value = detail.enabled
+  }
+}
+
+onMounted(async () => {
+  const [usageResult, settingsResult] = await Promise.allSettled([
+    window.LiteConnect.getConnectionUsageStatsEnabled(),
+    window.LiteConnect.getAllSettings(),
+  ])
+  usageStatsEnabled.value = usageResult.status === 'fulfilled' ? usageResult.value : true
+  const storedMode = settingsResult.status === 'fulfilled'
+    ? settingsResult.value.connectionSortMode
+    : 'manual'
+  persistedSortMode = normalizeConnectionSortMode(storedMode, usageStatsEnabled.value)
+  queuedSortMode = persistedSortMode
+  sortMode.value = persistedSortMode
+  sortModeReady = true
+  window.addEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+})
+
+watch(usageStatsEnabled, (enabled) => {
+  if (!enabled && (sortMode.value === 'recent' || sortMode.value === 'frequent')) {
+    selectSortMode('manual')
+  }
+})
+
+function selectSortMode(mode: ConnectionSortMode) {
+  const next = normalizeConnectionSortMode(mode, usageStatsEnabled.value)
+  sortMode.value = next
+  if (!sortModeReady || next === queuedSortMode) return
+  queuedSortMode = next
+  const revision = ++sortSaveRevision
+  sortSaveQueue = sortSaveQueue
+    .catch(() => {})
+    .then(async () => {
+      try {
+        await window.LiteConnect.setManySettings({ connectionSortMode: next })
+        persistedSortMode = next
+      } catch (err: any) {
+        if (revision === sortSaveRevision) {
+          queuedSortMode = persistedSortMode
+          sortMode.value = persistedSortMode
+        }
+        ElMessage.error(err?.message || t('connections.sortSaveFailed'))
+      }
+    })
+}
+
+function onConnectFromRow(connectionId: string) {
+  if (props.connectingConnectionIds.has(connectionId)) return
+  // Optimistic stats so list shows useCount / lastConnected without reload
+  if (usageStatsEnabled.value) {
+    const now = Date.now()
+    connections.value = connections.value.map((c) =>
+      c.id === connectionId
+        ? { ...c, useCount: (c.useCount || 0) + 1, lastConnectedAt: now }
+        : c,
+    )
+  }
+  emit('connect', connectionId)
+}
+
+const list = useConnectionList({
+  initialData: toRef(props, 'initialData'),
+  initialDataPending: toRef(props, 'initialDataPending'),
+  pageRootRef,
+  connectionsListRef,
+  getSearchInput: () => toolbarRef.value?.searchInputRef ?? null,
+  isModalOpen: () => showForm.value || showCredentialManager.value,
+  onConnect: onConnectFromRow,
+})
+
+const {
+  connections,
+  groups,
+  activeGroupId,
+  searchQuery,
+  colorTagFilter,
+  sortMode,
+  importing,
+  listKeyboardIndex,
+  dragConnId,
+  dropInsertIndex,
+  connectionCounts,
+  activeGroupName,
+  filteredConnections,
+  isSearching,
+  loadData,
+  onSelectGroup,
+  onAddGroup,
+  onRenameGroup,
+  onDeleteGroup,
+  onSetDefault,
+  onReorderGroups,
+  onMoveConnection,
+  onConnDragStart,
+  onConnDragEnd,
+  onConnRowDragOver,
+  onConnListDragLeave,
+  onConnRowDrop,
+  togglePin,
+  clearFilters,
+  handleExport,
+  handleImport,
+} = list
+
+async function onOpenInNewWindow(connectionId: string) {
+  try {
+    await window.LiteConnect.openConnectionWindow(connectionId)
+  } catch (err: any) {
+    ElMessage.error(err?.message || t('connections.openInNewWindowFailed'))
+  }
+}
+
+const { batchTesting, onTestConnection, onBatchTestGroup, getTestStatus } = useBatchTest(filteredConnections)
+
+function onAddConnection() {
+  editingConnection.value = null
+  showForm.value = true
+}
+
+function generateCopyName(originalName: string): string {
+  const existingNames = connections.value.map(c => c.name)
+  const match = originalName.match(/^(.+?)\s*\((\d+)\)$/)
+  let baseName = originalName.trim()
+  let counter = 1
+
+  if (match) {
+    baseName = match[1].trim()
+    counter = parseInt(match[2]) + 1
+  }
+
+  while (existingNames.includes(`${baseName} (${counter})`)) {
+    counter++
+  }
+  return `${baseName} (${counter})`
+}
+
+async function onCopyConnection(conn: Connection) {
+  const secrets = conn.id
+    ? await window.LiteConnect.getConnectionSecrets(conn.id)
+    : {
+        password: conn.password || '',
+        privateKey: conn.privateKey || '',
+        jumpPassword: conn.jumpPassword || '',
+        jumpPrivateKey: conn.jumpPrivateKey || '',
+      }
+  editingConnection.value = {
+    ...conn,
+    id: '',
+    password: secrets.password,
+    privateKey: secrets.privateKey,
+    jumpPassword: secrets.jumpPassword,
+    jumpPrivateKey: secrets.jumpPrivateKey,
+    hasPrivateKey: !!secrets.privateKey,
+    hasJumpPassword: !!secrets.jumpPassword,
+    hasJumpPrivateKey: !!secrets.jumpPrivateKey,
+    name: generateCopyName(conn.name),
+    createdAt: 0,
+    updatedAt: 0,
+  }
+  showForm.value = true
+}
+
+function onEditConnection(conn: Connection) {
+  editingConnection.value = { ...conn }
+  showForm.value = true
+}
+
+async function onDeleteConnection(connectionId: string) {
+  const conn = connections.value.find((c) => c.id === connectionId)
+  if (!conn) return
+  try {
+    await appConfirm({
+      title: t('connections.deleteTitle'),
+      message: t('connections.deleteMessage', { name: conn.name }),
+      detail: t('connections.deleteDetail'),
+      confirmText: t('common.delete'),
+      danger: true,
+      tone: 'danger',
+    })
+    await window.LiteConnect.deleteConnection(connectionId)
+    ElMessage.success(t('connections.deleted'))
+    await loadData()
+  } catch {}
+}
+
+async function onFormSaved(
+  savedConnection: Connection,
+  meta?: { continueCreating?: boolean },
+) {
+  await loadData()
+  const refreshed = connections.value.find((conn) => conn.id === savedConnection.id) || savedConnection
+  emit('connection-saved', refreshed)
+  if (meta?.continueCreating) {
+    // Keep dialog open for continuous create / copy; form resets itself
+    return
+  }
+  showForm.value = false
+  editingConnection.value = null
+}
+
+function onFormCancel() {
+  showForm.value = false
+  editingConnection.value = null
+}
+
+const filteredCount = computed(() => filteredConnections.value.length)
+
+defineExpose({ loadData, editConnection: onEditConnection })
+</script>
+
+<template>
+  <div ref="pageRootRef" class="connections-page">
+    <GroupPanel
+      :groups="groups"
+      :active-group-id="activeGroupId"
+      :connection-counts="connectionCounts"
+      :connections="connections"
+      :connecting-connection-ids="connectingConnectionIds"
+      @select="onSelectGroup"
+      @add="onAddGroup"
+      @rename="onRenameGroup"
+      @delete="onDeleteGroup"
+      @set-default="onSetDefault"
+      @reorder="onReorderGroups"
+      @move-connection="onMoveConnection"
+      @connect="onConnectFromRow"
+    />
+
+    <div class="connections-main">
+      <ConnectionsToolbar
+        ref="toolbarRef"
+        :active-group-name="activeGroupName"
+        :search-query="searchQuery"
+        :batch-testing="batchTesting"
+        :filtered-count="filteredCount"
+        :importing="importing"
+        @update:search-query="searchQuery = $event"
+        @batch-test="onBatchTestGroup"
+        @import="handleImport"
+        @export="handleExport"
+        @credentials="showCredentialManager = true"
+        @add="onAddConnection"
+      />
+
+      <div class="filter-bar">
+        <span class="filter-label">{{ t('connections.colorTag') }}</span>
+        <div class="filter-chips">
+          <button
+            v-for="tag in CONNECTION_COLOR_TAGS"
+            :key="tag.id || 'all'"
+            type="button"
+            class="tag-filter-chip"
+            :class="{ active: colorTagFilter === tag.id }"
+            :title="tag.id ? tag.label : t('connections.showAllTags')"
+            @click="colorTagFilter = tag.id"
+          >
+            <span class="tag-filter-swatch" :style="{ background: tag.color }"></span>
+            <span>{{ tag.id ? tag.label : t('connections.all') }}</span>
+          </button>
+        </div>
+        <div class="sort-bar">
+          <span class="filter-label">{{ t('connections.sortLabel') }}</span>
+          <div class="filter-chips">
+            <button
+              type="button"
+              class="tag-filter-chip"
+              :class="{ active: sortMode === 'manual' }"
+              @click="selectSortMode('manual')"
+            >
+              {{ t('connections.sortManual') }}
+            </button>
+            <button
+              v-if="usageStatsEnabled"
+              type="button"
+              class="tag-filter-chip"
+              :class="{ active: sortMode === 'recent' }"
+              @click="selectSortMode('recent')"
+            >
+              {{ t('connections.sortRecent') }}
+            </button>
+            <button
+              v-if="usageStatsEnabled"
+              type="button"
+              class="tag-filter-chip"
+              :class="{ active: sortMode === 'frequent' }"
+              @click="selectSortMode('frequent')"
+            >
+              {{ t('connections.sortFrequent') }}
+            </button>
+          </div>
+        </div>
+        <button
+          v-if="searchQuery || colorTagFilter"
+          type="button"
+          class="clear-filters"
+          @click="clearFilters"
+        >
+          {{ t('connections.clearFilters') }}
+        </button>
+      </div>
+
+      <div
+        ref="connectionsListRef"
+        class="connections-list"
+        @dragleave="onConnListDragLeave"
+      >
+        <div
+          v-for="(conn, index) in filteredConnections"
+          :key="conn.id"
+          class="connection-row-wrap"
+          :data-conn-index="index"
+          :class="{
+            'drop-before': !isSearching && !colorTagFilter && dropInsertIndex === index && dragConnId && dragConnId !== conn.id,
+            'is-dragging-source': dragConnId === conn.id,
+            'keyboard-active': listKeyboardIndex === index,
+          }"
+          @dragover="!isSearching && !colorTagFilter && onConnRowDragOver($event, index)"
+          @drop="onConnRowDrop"
+          @mouseenter="listKeyboardIndex = index"
+        >
+          <ConnectionRow
+            :connection="conn"
+            :test-status="getTestStatus(conn.id)"
+            :reorder-disabled="isSearching || !!colorTagFilter"
+            :keyboard-active="listKeyboardIndex === index"
+            :show-usage-stats="usageStatsEnabled"
+            :connecting="connectingConnectionIds.has(conn.id)"
+            @connect="onConnectFromRow"
+            @test="onTestConnection"
+            @edit="onEditConnection"
+            @delete="onDeleteConnection"
+            @copy="onCopyConnection"
+            @pin="togglePin"
+            @open-window="onOpenInNewWindow"
+            @drag-start="onConnDragStart"
+            @drag-end="onConnDragEnd"
+          />
+        </div>
+        <div
+          v-if="filteredConnections.length > 0 && dragConnId && !isSearching && !colorTagFilter"
+          class="connection-row-wrap drop-tail"
+          :class="{ 'drop-before': dropInsertIndex === filteredConnections.length }"
+          @dragover="onConnRowDragOver($event, filteredConnections.length)"
+          @drop="onConnRowDrop"
+        ></div>
+
+        <div v-if="filteredConnections.length === 0" class="ui-empty empty-connections">
+          <div class="ui-empty-icon" aria-hidden="true">
+            <AppIcon name="monitor" size="xl" />
+          </div>
+          <template v-if="searchQuery || colorTagFilter">
+            <p class="ui-empty-title">{{ t('connections.emptyFilteredTitle') }}</p>
+            <p class="ui-empty-desc">{{ t('connections.emptyFilteredDesc') }}</p>
+            <div class="ui-empty-actions">
+              <button type="button" class="ui-btn" @click="clearFilters">{{ t('connections.clearFilters') }}</button>
+            </div>
+          </template>
+          <template v-else>
+            <p class="ui-empty-title">{{ t('connections.emptyGroupTitle', { name: activeGroupName }) }}</p>
+            <p class="ui-empty-desc">{{ t('connections.emptyGroupDesc') }}</p>
+            <div class="ui-empty-actions">
+              <button type="button" class="ui-btn ui-btn-primary" @click="onAddConnection">
+                <AppIcon name="plus" size="sm" />
+                {{ t('connections.newConnection') }}
+              </button>
+              <button type="button" class="ui-btn" :disabled="importing" @click="handleImport">
+                {{ t('connections.import') }}
+              </button>
+              <button type="button" class="ui-btn" @click="showCredentialManager = true">
+                {{ t('connections.addCredentialsFirst') }}
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <CredentialManagerModal v-if="showCredentialManager" v-model="showCredentialManager" />
+
+    <ConnectionForm
+      v-if="showForm"
+      :connection="editingConnection"
+      :default-group-id="activeGroupId || undefined"
+      @saved="onFormSaved"
+      @cancel="onFormCancel"
+      @open-settings="(tab) => emit('open-settings', tab)"
+    />
+  </div>
+</template>
+
+<style scoped>
+.connections-page {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.connections-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px 22px 20px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.filter-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+}
+
+.filter-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-right: 2px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.sort-bar .filter-chips {
+  flex: 0 1 auto;
+}
+
+.tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tag-filter-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tag-filter-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.tag-filter-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.clear-filters {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.clear-filters:hover {
+  text-decoration: underline;
+}
+
+.connections-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  /* Room for insertion line above first row + last-row descenders */
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
+.connection-row-wrap {
+  position: relative;
+}
+
+/* Independent rounded cards: light gap between rows (drop line sits in this gap) */
+.connection-row-wrap:not(.drop-tail) + .connection-row-wrap:not(.drop-tail) {
+  margin-top: 8px;
+}
+
+/*
+ * Insertion indicator: full-width accent line + end caps (VS Code / Finder style).
+ * Positioned in the gap above the target row.
+ */
+.connection-row-wrap.drop-before::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Left / right circular caps on the insertion line */
+.connection-row-wrap.drop-before::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -8px;
+  height: 8px;
+  z-index: 4;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 3px 50%, var(--accent) 0 3px, transparent 3.5px),
+    radial-gradient(circle at calc(100% - 3px) 50%, var(--accent) 0 3px, transparent 3.5px);
+}
+
+/* First row: line sits just above the card (list has padding-top) */
+.connection-row-wrap:first-child.drop-before::before {
+  top: -4px;
+}
+
+.connection-row-wrap:first-child.drop-before::after {
+  top: -7px;
+}
+
+.connection-row-wrap.drop-tail {
+  height: 14px;
+}
+
+.connection-row-wrap.drop-tail.drop-before::before {
+  top: 4px;
+}
+
+.connection-row-wrap.drop-tail.drop-before::after {
+  top: 1px;
+}
+
+.empty-connections {
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  background: transparent;
+  margin-top: 8px;
+}
+</style>

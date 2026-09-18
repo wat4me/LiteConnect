@@ -1,0 +1,323 @@
+/* Shared settings chrome. Shell layout lives in SettingsView. */
+
+.settings-content {
+  container-type: inline-size;
+  container-name: settings-panel;
+  min-width: 0;
+}
+
+.settings-content [data-setting] {
+  scroll-margin-top: 16px;
+  scroll-margin-bottom: 16px;
+}
+
+.settings-content [data-setting].settings-anchor-hit {
+  border-radius: 8px;
+  animation: settings-anchor-flash 1.4s ease;
+}
+
+@keyframes settings-anchor-flash {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.settings-content .content-header {
+  margin-bottom: 20px;
+  max-width: 720px;
+}
+
+.settings-content .content-header h3 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  color: var(--text-primary);
+}
+
+.settings-content .content-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.settings-content .content-header-extra {
+  margin-top: 6px !important;
+}
+
+.settings-content .content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  max-width: 960px;
+}
+
+.settings-content .settings-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  padding: 16px;
+  min-width: 0;
+}
+
+.settings-content > .settings-card {
+  max-width: min(720px, 100%);
+}
+
+.settings-content .settings-card.narrow {
+  max-width: min(560px, 100%);
+}
+
+.settings-content .settings-card + .settings-card {
+  margin-top: 16px;
+}
+
+.settings-content .settings-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.settings-content .settings-label-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.settings-content .settings-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.settings-content .settings-hint.warn {
+  color: var(--warning);
+}
+
+.settings-content .settings-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.settings-content .path-row .settings-input {
+  width: auto;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.settings-content .settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-content .settings-check input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.settings-content .toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.settings-content .toggle-btn {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-content .toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-content .toggle-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-content .toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.settings-content .toggle-btn.active .toggle-knob {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.settings-content .font-size-row,
+.settings-content .interval-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.settings-content .interval-row {
+  margin-bottom: 4px;
+}
+
+.settings-content .font-size-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.settings-content .font-size-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-content .font-size-value {
+  min-width: 48px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-content .path-row,
+.settings-content .download-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-content .preview-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  padding: 14px;
+  min-width: 0;
+}
+
+.settings-content .preview-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.settings-content .preview-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.settings-content .session-log-btn {
+  margin-top: 10px;
+}
+
+@container settings-panel (max-width: 760px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cursor-style-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mcp-facts > div {
+    grid-template-columns: 1fr;
+  }
+
+  .x11-install-help,
+  .tips-card,
+  .known-host-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .shortcut-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .shortcut-keys {
+    min-width: 0;
+    width: fit-content;
+  }
+
+  .ui-preview-body {
+    flex-direction: column;
+  }
+
+  .ui-preview-side {
+    width: auto;
+    border-right: none;
+    border-bottom: 1px solid;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@container settings-panel (max-width: 520px) {
+  .theme-options {
+    grid-template-columns: 1fr;
+  }
+
+  .db-preview-row {
+    grid-template-columns: 36px 1fr 1fr;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .color-row,
+  .about-meta-row {
+    flex-wrap: wrap;
+  }
+}

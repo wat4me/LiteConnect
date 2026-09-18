@@ -1,0 +1,103 @@
+appId: com.liteconnect.app
+productName: LiteConnect
+directories:
+  buildResources: build
+  output: release
+electronLanguages:
+  - zh-CN
+  - en-US
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - "!dist-electron/**/*.tsbuildinfo"
+  - "!dist-electron/**/*.map"
+  - "!node_modules/**/*"
+  # Externalized native/Node drivers (must match vite main external)
+  # Full transitive trees of: ssh2, mysql2, pg, oracledb
+  - node_modules/asn1/**/*
+  - node_modules/oracledb/**/*
+  - node_modules/aws-ssl-profiles/**/*
+  - node_modules/bcrypt-pbkdf/**/*
+  - node_modules/buildcheck/**/*
+  - node_modules/cpu-features/**/*
+  - node_modules/denque/**/*
+  - node_modules/generate-function/**/*
+  - node_modules/iconv-lite/**/*
+  - node_modules/is-property/**/*
+  - node_modules/long/**/*
+  - node_modules/lru.min/**/*
+  - node_modules/mysql2/**/*
+  - node_modules/named-placeholders/**/*
+  - node_modules/nan/**/*
+  - node_modules/pg/**/*
+  - node_modules/pg-cloudflare/**/*
+  - node_modules/pg-connection-string/**/*
+  - node_modules/pg-int8/**/*
+  - node_modules/pg-pool/**/*
+  - node_modules/pg-protocol/**/*
+  - node_modules/pg-types/**/*
+  - node_modules/pgpass/**/*
+  - node_modules/postgres-array/**/*
+  - node_modules/postgres-bytea/**/*
+  - node_modules/postgres-date/**/*
+  - node_modules/postgres-interval/**/*
+  - node_modules/safer-buffer/**/*
+  - node_modules/split2/**/*
+  - node_modules/sql-escaper/**/*
+  - node_modules/ssh2/**/*
+  - node_modules/tweetnacl/**/*
+  - node_modules/xtend/**/*
+  # Bash grammar runtime for the command classifier (external in the main build)
+  - node_modules/web-tree-sitter/**/*
+asarUnpack:
+  - node_modules/ssh2/**/*
+  - node_modules/oracledb/**/*
+extraResources:
+  # Tray icon (read by electron/window/tray.ts from process.resourcesPath)
+  - from: build/LiteConnect.png
+    to: LiteConnect.png
+publish:
+  provider: github
+  owner: wat4me
+  repo: LiteConnect
+  # Default is draft; auto-updater cannot see drafts on a public repo.
+  releaseType: release
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/LiteConnect.ico
+  extraResources:
+    # Optional X11 server for Windows. Keep outside asar so main can launch it.
+    - from: build/third-party/vcxsrv-64.1.20.14.0.installer.exe
+      to: third-party/vcxsrv-64.1.20.14.0.installer.exe
+    - from: build/third-party/VcXsrv-NOTICE.txt
+      to: third-party/VcXsrv-NOTICE.txt
+mac:
+  target:
+    - dmg
+    - zip
+  icon: build/LiteConnect.png
+  category: public.app-category.developer-tools
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/LiteConnect.png
+  category: Network
+  maintainer: LiteConnect
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LiteConnect
+  uninstallDisplayName: LiteConnect
+  # build/installer.nsh — migrate %APPDATA%\lite-ssh → lite-connect on install
+  include: installer.nsh
+
