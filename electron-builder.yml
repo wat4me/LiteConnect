@@ -98,6 +98,3 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: LiteConnect
   uninstallDisplayName: LiteConnect
-  # build/installer.nsh — migrate %APPDATA%\lite-ssh → lite-connect on install
-  include: installer.nsh
-
