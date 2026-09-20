@@ -39,13 +39,13 @@ async function settle() {
 
 type MonitorApi = ReturnType<typeof import('@/composables/monitor/useMonitorData').useSharedMonitor>
 
-async function mountMonitor(sessionId: Ref<string>) {
+async function mountMonitor(connectionId: Ref<string>, sessionId: Ref<string>) {
   const { useSharedMonitor } = await import('@/composables/monitor/useMonitorData')
   let api: MonitorApi | undefined
   const app = renderer.createApp(
     defineComponent({
       setup() {
-        api = useSharedMonitor(sessionId)
+        api = useSharedMonitor(connectionId, sessionId)
         return () => null
       },
     }),
@@ -71,8 +71,8 @@ describe('useSharedMonitor', () => {
       LiteConnect: {
         monitorStart,
         monitorStop,
-        onMonitorData: vi.fn((sessionId, callback) => {
-          callbacks.set(sessionId, callback)
+        onMonitorData: vi.fn((connectionId, callback) => {
+          callbacks.set(connectionId, callback)
           return unsubscribe
         }),
       },
@@ -84,13 +84,14 @@ describe('useSharedMonitor', () => {
   })
 
   it('shares one native monitor and stops it after the last consumer unmounts', async () => {
-    const first = await mountMonitor(ref('session-1'))
+    const first = await mountMonitor(ref('conn-1'), ref('session-1'))
     await settle()
-    const second = await mountMonitor(ref('session-1'))
+    const second = await mountMonitor(ref('conn-1'), ref('session-1'))
     await settle()
 
     expect(monitorStart).toHaveBeenCalledTimes(1)
-    callbacks.get('session-1')?.({ cpu: 50 } as MonitorData)
+    expect(monitorStart).toHaveBeenCalledWith('conn-1', 'session-1')
+    callbacks.get('conn-1')?.({ cpu: 50 } as MonitorData)
     await nextTick()
     expect(first.api.data.value).toMatchObject({ cpu: 50 })
     expect(second.api.data.value).toMatchObject({ cpu: 50 })
@@ -99,12 +100,30 @@ describe('useSharedMonitor', () => {
     expect(monitorStop).not.toHaveBeenCalled()
     second.app.unmount()
     expect(unsubscribe).toHaveBeenCalledTimes(1)
-    expect(monitorStop).toHaveBeenCalledWith('session-1')
+    expect(monitorStop).toHaveBeenCalledWith('conn-1')
+  })
+
+  it('retargets exec session on the same host without stopping collection', async () => {
+    const connectionId = ref('conn-1')
+    const sessionId = ref('session-1')
+    const mounted = await mountMonitor(connectionId, sessionId)
+    await settle()
+    callbacks.get('conn-1')?.({ hostname: 'web' } as MonitorData)
+    await nextTick()
+
+    sessionId.value = 'session-2'
+    await settle()
+
+    expect(monitorStop).not.toHaveBeenCalled()
+    expect(monitorStart).toHaveBeenNthCalledWith(1, 'conn-1', 'session-1')
+    expect(monitorStart).toHaveBeenNthCalledWith(2, 'conn-1', 'session-2')
+    expect(mounted.api.data.value).toMatchObject({ hostname: 'web' })
+    mounted.app.unmount()
   })
 
   it('exposes a start failure and retry creates a fresh subscription', async () => {
     monitorStart.mockRejectedValueOnce(new Error('monitor unavailable'))
-    const mounted = await mountMonitor(ref('session-2'))
+    const mounted = await mountMonitor(ref('conn-2'), ref('session-2'))
     await settle()
 
     expect(mounted.api.error.value).toBe('monitor unavailable')
@@ -113,7 +132,7 @@ describe('useSharedMonitor', () => {
 
     expect(monitorStart).toHaveBeenCalledTimes(2)
     expect(mounted.api.error.value).toBe('')
-    expect(callbacks.get('session-2')).toBeTypeOf('function')
+    expect(callbacks.get('conn-2')).toBeTypeOf('function')
     mounted.app.unmount()
   })
 })

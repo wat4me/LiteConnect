@@ -508,34 +508,58 @@ function classifyFlattened(flat: BashParseResult): CommandClassification {
     }
   }
 
-  const opaqueReason = flat.opaque[0]
   const writeTarget = flat.writeTargets[0]
-  const readTarget = flat.readTargets[0]
-  // A definite write outranks a guess when both are present: it is the one
-  // claim we are entitled to make in the strongest terms.
-  const escalation = writeTarget
-    ? `shell write redirection (${stripQuotes(writeTarget)})`
-    : opaqueReason ||
-      (flat.parseErrors > 0 ? 'command could not be parsed cleanly' : '') ||
-      (flat.depthExceeded ? 'nested command depth limit reached' : '') ||
-      (readTarget ? `shell input redirection (${stripQuotes(readTarget)})` : '')
-
-  if (escalation && CLASS_RANK[worst.class] < CLASS_RANK.destructive) {
-    const uncertainty: CommandUncertainty | undefined = writeTarget
-      ? undefined
-      : opaqueReason || readTarget
-        ? 'uninspectable'
-        : flat.parseErrors > 0 || flat.depthExceeded
-          ? 'unparsed'
-          : undefined
+  // Observed writes still outrank a read-only chain. Do not, however, promote
+  // the whole `&&` list just because tree-sitter left an ERROR node somewhere
+  // (long pipelines do that constantly) or because `cat < file` is an input
+  // redirect — that used to make an honest `risk: read` look like a lie.
+  if (writeTarget && CLASS_RANK[worst.class] < CLASS_RANK.destructive) {
     return {
       class: 'destructive',
       binary: worst.binary || rootBinary,
-      reason: escalation,
-      ...(uncertainty ? { uncertainty } : {}),
+      reason: `shell write redirection (${stripQuotes(writeTarget)})`,
     }
   }
+
+  if (flat.commands.length === 0) {
+    return {
+      class: 'destructive',
+      binary: rootBinary,
+      reason: flat.opaque[0] || 'command could not be parsed',
+      uncertainty: 'unparsed',
+    }
+  }
+
+  if (stdinFeedsUnreadableCode(flat) && CLASS_RANK[worst.class] < CLASS_RANK.destructive) {
+    const target = stripQuotes(flat.readTargets[0] || '')
+    return {
+      class: 'destructive',
+      binary: worst.binary || rootBinary,
+      reason: target
+        ? `shell/interpreter reads a script from stdin (${target})`
+        : 'shell/interpreter reads a script from stdin',
+      uncertainty: 'uninspectable',
+    }
+  }
+
   return worst
+}
+
+/** `bash < deploy.sh` / `python < x.py` hide the program; `cat < log` does not. */
+function stdinFeedsUnreadableCode(flat: BashParseResult): boolean {
+  if (flat.readTargets.length === 0) return false
+  return flat.commands.some((command) => {
+    const binary = command.binary
+    if (SHELL_BINARIES.has(binary)) {
+      const hasInline = command.args.some((arg) => /^-[A-Za-z]*c$/.test(arg))
+      return !hasInline && !command.expanded
+    }
+    if (INTERPRETERS.has(binary)) {
+      const hasInline = command.args.some((arg) => INLINE_CODE_FLAGS.has(arg))
+      return !hasInline && !command.expanded
+    }
+    return false
+  })
 }
 
 function classifyFlatCommand(command: BashFlatCommand): CommandClassification {

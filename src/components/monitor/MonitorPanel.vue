@@ -22,12 +22,14 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'toggle-details'): void
+  (e: 'dock'): void
 }>()
 
 const { t } = useI18n()
 
 const sessionIdRef = toRef(props, 'sessionId')
-const { data, error: monitorError, starting, retry: retryMonitor } = useSharedMonitor(sessionIdRef)
+const connectionIdRef = toRef(props, 'connectionId')
+const { data, error: monitorError, starting, retry: retryMonitor } = useSharedMonitor(connectionIdRef, sessionIdRef)
 
 const isBottom = computed(() => props.layout === 'bottom')
 
@@ -271,9 +273,20 @@ watch(
       <div class="monitor-header">
         <span class="monitor-title">{{ t('monitor.title') }}</span>
         <span class="monitor-name">{{ connectionName }}</span>
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close monitor-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
-          <AppIcon name="close" size="sm" />
-        </button>
+        <div class="monitor-header-actions">
+          <button
+            type="button"
+            class="ui-btn ui-btn-xs ui-btn-ghost"
+            :title="t('monitor.dockTitle')"
+            :aria-label="t('monitor.dockAria')"
+            @click="emit('dock')"
+          >
+            {{ t('monitor.dock') }}
+          </button>
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
+            <AppIcon name="close" size="sm" />
+          </button>
+        </div>
       </div>
 
       <div v-if="monitorError" class="monitor-error">
@@ -550,7 +563,7 @@ watch(
 }
 
 .dock-metric-value {
-  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   font-weight: 700;
   min-width: 2.4em;
@@ -618,7 +631,10 @@ watch(
   flex: 1;
 }
 
-.monitor-close {
+.monitor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -707,7 +723,7 @@ watch(
 
 .section-value {
   margin-left: auto;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   font-weight: 700;
 }
@@ -749,7 +765,7 @@ watch(
 }
 
 .info-mono {
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .info-empty {
@@ -782,17 +798,17 @@ watch(
 
 .bar-label-used {
   color: var(--text-primary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .bar-label-cache {
   color: var(--text-secondary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .bar-label-available {
   color: var(--success);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   margin-left: auto;
 }
 
@@ -808,19 +824,19 @@ watch(
 }
 
 .disk-mount {
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   color: var(--text-primary);
 }
 
 .disk-percent {
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   font-weight: 700;
 }
 
 .proc-table {
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 10px;
 }
 

@@ -1242,7 +1242,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .rename-input {
@@ -1254,7 +1254,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .rename-input:focus {

@@ -8,6 +8,8 @@ export default {
     close: '关闭',
     delete: '删除',
     clear: '清除',
+    increase: '增加',
+    decrease: '减少',
     copy: '复制',
     browse: '浏览…',
     restore: '还原',

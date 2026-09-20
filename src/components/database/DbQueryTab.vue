@@ -400,7 +400,7 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
               {{ t('database.query.statusSelection', { n: editorStatus.selectionChars }) }}
             </span>
             <span class="st-item st-scope" :title="t('database.query.scopeIndicatorHint')">
-              ▶ {{ scopeIndicator }}
+              <AppIcon name="play" size="xs" /> {{ scopeIndicator }}
             </span>
             <span class="st-item">{{ dialectLabel }}</span>
             <span v-if="lastExecSummary" class="st-item st-last-exec" :title="t('database.query.lastExecTitle')">
@@ -556,7 +556,7 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
 }
 
 .st-item.mono {
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .st-scope {
@@ -569,7 +569,7 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
 }
 
 .st-last-exec {
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--text-secondary);
   font-size: 10px;
   padding: 1px 6px;

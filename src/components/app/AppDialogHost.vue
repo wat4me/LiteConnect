@@ -205,7 +205,7 @@ function onInput() {
   margin: 0;
   padding: 10px 12px;
   font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--text-secondary);
   line-height: 1.45;
   white-space: pre-wrap;

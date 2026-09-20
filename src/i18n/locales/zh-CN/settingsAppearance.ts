@@ -1,8 +1,7 @@
 export default {
   settingsAppearance: {
     title: '外观',
-    intro:
-      '界面主题只影响侧栏、列表等 UI；终端配色在「终端」页。背景图和美化光标会立即全局预览；托盘与全局快捷键点「保存」后生效。',
+    intro: '调整界面主题、背景图和鼠标光标样式。终端配色请在「终端」中设置。',
     theme: '界面主题',
     bgColor: '背景',
     fontColor: '字体',
@@ -45,10 +44,5 @@ export default {
     previewGroupA: '分组 A',
     previewGroupB: '分组 B',
     previewConnect: '连接',
-    windowTitle: '窗口行为',
-    closeToTray: '关闭窗口时最小化到托盘',
-    closeToTrayHint: '开启后点关闭按钮会隐藏到系统托盘，SSH 会话保持连接；从托盘菜单可退出程序。',
-    globalHotkey: '全局呼出快捷键（Alt+Shift+L）',
-    globalHotkeyHint: '在任意应用中按下可显示/隐藏本窗口；与其他软件冲突时可能注册失败。',
   },
 } as const

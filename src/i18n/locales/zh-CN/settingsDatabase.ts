@@ -1,8 +1,7 @@
 export default {
   settingsDatabase: {
     title: '数据库',
-    intro:
-      '控制从 SSH 切换到数据库时的打开方式，以及 SQL 编辑器、结果表格等宽字体、默认分页和新建查询标签的执行默认值。与终端字体相互独立；打开方式、字体/分页保存后立即生效；查询默认值仅影响之后新建的标签。',
+    intro: '设置数据库打开方式、SQL 显示、结果分页和新建查询的默认行为。',
     openMode: '从 SSH 切换到数据库',
     openModeNewWindow: '新窗口',
     openModeCurrentWindow: '当前窗口',

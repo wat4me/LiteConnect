@@ -2,12 +2,16 @@ import { app, globalShortcut, Tray, Menu, BrowserWindow, nativeImage } from 'ele
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { SettingsStore } from '../store/settingsStore'
+import { DEFAULT_GLOBAL_HOTKEY } from '../../shared/globalHotkey'
 import { t } from '../i18n'
 
-export const TOGGLE_WINDOW_ACCELERATOR = 'Alt+Shift+L'
+/** Default accelerator; the user can override it in settings → app. */
+export const TOGGLE_WINDOW_ACCELERATOR = DEFAULT_GLOBAL_HOTKEY
 
 let tray: Tray | null = null
 let quitting = false
+/** Accelerator this app currently owns, so changes can unregister the old combo. */
+let registeredAccelerator: string | null = null
 
 function trayIconPath(): string | null {
   const candidates = app.isPackaged
@@ -44,24 +48,42 @@ function destroyTray(): void {
   }
 }
 
+function toggleWindowVisibility(): void {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  if (win && win.isVisible() && win.isFocused()) {
+    win.hide()
+  } else {
+    showMainWindow()
+  }
+}
+
+/** Tell renderers so settings can warn that another app owns the combo. */
+function notifyHotkeyFailed(accelerator: string): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('app:globalHotkeyFailed', accelerator)
+  }
+}
+
 function syncGlobalHotkey(settingsStore: SettingsStore): void {
-  const wanted = settingsStore.getGlobalHotkeyEnabled()
-  const registered = globalShortcut.isRegistered(TOGGLE_WINDOW_ACCELERATOR)
-  if (wanted && !registered) {
-    try {
-      globalShortcut.register(TOGGLE_WINDOW_ACCELERATOR, () => {
-        const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
-        if (win && win.isVisible() && win.isFocused()) {
-          win.hide()
-        } else {
-          showMainWindow()
-        }
-      })
-    } catch (err) {
-      console.error('[Tray] register hotkey failed:', err)
+  const wanted = settingsStore.getGlobalHotkeyEnabled() ? settingsStore.getGlobalHotkey() : null
+  if (wanted === registeredAccelerator) return
+
+  if (registeredAccelerator && globalShortcut.isRegistered(registeredAccelerator)) {
+    globalShortcut.unregister(registeredAccelerator)
+  }
+  registeredAccelerator = null
+  if (!wanted) return
+
+  try {
+    const ok = globalShortcut.register(wanted, toggleWindowVisibility)
+    if (!ok) {
+      notifyHotkeyFailed(wanted)
+      return
     }
-  } else if (!wanted && registered) {
-    globalShortcut.unregister(TOGGLE_WINDOW_ACCELERATOR)
+    registeredAccelerator = wanted
+  } catch (err) {
+    console.error('[Tray] register hotkey failed:', err)
+    notifyHotkeyFailed(wanted)
   }
 }
 

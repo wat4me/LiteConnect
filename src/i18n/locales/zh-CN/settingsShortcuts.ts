@@ -1,7 +1,7 @@
 export default {
   settingsShortcuts: {
     title: '快捷键',
-    intro: '全局与终端常用快捷键（macOS 下 Ctrl 对应 ⌘）。只读一览，无需保存。',
+    intro: '查看工作区、终端和连接列表的常用快捷键。',
     overlayIntro: '随时可按 Ctrl+/ 或标题栏「?」打开；在输入框内时不会拦截。',
     resetTipsTitle: '新手提示',
     resetTipsDesc: '重看首次欢迎提示，以及监控等首次功能提示。',

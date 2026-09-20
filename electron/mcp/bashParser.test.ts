@@ -155,17 +155,31 @@ describe('bash AST engine', () => {
    * to a critical path and came back `forbidden`; it only feeds stdin.
    */
   it('separates input redirection from a write', () => {
-    const read = classifyCommand('cat < /etc/passwd')
-    expect(read.class).toBe('destructive')
-    expect(read.uncertainty).toBe('uninspectable')
-    expect(read.reason).toContain('input redirection')
+    expect(classifyCommand('cat < /etc/passwd').class).toBe('read-only')
+    expect(classifyCommand('head < /var/log/syslog').class).toBe('read-only')
 
     // A shell reading its program from an unreadable file must stay caught.
     expect(classifyCommand('bash < script.sh').class).toBe('destructive')
+    expect(classifyCommand('python3 < payload.py').class).toBe('destructive')
     expect(classifyCommand('psql < dump.sql').class).not.toBe('read-only')
 
     // Writes are still writes.
     expect(classifyCommand('echo x > /etc/passwd').class).toBe('forbidden')
+  })
+
+  it('does not treat a long read-only && chain as an under-declaration', () => {
+    const chain = [
+      'cd /var/log',
+      'ls -lt | head -n 20',
+      'grep -n error syslog | tail -n 30',
+      'cat /etc/hostname',
+      'df -h',
+      'free -m',
+      'ps aux | head -n 15',
+    ].join(' && ')
+    const result = classifyCommand(chain)
+    expect(result.class).toBe('read-only')
+    expect(result.uncertainty).toBeUndefined()
   })
 
   it('does not regress the plain-text verdicts', () => {

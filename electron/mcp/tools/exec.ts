@@ -1,5 +1,6 @@
 import { MCP_MAX_FANOUT, MCP_MAX_STDIN_CHARS } from '../../../shared/mcp/limits'
 import { classifyCommand, validateMcpCommand } from '../../../shared/mcp/classify'
+import { approvalModeAfterClientConfirm } from '../../../shared/mcp/policy'
 import { capExecOutput } from '../../../shared/mcp/truncate'
 import type { ApprovalMode, CommandClass, SshMcpToolErrorCode, SshMcpToolResult } from '../../../shared/mcp/types'
 import { isValidUUID } from '../../utils/validation'
@@ -17,6 +18,11 @@ export async function execCommand(
     return host.error('INVALID_COMMAND', validated.reason)
   }
   const classification = classifyCommand(validated.command)
+  const effectiveMode = approvalModeAfterClientConfirm(
+    approvalMode,
+    input.confirmed === true,
+    classification.class,
+  )
   const stdin = parseStdin(input.stdin)
   if (stdin === false) {
     return host.error('INVALID_ARGUMENTS', `stdin exceeds ${MCP_MAX_STDIN_CHARS} characters`)
@@ -35,7 +41,7 @@ export async function execCommand(
     classification,
     targets[0].sessionId,
     validated.command,
-    approvalMode,
+    effectiveMode,
   )
   if (allowed) return allowed
 

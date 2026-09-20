@@ -285,6 +285,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   mcpGetHttpStatus: () => ipcRenderer.invoke('mcp:getHttpStatus'),
   mcpSetHttpEnabled: (enabled: boolean) => ipcRenderer.invoke('mcp:setHttpEnabled', enabled),
   mcpSetHttpPort: (port: number) => ipcRenderer.invoke('mcp:setHttpPort', port),
+  mcpSetApprovalMode: (mode: 'auto' | 'ask-destructive' | 'deny-destructive') =>
+    ipcRenderer.invoke('mcp:setApprovalMode', mode),
   mcpRotateHttpToken: () => ipcRenderer.invoke('mcp:rotateHttpToken'),
   mcpReportConnectResult: (requestId: string, result: { sessionId?: string; error?: string }) =>
     ipcRenderer.invoke('mcp:connectResult', requestId, result),
@@ -461,8 +463,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   setMonitorEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setMonitorEnabled', enabled),
   getMonitorIntervalMs: () => ipcRenderer.invoke('settings:getMonitorIntervalMs'),
   setMonitorIntervalMs: (intervalMs: number) => ipcRenderer.invoke('settings:setMonitorIntervalMs', intervalMs),
-  monitorStart: (sessionId: string) => ipcRenderer.invoke('monitor:start', sessionId),
-  monitorStop: (sessionId: string) => ipcRenderer.invoke('monitor:stop', sessionId),
+  monitorStart: (connectionId: string, sessionId: string) =>
+    ipcRenderer.invoke('monitor:start', connectionId, sessionId),
+  monitorStop: (connectionId: string) => ipcRenderer.invoke('monitor:stop', connectionId),
 
   sftpInit: (sessionId: string) => ipcRenderer.invoke('sftp:init', sessionId),
   sftpReaddir: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:readdir', sessionId, remotePath),
@@ -575,11 +578,17 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     return () => ipcRenderer.removeListener(channel, listener)
   },
 
-  onMonitorData: (sessionId: string, callback: (data: any) => void) => {
-    const channel = `monitor:data:${sessionId}`
+  onMonitorData: (connectionId: string, callback: (data: any) => void) => {
+    const channel = `monitor:data:${connectionId}`
     const listener = (_event: any, data: any) => callback(data)
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
+  },
+
+  onGlobalHotkeyFailed: (callback: (accelerator: string) => void) => {
+    const listener = (_event: any, accelerator: string) => callback(accelerator)
+    ipcRenderer.on('app:globalHotkeyFailed', listener)
+    return () => ipcRenderer.removeListener('app:globalHotkeyFailed', listener)
   },
 
   onTransferStart: (

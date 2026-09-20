@@ -12,6 +12,7 @@ import {
   type AppWindowRole,
 } from '@shared/appResourceStats'
 import { collectRendererResourceSnapshot } from '@/composables/app/rendererResourceRegistry'
+import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -163,7 +164,7 @@ onBeforeUnmount(() => {
       <p class="app-resources-hint">{{ t('about.sshWindowHint') }}</p>
 
       <details class="resources-details">
-        <summary>{{ t('about.resourcesBreakdown') }}</summary>
+        <summary><AppIcon name="chevron-right" size="xs" class="details-chevron" />{{ t('about.resourcesBreakdown') }}</summary>
         <p class="app-resources-hint">{{ t('about.resourcesBreakdownHint') }}</p>
         <ul class="resources-process-list">
           <li v-for="proc in orderedProcesses" :key="proc.pid" class="resources-process">
@@ -219,7 +220,7 @@ onBeforeUnmount(() => {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .resources-section-label {
@@ -246,11 +247,28 @@ onBeforeUnmount(() => {
 }
 
 .resources-details summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   user-select: none;
+}
+
+.resources-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.resources-details .details-chevron {
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.resources-details[open] > summary .details-chevron {
+  transform: rotate(90deg);
 }
 
 .resources-details .app-resources-hint {
@@ -272,7 +290,7 @@ onBeforeUnmount(() => {
 }
 
 .resources-size {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--text-secondary);
   flex-shrink: 0;
 }

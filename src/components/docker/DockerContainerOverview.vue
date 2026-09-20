@@ -245,7 +245,7 @@ function stateLabel(state: string): string {
 }
 
 .ov-row dd.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
 }
 
@@ -281,7 +281,7 @@ function stateLabel(state: string): string {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .mount-list {
@@ -306,7 +306,7 @@ function stateLabel(state: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .mount-arrow {

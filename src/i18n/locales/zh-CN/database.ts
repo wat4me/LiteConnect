@@ -229,7 +229,7 @@ export default {
       saveQuery: '收藏当前查询',
       saveQueryTitle: '将当前 SQL 收藏保存（Ctrl+S）',
       savedScriptsBtn: 'SQL 脚本',
-      savedEmptyInline: '暂无已收藏的 SQL 脚本。你可以在左侧工具栏点击 ⭐️，或使用 Ctrl+S 快速收藏。',
+      savedEmptyInline: '暂无已收藏的 SQL 脚本。你可以点击左侧工具栏的“收藏”按钮，或使用 Ctrl+S 快速收藏。',
       savedTitle: '收藏的 SQL 脚本列表',
       unsaved: '未执行或已修改',
       editorAriaLabel: 'SQL 编辑器',

@@ -1,9 +1,11 @@
 export type SettingsTabId =
   | 'appearance'
+  | 'app'
   | 'terminal'
   | 'files'
   | 'database'
   | 'network'
+  | 'hostKeys'
   | 'mcp'
   | 'shortcuts'
   | 'about'

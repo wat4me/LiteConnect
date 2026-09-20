@@ -272,7 +272,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12px;
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .update-actions {

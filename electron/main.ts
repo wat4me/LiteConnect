@@ -149,7 +149,9 @@ async function loadDeferredMain(): Promise<void> {
     const { registerMcpHandlers } = await import('./ipc/registerMcpHandlers')
     const { registerAiHandlers } = await import('./ipc/registerAiHandlers')
 
-    const sshMcpRuntime = bindSshMcpRuntime(sshManager, credentialStore, monitorCollector)
+    const sshMcpRuntime = bindSshMcpRuntime(sshManager, credentialStore, monitorCollector, {
+      getApprovalMode: () => settingsStore.getMcpApprovalMode(),
+    })
     const gateway = new McpHttpGateway(
       sshMcpRuntime,
       settingsStore,

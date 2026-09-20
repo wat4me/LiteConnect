@@ -8,13 +8,15 @@ type Entry = {
   starting: Ref<boolean>
   refCount: number
   unsub: (() => void) | null
-  monitoredSessionId: string | null
+  execSessionId: string | null
+  started: boolean
+  startPromise: Promise<void> | null
 }
 
 const entries = new Map<string, Entry>()
 
-function getEntry(sessionId: string): Entry {
-  let entry = entries.get(sessionId)
+function getEntry(connectionId: string): Entry {
+  let entry = entries.get(connectionId)
   if (!entry) {
     entry = {
       data: ref(null),
@@ -22,53 +24,75 @@ function getEntry(sessionId: string): Entry {
       starting: ref(false),
       refCount: 0,
       unsub: null,
-      monitoredSessionId: null,
+      execSessionId: null,
+      started: false,
+      startPromise: null,
     }
-    entries.set(sessionId, entry)
+    entries.set(connectionId, entry)
   }
   return entry
 }
 
-async function startEntry(sessionId: string) {
-  const entry = getEntry(sessionId)
-  if (entry.monitoredSessionId === sessionId && entry.unsub && !entry.error.value) return
+async function startEntry(connectionId: string, sessionId: string) {
+  const entry = getEntry(connectionId)
+  if (entry.startPromise) {
+    await entry.startPromise
+  }
+  if (entry.started && entry.unsub && !entry.error.value) {
+    if (entry.execSessionId !== sessionId) {
+      entry.execSessionId = sessionId
+      await window.LiteConnect.monitorStart(connectionId, sessionId)
+    }
+    return
+  }
 
-  stopEntry(sessionId)
-  entry.error.value = ''
-  entry.monitoredSessionId = sessionId
-  entry.starting.value = true
+  const run = (async () => {
+    stopEntry(connectionId, false)
+    entry.error.value = ''
+    entry.execSessionId = sessionId
+    entry.starting.value = true
+    try {
+      await window.LiteConnect.monitorStart(connectionId, sessionId)
+      entry.unsub = window.LiteConnect.onMonitorData(connectionId, (d: MonitorData) => {
+        entry.data.value = d
+        entry.error.value = ''
+      })
+      entry.started = true
+    } catch (err: any) {
+      entry.error.value = err?.message || t('monitor.startFailed')
+      entry.execSessionId = null
+      entry.started = false
+    } finally {
+      entry.starting.value = false
+    }
+  })()
+  entry.startPromise = run
   try {
-    await window.LiteConnect.monitorStart(sessionId)
-    entry.unsub = window.LiteConnect.onMonitorData(sessionId, (d: MonitorData) => {
-      entry.data.value = d
-      entry.error.value = ''
-    })
-  } catch (err: any) {
-    entry.error.value = err?.message || t('monitor.startFailed')
-    entry.monitoredSessionId = null
+    await run
   } finally {
-    entry.starting.value = false
+    if (entry.startPromise === run) entry.startPromise = null
   }
 }
 
-function stopEntry(sessionId: string) {
-  const entry = entries.get(sessionId)
+function stopEntry(connectionId: string, clearData = true) {
+  const entry = entries.get(connectionId)
   if (!entry) return
   entry.unsub?.()
   entry.unsub = null
-  if (entry.monitoredSessionId) {
-    window.LiteConnect.monitorStop(entry.monitoredSessionId).catch(() => {})
-    entry.monitoredSessionId = null
+  entry.started = false
+  if (entry.execSessionId) {
+    window.LiteConnect.monitorStop(connectionId).catch(() => {})
+    entry.execSessionId = null
   }
-  entry.data.value = null
+  if (clearData) entry.data.value = null
 }
 
 /**
- * Shared monitor collector per SSH session (ref-counted).
- * Dock + side details can bind the same session without double start/stop races.
+ * Shared monitor collector per SSH host (ref-counted).
+ * Extra terminals on the same connection retarget exec without dropping the snapshot.
  */
-export function useSharedMonitor(sessionId: Ref<string>) {
-  let boundId: string | null = null
+export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<string>) {
+  let boundConnection: string | null = null
 
   const data = ref<MonitorData | null>(null)
   const error = ref('')
@@ -100,43 +124,52 @@ export function useSharedMonitor(sessionId: Ref<string>) {
     }
   }
 
-  async function bind(id: string) {
-    if (!id) return
-    if (boundId === id) {
-      attachEntry(id)
+  async function bind(nextConnectionId: string, nextSessionId: string) {
+    if (!nextConnectionId || !nextSessionId) return
+    if (boundConnection === nextConnectionId) {
+      attachEntry(nextConnectionId)
+      const entry = getEntry(nextConnectionId)
+      if (entry.execSessionId !== nextSessionId || !entry.started) {
+        await startEntry(nextConnectionId, nextSessionId)
+        data.value = entry.data.value
+        error.value = entry.error.value
+        starting.value = entry.starting.value
+      }
       return
     }
-    if (boundId) {
-      const prev = getEntry(boundId)
+    if (boundConnection) {
+      const prev = getEntry(boundConnection)
       prev.refCount = Math.max(0, prev.refCount - 1)
       if (prev.refCount === 0) {
-        stopEntry(boundId)
-        entries.delete(boundId)
+        stopEntry(boundConnection)
+        entries.delete(boundConnection)
       }
     }
-    const entry = getEntry(id)
+    const entry = getEntry(nextConnectionId)
     entry.refCount += 1
-    boundId = id
-    attachEntry(id)
-    await startEntry(id)
+    boundConnection = nextConnectionId
+    attachEntry(nextConnectionId)
+    await startEntry(nextConnectionId, nextSessionId)
     data.value = entry.data.value
     error.value = entry.error.value
     starting.value = entry.starting.value
   }
 
   function retry() {
-    const id = boundId || sessionId.value
-    if (!id) return
+    const id = boundConnection || connectionId.value
+    const sid = sessionId.value
+    if (!id || !sid) return
     const entry = getEntry(id)
     entry.data.value = null
+    entry.started = false
     data.value = null
-    void startEntry(id)
+    void startEntry(id, sid)
   }
 
   watch(
-    sessionId,
-    (id) => {
-      void bind(id)
+    [connectionId, sessionId],
+    ([cid, sid]) => {
+      void bind(cid, sid)
     },
     { immediate: true },
   )
@@ -144,14 +177,14 @@ export function useSharedMonitor(sessionId: Ref<string>) {
   onBeforeUnmount(() => {
     stopWatchEntry?.()
     stopWatchEntry = null
-    if (boundId) {
-      const entry = getEntry(boundId)
-      entry.refCount = Math.max(0, entry.refCount - 1)
-      if (entry.refCount === 0) {
-        stopEntry(boundId)
-        entries.delete(boundId)
+    if (boundConnection) {
+      const prev = getEntry(boundConnection)
+      prev.refCount = Math.max(0, prev.refCount - 1)
+      if (prev.refCount === 0) {
+        stopEntry(boundConnection)
+        entries.delete(boundConnection)
       }
-      boundId = null
+      boundConnection = null
     }
   })
 

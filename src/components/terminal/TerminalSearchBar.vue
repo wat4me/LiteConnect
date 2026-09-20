@@ -37,8 +37,8 @@ const { t } = useI18n()
       @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value); emit('input')"
       @keydown="emit('keydown', $event)"
     />
-    <button type="button" class="search-nav-btn" :title="t('terminal.searchPrev')" @click="emit('find-previous')">↑</button>
-    <button type="button" class="search-nav-btn" :title="t('terminal.searchNext')" @click="emit('find-next')">↓</button>
+    <button type="button" class="search-nav-btn" :title="t('terminal.searchPrev')" :aria-label="t('terminal.searchPrev')" @click="emit('find-previous')"><AppIcon name="chevron-up" size="xs" /></button>
+    <button type="button" class="search-nav-btn" :title="t('terminal.searchNext')" :aria-label="t('terminal.searchNext')" @click="emit('find-next')"><AppIcon name="chevron-down" size="xs" /></button>
     <span v-if="matchCount > 0" class="search-count">{{ matchIndex }}/{{ matchCount }}</span>
     <span v-else-if="searchQuery" class="search-count muted">0</span>
     <label class="search-opt" :title="t('terminal.searchCaseSensitive')">

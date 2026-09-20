@@ -1,7 +1,7 @@
 export default {
   about: {
     title: '关于',
-    intro: '版本信息与应用更新。自动更新开关立即生效，不必再点保存。',
+    intro: '查看 LiteConnect 版本、运行环境、开源许可和更新状态。',
     desc: '轻量级多协议连接管理客户端：SSH 终端、SFTP、服务器监控、Docker 管理与数据库工具。',
     version: '应用版本',
     electron: 'Electron 版本',
@@ -10,8 +10,7 @@ export default {
     licenseValue: 'GPL-3.0',
     updates: '应用更新',
     autoUpdate: '启动时自动检查更新',
-    autoUpdateHint:
-      '默认关闭：不少网络访问不了 GitHub Releases。开启后，安装版启动约 8 秒会检查一次；发现新版本会自动下载，退出应用时安装。开发运行或解压便携版通常检查不到更新。',
+    autoUpdateHint: '开启后会在启动时检查 GitHub Releases，下载完成后可退出并安装。开发模式和部分便携版不支持自动更新。',
     checkNow: '检查更新',
     checking: '正在检查…',
     available: '发现新版本 {version}',

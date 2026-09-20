@@ -131,6 +131,7 @@ export type McpHttpStatus = {
   token: string
   lastError: string | null
   snippets: { generic: string }
+  approvalMode: ApprovalMode
 }
 
 export type SshMcpErrorPayload = {

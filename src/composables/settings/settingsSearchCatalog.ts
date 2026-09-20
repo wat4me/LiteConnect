@@ -38,18 +38,32 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['鼠标', '光标'],
   },
   {
-    id: 'appearance.closeToTray',
-    tab: 'appearance',
-    titleKey: 'settingsAppearance.closeToTray',
-    hintKey: 'settingsAppearance.closeToTrayHint',
+    id: 'app',
+    tab: 'app',
+    titleKey: 'settings.tabs.app',
+    hintKey: 'settings.tabs.appDesc',
+    keywords: ['窗口', '启动', '行为'],
+  },
+  {
+    id: 'app.closeToTray',
+    tab: 'app',
+    titleKey: 'settingsApp.closeToTray',
+    hintKey: 'settingsApp.closeToTrayHint',
     keywords: ['托盘', '最小化', '关闭窗口'],
   },
   {
-    id: 'appearance.globalHotkey',
-    tab: 'appearance',
-    titleKey: 'settingsAppearance.globalHotkey',
-    hintKey: 'settingsAppearance.globalHotkeyHint',
-    keywords: ['呼出', '全局快捷键', 'alt+shift'],
+    id: 'app.globalHotkey',
+    tab: 'app',
+    titleKey: 'settingsApp.globalHotkey',
+    hintKey: 'settingsApp.globalHotkeyHint',
+    keywords: ['呼出', '全局快捷键', 'alt+shift', '自定义', '组合键'],
+  },
+  {
+    id: 'app.workspaceRestore',
+    tab: 'app',
+    titleKey: 'settingsApp.workspaceRestore',
+    hintKey: 'settingsApp.workspaceRestoreHint',
+    keywords: ['恢复标签', '启动'],
   },
 
   {
@@ -237,13 +251,6 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['重连', '断线'],
   },
   {
-    id: 'network.workspaceRestore',
-    tab: 'network',
-    titleKey: 'settingsNetwork.workspaceRestore',
-    hintKey: 'settingsNetwork.workspaceRestoreHint',
-    keywords: ['恢复标签', '启动'],
-  },
-  {
     id: 'network.x11',
     tab: 'network',
     titleKey: 'settingsNetwork.graphical',
@@ -251,11 +258,18 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['x11', '图形', 'vcxsrv', 'xming', '转发'],
   },
   {
-    id: 'network.knownHosts',
-    tab: 'network',
-    titleKey: 'settingsNetwork.knownHostsTitle',
-    hintKey: 'settingsNetwork.knownHostsHint',
-    keywords: ['指纹', '主机密钥', 'known_hosts', '信任'],
+    id: 'hostKeys',
+    tab: 'hostKeys',
+    titleKey: 'settings.tabs.hostKeys',
+    hintKey: 'settings.tabs.hostKeysDesc',
+    keywords: ['指纹', '主机密钥', 'known_hosts', '信任', '安全'],
+  },
+  {
+    id: 'hostKeys.trusted',
+    tab: 'hostKeys',
+    titleKey: 'settingsHostKeys.trusted',
+    hintKey: 'settingsHostKeys.hint',
+    keywords: ['指纹', '删除信任', '重新确认'],
   },
 
   {
@@ -271,6 +285,13 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     titleKey: 'settingsMcp.service',
     hintKey: 'settingsMcp.hint',
     keywords: ['开关', '监听'],
+  },
+  {
+    id: 'mcp.approval',
+    tab: 'mcp',
+    titleKey: 'settingsMcp.approval',
+    hintKey: 'settingsMcp.approvalHint',
+    keywords: ['审批', '权限', '拒绝', '询问', '自动'],
   },
   {
     id: 'mcp.port',

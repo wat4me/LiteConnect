@@ -5,15 +5,15 @@ const items = [
   {
     id: 'about.updates',
     title: '应用更新',
-    hint: '默认关闭：不少网络访问不了 GitHub Releases',
+    hint: '启动时检查 GitHub Releases',
     tabLabel: '关于',
     keywords: ['自动更新', '升级', '检查更新', 'github'],
   },
   {
-    id: 'appearance.closeToTray',
+    id: 'app.closeToTray',
     title: '关闭窗口时最小化到托盘',
     hint: '开启后点关闭按钮会隐藏到系统托盘',
-    tabLabel: '外观',
+    tabLabel: '应用',
     keywords: ['托盘', '最小化', '关闭窗口'],
   },
   {
@@ -42,7 +42,7 @@ describe('matchSettingsSearch', () => {
 
   it('finds tray by a short keyword', () => {
     const hits = matchSettingsSearch(items, '托盘')
-    expect(hits[0]?.id).toBe('appearance.closeToTray')
+    expect(hits[0]?.id).toBe('app.closeToTray')
   })
 
   it('ranks title match above same-named items only by query in title', () => {

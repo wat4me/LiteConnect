@@ -85,6 +85,13 @@
   margin-bottom: 8px;
 }
 
+.settings-content .settings-card-title {
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .settings-content .settings-label-sub {
   font-size: 12px;
   font-weight: 500;
@@ -101,6 +108,34 @@
 
 .settings-content .settings-hint.warn {
   color: var(--warning);
+}
+
+.settings-content .settings-option {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+}
+
+.settings-content .settings-option:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-content .settings-option-copy {
+  min-width: 0;
+}
+
+.settings-content .settings-option-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-content .settings-option .settings-hint {
+  margin-top: 5px;
 }
 
 .settings-content .settings-input {
@@ -198,6 +233,9 @@
 }
 
 .settings-content .font-size-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
   border: 1px solid var(--border-color);

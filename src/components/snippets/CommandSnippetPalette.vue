@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
   display: block;
   font-size: 11px;
   color: var(--text-secondary, #999);
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

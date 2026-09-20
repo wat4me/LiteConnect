@@ -50,6 +50,7 @@ export function registerWorkspaceSettingsHandlers(ctx: SettingsIpcCtx): void {
     if (
       patch.closeToTrayEnabled !== undefined
       || patch.globalHotkeyEnabled !== undefined
+      || patch.globalHotkey !== undefined
     ) {
       const { syncTrayFromSettings } = await import('../../window/tray')
       syncTrayFromSettings(settingsStore)

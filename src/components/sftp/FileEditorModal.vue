@@ -247,7 +247,7 @@ onBeforeUnmount(() => {
 .editor-path {
   font-size: 11px;
   color: var(--text-secondary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -320,7 +320,7 @@ onBeforeUnmount(() => {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 13px;
   line-height: 1.6;
   overflow: hidden;
@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
   background: var(--bg-primary);
   border: none;
   color: var(--text-primary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 13px;
   line-height: 1.6;
   resize: none;

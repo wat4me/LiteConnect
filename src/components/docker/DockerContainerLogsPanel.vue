@@ -13,6 +13,7 @@ import {
   type DockerLogsUiState,
 } from '../../composables/docker/useDockerContainerLogs'
 import type { DockerLogEntry, DockerLogTail, DockerTransportErrorCode } from '../../env.d'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   entries: DockerLogEntry[]
@@ -255,13 +256,25 @@ defineExpose({ resetSearch })
       </span>
     </div>
     <div class="logs-search-row">
-      <input
-        class="ui-input ui-input-sm ui-grow logs-search"
-        type="search"
-        v-model="logSearch"
-        :placeholder="t('docker.logs.search')"
-        :aria-label="t('docker.logs.search')"
-      />
+      <div class="logs-search-field">
+        <input
+          v-model="logSearch"
+          class="ui-input ui-input-sm logs-search"
+          type="text"
+          :placeholder="t('docker.logs.search')"
+          :aria-label="t('docker.logs.search')"
+        />
+        <button
+          v-if="logSearch"
+          type="button"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost ui-icon-btn-close logs-search-clear"
+          :title="t('common.clear')"
+          :aria-label="t('common.clear')"
+          @click="logSearch = ''"
+        >
+          <AppIcon name="close" size="xs" />
+        </button>
+      </div>
       <div v-if="hasLogQuery" class="logs-nav" aria-live="polite">
         <span class="logs-match-count">
           {{
@@ -281,7 +294,7 @@ defineExpose({ resetSearch })
           :aria-label="t('docker.logs.prevMatch')"
           @click="goPrevLogMatch"
         >
-          ↑
+          <AppIcon name="chevron-up" size="xs" />
         </button>
         <button
           type="button"
@@ -291,7 +304,7 @@ defineExpose({ resetSearch })
           :aria-label="t('docker.logs.nextMatch')"
           @click="goNextLogMatch"
         >
-          ↓
+          <AppIcon name="chevron-down" size="xs" />
         </button>
       </div>
     </div>
@@ -372,10 +385,26 @@ defineExpose({ resetSearch })
   gap: 8px;
 }
 
-.logs-search {
+.logs-search-field {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+
+.logs-search {
+  width: 100%;
+  min-width: 0;
   max-width: none;
+  padding-right: 34px;
+}
+
+.logs-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 24px !important;
+  height: 24px !important;
 }
 
 .logs-nav {
@@ -404,7 +433,7 @@ defineExpose({ resetSearch })
   border-radius: 8px;
   background: var(--bg-tertiary);
   padding: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   line-height: 1.45;
 }

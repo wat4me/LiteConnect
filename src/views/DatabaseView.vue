@@ -872,6 +872,6 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   background: var(--bg-secondary);
   font-size: 11px;
   color: var(--text-secondary);
-  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 </style>

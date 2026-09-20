@@ -176,7 +176,7 @@ function toggleMenu() {
           aria-haspopup="menu"
           @click.stop="toggleMenu"
         >
-          ▾
+          <AppIcon name="chevron-down" size="xs" />
         </button>
       </div>
       <!-- Teleport to body + fixed coords: never clipped by toolbar overflow -->

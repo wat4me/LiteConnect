@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AppIcon from '../icons/AppIcon.vue'
 import {
   formatContainerPortsSummary,
   matchesStateFilter,
@@ -125,14 +126,26 @@ function onSearchInput(e: Event) {
           >
         </button>
       </div>
-      <input
-        class="ui-input ui-input-sm ui-grow docker-list-search"
-        type="search"
-        :value="searchQuery"
-        :placeholder="t('docker.searchPlaceholder')"
-        :aria-label="t('docker.searchPlaceholder')"
-        @input="onSearchInput"
-      />
+      <div class="docker-list-search-field">
+        <input
+          class="ui-input ui-input-sm docker-list-search"
+          type="text"
+          :value="searchQuery"
+          :placeholder="t('docker.searchPlaceholder')"
+          :aria-label="t('docker.searchPlaceholder')"
+          @input="onSearchInput"
+        />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close docker-list-search-clear"
+          :title="t('common.clear')"
+          :aria-label="t('common.clear')"
+          @click="emit('search', '')"
+        >
+          <AppIcon name="close" size="xs" />
+        </button>
+      </div>
     </div>
 
     <div class="list-pane">
@@ -281,8 +294,25 @@ function onSearchInput(e: Event) {
   font-variant-numeric: tabular-nums;
 }
 
-.docker-list-search {
+.docker-list-search-field {
+  position: relative;
+  flex: 1;
+  min-width: 160px;
   max-width: 280px;
+}
+
+.docker-list-search {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.docker-list-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 24px !important;
+  height: 24px !important;
 }
 
 .list-pane {

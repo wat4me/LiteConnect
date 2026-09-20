@@ -222,6 +222,16 @@ const terminalWorkspaceRef = ref<{
 
 /** Bottom dock is default; side panel opens only when user requests details. */
 const monitorDetailsOpen = ref(false)
+
+/** Any live PTY on this host can drive collection; metrics are per connection. */
+const monitorExecSessionId = computed(() => {
+  const group = props.activeGroup
+  if (!group || group.sessions.length === 0) return ''
+  if (group.activeSessionId && group.sessions.some((session) => session.id === group.activeSessionId)) {
+    return group.activeSessionId
+  }
+  return group.sessions[0].id
+})
 /** Declared before onBeforeUnmount so unmount can cancel stale rAF focus. */
 let cancelPendingTerminalFocus: (() => void) | null = null
 
@@ -402,17 +412,18 @@ watch(
 
       <div
         v-if="showSidePanels() && monitorVisible && activeGroup && activeGroup.sessions.length > 0"
+        v-show="!monitorDetailsOpen"
         class="monitor-dock"
       >
         <MonitorPanel
           :key="'dock-' + activeGroup.connectionId"
           layout="bottom"
           :details-open="monitorDetailsOpen"
-          :session-id="activeGroup.sessions[0].id"
+          :session-id="monitorExecSessionId"
           :connection-id="activeGroup.connectionId"
           :connection-name="activeGroup.connectionName"
           @close="emit('close-monitor')"
-          @toggle-details="monitorDetailsOpen = !monitorDetailsOpen"
+          @toggle-details="monitorDetailsOpen = true"
         />
       </div>
     </div>
@@ -472,10 +483,11 @@ watch(
         <MonitorPanel
           :key="'side-' + activeGroup.connectionId"
           layout="side"
-          :session-id="activeGroup.sessions[0].id"
+          :session-id="monitorExecSessionId"
           :connection-id="activeGroup.connectionId"
           :connection-name="activeGroup.connectionName"
-          @close="monitorDetailsOpen = false"
+          @close="emit('close-monitor')"
+          @dock="monitorDetailsOpen = false"
         />
       </div>
     </template>

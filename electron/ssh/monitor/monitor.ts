@@ -41,7 +41,11 @@ export interface MonitorData {
   timestamp: number
 }
 
-type CollectorFn = (session: string, sshManager: SSHManager) => Promise<Partial<MonitorData>>
+type CollectorFn = (
+  execSessionId: string,
+  sshManager: SSHManager,
+  cacheKey: string,
+) => Promise<Partial<MonitorData>>
 
 async function execCommand(sshManager: SSHManager, sessionId: string, command: string, timeoutMs = 3000): Promise<string> {
   try {
@@ -79,7 +83,11 @@ async function collectSystemInfo(sessionId: string, sshManager: SSHManager): Pro
 let prevCpuTimes: Map<string, { idle: number; total: number }> = new Map()
 let coreCpuPrev: Map<string, { idle: number; total: number }[]> = new Map()
 
-async function collectCpu(sessionId: string, sshManager: SSHManager): Promise<Partial<MonitorData>> {
+async function collectCpu(
+  sessionId: string,
+  sshManager: SSHManager,
+  cacheKey: string,
+): Promise<Partial<MonitorData>> {
   const [statOut, loadavgOut] = await Promise.all([
     execCommand(sshManager, sessionId, 'cat /proc/stat 2>/dev/null || echo "PROC_UNAVAILABLE"'),
     execCommand(sshManager, sessionId, 'cat /proc/loadavg 2>/dev/null || uptime 2>/dev/null || echo ""'),
@@ -95,17 +103,17 @@ async function collectCpu(sessionId: string, sshManager: SSHManager): Promise<Pa
       const vals = cpuLine.trim().split(/\s+/).slice(1).map(Number)
       const idle = vals[3] || 0
       const total = vals.reduce((a: number, b: number) => a + b, 0)
-      const prev = prevCpuTimes.get(sessionId)
+      const prev = prevCpuTimes.get(cacheKey)
       if (prev && total > 0) {
         const dIdle = idle - prev.idle
         const dTotal = total - prev.total
         usage = dTotal > 0 ? Math.round(((dTotal - dIdle) / dTotal) * 1000) / 10 : 0
       }
-      prevCpuTimes.set(sessionId, { idle, total })
+      prevCpuTimes.set(cacheKey, { idle, total })
     }
 
     const coreLines = lines.filter(l => /^cpu\d+/.test(l))
-    const prevCores = coreCpuPrev.get(sessionId) || []
+    const prevCores = coreCpuPrev.get(cacheKey) || []
     const curCores: { idle: number; total: number }[] = []
     for (const line of coreLines) {
       const v = line.trim().split(/\s+/).slice(1).map(Number)
@@ -119,7 +127,7 @@ async function collectCpu(sessionId: string, sshManager: SSHManager): Promise<Pa
         return dTotal > 0 ? Math.round(((dTotal - dIdle) / dTotal) * 1000) / 10 : 0
       })
     }
-    coreCpuPrev.set(sessionId, curCores)
+    coreCpuPrev.set(cacheKey, curCores)
   }
 
   if (usage === -1) {
@@ -275,16 +283,25 @@ export class MonitorCollector {
   private data: Map<string, MonitorData> = new Map()
   private systemInfoDone: Set<string> = new Set()
   private collecting: Map<string, Set<keyof MonitorData>> = new Map()
-  private onData: (sessionId: string, data: MonitorData) => void
+  /** connectionId → session used for remote exec */
+  private execSession = new Map<string, string>()
+  private sessionToConnection = new Map<string, string>()
+  private onData: (connectionId: string, data: MonitorData) => void
   private sshManager: SSHManager
 
-  constructor(sshManager: SSHManager, onData: (sessionId: string, data: MonitorData) => void) {
+  constructor(sshManager: SSHManager, onData: (connectionId: string, data: MonitorData) => void) {
     this.sshManager = sshManager
     this.onData = onData
   }
 
-  start(sessionId: string, intervalMs: number) {
-    this.stop(sessionId)
+  start(connectionId: string, sessionId: string, intervalMs: number) {
+    const previousExec = this.execSession.get(connectionId)
+    if (previousExec && previousExec !== sessionId) {
+      this.sessionToConnection.delete(previousExec)
+    }
+    this.execSession.set(connectionId, sessionId)
+    this.sessionToConnection.set(sessionId, connectionId)
+    if (this.timers.has(connectionId)) return
 
     const fast = intervalMs
     const normal = Math.round(intervalMs * 2.5)
@@ -297,23 +314,21 @@ export class MonitorCollector {
       disk: [], processes: [],
       timestamp: Date.now(),
     }
-    this.data.set(sessionId, initData)
+    this.data.set(connectionId, initData)
 
     const collect = async (keys: (keyof MonitorData)[]) => {
-      if (!this.sshManager.hasSession(sessionId)) {
-        this.stop(sessionId)
-        return
-      }
-      let running = this.collecting.get(sessionId)
+      const execId = this.execSession.get(connectionId)
+      if (!execId || !this.sshManager.hasSession(execId)) return
+      let running = this.collecting.get(connectionId)
       if (!running) {
         running = new Set()
-        this.collecting.set(sessionId, running)
+        this.collecting.set(connectionId, running)
       }
       const keysToCollect = keys.filter(key => !running!.has(key))
       if (keysToCollect.length === 0) return
       for (const key of keysToCollect) running.add(key)
 
-      const current = this.data.get(sessionId)
+      const current = this.data.get(connectionId)
       if (!current) {
         for (const key of keysToCollect) running.delete(key)
         return
@@ -322,16 +337,16 @@ export class MonitorCollector {
         for (const collector of COLLECTORS) {
           if (!keysToCollect.includes(collector.key)) continue
           try {
-            const partial = await collector.fn(sessionId, this.sshManager)
-            if (!this.data.has(sessionId)) return
+            const partial = await collector.fn(execId, this.sshManager, connectionId)
+            if (!this.data.has(connectionId)) return
             Object.assign(current, partial)
           } catch {}
         }
         current.timestamp = Date.now()
-        this.onData(sessionId, { ...current })
+        this.onData(connectionId, { ...current })
       } finally {
         for (const key of keysToCollect) running.delete(key)
-        if (running.size === 0) this.collecting.delete(sessionId)
+        if (running.size === 0) this.collecting.delete(connectionId)
       }
     }
 
@@ -340,44 +355,50 @@ export class MonitorCollector {
       normal: setInterval(() => collect(['memory', 'processes']), normal),
       slow: setInterval(() => collect(['disk']), slow),
     }
-    this.timers.set(sessionId, timers)
+    this.timers.set(connectionId, timers)
 
     collect(['cpu', 'memory', 'disk', 'processes'])
-    if (!this.systemInfoDone.has(sessionId)) {
-      this.systemInfoDone.add(sessionId)
+    if (!this.systemInfoDone.has(connectionId)) {
+      this.systemInfoDone.add(connectionId)
       collectSystemInfo(sessionId, this.sshManager).then(info => {
-        if (!this.data.has(sessionId)) return
-        const current = this.data.get(sessionId)!
+        if (!this.data.has(connectionId)) return
+        const current = this.data.get(connectionId)!
         Object.assign(current, info)
-        this.onData(sessionId, { ...current })
+        this.onData(connectionId, { ...current })
       })
     }
   }
 
-  stop(sessionId: string) {
-    const timers = this.timers.get(sessionId)
+  stop(connectionId: string) {
+    const timers = this.timers.get(connectionId)
     if (timers) {
       clearInterval(timers.fast)
       clearInterval(timers.normal)
       clearInterval(timers.slow)
-      this.timers.delete(sessionId)
+      this.timers.delete(connectionId)
     }
-    this.data.delete(sessionId)
-    this.systemInfoDone.delete(sessionId)
-    this.collecting.delete(sessionId)
-    prevCpuTimes.delete(sessionId)
-    coreCpuPrev.delete(sessionId)
+    const execId = this.execSession.get(connectionId)
+    if (execId) this.sessionToConnection.delete(execId)
+    this.execSession.delete(connectionId)
+    this.data.delete(connectionId)
+    this.systemInfoDone.delete(connectionId)
+    this.collecting.delete(connectionId)
+    prevCpuTimes.delete(connectionId)
+    coreCpuPrev.delete(connectionId)
   }
 
   stopAll() {
-    for (const sessionId of this.timers.keys()) {
-      this.stop(sessionId)
+    for (const connectionId of [...this.timers.keys()]) {
+      this.stop(connectionId)
     }
   }
 
-  /** Latest cached snapshot, or undefined if the monitor was never started. */
-  getCached(sessionId: string): MonitorData | undefined {
-    const current = this.data.get(sessionId)
-    return current ? { ...current } : undefined
+  /** Latest snapshot by connection id, or by the session currently used to collect. */
+  getCached(id: string): MonitorData | undefined {
+    const fromConnection = this.data.get(id)
+    if (fromConnection) return { ...fromConnection }
+    const connectionId = this.sessionToConnection.get(id)
+    const fromSession = connectionId ? this.data.get(connectionId) : undefined
+    return fromSession ? { ...fromSession } : undefined
   }
 }

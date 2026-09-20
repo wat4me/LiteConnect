@@ -215,12 +215,42 @@ describe('SshMcpRuntime', () => {
     expect(ssh.executeSessionExec).not.toHaveBeenCalled()
   })
 
-  it('fails closed when approval is required but no approver is bound', async () => {
+  it('asks the MCP client to confirm instead of denying when no in-app approver is bound', async () => {
     const { runtime, ssh } = makeRuntime({}, { approvalMode: 'ask-destructive' })
     const dest = await runtime.call('exec', { sessionId: SESSION_ID, command: 'rm -rf /tmp/x' })
     expect(dest.isError).toBe(true)
-    expect((dest.structuredContent as { code: string }).code).toBe('DESTRUCTIVE_DENIED')
+    expect((dest.structuredContent as { code: string }).code).toBe('APPROVAL_REQUIRED')
+    expect(dest.content).toContain('confirmed=true')
     expect(ssh.executeSessionExec).not.toHaveBeenCalled()
+  })
+
+  it('retries a destructive command after the MCP client sets confirmed=true', async () => {
+    const { runtime, ssh } = makeRuntime(
+      {
+        executeSessionExec: vi.fn(async () => ({
+          stdout: '',
+          stderr: '',
+          exitCode: 0,
+          truncated: false,
+        })),
+      },
+      { approvalMode: 'ask-destructive' },
+    )
+    const dest = await runtime.call('exec', {
+      sessionId: SESSION_ID,
+      command: 'rm -rf /tmp/x',
+      confirmed: true,
+    })
+    expect(dest.isError).toBe(false)
+    expect(ssh.executeSessionExec).toHaveBeenCalled()
+
+    const forbidden = await runtime.call('exec', {
+      sessionId: SESSION_ID,
+      command: 'rm -rf /',
+      confirmed: true,
+    })
+    expect(forbidden.isError).toBe(true)
+    expect((forbidden.structuredContent as { code: string }).code).toBe('DESTRUCTIVE_DENIED')
   })
 
   it('allows a per-call auto override after the UI already confirmed', async () => {

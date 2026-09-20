@@ -1,7 +1,7 @@
 export default {
   settingsFiles: {
     title: '文件传输',
-    intro: 'SFTP 下载保存位置、同名冲突策略，以及目录批量传输时的并发与失败策略。与界面主题无关。',
+    intro: '管理 SFTP 下载位置、同名文件处理和目录批量传输。',
     downloadPath: '默认下载路径',
     browse: '浏览',
     systemDefault: '系统默认',

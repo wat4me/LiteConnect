@@ -1,5 +1,6 @@
 import { MCP_SERVICE_UNIT_MAX } from '../../../shared/mcp/limits'
 import { classifyCommand } from '../../../shared/mcp/classify'
+import { approvalModeAfterClientConfirm } from '../../../shared/mcp/policy'
 import type { ApprovalMode, SshMcpToolResult } from '../../../shared/mcp/types'
 import { clampTimeout } from '../args'
 import type { McpRuntimeHost } from '../runtimeHost'
@@ -24,7 +25,12 @@ export async function serviceControl(
       ? `systemctl status --no-pager -n 25 -- ${unit}`
       : `systemctl ${action} --no-pager -- ${unit}`
   const classification = classifyCommand(command)
-  const denied = await host.ensureCommandAllowed(classification, session.sessionId, command, approvalMode)
+  const effectiveMode = approvalModeAfterClientConfirm(
+    approvalMode,
+    input.confirmed === true,
+    classification.class,
+  )
+  const denied = await host.ensureCommandAllowed(classification, session.sessionId, command, effectiveMode)
   if (denied) return denied
   const snap = host.ssh.getSessionSnapshot(session.sessionId)
   const result = await host.runForegroundExec(

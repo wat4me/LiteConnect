@@ -9,6 +9,7 @@ import {
   prevInspectMatchIndex,
 } from '../../composables/docker/inspectJsonSearch'
 import type { DockerContainerInspectResult } from '../../env.d'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   inspectResult: DockerContainerInspectResult | null
@@ -102,13 +103,25 @@ defineExpose({ resetSearch })
 <template>
   <div class="detail-body inspect-body">
     <div class="inspect-toolbar">
-      <input
-        class="ui-input ui-input-sm ui-grow inspect-search"
-        type="search"
-        v-model="inspectSearch"
-        :placeholder="t('docker.detail.inspectSearch')"
-        :aria-label="t('docker.detail.inspectSearch')"
-      />
+      <div class="inspect-search-field">
+        <input
+          v-model="inspectSearch"
+          class="ui-input ui-input-sm inspect-search"
+          type="text"
+          :placeholder="t('docker.detail.inspectSearch')"
+          :aria-label="t('docker.detail.inspectSearch')"
+        />
+        <button
+          v-if="inspectSearch"
+          type="button"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost ui-icon-btn-close inspect-search-clear"
+          :title="t('common.clear')"
+          :aria-label="t('common.clear')"
+          @click="inspectSearch = ''"
+        >
+          <AppIcon name="close" size="xs" />
+        </button>
+      </div>
       <div v-if="hasInspectQuery" class="inspect-nav" aria-live="polite">
         <span class="inspect-count">
           {{
@@ -128,7 +141,7 @@ defineExpose({ resetSearch })
           :aria-label="t('docker.detail.inspectPrevMatch')"
           @click="goPrevInspectMatch"
         >
-          ↑
+          <AppIcon name="chevron-up" size="xs" />
         </button>
         <button
           type="button"
@@ -138,7 +151,7 @@ defineExpose({ resetSearch })
           :aria-label="t('docker.detail.inspectNextMatch')"
           @click="goNextInspectMatch"
         >
-          ↓
+          <AppIcon name="chevron-down" size="xs" />
         </button>
       </div>
       <button
@@ -195,9 +208,24 @@ defineExpose({ resetSearch })
   gap: 8px;
 }
 
-.inspect-search {
+.inspect-search-field {
+  position: relative;
   flex: 1;
   min-width: 140px;
+}
+
+.inspect-search {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.inspect-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 24px !important;
+  height: 24px !important;
 }
 
 .inspect-nav {
@@ -221,7 +249,7 @@ defineExpose({ resetSearch })
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-tertiary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   line-height: 1.45;
   white-space: pre;

@@ -1,8 +1,7 @@
 export default {
   settingsTerminal: {
     title: '终端',
-    intro:
-      '配色、字体、回滚缓冲、粘贴确认、命令提示与会话日志。保存后同步已打开终端（缓冲行数对新输出生效）；下方为真实 xterm 草稿预览。',
+    intro: '调整终端的外观、回滚缓冲、粘贴保护、命令提示和会话日志。',
     palette: '终端配色',
     fontFamily: '等宽字体',
     fontSize: '字体大小',

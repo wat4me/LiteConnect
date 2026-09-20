@@ -207,7 +207,9 @@ export function disconnectSessions(host: McpRuntimeHost, input: Record<string, u
 export function getMetrics(host: McpRuntimeHost, input: Record<string, unknown>): SshMcpToolResult {
   const session = host.requireSession(input.sessionId)
   host.touch(session.sessionId)
+  const snap = host.ssh.getSessionSnapshot(session.sessionId)
   const cached = host.metrics?.getCached(session.sessionId)
+    ?? (snap?.connectionId ? host.metrics?.getCached(snap.connectionId) : undefined)
   if (!cached) {
     return host.error(
       'MONITOR_NOT_STARTED',

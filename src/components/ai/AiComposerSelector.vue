@@ -54,7 +54,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
     <div v-if="open" ref="panel" class="composer-selector-menu" :style="style" role="menu" :aria-label="title" @keydown="keydown">
       <div class="selector-title">{{ title }}</div>
       <button v-for="option in options" :key="option.value" type="button" role="menuitemradio" :aria-checked="value === option.value" @click="choose(option.value)">
-        <span class="option-dot">{{ value === option.value ? '●' : '○' }}</span><span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+        <span class="option-dot"><AppIcon v-if="value === option.value" name="check" size="xs" /></span><span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
       </button>
     </div>
   </Teleport>
@@ -74,6 +74,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 .composer-selector-menu button { display: flex; width: 100%; gap: 8px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .composer-selector-menu button:hover { background: var(--hover-bg); }
 .composer-selector-menu button[aria-checked="true"] { background: var(--accent-bg); color: var(--accent); }
+.option-dot { display: inline-flex; align-items: center; justify-content: center; width: var(--icon-xs); min-width: var(--icon-xs); height: var(--icon-xs); margin-top: 1px; }
 .composer-selector-menu strong { font-size: 12px; font-weight: 500; }
 .composer-selector-menu small { display: block; margin-top: 4px; font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
 @container ai-composer (max-width: 360px) { .selector-label:has(+ .selector-short) { display: none; } .selector-short { display: inline-flex; } .composer-selector { padding: 0 4px; gap: 3px; } }

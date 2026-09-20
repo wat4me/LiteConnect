@@ -2,9 +2,38 @@ import { onBeforeUnmount, watch, type WatchSource } from 'vue'
 
 /**
  * Dismiss a floating UI (context menu, dropdown) when the user interacts outside
- * or presses Escape. Uses capture-phase pointerdown so it still works when the
- * underlying surface (e.g. xterm) does not emit a bubbling `click`.
+ * or presses Escape.
+ *
+ * pointerdown on document is not enough in this app:
+ * - xterm / CodeMirror may swallow bubbling click, so we also listen on window
+ *   (capture) for pointerdown + mousedown, and for focusin when those surfaces
+ *   steal keyboard focus.
+ * - composedPath() catches SVG / retargeted events that `event.target` misses.
  */
+export function eventIsInsideRoots(
+  event: Event,
+  roots: Array<HTMLElement | null | undefined>,
+): boolean {
+  const valid = roots.filter((root): root is HTMLElement => !!root)
+  if (valid.length === 0) return false
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+  const nodes: EventTarget[] = path.length > 0
+    ? path
+    : (event.target ? [event.target] : [])
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') continue
+    for (const root of valid) {
+      if (node === root) return true
+      if (typeof (root as HTMLElement).contains === 'function'
+        && node instanceof Node
+        && root.contains(node)) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 export function useOutsideDismiss(
   open: WatchSource<boolean>,
   onDismiss: () => void,
@@ -13,16 +42,8 @@ export function useOutsideDismiss(
   let attached = false
   let attachRaf = 0
 
-  function isInside(target: EventTarget | null): boolean {
-    if (!(target instanceof Node)) return false
-    for (const root of getIgnoreRoots()) {
-      if (root?.contains(target)) return true
-    }
-    return false
-  }
-
-  function onPointerDown(e: Event) {
-    if (isInside(e.target)) return
+  function onPointer(e: Event) {
+    if (eventIsInsideRoots(e, getIgnoreRoots())) return
     onDismiss()
   }
 
@@ -40,7 +61,9 @@ export function useOutsideDismiss(
     }
     if (!attached) return
     attached = false
-    document.removeEventListener('pointerdown', onPointerDown, true)
+    window.removeEventListener('pointerdown', onPointer, true)
+    window.removeEventListener('mousedown', onPointer, true)
+    document.removeEventListener('focusin', onPointer, true)
     document.removeEventListener('keydown', onKeydown, true)
   }
 
@@ -50,7 +73,9 @@ export function useOutsideDismiss(
     attachRaf = requestAnimationFrame(() => {
       attachRaf = 0
       attached = true
-      document.addEventListener('pointerdown', onPointerDown, true)
+      window.addEventListener('pointerdown', onPointer, true)
+      window.addEventListener('mousedown', onPointer, true)
+      document.addEventListener('focusin', onPointer, true)
       document.addEventListener('keydown', onKeydown, true)
     })
   }

@@ -433,33 +433,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="settings-label" style="margin-top: 18px">{{ t('settingsAppearance.windowTitle') }}</div>
-
-        <div class="toggle-row" data-setting="appearance.closeToTray">
-          <span>{{ t('settingsAppearance.closeToTray') }}</span>
-          <button
-            type="button"
-            class="toggle-btn"
-            :class="{ active: draft.closeToTrayEnabled }"
-            @click="draft.closeToTrayEnabled = !draft.closeToTrayEnabled"
-          >
-            <span class="toggle-knob"></span>
-          </button>
-        </div>
-        <p class="settings-hint">{{ t('settingsAppearance.closeToTrayHint') }}</p>
-
-        <div class="toggle-row" data-setting="appearance.globalHotkey">
-          <span>{{ t('settingsAppearance.globalHotkey') }}</span>
-          <button
-            type="button"
-            class="toggle-btn"
-            :class="{ active: draft.globalHotkeyEnabled }"
-            @click="draft.globalHotkeyEnabled = !draft.globalHotkeyEnabled"
-          >
-            <span class="toggle-knob"></span>
-          </button>
-        </div>
-        <p class="settings-hint">{{ t('settingsAppearance.globalHotkeyHint') }}</p>
       </div>
 
       <div class="preview-card">
@@ -722,7 +695,7 @@ onBeforeUnmount(() => {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 12px;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .ui-preview {
@@ -918,7 +891,7 @@ onBeforeUnmount(() => {
 
 .ui-preview-meta {
   font-size: 10px;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .ui-preview-btn {

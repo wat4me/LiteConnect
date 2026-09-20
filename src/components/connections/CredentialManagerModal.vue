@@ -579,7 +579,7 @@ function formatTime(value: number): string {
 }
 
 .account-code {
-  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--text-primary);
   word-break: break-all;
   background: transparent;

@@ -116,6 +116,13 @@ watch(
     if (open) resourceOpen.value = false
   },
 )
+
+watch(
+  () => props.appMode,
+  () => {
+    resourceOpen.value = false
+  },
+)
 </script>
 
 <template>
@@ -159,7 +166,7 @@ watch(
                 :aria-checked="appMode === 'ssh'"
                 @click="selectMode('ssh')"
               >
-                <span class="titlebar-mode-check" aria-hidden="true">{{ appMode === 'ssh' ? '✓' : '' }}</span>
+                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'ssh'" name="check" size="xs" /></span>
                 <span>SSH</span>
               </button>
               <button
@@ -169,7 +176,7 @@ watch(
                 :aria-checked="appMode === 'database'"
                 @click="selectMode('database')"
               >
-                <span class="titlebar-mode-check" aria-hidden="true">{{ appMode === 'database' ? '✓' : '' }}</span>
+                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'database'" name="check" size="xs" /></span>
                 <span>DB</span>
               </button>
             </div>
@@ -188,7 +195,7 @@ watch(
           data-onboarding="shortcuts-help"
           :title="t('app.openShortcuts')"
           :aria-label="t('app.openShortcutsAria')"
-          @click="emit('open-shortcuts')"
+          @click="closeResourcePopup(); emit('open-shortcuts')"
         >
           <AppIcon name="help-circle" size="sm" />
         </button>
@@ -288,6 +295,7 @@ watch(
 .titlebar-right {
   justify-content: flex-end;
   gap: 4px;
+  -webkit-app-region: no-drag;
 }
 
 .titlebar-center {

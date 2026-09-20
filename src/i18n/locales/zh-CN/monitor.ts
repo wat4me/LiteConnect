@@ -22,8 +22,11 @@ export default {
     processes: '进程 Top 5',
     expandDetails: '详情',
     collapseDetails: '收起详情',
+    dock: '收到底栏',
+    dockTitle: '收到窗口底部的摘要条，监控继续运行',
+    dockAria: '将监控收到窗口底部',
     topProc: '进程',
     tipTitle: '服务器监控',
-    tipBody: '底栏随窗口变宽显示更多指标；点「详情」可看磁盘与进程。',
+    tipBody: '底栏是当前主机的摘要。点「详情」看完整面板；侧栏「收到底栏」回到摘要，叉掉则关闭监控。同一主机多个终端共用一份数据。',
   },
 } as const

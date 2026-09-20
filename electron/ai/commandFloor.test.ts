@@ -120,6 +120,13 @@ describe('approval wording', () => {
     expect(gateFor(probe, 'read', 'ask').action).toBe('allow')
   })
 
+  it('lets a declared-read && chain through ask and readonly', () => {
+    const chain = 'cd /var/log && ls -lt | head && grep -n error syslog | tail -20 && cat /etc/hostname && df -h'
+    expect(commandContentRisk('exec', { command: chain })?.class).toBe('read-only')
+    expect(gateFor(chain, 'read', 'ask').action).toBe('allow')
+    expect(gateFor(chain, 'read', 'readonly').action).toBe('allow')
+  })
+
   it('says it could not verify, not that the model lied', () => {
     const gate = gateFor('/usr/sbin/nginx -t', 'read', 'ask')
     expect(gate.action).toBe('ask')

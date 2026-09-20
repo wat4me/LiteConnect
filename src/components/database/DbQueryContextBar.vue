@@ -262,18 +262,30 @@ defineExpose({
       >
         <span class="db-picker-label">{{ t('database.query.database') }}</span>
         <span class="db-picker-value">{{ database || t('database.query.pickDatabase') }}</span>
-        <span class="db-picker-caret" aria-hidden="true">▾</span>
+        <AppIcon name="chevron-down" size="xs" class="db-picker-caret" />
       </button>
       <div v-if="showDbPicker" class="db-picker-panel" @click.stop>
         <div class="db-picker-conn-hint">{{ t('database.query.connectionHint', { name: connectionName }) }}</div>
-        <input
-          ref="dbPickerSearchRef"
-          v-model="dbPickerFilter"
-          class="ui-input ui-input-sm db-picker-search"
-          type="search"
-          :placeholder="t('database.query.searchDatabase')"
-          @keydown="onDbPickerKeydown"
-        />
+        <div class="db-picker-search-field">
+          <input
+            ref="dbPickerSearchRef"
+            v-model="dbPickerFilter"
+            class="ui-input ui-input-sm db-picker-search"
+            type="text"
+            :placeholder="t('database.query.searchDatabase')"
+            @keydown="onDbPickerKeydown"
+          />
+          <button
+            v-if="dbPickerFilter"
+            type="button"
+            class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost ui-icon-btn-close db-picker-search-clear"
+            :title="t('common.clear')"
+            :aria-label="t('common.clear')"
+            @click="dbPickerFilter = ''; dbPickerSearchRef?.focus()"
+          >
+            <AppIcon name="close" size="xs" />
+          </button>
+        </div>
         <div class="db-picker-list">
           <button
             type="button"
@@ -312,7 +324,7 @@ defineExpose({
         <AppIcon name="folder" size="xs" />
         <span class="saved-picker-text">{{ t('database.query.savedScriptsBtn') }}</span>
         <span class="saved-badge-count" v-if="savedQueries.length > 0">{{ savedQueries.length }}</span>
-        <span class="db-picker-caret" aria-hidden="true">▾</span>
+        <AppIcon name="chevron-down" size="xs" class="db-picker-caret" />
       </button>
 
       <div v-if="showSavedPicker" class="saved-picker-panel" @click.stop>
@@ -532,7 +544,7 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-weight: 600;
 }
 
@@ -570,9 +582,24 @@ defineExpose({
   border-bottom: 1px solid var(--border-color);
 }
 
-.db-picker-search {
+.db-picker-search-field {
+  position: relative;
   margin: 6px 8px;
   width: calc(100% - 16px);
+}
+
+.db-picker-search {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.db-picker-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 24px !important;
+  height: 24px !important;
 }
 
 .db-picker-list {
@@ -591,7 +618,7 @@ defineExpose({
   background: transparent;
   color: var(--text-primary);
   font-size: 12px;
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   text-align: left;
   cursor: pointer;
 }

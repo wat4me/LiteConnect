@@ -368,6 +368,9 @@ export interface LiteConnectApi {
   mcpGetHttpStatus: () => Promise<McpHttpStatus>
   mcpSetHttpEnabled: (enabled: boolean) => Promise<McpHttpStatus>
   mcpSetHttpPort: (port: number) => Promise<McpHttpStatus>
+  mcpSetApprovalMode: (
+    mode: 'auto' | 'ask-destructive' | 'deny-destructive',
+  ) => Promise<McpHttpStatus>
   mcpRotateHttpToken: () => Promise<McpHttpStatus>
   mcpReportConnectResult: (
     requestId: string,
@@ -382,8 +385,8 @@ export interface LiteConnectApi {
   setMonitorEnabled: (enabled: boolean) => Promise<void>
   getMonitorIntervalMs: () => Promise<number>
   setMonitorIntervalMs: (intervalMs: number) => Promise<void>
-  monitorStart: (sessionId: string) => Promise<void>
-  monitorStop: (sessionId: string) => Promise<void>
+  monitorStart: (connectionId: string, sessionId: string) => Promise<void>
+  monitorStop: (connectionId: string) => Promise<void>
 
   sftpInit: (sessionId: string) => Promise<void>
   sftpReaddir: (sessionId: string, remotePath: string) => Promise<FileEntry[]>
@@ -478,7 +481,9 @@ export interface LiteConnectApi {
   onSshError: (sessionId: string, callback: (error: string) => void) => () => void
   onSshLatency: (sessionId: string, callback: (latencyMs: number) => void) => () => void
 
-  onMonitorData: (sessionId: string, callback: (data: MonitorData) => void) => () => void
+  onMonitorData: (connectionId: string, callback: (data: MonitorData) => void) => () => void
+  /** Fired when the global hotkey could not be registered (another app owns it). */
+  onGlobalHotkeyFailed: (callback: (accelerator: string) => void) => () => void
 
   dockerProbe: (sessionId: string) => Promise<DockerAvailability>
   dockerListContainers: (sessionId: string) => Promise<DockerContainerSummary[]>

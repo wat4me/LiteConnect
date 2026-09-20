@@ -656,7 +656,7 @@ function onMenuAction(action: MenuAction) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .meta-sep {
@@ -745,7 +745,7 @@ function onMenuAction(action: MenuAction) {
   color: var(--success);
   border-color: color-mix(in srgb, var(--success) 28%, transparent);
   background: color-mix(in srgb, var(--success) 10%, transparent);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .test-badge.error {

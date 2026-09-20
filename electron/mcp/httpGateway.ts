@@ -3,7 +3,8 @@ import { buildMcpClientSnippets, mcpHttpUrl } from './clientConfig'
 import { createMcpHttpServer, type McpHttpHandle } from './httpServer'
 import type { McpAuditHook, McpServerInfo } from './httpProtocol'
 import type { SshMcpRuntime } from './runtime'
-import type { McpHttpStatus } from '../../shared/mcp/types'
+import type { ApprovalMode, McpHttpStatus } from '../../shared/mcp/types'
+import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
 
 export type { McpHttpStatus }
 
@@ -11,9 +12,11 @@ export type McpHttpSettingsPort = {
   getMcpHttpEnabled(): boolean
   getMcpHttpPort(): number
   getMcpHttpToken(): string
+  getMcpApprovalMode(): ApprovalMode
   ensureMcpHttpToken(): Promise<string>
   setMcpHttpEnabled(enabled: boolean): Promise<void>
   setMcpHttpPort(port: number): Promise<void>
+  setMcpApprovalMode(mode: unknown): Promise<ApprovalMode>
   rotateMcpHttpToken(): Promise<string>
 }
 
@@ -50,7 +53,13 @@ export class McpHttpGateway {
       token,
       lastError: this.lastError,
       snippets: buildMcpClientSnippets(url, token),
+      approvalMode: this.settings.getMcpApprovalMode(),
     }
+  }
+
+  async setApprovalMode(mode: unknown): Promise<McpHttpStatus> {
+    await this.settings.setMcpApprovalMode(sanitizeMcpApprovalMode(mode))
+    return this.getStatus()
   }
 
   async setEnabled(enabled: boolean): Promise<McpHttpStatus> {

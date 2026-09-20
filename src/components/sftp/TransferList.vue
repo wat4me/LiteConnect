@@ -56,7 +56,7 @@ function getProgress(item: TransferItem): number {
             <span
               v-if="item.totalFiles != null && item.totalFiles > 0"
               class="transfer-files"
-            >· {{ item.completedFiles ?? 0 }}/{{ item.totalFiles }}{{ (item.failedFiles ?? 0) > 0 ? ` · ${item.failedFiles}✗` : '' }}</span>
+            >· {{ item.completedFiles ?? 0 }}/{{ item.totalFiles }}<span v-if="(item.failedFiles ?? 0) > 0" class="transfer-failed-count"> · <AppIcon name="alert-circle" size="xs" />{{ item.failedFiles }}</span></span>
           </span>
           <span v-else-if="item.status === 'completed'" class="transfer-detail transfer-detail-ok">
             {{ direction === 'download' ? t('sftp.transferDoneDownload') : t('sftp.transferDoneUpload') }}
@@ -205,6 +205,13 @@ function getProgress(item: TransferItem): number {
 
 .transfer-files {
   color: var(--text-secondary);
+}
+
+.transfer-failed-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--danger);
 }
 
 .transfer-detail-ok {

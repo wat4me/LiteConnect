@@ -47,6 +47,10 @@ import {
   sanitizeDbOpenMode,
   type DbOpenMode,
 } from '@shared/dbOpenMode'
+import {
+  DEFAULT_GLOBAL_HOTKEY,
+  normalizeGlobalHotkey,
+} from '@shared/globalHotkey'
 
 export interface SettingsDraft {
   theme: Theme
@@ -98,8 +102,10 @@ export interface SettingsDraft {
   workspaceRestoreEnabled: boolean
   /** Hide to tray on window close instead of quitting. Default off. */
   closeToTrayEnabled: boolean
-  /** Global hotkey (Alt+Shift+L) to show/hide the window. Default off. */
+  /** Global hotkey to show/hide the window. Default off. */
   globalHotkeyEnabled: boolean
+  /** Electron accelerator for the global hotkey; user-customizable. */
+  globalHotkey: string
   /** Append remote shell output to per-session log files. Default off. */
   sessionLogEnabled: boolean
   x11AutoStartEnabled: boolean
@@ -144,6 +150,7 @@ export function createEmptyDraft(): SettingsDraft {
     workspaceRestoreEnabled: false,
     closeToTrayEnabled: false,
     globalHotkeyEnabled: false,
+    globalHotkey: DEFAULT_GLOBAL_HOTKEY,
     sessionLogEnabled: false,
     x11AutoStartEnabled: true,
     x11ServerPath: '',
@@ -200,6 +207,7 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.workspaceRestoreEnabled === b.workspaceRestoreEnabled
     && a.closeToTrayEnabled === b.closeToTrayEnabled
     && a.globalHotkeyEnabled === b.globalHotkeyEnabled
+    && a.globalHotkey === b.globalHotkey
     && a.sessionLogEnabled === b.sessionLogEnabled
     && a.x11AutoStartEnabled === b.x11AutoStartEnabled
     && a.x11ServerPath === b.x11ServerPath
@@ -272,6 +280,7 @@ export function useSettingsDraft(): {
       workspaceRestoreEnabled: false,
       closeToTrayEnabled: false,
       globalHotkeyEnabled: false,
+      globalHotkey: DEFAULT_GLOBAL_HOTKEY,
       sessionLogEnabled: false,
       x11AutoStartEnabled: true,
       x11ServerPath: '',
@@ -336,6 +345,7 @@ export function useSettingsDraft(): {
         workspaceRestoreEnabled: all.workspaceRestoreEnabled === true,
         closeToTrayEnabled: all.closeToTrayEnabled === true,
         globalHotkeyEnabled: all.globalHotkeyEnabled === true,
+        globalHotkey: normalizeGlobalHotkey(all.globalHotkey) ?? DEFAULT_GLOBAL_HOTKEY,
         sessionLogEnabled: all.sessionLogEnabled === true,
         x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
         x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
@@ -428,6 +438,7 @@ export function useSettingsDraft(): {
         workspaceRestoreEnabled: d.workspaceRestoreEnabled,
         closeToTrayEnabled: d.closeToTrayEnabled,
         globalHotkeyEnabled: d.globalHotkeyEnabled,
+        globalHotkey: d.globalHotkey,
         sessionLogEnabled: d.sessionLogEnabled,
         x11AutoStartEnabled: d.x11AutoStartEnabled,
         x11ServerPath: d.x11ServerPath,

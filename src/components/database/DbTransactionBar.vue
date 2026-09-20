@@ -127,7 +127,7 @@ onBeforeUnmount(() => {
 
 .tx-duration {
   font-size: 11px;
-  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--warning);
 }
 

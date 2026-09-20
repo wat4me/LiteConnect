@@ -9,17 +9,20 @@ export function registerMonitorHandlers(
 ): void {
   const ensureSettingsStoreReady = () => settingsStore.init()
 
-  ipcMain.handle('monitor:start', async (_event, sessionId: string) => {
+  ipcMain.handle('monitor:start', async (_event, connectionId: string, sessionId: string) => {
+    if (!isValidUUID(connectionId)) {
+      throw new Error('Invalid connection id')
+    }
     if (!isValidUUID(sessionId)) {
       throw new Error('Invalid session id')
     }
     await ensureSettingsStoreReady()
     const interval = settingsStore.getMonitorIntervalMs()
-    monitorCollector.start(sessionId, interval)
+    monitorCollector.start(connectionId, sessionId, interval)
   })
 
-  ipcMain.handle('monitor:stop', (_event, sessionId: string) => {
-    if (!isValidUUID(sessionId)) return
-    monitorCollector.stop(sessionId)
+  ipcMain.handle('monitor:stop', (_event, connectionId: string) => {
+    if (!isValidUUID(connectionId)) return
+    monitorCollector.stop(connectionId)
   })
 }

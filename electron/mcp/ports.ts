@@ -98,5 +98,7 @@ export type SshMcpRuntimeOptions = {
   connections: SshMcpConnectionPort
   metrics?: SshMcpMetricsPort
   approvalMode?: ApprovalMode
+  /** Live setting; preferred over the constructor snapshot. */
+  getApprovalMode?: () => ApprovalMode
   requestApproval?: SshMcpApprovalFn
 }

@@ -17,6 +17,7 @@ import {
   type QueryDefaultRunScopePref,
 } from '@/utils/database/queryTabOptions'
 import type { DbOpenMode } from '@shared/dbOpenMode'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -108,9 +109,9 @@ function onDefaultTimeoutSecInput(ev: Event) {
 
         <div class="settings-label" style="margin-top: 14px" data-setting="database.fontSize">{{ t('settingsDatabase.fontSize') }}</div>
         <div class="font-size-row">
-          <button type="button" class="font-size-btn" @click="updateDbFontSize(-1)">−</button>
+          <button type="button" class="font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateDbFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
           <span class="font-size-value">{{ draft.dbFontSize }}px</span>
-          <button type="button" class="font-size-btn" @click="updateDbFontSize(1)">+</button>
+          <button type="button" class="font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateDbFontSize(1)"><AppIcon name="plus" size="xs" /></button>
         </div>
 
         <div class="settings-label" style="margin-top: 14px" data-setting="database.pageSize">{{ t('settingsDatabase.pageSize') }}</div>

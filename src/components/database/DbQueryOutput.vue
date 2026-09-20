@@ -225,14 +225,26 @@ watch(
         </span>
         <span v-else class="dim">{{ t('database.query.resultEmpty') }}</span>
         <div v-if="showResultGrid" class="result-actions">
-          <input
-            v-model="tab.filter"
-            class="ui-input ui-input-sm grid-filter-input"
-            type="search"
-            :placeholder="t('database.query.filterPlaceholder')"
-            :title="t('database.query.localFilterTitle')"
-            :aria-label="t('database.query.localFilter')"
-          />
+          <div class="grid-filter-field">
+            <input
+              v-model="tab.filter"
+              class="ui-input ui-input-sm grid-filter-input"
+              type="text"
+              :placeholder="t('database.query.filterPlaceholder')"
+              :title="t('database.query.localFilterTitle')"
+              :aria-label="t('database.query.localFilter')"
+            />
+            <button
+              v-if="tab.filter"
+              type="button"
+              class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost ui-icon-btn-close grid-filter-clear"
+              :title="t('common.clear')"
+              :aria-label="t('common.clear')"
+              @click="tab.filter = ''"
+            >
+              <AppIcon name="close" size="xs" />
+            </button>
+          </div>
           <button type="button" class="ui-btn ui-btn-xs" :title="t('database.query.copyTitle')" @click="emit('copyResult')">
             {{ t('database.query.copy') }}
           </button>
@@ -283,7 +295,7 @@ watch(
       <div v-if="tab.error" class="err-panel">
         <div class="err-summary">{{ tab.error }}</div>
         <details v-if="tab.errorDetail" class="err-detail">
-          <summary>{{ t('database.query.errorDetail') }}</summary>
+          <summary><AppIcon name="chevron-right" size="xs" class="details-chevron" />{{ t('database.query.errorDetail') }}</summary>
           <pre>{{ tab.errorDetail }}</pre>
         </details>
         <button
@@ -492,31 +504,45 @@ watch(
   flex-shrink: 0;
 }
 
-.result-toolbar :deep(.grid-filter-input.ui-input-sm) {
+.grid-filter-input.ui-input-sm {
   box-sizing: border-box;
   height: 26px;
   min-height: 26px;
   max-height: 26px;
-  padding: 0 8px;
+  padding: 0 28px 0 8px;
   font-size: 11px;
   line-height: 24px;
 }
 
-.grid-filter-input {
+.grid-filter-field {
+  position: relative;
   width: 160px;
   min-width: 72px;
   flex: 1 1 72px;
 }
 
+.grid-filter-input {
+  width: 100%;
+}
+
+.grid-filter-clear {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
+  width: 20px !important;
+  height: 20px !important;
+}
+
 @container db-query (max-width: 720px) {
-  .grid-filter-input {
+  .grid-filter-field {
     width: 100px;
     min-width: 56px;
   }
 }
 
 @container db-query (max-width: 520px) {
-  .grid-filter-input {
+  .grid-filter-field {
     width: 72px;
     min-width: 48px;
   }
@@ -559,6 +585,27 @@ watch(
 .err-detail {
   margin-top: 6px;
   font-size: var(--db-font-size, 13px);
+}
+
+.err-detail summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.err-detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.err-detail .details-chevron {
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.err-detail[open] > summary .details-chevron {
+  transform: rotate(90deg);
 }
 
 .err-detail pre {

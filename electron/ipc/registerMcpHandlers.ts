@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
+import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
 import { completeRendererConnect } from '../mcp/connectBridge'
 import type { McpHttpGateway } from '../mcp/httpGateway'
 import type { SshMcpRuntime } from '../mcp/runtime'
@@ -33,6 +34,11 @@ export function registerMcpHandlers(runtime: SshMcpRuntime, httpGateway?: McpHtt
   ipcMain.handle('mcp:rotateHttpToken', async () => {
     if (!httpGateway) throw new Error('MCP HTTP gateway is not configured')
     return await httpGateway.rotateToken()
+  })
+
+  ipcMain.handle('mcp:setApprovalMode', async (_event, mode: unknown) => {
+    if (!httpGateway) throw new Error('MCP HTTP gateway is not configured')
+    return await httpGateway.setApprovalMode(sanitizeMcpApprovalMode(mode))
   })
 
   ipcMain.handle(

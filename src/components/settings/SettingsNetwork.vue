@@ -2,8 +2,8 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { appConfirm } from '@/composables/app/useAppDialog'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -162,57 +162,9 @@ function clearX11Path() {
   props.draft.x11ServerPath = ''
 }
 
-type HostKeyRow = { host: string; port: number; fingerprint: string; firstSeen: number }
-
-const knownHosts = ref<HostKeyRow[]>([])
-const knownHostsLoading = ref(false)
-
-async function refreshKnownHosts() {
-  knownHostsLoading.value = true
-  try {
-    knownHosts.value = await window.LiteConnect.sshListHostKeys()
-  } catch {
-    knownHosts.value = []
-  } finally {
-    knownHostsLoading.value = false
-  }
-}
-
-async function removeKnownHost(entry: HostKeyRow) {
-  try {
-    await appConfirm({
-      title: t('settingsNetwork.knownHostsRemoveTitle'),
-      message: t('settingsNetwork.knownHostsRemoveMessage', { host: entry.host, port: entry.port }),
-      detail: entry.fingerprint,
-      confirmText: t('common.delete'),
-      cancelText: t('common.cancel'),
-      tone: 'warning',
-      danger: true,
-    })
-  } catch {
-    return
-  }
-  try {
-    await window.LiteConnect.sshRemoveHostKey(entry.host, entry.port)
-    ElMessage.success(t('settingsNetwork.knownHostsRemoved'))
-    await refreshKnownHosts()
-  } catch (err: any) {
-    ElMessage.error(err?.message || t('settingsNetwork.knownHostsRemoveFailed'))
-  }
-}
-
-function formatFirstSeen(ts: number): string {
-  try {
-    return new Date(ts).toLocaleString()
-  } catch {
-    return String(ts)
-  }
-}
-
 onMounted(() => {
   void refreshX11Status()
   void refreshBundledInstallerStatus()
-  void refreshKnownHosts()
   window.addEventListener('focus', refreshX11Status)
 })
 
@@ -233,6 +185,7 @@ watch(
       <p>{{ t('settingsNetwork.intro') }}</p>
     </header>
     <div class="settings-card narrow">
+      <div class="settings-card-title">{{ t('settingsNetwork.connectionBehavior') }}</div>
       <div class="settings-label" data-setting="network.latency">{{ t('settingsNetwork.latency') }}</div>
       <div class="toggle-row">
         <span>{{ draft.latencyEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
@@ -247,9 +200,9 @@ watch(
       </div>
       <div v-if="draft.latencyEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.interval') }}</span>
-        <button type="button" class="font-size-btn" @click="draft.latencyIntervalSec = Math.max(1, draft.latencyIntervalSec - 1)">−</button>
+        <button type="button" class="font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.latencyIntervalSec = Math.max(1, draft.latencyIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
         <span class="font-size-value">{{ draft.latencyIntervalSec }}s</span>
-        <button type="button" class="font-size-btn" @click="draft.latencyIntervalSec = Math.min(60, draft.latencyIntervalSec + 1)">+</button>
+        <button type="button" class="font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.latencyIntervalSec = Math.min(60, draft.latencyIntervalSec + 1)"><AppIcon name="plus" size="xs" /></button>
       </div>
 
       <div class="settings-label" style="margin-top: 18px" data-setting="network.usageStats">{{ t('settingsNetwork.usageStats') }}</div>
@@ -280,9 +233,9 @@ watch(
       </div>
       <div v-if="draft.monitorEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.interval') }}</span>
-        <button type="button" class="font-size-btn" @click="draft.monitorIntervalSec = Math.max(2, draft.monitorIntervalSec - 1)">−</button>
+        <button type="button" class="font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.monitorIntervalSec = Math.max(2, draft.monitorIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
         <span class="font-size-value">{{ draft.monitorIntervalSec }}s</span>
-        <button type="button" class="font-size-btn" @click="draft.monitorIntervalSec = Math.min(30, draft.monitorIntervalSec + 1)">+</button>
+        <button type="button" class="font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.monitorIntervalSec = Math.min(30, draft.monitorIntervalSec + 1)"><AppIcon name="plus" size="xs" /></button>
       </div>
 
       <div class="settings-label" style="margin-top: 18px" data-setting="network.autoReconnect">{{ t('settingsNetwork.autoReconnect') }}</div>
@@ -299,31 +252,19 @@ watch(
       </div>
       <div v-if="draft.autoReconnectEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.maxRetries') }}</span>
-        <button type="button" class="font-size-btn" @click="draft.autoReconnectMaxRetries = Math.max(0, draft.autoReconnectMaxRetries - 1)">−</button>
+        <button type="button" class="font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.autoReconnectMaxRetries = Math.max(0, draft.autoReconnectMaxRetries - 1)"><AppIcon name="minus" size="xs" /></button>
         <span class="font-size-value">{{ draft.autoReconnectMaxRetries }}</span>
-        <button type="button" class="font-size-btn" @click="draft.autoReconnectMaxRetries = Math.min(20, draft.autoReconnectMaxRetries + 1)">+</button>
+        <button type="button" class="font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.autoReconnectMaxRetries = Math.min(20, draft.autoReconnectMaxRetries + 1)"><AppIcon name="plus" size="xs" /></button>
       </div>
       <div class="settings-hint">
         {{ t('settingsNetwork.autoReconnectHint') }}
       </div>
 
-      <div class="settings-label" style="margin-top: 18px" data-setting="network.workspaceRestore">{{ t('settingsNetwork.workspaceRestore') }}</div>
-      <div class="toggle-row">
-        <span>{{ draft.workspaceRestoreEnabled ? t('settingsNetwork.enabled') : t('settingsNetwork.disabled') }}</span>
-        <button
-          type="button"
-          class="toggle-btn"
-          :class="{ active: draft.workspaceRestoreEnabled }"
-          @click="draft.workspaceRestoreEnabled = !draft.workspaceRestoreEnabled"
-        >
-          <span class="toggle-knob"></span>
-        </button>
-      </div>
-      <div class="settings-hint">
-        {{ t('settingsNetwork.workspaceRestoreHint') }}
-      </div>
+    </div>
 
-      <div class="settings-label" style="margin-top: 18px" data-setting="network.x11">{{ t('settingsNetwork.graphical') }}</div>
+    <div class="settings-card narrow">
+
+      <div class="settings-label" data-setting="network.x11">{{ t('settingsNetwork.graphical') }}</div>
       <div class="toggle-row">
         <span>{{ draft.x11AutoStartEnabled ? t('settingsNetwork.autoStartOn') : t('settingsNetwork.autoStartOff') }}</span>
         <button
@@ -406,24 +347,6 @@ watch(
       </div>
     </div>
 
-    <div class="settings-card narrow known-hosts-card">
-      <div class="settings-label" data-setting="network.knownHosts">{{ t('settingsNetwork.knownHostsTitle') }}</div>
-      <p class="settings-hint">{{ t('settingsNetwork.knownHostsHint') }}</p>
-      <div v-if="knownHostsLoading" class="settings-hint">{{ t('common.loading') }}</div>
-      <div v-else-if="knownHosts.length === 0" class="settings-hint">{{ t('settingsNetwork.knownHostsEmpty') }}</div>
-      <ul v-else class="known-hosts-list">
-        <li v-for="entry in knownHosts" :key="`${entry.host}:${entry.port}`" class="known-host-item">
-          <div class="known-host-info">
-            <span class="known-host-addr">{{ entry.host }}:{{ entry.port }}</span>
-            <span class="known-host-fp">{{ entry.fingerprint }}</span>
-            <span class="known-host-date">{{ t('settingsNetwork.knownHostsFirstSeen', { time: formatFirstSeen(entry.firstSeen) }) }}</span>
-          </div>
-          <button type="button" class="ui-btn ui-btn-sm" @click="removeKnownHost(entry)">
-            {{ t('common.delete') }}
-          </button>
-        </li>
-      </ul>
-    </div>
   </section>
 </template>
 
@@ -484,56 +407,6 @@ watch(
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.known-hosts-card {
-  margin-top: 16px;
-}
-
-.known-hosts-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.known-host-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-}
-
-.known-host-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.known-host-addr {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.known-host-fp {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
-  word-break: break-all;
-}
-
-.known-host-date {
-  font-size: 11px;
-  color: var(--text-secondary);
-  opacity: 0.85;
 }
 
 </style>

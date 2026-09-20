@@ -83,7 +83,7 @@ function handleResetTips() {
   border-radius: 6px;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   color: var(--text-primary);
   text-align: center;

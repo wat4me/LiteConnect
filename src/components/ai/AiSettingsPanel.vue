@@ -310,7 +310,7 @@ defineExpose({ applyExternal })
         <div class="provider-item-actions">
           <button v-if="provider.id !== draftSettings.activeProviderId && provider.models.length" type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="setActiveProvider(provider)">{{ t('ai.setActiveProvider') }}</button>
           <details class="provider-more">
-            <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')">⋯</summary>
+            <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')"><AppIcon name="more" size="sm" /></summary>
             <div class="provider-more-menu">
               <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="editingProviderId = provider.id">{{ t('ai.editProvider') }}</button>
               <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="deleteProvider(provider.id)">{{ t('common.delete') }}</button>
@@ -348,7 +348,7 @@ defineExpose({ applyExternal })
       </div>
       <div class="permission-box">
         <span class="field-label">{{ t('ai.toolPermission') }}</span>
-        <details class="permission-hint"><summary>{{ t('ai.permissionDetails') }}</summary><p>{{ t('ai.toolPermissionHint') }}</p></details>
+        <details class="permission-hint details-with-icon"><summary><AppIcon name="chevron-right" size="xs" class="details-chevron" />{{ t('ai.permissionDetails') }}</summary><p>{{ t('ai.toolPermissionHint') }}</p></details>
         <label
           v-for="mode in permissionModes"
           :key="mode.id"
@@ -403,7 +403,7 @@ defineExpose({ applyExternal })
       <p class="permission-hint">{{ t('ai.modelContextNote') }}</p>
       <div v-if="!editingProvider.models.length" class="provider-empty">{{ t('ai.noModels') }}</div>
       <details v-for="(model, index) in editingProvider.models" :key="index" class="model-editor" :open="!model.id">
-        <summary><span>{{ model.displayName || model.id || t('ai.addModel') }}</span><small v-if="index === 0">{{ t('ai.defaultModel') }}</small></summary>
+        <summary><AppIcon name="chevron-right" size="xs" class="details-chevron" /><span>{{ model.displayName || model.id || t('ai.addModel') }}</span><small v-if="index === 0">{{ t('ai.defaultModel') }}</small></summary>
         <div class="model-fields">
           <label class="field-label">{{ t('ai.modelName') }}<input v-model="model.id" class="ui-input ui-input-sm" placeholder="gpt-4o-mini" /></label>
           <label class="field-label">{{ t('ai.modelDisplayName') }}<input v-model="model.displayName" class="ui-input ui-input-sm" :placeholder="model.id" /></label>
@@ -694,7 +694,10 @@ defineExpose({ applyExternal })
 .model-choice { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12px; color: var(--text-primary); }
 .model-choice span { overflow-wrap: anywhere; flex: 1; }
 .model-choice small, .model-editor small { color: var(--text-secondary); font-size: 11px; }
-.model-editor summary { cursor: pointer; font-size: 12px; color: var(--text-primary); overflow-wrap: anywhere; }
+.model-editor summary, .details-with-icon summary { display: flex; align-items: center; gap: 5px; list-style: none; cursor: pointer; font-size: 12px; color: var(--text-primary); overflow-wrap: anywhere; }
+.model-editor summary::-webkit-details-marker, .details-with-icon summary::-webkit-details-marker { display: none; }
+.details-chevron { flex-shrink: 0; transition: transform 0.12s ease; }
+.model-editor[open] > summary .details-chevron, .details-with-icon[open] > summary .details-chevron { transform: rotate(90deg); }
 .model-editor summary small { margin-left: 8px; }
 .model-fields { display: grid; gap: 10px; padding-top: 12px; }
 .model-fields label { display: grid; gap: 5px; }

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import type { McpHttpStatus } from '../../env.d'
+import type { ApprovalMode } from '@shared/mcp/types'
 import { MCP_HTTP_DEFAULT_PORT } from '@shared/mcp/limits'
 
 const { t } = useI18n()
@@ -11,6 +12,12 @@ const { t } = useI18n()
 const mcpStatus = ref<McpHttpStatus | null>(null)
 const mcpBusy = ref(false)
 const mcpPortDraft = ref(MCP_HTTP_DEFAULT_PORT)
+
+const approvalModes: Array<{ id: ApprovalMode; label: string; hint: string }> = [
+  { id: 'deny-destructive', label: 'settingsMcp.approvalDeny', hint: 'settingsMcp.approvalDenyHint' },
+  { id: 'ask-destructive', label: 'settingsMcp.approvalAsk', hint: 'settingsMcp.approvalAskHint' },
+  { id: 'auto', label: 'settingsMcp.approvalAuto', hint: 'settingsMcp.approvalAutoHint' },
+]
 
 async function refreshMcpStatus() {
   try {
@@ -50,6 +57,23 @@ async function toggleMcp() {
   try {
     mcpStatus.value = await window.LiteConnect.mcpSetHttpEnabled(next)
     mcpPortDraft.value = mcpStatus.value.port
+  } catch (err: any) {
+    ElMessage.error(
+      t('settingsMcp.startFailed', {
+        error: typeof err?.message === 'string' ? err.message : String(err),
+      }),
+    )
+    await refreshMcpStatus()
+  } finally {
+    mcpBusy.value = false
+  }
+}
+
+async function setApprovalMode(mode: ApprovalMode) {
+  if (!mcpStatus.value || mcpBusy.value || mcpStatus.value.approvalMode === mode) return
+  mcpBusy.value = true
+  try {
+    mcpStatus.value = await window.LiteConnect.mcpSetApprovalMode(mode)
   } catch (err: any) {
     ElMessage.error(
       t('settingsMcp.startFailed', {
@@ -145,6 +169,22 @@ onMounted(() => {
         </button>
       </div>
       <p class="settings-hint">{{ t('settingsMcp.hint') }}</p>
+      <div class="settings-label" style="margin-top: 16px" data-setting="mcp.approval">{{ t('settingsMcp.approval') }}</div>
+      <p class="settings-hint">{{ t('settingsMcp.approvalHint') }}</p>
+      <div class="mcp-approval-list">
+        <button
+          v-for="item in approvalModes"
+          :key="item.id"
+          type="button"
+          class="mcp-approval-option"
+          :class="{ active: (mcpStatus?.approvalMode || 'deny-destructive') === item.id }"
+          :disabled="mcpBusy || !mcpStatus"
+          @click="setApprovalMode(item.id)"
+        >
+          <span class="mcp-approval-title">{{ t(item.label) }}</span>
+          <span class="mcp-approval-desc">{{ t(item.hint) }}</span>
+        </button>
+      </div>
       <p class="settings-hint" :class="{ warn: !!mcpStatus?.lastError }">
         <template v-if="mcpStatus?.listening">{{ t('settingsMcp.listening', { url: mcpStatus.url }) }}</template>
         <template v-else-if="mcpStatus?.lastError">{{ t('settingsMcp.startFailed', { error: mcpStatus.lastError }) }}</template>
@@ -258,7 +298,49 @@ onMounted(() => {
   margin: 0;
   color: var(--text-primary);
   word-break: break-all;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+}
+
+.mcp-approval-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.mcp-approval-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mcp-approval-option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mcp-approval-option.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.mcp-approval-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mcp-approval-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .mcp-snippet {

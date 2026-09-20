@@ -865,7 +865,7 @@ onMounted(() => {
 }
 
 .ssl-ta {
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   resize: vertical;
   min-height: 48px;

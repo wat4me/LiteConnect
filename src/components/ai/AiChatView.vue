@@ -604,6 +604,7 @@ async function copyText(text: string, key: string) {
         @toggle="onReasoningToggle(message, segIndex, $event)"
       >
         <summary class="reasoning-summary">
+          <AppIcon name="chevron-right" size="xs" class="details-chevron" />
           <span
             class="reasoning-title"
             :class="{ 'ai-think-shimmer': isReasoningLive(message, segIndex) }"
@@ -658,6 +659,7 @@ async function copyText(text: string, key: string) {
         @toggle="onToolRunToggle(message, item.run!, $event)"
       >
         <summary class="tool-run-head">
+          <AppIcon name="chevron-right" size="xs" class="details-chevron" />
           <span class="tool-run-name">{{ toolNameLabel(item.run.name) }}</span>
           <span
             v-if="!isToolRunOpen(message, item.run) && toolRunDescText(item.run)"
@@ -1339,7 +1341,7 @@ async function copyText(text: string, key: string) {
 .markdown-block :deep(code),
 .markdown-code,
 .code-language {
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .markdown-block :deep(code) {
@@ -1543,17 +1545,15 @@ async function copyText(text: string, key: string) {
   color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
 }
 
-.tool-run-name::before {
-  content: '▸';
-  display: inline-block;
-  width: 1em;
-  line-height: 1;
+.details-chevron {
+  flex-shrink: 0;
   color: var(--text-secondary);
-  font-weight: 500;
+  transition: transform 0.12s ease;
 }
 
-.tool-run[open] .tool-run-name::before {
-  content: '▾';
+.tool-run[open] > summary .details-chevron,
+.reasoning-box[open] > summary .details-chevron {
+  transform: rotate(90deg);
 }
 
 .tool-run-risk {
@@ -1658,7 +1658,7 @@ async function copyText(text: string, key: string) {
 
 .tool-run-args,
 .tool-run-out {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 10px;
   line-height: 1.4;
 }
@@ -1702,10 +1702,6 @@ async function copyText(text: string, key: string) {
   pointer-events: none;
 }
 
-.reasoning-pending .reasoning-title::before {
-  display: none;
-}
-
 .reasoning-box > summary::-webkit-details-marker,
 .reasoning-summary::-webkit-details-marker,
 .reasoning-summary::marker {
@@ -1723,19 +1719,6 @@ async function copyText(text: string, key: string) {
 
 .reasoning-title:not(.ai-think-shimmer) {
   color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
-}
-
-.reasoning-title::before {
-  content: '▸';
-  display: inline-block;
-  width: 1em;
-  line-height: 1;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.reasoning-box[open] .reasoning-title::before {
-  content: '▾';
 }
 
 .reasoning-snippet {

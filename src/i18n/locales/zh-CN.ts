@@ -22,6 +22,8 @@ import monitor from './zh-CN/monitor'
 import connectionTags from './zh-CN/connectionTags'
 import settingsFiles from './zh-CN/settingsFiles'
 import settingsAppearance from './zh-CN/settingsAppearance'
+import settingsApp from './zh-CN/settingsApp'
+import settingsHostKeys from './zh-CN/settingsHostKeys'
 import settingsDatabase from './zh-CN/settingsDatabase'
 import settingsShortcuts from './zh-CN/settingsShortcuts'
 import database from './zh-CN/database'
@@ -53,6 +55,8 @@ export default {
   ...connectionTags,
   ...settingsFiles,
   ...settingsAppearance,
+  ...settingsApp,
+  ...settingsHostKeys,
   ...settingsDatabase,
   ...settingsShortcuts,
   ...database,

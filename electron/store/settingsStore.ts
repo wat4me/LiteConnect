@@ -20,6 +20,8 @@ import {
 } from '../../shared/aiContext'
 import { t } from '../i18n'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
+import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
+import type { ApprovalMode } from '../../shared/mcp/types'
 import { sanitizeAiToolPermission, type AiToolPermissionMode } from '../../shared/aiToolPolicy'
 import {
   normalizeAiHistoryMaxMessages,
@@ -27,6 +29,7 @@ import {
 } from '../../shared/aiHistoryLimits'
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '../../shared/connectionSort'
 import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
+import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -492,6 +495,17 @@ export class SettingsStore {
     return this.settings.mcpHttpEnabled === true
   }
 
+  getMcpApprovalMode(): ApprovalMode {
+    return sanitizeMcpApprovalMode(this.settings.mcpApprovalMode)
+  }
+
+  async setMcpApprovalMode(mode: unknown): Promise<ApprovalMode> {
+    const next = sanitizeMcpApprovalMode(mode)
+    this.settings.mcpApprovalMode = next
+    await this.save()
+    return next
+  }
+
   getMcpHttpPort(): number {
     return sanitizeMcpHttpPort(this.settings.mcpHttpPort)
   }
@@ -769,13 +783,23 @@ export class SettingsStore {
     await this.save()
   }
 
-  /** Global hotkey (Alt+Shift+L) to show/hide the window. Default off. */
+  /** Global hotkey to show/hide the window. Default off. */
   getGlobalHotkeyEnabled(): boolean {
     return this.settings.globalHotkeyEnabled === true
   }
 
+  /** Accelerator for the global hotkey; invalid/missing values fall back to the default. */
+  getGlobalHotkey(): string {
+    return normalizeGlobalHotkey(this.settings.globalHotkey) ?? DEFAULT_GLOBAL_HOTKEY
+  }
+
   async setGlobalHotkeyEnabled(enabled: boolean): Promise<void> {
     this.settings.globalHotkeyEnabled = !!enabled
+    await this.save()
+  }
+
+  async setGlobalHotkey(accelerator: string): Promise<void> {
+    this.settings.globalHotkey = normalizeGlobalHotkey(accelerator) ?? DEFAULT_GLOBAL_HOTKEY
     await this.save()
   }
 
@@ -1160,6 +1184,7 @@ export class SettingsStore {
       workspaceRestoreEnabled: this.getWorkspaceRestoreEnabled(),
       closeToTrayEnabled: this.getCloseToTrayEnabled(),
       globalHotkeyEnabled: this.getGlobalHotkeyEnabled(),
+      globalHotkey: this.getGlobalHotkey(),
       sessionLogEnabled: this.getSessionLogEnabled(),
       autoReconnectMaxRetries: this.getAutoReconnectMaxRetries(),
       x11AutoStartEnabled: this.getX11AutoStartEnabled(),
@@ -1287,6 +1312,9 @@ export class SettingsStore {
     }
     if (patch.globalHotkeyEnabled !== undefined) {
       this.settings.globalHotkeyEnabled = !!patch.globalHotkeyEnabled
+    }
+    if (patch.globalHotkey !== undefined) {
+      this.settings.globalHotkey = normalizeGlobalHotkey(patch.globalHotkey) ?? DEFAULT_GLOBAL_HOTKEY
     }
     if (patch.sessionLogEnabled !== undefined) {
       this.settings.sessionLogEnabled = !!patch.sessionLogEnabled

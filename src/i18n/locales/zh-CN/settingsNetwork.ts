@@ -1,8 +1,8 @@
 export default {
   settingsNetwork: {
     title: '连接',
-    intro:
-      '断线重连、启动恢复标签、延迟探测、连接使用统计、服务器监控、图形界面（X11）转发，以及已信任的主机密钥。保存后才对运行中的探测生效。',
+    intro: '管理 SSH 重连、延迟与监控、使用统计和 X11 图形转发。',
+    connectionBehavior: '连接状态与恢复',
     latency: '网络延迟显示',
     enabled: '已开启',
     disabled: '已关闭',
@@ -15,9 +15,6 @@ export default {
     maxRetries: '最大重试次数',
     autoReconnectHint:
       '仅在窗口仍打开时，SSH 意外断线会自动重试（默认最多 5 次，可改；间隔 1s→2s→4s…上限 15s）。达到次数后停止，可点「重新连接」或按 R 手动再试。关闭应用后再打开不会自动连接。',
-    workspaceRestore: '启动时恢复标签',
-    workspaceRestoreHint:
-      '默认关闭。开启后记住当前打开的 SSH 主机标签（每台最多 8 个），下次启动只恢复标签，不会自动连接，需点「连接」。关闭此项会清除已记住的标签。',
     graphical: '图形界面（X11）',
     autoStartOn: '连接时自动启动本机显示服务',
     autoStartOff: '不自动启动显示服务',
@@ -46,13 +43,5 @@ export default {
     killResidualX: '结束残留进程',
     killResidualXRunning: '正在结束…',
     killResidualXHint: '已识别为 VcXsrv/Xming 残留（进程在、X11 不可用）。可一键结束后再测。',
-    knownHostsTitle: '主机密钥（known_hosts）',
-    knownHostsHint: '首次连接确认后信任的主机指纹。服务器重装或更换后，可在此删除旧指纹以便重新信任。',
-    knownHostsEmpty: '暂无已信任的主机密钥',
-    knownHostsFirstSeen: '首次信任：{time}',
-    knownHostsRemoveTitle: '删除主机密钥',
-    knownHostsRemoveMessage: '将删除 {host}:{port} 的已信任指纹，下次连接时需要重新确认。',
-    knownHostsRemoved: '已删除该主机的信任指纹',
-    knownHostsRemoveFailed: '删除失败',
   },
 } as const

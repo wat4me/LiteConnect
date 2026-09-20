@@ -311,7 +311,7 @@ function bitLabel(bit: string): string {
 .props-file-path {
   font-size: 11px;
   color: var(--text-secondary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   margin-top: 4px;
   word-break: break-all;
 }
@@ -367,7 +367,7 @@ function bitLabel(bit: string): string {
 }
 
 .props-mode {
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-weight: 600;
 }
 

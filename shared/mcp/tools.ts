@@ -178,7 +178,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'exec',
     title: 'Run a remote command',
     description:
-      'Run a non-interactive command (separate exec channel, not a PTY / user terminal). Not suitable for prompts that wait for a TTY. Feed a one-shot answer with stdin, or use noninteractive flags (e.g. DEBIAN_FRONTEND=noninteractive). sessionId from list_sessions/connect, or fan out with sessionIds / group. Foreground timeout 1s–10min (default 30s). For deploys/imports longer than a minute set background=true and poll get_job. Destructive/privileged commands are denied unless policy allows them.',
+      'Run a non-interactive command (separate exec channel, not a PTY / user terminal). Not suitable for prompts that wait for a TTY. Feed a one-shot answer with stdin, or use noninteractive flags (e.g. DEBIAN_FRONTEND=noninteractive). sessionId from list_sessions/connect, or fan out with sessionIds / group. Foreground timeout 1s–10min (default 30s). For deploys/imports longer than a minute set background=true and poll get_job. If the tool returns APPROVAL_REQUIRED, ask the human in this client to confirm the exact command, then retry with confirmed=true. Never set confirmed=true unless they agreed. Catastrophic commands (e.g. rm -rf /) stay denied.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -219,6 +219,11 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
         concurrency: {
           type: 'integer',
           description: 'Fan-out concurrency (1–8). Default 4.',
+        },
+        confirmed: {
+          type: 'boolean',
+          description:
+            'Set true only after the human operator approved this exact command in the MCP client. Used when the previous call returned APPROVAL_REQUIRED.',
         },
       },
       required: ['command'],
@@ -566,7 +571,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'service_control',
     title: 'systemd service status or lifecycle',
     description:
-      'Run a bounded systemctl action on an open session. action=status is read-only. start/stop/restart/reload follow the same destructive policy as exec (denied by default). Unit names are restricted to [A-Za-z0-9:._@-]. This is not an interactive prompt.',
+      'Run a bounded systemctl action on an open session. action=status is read-only. start/stop/restart/reload follow the same destructive policy as exec. If APPROVAL_REQUIRED, ask the human in this client then retry with confirmed=true. Unit names are restricted to [A-Za-z0-9:._@-]. This is not an interactive prompt.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -579,6 +584,11 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
           type: 'string',
           enum: ['status', 'start', 'stop', 'restart', 'reload'],
           description: 'Default status.',
+        },
+        confirmed: {
+          type: 'boolean',
+          description:
+            'Set true only after the human operator approved this action in the MCP client (APPROVAL_REQUIRED).',
         },
       },
       required: ['sessionId', 'unit'],

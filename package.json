@@ -9,7 +9,7 @@
     "dev": "vite",
     "dev:isolated": "node scripts/dev-isolated.mjs",
     "typecheck": "vue-tsc --noEmit --incremental",
-    "lint": "eslint src electron shared --max-warnings 0",
+    "lint": "eslint src electron shared --max-warnings 0 && node scripts/check-unified-icons.mjs",
     "i18n:check": "node scripts/check-i18n-keys.mjs",
     "sync:models-dev": "node scripts/sync-models-dev-context.mjs",
     "test": "vitest run",

@@ -48,7 +48,7 @@ useOutsideDismiss(
 )
 
 function formatLatency(ms: number): string {
-  if (ms < 0) return '✕'
+  if (ms < 0) return '—'
   if (ms < 1000) return `${Math.round(ms)}ms`
   return `${(ms / 1000).toFixed(1)}s`
 }
@@ -589,7 +589,7 @@ onBeforeUnmount(() => {
 .tab-latency {
   font-size: 10px;
   font-weight: 600;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   opacity: 0.85;
   margin-left: 2px;
 }
@@ -796,7 +796,7 @@ onBeforeUnmount(() => {
 .recent-connection-meta {
   font-size: 11px;
   color: var(--text-secondary);
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .quick-connect-empty {

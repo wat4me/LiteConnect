@@ -9,10 +9,12 @@ import { SETTINGS_SEARCH_CATALOG } from '@/composables/settings/settingsSearchCa
 import { matchSettingsSearch } from '@/composables/settings/matchSettingsSearch'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 import SettingsAppearance from '../components/settings/SettingsAppearance.vue'
+import SettingsApp from '../components/settings/SettingsApp.vue'
 import SettingsTerminal from '../components/settings/SettingsTerminal.vue'
 import SettingsFiles from '../components/settings/SettingsFiles.vue'
 import SettingsDatabase from '../components/settings/SettingsDatabase.vue'
 import SettingsNetwork from '../components/settings/SettingsNetwork.vue'
+import SettingsHostKeys from '../components/settings/SettingsHostKeys.vue'
 import SettingsMcp from '../components/settings/SettingsMcp.vue'
 import SettingsShortcuts from '../components/settings/SettingsShortcuts.vue'
 import SettingsAbout from '../components/settings/SettingsAbout.vue'
@@ -29,6 +31,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 type SettingsTab = SettingsTabId
+type SettingsNavItem = { id: SettingsTabId; label: string; desc: string }
+type SettingsNavGroup = { label: string; items: SettingsNavItem[] }
 
 const {
   draft,
@@ -45,12 +49,10 @@ const {
 
 const activeTab = ref<SettingsTab>(props.initialTab || 'appearance')
 
-/**
- * MCP 与「关于」页的控件是立即写盘的（开关一拨即生效），不参与底部草稿，
- * 所以它们把保存按钮留成灰色是正常的。页脚要换一句话说明，否则用户会以为
- * 「点了开关却没变可点」是坏了。
- */
-const hasDraftSettings = computed(() => activeTab.value !== 'mcp' && activeTab.value !== 'about')
+/** MCP/快捷键/关于不参与草稿；若其他页仍有未保存修改，页脚继续提供全局保存。 */
+const currentTabUsesDraft = computed(
+  () => activeTab.value !== 'hostKeys' && activeTab.value !== 'mcp' && activeTab.value !== 'shortcuts' && activeTab.value !== 'about',
+)
 
 watch(
   () => props.initialTab,
@@ -59,16 +61,40 @@ watch(
   },
 )
 
-const tabs = computed(() => [
-  { id: 'appearance' as const, label: t('settings.tabs.appearance'), desc: t('settings.tabs.appearanceDesc') },
-  { id: 'terminal' as const, label: t('settings.tabs.terminal'), desc: t('settings.tabs.terminalDesc') },
-  { id: 'files' as const, label: t('settings.tabs.files'), desc: t('settings.tabs.filesDesc') },
-  { id: 'database' as const, label: t('settings.tabs.database'), desc: t('settings.tabs.databaseDesc') },
-  { id: 'network' as const, label: t('settings.tabs.network'), desc: t('settings.tabs.networkDesc') },
-  { id: 'mcp' as const, label: t('settings.tabs.mcp'), desc: t('settings.tabs.mcpDesc') },
-  { id: 'shortcuts' as const, label: t('settings.tabs.shortcuts'), desc: t('settings.tabs.shortcutsDesc') },
-  { id: 'about' as const, label: t('settings.tabs.about'), desc: t('settings.tabs.aboutDesc') },
+const tabGroups = computed<SettingsNavGroup[]>(() => [
+  {
+    label: t('settings.tabs.groupGeneral'),
+    items: [
+      { id: 'appearance' as const, label: t('settings.tabs.appearance'), desc: t('settings.tabs.appearanceDesc') },
+      { id: 'app' as const, label: t('settings.tabs.app'), desc: t('settings.tabs.appDesc') },
+    ],
+  },
+  {
+    label: t('settings.tabs.groupFeatures'),
+    items: [
+      { id: 'terminal' as const, label: t('settings.tabs.terminal'), desc: t('settings.tabs.terminalDesc') },
+      { id: 'files' as const, label: t('settings.tabs.files'), desc: t('settings.tabs.filesDesc') },
+      { id: 'database' as const, label: t('settings.tabs.database'), desc: t('settings.tabs.databaseDesc') },
+      { id: 'network' as const, label: t('settings.tabs.network'), desc: t('settings.tabs.networkDesc') },
+      { id: 'hostKeys' as const, label: t('settings.tabs.hostKeys'), desc: t('settings.tabs.hostKeysDesc') },
+    ],
+  },
+  {
+    label: t('settings.tabs.groupIntegrations'),
+    items: [
+      { id: 'mcp' as const, label: t('settings.tabs.mcp'), desc: t('settings.tabs.mcpDesc') },
+    ],
+  },
+  {
+    label: t('settings.tabs.groupHelp'),
+    items: [
+      { id: 'shortcuts' as const, label: t('settings.tabs.shortcuts'), desc: t('settings.tabs.shortcutsDesc') },
+      { id: 'about' as const, label: t('settings.tabs.about'), desc: t('settings.tabs.aboutDesc') },
+    ],
+  },
 ])
+
+const tabs = computed(() => tabGroups.value.flatMap((group) => group.items))
 
 const searchQuery = ref('')
 const searchFocused = ref(false)
@@ -268,17 +294,20 @@ defineExpose({ requestClose: handleClose })
           </div>
         </div>
         <nav class="nav-list" :aria-label="t('settings.title')">
-          <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            type="button"
-            class="nav-item"
-            :class="{ active: activeTab === tab.id }"
-            @click="activeTab = tab.id"
-          >
-            <span class="nav-item-label">{{ tab.label }}</span>
-            <span class="nav-item-desc">{{ tab.desc }}</span>
-          </button>
+          <div v-for="group in tabGroups" :key="group.label" class="nav-group">
+            <div class="nav-group-label">{{ group.label }}</div>
+            <button
+              v-for="tab in group.items"
+              :key="tab.id"
+              type="button"
+              class="nav-item"
+              :class="{ active: activeTab === tab.id }"
+              @click="activeTab = tab.id"
+            >
+              <span class="nav-item-label">{{ tab.label }}</span>
+              <span class="nav-item-desc">{{ tab.desc }}</span>
+            </button>
+          </div>
         </nav>
       </aside>
 
@@ -303,6 +332,10 @@ defineExpose({ requestClose: handleClose })
               :draft="draft"
               :is-dirty="isDirty"
             />
+            <SettingsApp
+              v-else-if="activeTab === 'app'"
+              :draft="draft"
+            />
             <SettingsTerminal
               v-else-if="activeTab === 'terminal'"
               :draft="draft"
@@ -323,6 +356,7 @@ defineExpose({ requestClose: handleClose })
               v-else-if="activeTab === 'network'"
               :draft="draft"
             />
+            <SettingsHostKeys v-else-if="activeTab === 'hostKeys'" />
             <SettingsMcp v-else-if="activeTab === 'mcp'" />
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsAbout v-else />
@@ -331,15 +365,16 @@ defineExpose({ requestClose: handleClose })
 
         <footer class="settings-footer">
           <p class="settings-footer-hint">
-            <template v-if="!hasDraftSettings">{{ t('settings.immediateHint') }}</template>
+            <template v-if="!currentTabUsesDraft && !isDirty">{{ t('settings.immediateHint') }}</template>
             <template v-else-if="isDirty">{{ t('settings.dirtyHint') }}</template>
             <template v-else>{{ t('settings.cleanHint') }}</template>
           </p>
           <div class="settings-footer-actions">
             <button type="button" class="ui-btn ui-btn-sm" :disabled="saving" @click="handleClose">
-              {{ t('common.cancel') }}
+              {{ t('common.close') }}
             </button>
             <button
+              v-if="currentTabUsesDraft || isDirty"
               type="button"
               class="ui-btn ui-btn-sm"
               :disabled="saving || loading"
@@ -348,10 +383,11 @@ defineExpose({ requestClose: handleClose })
               {{ t('common.restore') }}
             </button>
             <button
+              v-if="currentTabUsesDraft || isDirty"
               type="button"
               class="ui-btn ui-btn-sm ui-btn-primary"
               :disabled="saving || loading || !isDirty"
-              :title="!hasDraftSettings ? t('settings.immediateHint') : undefined"
+              :title="!currentTabUsesDraft && !isDirty ? t('settings.immediateHint') : undefined"
               @click="handleSave"
             >
               {{ saving ? t('common.saving') : t('common.save') }}
@@ -499,6 +535,19 @@ defineExpose({ requestClose: handleClose })
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 8px;
+}
+
+.nav-group + .nav-group {
+  margin-top: 10px;
+}
+
+.nav-group-label {
+  padding: 0 12px 5px;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
 }
 
 .nav-item {

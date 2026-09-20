@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { classifyCommand, hasCommandFlattener, splitCommandSegments, validateMcpCommand } from './classify'
-import { decideCommandPolicy } from './policy'
+import { approvalModeAfterClientConfirm, decideCommandPolicy, sanitizeMcpApprovalMode } from './policy'
 
 /**
  * These cases run against the text fallback: no AST engine is installed in this
@@ -137,5 +137,12 @@ describe('decideCommandPolicy', () => {
     const d = decideCommandPolicy(classifyCommand('rm -rf /tmp/x'), 'ask-destructive')
     expect(d.allow).toBe(false)
     if (!d.allow) expect(d.code).toBe('APPROVAL_REQUIRED')
+  })
+
+  it('client confirm only upgrades ask mode and never lifts forbidden', () => {
+    expect(sanitizeMcpApprovalMode('nope')).toBe('deny-destructive')
+    expect(approvalModeAfterClientConfirm('ask-destructive', true, 'destructive')).toBe('auto')
+    expect(approvalModeAfterClientConfirm('ask-destructive', true, 'forbidden')).toBe('deny-destructive')
+    expect(approvalModeAfterClientConfirm('deny-destructive', true, 'destructive')).toBe('deny-destructive')
   })
 })

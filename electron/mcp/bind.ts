@@ -65,7 +65,11 @@ export function bindSshMcpRuntime(
   sshManager: SSHManager,
   credentialStore: CredentialStore,
   monitorCollector: MonitorCollector,
-  extras?: { approvalMode?: ApprovalMode; requestApproval?: SshMcpApprovalFn },
+  extras?: {
+    approvalMode?: ApprovalMode
+    getApprovalMode?: () => ApprovalMode
+    requestApproval?: SshMcpApprovalFn
+  },
 ): SshMcpRuntime {
   return createSshMcpRuntime({
     ssh: {
@@ -120,6 +124,7 @@ export function bindSshMcpRuntime(
       getCached: (sessionId) => monitorCollector.getCached(sessionId),
     },
     approvalMode: extras?.approvalMode,
+    getApprovalMode: extras?.getApprovalMode,
     requestApproval: extras?.requestApproval,
   })
 }

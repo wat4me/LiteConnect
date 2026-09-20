@@ -699,7 +699,7 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 2px;
   color: var(--accent);
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 10px;
 }
 
@@ -780,7 +780,7 @@ onBeforeUnmount(() => {
 }
 
 .var-chips .ui-chip {
-  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 10px;
   border-style: dashed;
 }
@@ -901,7 +901,7 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-all;
   margin-bottom: 6px;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
 .snippet-actions {

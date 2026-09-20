@@ -62,6 +62,8 @@ export type AppSettingsAll = {
   workspaceRestoreEnabled: boolean
   closeToTrayEnabled: boolean
   globalHotkeyEnabled: boolean
+  /** Electron accelerator, e.g. `Alt+Shift+L`; falls back to the default when invalid. */
+  globalHotkey: string
   sessionLogEnabled: boolean
   autoReconnectMaxRetries: number
   x11AutoStartEnabled: boolean

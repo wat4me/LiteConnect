@@ -204,7 +204,7 @@ async function copyFingerprint() {
 
 .dialog-host {
   font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--text-secondary);
   word-break: break-all;
 }
@@ -317,7 +317,7 @@ async function copyFingerprint() {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 8px;
-  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.04em;

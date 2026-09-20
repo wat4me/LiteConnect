@@ -184,7 +184,7 @@ function onBlur() {
   outline: none;
   background: transparent;
   color: var(--text-primary);
-  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 12px;
   line-height: 1.3;
 }

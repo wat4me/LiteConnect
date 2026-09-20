@@ -127,7 +127,7 @@ function subtitle(item: ShellSuggestItem): string {
   max-width: 55%;
   font-size: 12px;
   line-height: 16px;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

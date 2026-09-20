@@ -44,6 +44,7 @@ export class SshMcpRuntime {
   private readonly connections: SshMcpRuntimeOptions['connections']
   private readonly metrics?: SshMcpRuntimeOptions['metrics']
   private readonly approvalMode: ApprovalMode
+  private readonly getApprovalMode?: () => ApprovalMode
   private readonly requestApproval?: SshMcpRuntimeOptions['requestApproval']
   private readonly jobs = new McpJobStore()
   private readonly ptys: PtySessionStore
@@ -55,6 +56,7 @@ export class SshMcpRuntime {
     this.connections = opts.connections
     this.metrics = opts.metrics
     this.approvalMode = opts.approvalMode ?? 'deny-destructive'
+    this.getApprovalMode = opts.getApprovalMode
     this.requestApproval = opts.requestApproval
     this.ptys = new PtySessionStore((sessionId, generation, shellOpts) =>
       this.ssh.openShellChannel(sessionId, generation, shellOpts),
@@ -78,7 +80,7 @@ export class SshMcpRuntime {
       return this.error('UNKNOWN_TOOL', `Unknown tool: ${String(name)}`)
     }
     const input = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {}
-    const approvalMode = opts?.approvalMode ?? this.approvalMode
+    const approvalMode = opts?.approvalMode ?? this.getApprovalMode?.() ?? this.approvalMode
     const host = this.host()
     try {
       switch (name) {
@@ -183,20 +185,25 @@ export class SshMcpRuntime {
   ): Promise<SshMcpToolResult | null> {
     let decision = decideCommandPolicy(classification, approvalMode)
     if (!decision.allow && decision.code === 'APPROVAL_REQUIRED') {
-      if (!this.requestApproval) {
-        return this.error('DESTRUCTIVE_DENIED', policyErrorMessage('DESTRUCTIVE_DENIED', classification.reason), classification.class)
+      if (this.requestApproval) {
+        const approved = await this.requestApproval({
+          tool: 'exec',
+          sessionId,
+          command,
+          class: classification.class,
+          reason: classification.reason,
+        })
+        if (!approved) {
+          return this.error('DESTRUCTIVE_DENIED', 'User denied the command', classification.class)
+        }
+        decision = { allow: true }
+      } else {
+        return this.error(
+          'APPROVAL_REQUIRED',
+          policyErrorMessage('APPROVAL_REQUIRED', classification.reason, classification.class),
+          classification.class,
+        )
       }
-      const approved = await this.requestApproval({
-        tool: 'exec',
-        sessionId,
-        command,
-        class: classification.class,
-        reason: classification.reason,
-      })
-      if (!approved) {
-        return this.error('DESTRUCTIVE_DENIED', 'User denied the command', classification.class)
-      }
-      decision = { allow: true }
     }
     if (!decision.allow) {
       return this.error(decision.code, policyErrorMessage(decision.code, classification.reason, classification.class), classification.class)

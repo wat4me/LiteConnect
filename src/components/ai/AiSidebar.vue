@@ -724,7 +724,7 @@ async function runCodeToTerminal(code: string) {
       </div>
       <div class="ai-header-actions">
         <details class="header-more">
-          <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')">⋯</summary>
+          <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')"><AppIcon name="more" size="sm" /></summary>
           <div class="header-more-menu">
             <button type="button" @click="clearCurrentHistory">{{ t('ai.clearChat') }}</button>
           </div>
@@ -784,6 +784,7 @@ async function runCodeToTerminal(code: string) {
         <p v-if="splitToolReason(run.reason).notice" class="tool-approval-reason tool-policy-notice"><strong>{{ t('ai.toolPolicyNoticeLabel') }}</strong>{{ splitToolReason(run.reason).notice }}</p>
         <details v-if="approvalHint(run) || run.diffSummary || run.diffPreview" class="tool-approval-details" open>
           <summary>
+            <AppIcon name="chevron-right" size="xs" class="details-chevron" />
             <span>{{ t('ai.toolApprovalDetails') }}</span>
             <span v-if="run.diffSummary" class="tool-approval-diff-summary">{{ run.diffSummary }}</span>
           </summary>
@@ -1226,7 +1227,7 @@ async function runCodeToTerminal(code: string) {
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1295,7 +1296,7 @@ async function runCodeToTerminal(code: string) {
   background: transparent;
   color: var(--text-primary);
   font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   cursor: pointer;
   text-align: left;
 }
@@ -1464,7 +1465,7 @@ async function runCodeToTerminal(code: string) {
   border-radius: 6px;
   background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 10px;
   line-height: 1.4;
   white-space: pre-wrap;
@@ -1510,8 +1511,7 @@ async function runCodeToTerminal(code: string) {
   content: '';
 }
 
-.tool-approval-details > summary::before {
-  content: '›';
+.tool-approval-details .details-chevron {
   flex-shrink: 0;
   transition: transform 0.12s ease;
 }
@@ -1520,7 +1520,7 @@ async function runCodeToTerminal(code: string) {
   margin-right: auto;
 }
 
-.tool-approval-details[open] > summary::before {
+.tool-approval-details[open] > summary .details-chevron {
   transform: rotate(90deg);
 }
 
@@ -1544,7 +1544,7 @@ async function runCodeToTerminal(code: string) {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 10px;
   line-height: 1.45;
   max-height: 180px;
