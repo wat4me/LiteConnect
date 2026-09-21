@@ -55,6 +55,7 @@ export default {
     uploadFolder: '上传文件夹（也可直接拖拽上传）',
     followOn: '跟随终端目录：已开启',
     followOff: '跟随终端目录：已关闭',
+    boundTerminalDetail: 'SFTP 已绑定 {terminal}；分屏时不会随窗格焦点切换',
     followPausedContainer:
       '已检测到进入容器（如 docker exec），已关闭「跟随终端目录」。SFTP 仍是主机文件；退出容器后可再手动开启。',
     open: '打开',

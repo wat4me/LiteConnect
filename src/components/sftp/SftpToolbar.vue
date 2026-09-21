@@ -5,6 +5,8 @@ import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{
   activeTransfers: number
   followTerminalPath: boolean
+  terminalLabel: string
+  terminalTarget: string
   /**
    * Ignore re-clicks while an SFTP action is in flight.
    * Must not toggle opacity/disabled styling — that made the whole toolbar flash.
@@ -78,6 +80,14 @@ function onGuarded(action: () => void) {
       <AppIcon name="folder-up" size="md" />
     </button>
     <div class="navigation-actions-spacer"></div>
+    <div
+      v-if="terminalLabel"
+      class="sftp-binding"
+      :title="t('sftp.boundTerminalDetail', { terminal: terminalTarget })"
+    >
+      <AppIcon name="terminal" size="xs" />
+      <span>{{ terminalLabel }}</span>
+    </div>
     <button
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
@@ -104,6 +114,29 @@ function onGuarded(action: () => void) {
 .navigation-actions-spacer {
   flex: 1;
   min-width: 4px;
+}
+
+.sftp-binding {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 82px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  flex-shrink: 1;
+}
+
+.sftp-binding span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .transfer-action {

@@ -1,13 +1,17 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
 import type { Connection } from '../../env.d'
-import type { ConnectionGroup, Session, SplitDropPayload } from '@/domain/session/types'
+import type {
+  ConnectionGroup,
+  Session,
+  SplitDropPayload,
+  SplitPreviewPayload,
+  SplitSwapPayload,
+} from '@/domain/session/types'
 import type { SplitMode, SplitSide } from '@/domain/terminal/types'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { buildBatchSessionTarget } from '@/utils/session/sessionDisplay'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
-
-export type { SplitDropPayload }
 
 /**
  * Session lifecycle + split wiring used by the SSH workspace.
@@ -18,17 +22,17 @@ export function useSessionActions(deps: {
   activeGroup: ComputedRef<ConnectionGroup | null>
   pwdTracker: TerminalPwdTracker
   getGroupBySessionId: (sessionId: string) => ConnectionGroup | null
+  onSelectGroup: (connectionId: string) => void
   createSession: (connectionId: string) => Promise<string | null>
   removeSessionFromState: (sessionId: string) => void
   onCloseSession: (sessionId: string) => Promise<void>
   onSessionClosed: (sessionId: string) => void
   clearUnread: (sessionId: string) => void
   setSidebarTarget: (groupId: string | null, sessionId: string | null) => void
-  setPreviewMode: (mode: SplitMode) => void
-  setPreviewSide: (side: SplitSide | null) => void
+  setSplitPreview: (payload: SplitPreviewPayload | null) => void
+  setSplitPrimarySessionId: (sessionId: string | null) => void
   setSecondarySessionId: (sessionId: string | null) => void
-  setSplitMode: (mode: SplitMode, side?: SplitSide) => void
-  startSplitResize: (e: MouseEvent, el: HTMLElement) => void
+  setSplitMode: (mode: SplitMode, side?: SplitSide, primaryId?: string) => void
 }) {
   const batchSessions = computed<BatchCommandTarget[]>(() => {
     const sessions: BatchCommandTarget[] = []
@@ -104,19 +108,27 @@ export function useSessionActions(deps: {
     deps.pwdTracker.setPwd(sessionId, pwd)
   }
 
-  function onDragSplitPreview(payload: SplitDropPayload | null) {
-    if (!payload) {
-      deps.setPreviewMode('none')
-      deps.setPreviewSide(null)
+  function onDragSplitCommit(payload: SplitDropPayload) {
+    deps.setSplitPreview(null)
+
+    if (payload.primarySessionId) {
+      const primaryGroup = deps.getGroupBySessionId(payload.primarySessionId)
+      const secondaryGroup = deps.getGroupBySessionId(payload.sessionId)
+      if (
+        !primaryGroup ||
+        !secondaryGroup ||
+        payload.primarySessionId === payload.sessionId
+      ) return
+
+      primaryGroup.activeSessionId = payload.primarySessionId
+      deps.onSelectGroup(primaryGroup.connectionId)
+      deps.setSidebarTarget(primaryGroup.connectionId, payload.primarySessionId)
+      deps.setSplitPrimarySessionId(payload.primarySessionId)
+      deps.setSecondarySessionId(payload.sessionId)
+      deps.setSplitMode(payload.mode, payload.side, payload.primarySessionId)
       return
     }
-    deps.setPreviewMode(payload.mode)
-    deps.setPreviewSide(payload.side)
-  }
 
-  function onDragSplitCommit(payload: SplitDropPayload) {
-    deps.setPreviewMode('none')
-    deps.setPreviewSide(null)
     const group = deps.activeGroup.value
     if (group && group.activeSessionId === payload.sessionId) {
       const other = group.sessions.find((s: Session) => s.id !== payload.sessionId)
@@ -125,12 +137,22 @@ export function useSessionActions(deps: {
         deps.setSidebarTarget(group.connectionId, other.id)
       }
     }
+    if (!group?.activeSessionId || group.activeSessionId === payload.sessionId) return
+    deps.setSplitPrimarySessionId(group.activeSessionId)
     deps.setSecondarySessionId(payload.sessionId)
-    deps.setSplitMode(payload.mode, payload.side)
+    deps.setSplitMode(payload.mode, payload.side, group.activeSessionId)
   }
 
-  function onStartSplitResize(event: MouseEvent, container: HTMLElement) {
-    deps.startSplitResize(event, container)
+  function onSwapSplitPanes(payload: SplitSwapPayload) {
+    const primaryGroup = deps.getGroupBySessionId(payload.primarySessionId)
+    const secondaryGroup = deps.getGroupBySessionId(payload.secondarySessionId)
+    if (!primaryGroup || !secondaryGroup) return
+
+    secondaryGroup.activeSessionId = payload.secondarySessionId
+    deps.onSelectGroup(secondaryGroup.connectionId)
+    deps.setSidebarTarget(secondaryGroup.connectionId, payload.secondarySessionId)
+    deps.setSplitPrimarySessionId(payload.secondarySessionId)
+    deps.setSecondarySessionId(payload.primarySessionId)
   }
 
   return {
@@ -141,8 +163,7 @@ export function useSessionActions(deps: {
     handleCloseSession,
     onCdCommand,
     onPwdOutput,
-    onDragSplitPreview,
     onDragSplitCommit,
-    onStartSplitResize,
+    onSwapSplitPanes,
   }
 }

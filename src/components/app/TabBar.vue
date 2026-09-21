@@ -5,11 +5,22 @@ import AppIcon from '@/components/icons/AppIcon.vue'
 import type { Connection } from '@/env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
+import type { SplitDropPayload, SplitPreviewPayload } from '@/domain/session/types'
+import { resolveSplitDropTarget, type SplitDropTarget } from '@/utils/terminal/splitDropTarget'
+import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
+import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
 
 const { t } = useI18n()
 
+type HostGroup = {
+  connectionId: string
+  connectionName: string
+  activeSessionId: string | null
+  sessions: { id: string }[]
+}
+
 const props = defineProps<{
-  groups: { connectionId: string; connectionName: string; sessions: { id: string }[] }[]
+  groups: HostGroup[]
   activeGroupId: string | null
   recentConnections: Connection[]
   /** 全量连接，供快速连接搜索 */
@@ -21,6 +32,11 @@ const props = defineProps<{
   /** 当前是否在连接管理页（高亮「返回连接列表」） */
   homeActive?: boolean
   disconnectedSessionIds?: Set<string>
+  terminalContainer?: HTMLElement | null
+  splitPrimarySessionId?: string | null
+  splitSecondarySessionId?: string | null
+  splitMode?: 'none' | 'horizontal' | 'vertical'
+  splitGroupActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -28,7 +44,91 @@ const emit = defineEmits<{
   (e: 'close', connectionId: string): void
   (e: 'select-home'): void
   (e: 'quick-connect', connectionId: string): void
+  (e: 'split-preview', payload: SplitPreviewPayload | null): void
+  (e: 'split-commit', payload: SplitDropPayload): void
+  (e: 'select-split'): void
+  (e: 'close-split'): void
 }>()
+
+const displayHostTabs = computed(() => {
+  const primary = props.groups.find((group) =>
+    group.sessions.some((session) => session.id === props.splitPrimarySessionId),
+  )
+  const secondary = props.groups.find((group) =>
+    group.sessions.some((session) => session.id === props.splitSecondarySessionId),
+  )
+  return buildCombinedTabItems(
+    props.groups,
+    primary?.connectionId,
+    secondary?.connectionId,
+    (group) => group.connectionId,
+  )
+})
+
+function splitHostHasStatus(source: Set<string> | undefined, primary: HostGroup, secondary: HostGroup) {
+  if (!source) return false
+  return [...primary.sessions, ...secondary.sessions].some((session) => source.has(session.id))
+}
+
+const hoveredDropConnectionId = ref<string | null>(null)
+
+function hostDropTarget(clientX: number, clientY: number): SplitDropTarget | null {
+  hoveredDropConnectionId.value = null
+  const sourceConnectionId = draggedConnectionId.value
+  const hoveredElement = document.elementFromPoint(clientX, clientY)
+  const hoveredTab = hoveredElement?.closest<HTMLElement>('[data-host-drop-id]')
+  const targetConnectionId = hoveredTab?.dataset.hostDropId
+  if (sourceConnectionId && targetConnectionId && targetConnectionId !== sourceConnectionId) {
+    const sourceIndex = props.groups.findIndex((group) => group.connectionId === sourceConnectionId)
+    const targetIndex = props.groups.findIndex((group) => group.connectionId === targetConnectionId)
+    const targetGroup = props.groups[targetIndex]
+    const primarySessionId = targetGroup?.activeSessionId || targetGroup?.sessions[0]?.id
+    if (sourceIndex >= 0 && targetIndex >= 0 && primarySessionId) {
+      hoveredDropConnectionId.value = targetConnectionId
+      return {
+        mode: 'vertical',
+        side: sourceIndex < targetIndex ? 'left' : 'right',
+        primarySessionId,
+      }
+    }
+  }
+
+  // Dropping an inactive host on the visible terminal keeps the precise
+  // edge-based layout. An active host needs an explicit peer tab as target.
+  if (sourceConnectionId === props.activeGroupId) return null
+  const container = props.terminalContainer
+  if (!container) return null
+  return resolveSplitDropTarget(clientX, clientY, container.getBoundingClientRect())
+}
+
+const {
+  draggingId: draggedConnectionId,
+  startDrag: startHostDrag,
+  consumeSuppressedClick: consumeSuppressedHostClick,
+} = useSplitTabDrag({
+  resolveTarget: hostDropTarget,
+  onPreview: (payload) => {
+    if (!payload) hoveredDropConnectionId.value = null
+    emit('split-preview', payload)
+  },
+  onCommit: (payload) => emit('split-commit', payload),
+})
+
+function onHostTabDragStart(
+  event: MouseEvent,
+  group: HostGroup,
+) {
+  if (event.button !== 0 || props.groups.length < 2) return
+  if (!props.terminalContainer) return
+  const sessionId = group.activeSessionId || group.sessions[0]?.id
+  if (!sessionId) return
+  startHostDrag(event, { dragId: group.connectionId, sessionId })
+}
+
+function onHostTabClick(connectionId: string) {
+  if (consumeSuppressedHostClick()) return
+  emit('select', connectionId)
+}
 
 const showQuickConnect = ref(false)
 const quickConnectWrapperRef = ref<HTMLElement | null>(null)
@@ -257,38 +357,86 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="tabs-scroll">
-      <div
-        v-for="group in groups"
-        :key="group.connectionId"
-        class="tab"
-        :class="{ active: !homeActive && group.connectionId === activeGroupId }"
-        @click="emit('select', group.connectionId)"
+      <template
+        v-for="item in displayHostTabs"
+        :key="item.kind === 'split'
+          ? `split-${item.primary.connectionId}-${item.secondary.connectionId}`
+          : item.item.connectionId"
       >
-        <div class="tab-indicator" :class="{ down: isGroupDisconnected(group) }"></div>
-        <span class="tab-name">{{ group.connectionName }}</span>
-        <span
-          v-if="aiApprovalSessions && group.connectionId !== activeGroupId && hasGroupAiApproval(group)"
-          class="tab-approval-dot"
-          :title="t('ai.approvalHintAction')"
-        ></span>
-        <span
-          v-else-if="unreadSessions && group.connectionId !== activeGroupId && hasGroupUnread(group)"
-          class="tab-unread-dot"
-        ></span>
-        <span v-if="group.sessions.length > 1" class="tab-count">{{ group.sessions.length }}</span>
-        <span
-          v-if="isGroupDisconnected(group)"
-          class="tab-disconnected"
-        >{{ t('terminal.tabDisconnected') }}</span>
-        <span
-          v-else-if="latencyEnabled && latencyMap && latencyMap[group.connectionId] !== undefined"
-          class="tab-latency"
-          :style="{ color: latencyColor(latencyMap[group.connectionId]) }"
-        >{{ formatLatency(latencyMap[group.connectionId]) }}</span>
-        <button class="tab-close" @click.stop="emit('close', group.connectionId)">
-          <AppIcon name="close" size="xs" />
-        </button>
-      </div>
+        <div
+          v-if="item.kind === 'split'"
+          class="tab host-split-tab"
+          :class="{ active: !homeActive && splitGroupActive }"
+          :title="t('terminal.restoreSplit')"
+          @click="emit('select-split')"
+        >
+          <AppIcon :name="splitMode === 'horizontal' ? 'split-h' : 'split-v'" size="xs" class="host-split-icon" />
+          <span class="tab-name">{{ item.primary.connectionName }}</span>
+          <span class="host-split-divider">|</span>
+          <span class="tab-name">{{ item.secondary.connectionName }}</span>
+          <span
+            v-if="splitHostHasStatus(disconnectedSessionIds, item.primary, item.secondary)"
+            class="tab-disconnected"
+          >{{ t('terminal.tabDisconnected') }}</span>
+          <span
+            v-else-if="splitHostHasStatus(aiApprovalSessions, item.primary, item.secondary)"
+            class="tab-approval-dot"
+            :title="t('ai.approvalHintAction')"
+          ></span>
+          <span
+            v-else-if="splitHostHasStatus(unreadSessions, item.primary, item.secondary)"
+            class="tab-unread-dot"
+          ></span>
+          <button
+            class="tab-close"
+            :title="t('terminal.exitSplit')"
+            :aria-label="t('terminal.exitSplit')"
+            @click.stop="emit('close-split')"
+          >
+            <AppIcon name="close" size="xs" />
+          </button>
+        </div>
+        <div
+          v-else
+          class="tab"
+          :class="{
+            active: !homeActive && item.item.connectionId === activeGroupId,
+            dragging: draggedConnectionId === item.item.connectionId,
+            'drop-target': hoveredDropConnectionId === item.item.connectionId,
+          }"
+          :data-host-drop-id="item.item.connectionId"
+          :title="groups.length >= 2
+            ? t('terminal.dragHostSplitTitle')
+            : undefined"
+          @mousedown="onHostTabDragStart($event, item.item)"
+          @click="onHostTabClick(item.item.connectionId)"
+        >
+          <div class="tab-indicator" :class="{ down: isGroupDisconnected(item.item) }"></div>
+          <span class="tab-name">{{ item.item.connectionName }}</span>
+          <span
+            v-if="aiApprovalSessions && item.item.connectionId !== activeGroupId && hasGroupAiApproval(item.item)"
+            class="tab-approval-dot"
+            :title="t('ai.approvalHintAction')"
+          ></span>
+          <span
+            v-else-if="unreadSessions && item.item.connectionId !== activeGroupId && hasGroupUnread(item.item)"
+            class="tab-unread-dot"
+          ></span>
+          <span v-if="item.item.sessions.length > 1" class="tab-count">{{ item.item.sessions.length }}</span>
+          <span
+            v-if="isGroupDisconnected(item.item)"
+            class="tab-disconnected"
+          >{{ t('terminal.tabDisconnected') }}</span>
+          <span
+            v-else-if="latencyEnabled && latencyMap && latencyMap[item.item.connectionId] !== undefined"
+            class="tab-latency"
+            :style="{ color: latencyColor(latencyMap[item.item.connectionId]) }"
+          >{{ formatLatency(latencyMap[item.item.connectionId]) }}</span>
+          <button class="tab-close" @mousedown.stop @click.stop="emit('close', item.item.connectionId)">
+            <AppIcon name="close" size="xs" />
+          </button>
+        </div>
+      </template>
 
       <!-- 有会话时：+ 跟在标签后，表示「再开一个连接」 -->
     </div>
@@ -505,6 +653,39 @@ onBeforeUnmount(() => {
 .tab:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.tab.dragging {
+  cursor: grabbing;
+  opacity: 0.72;
+}
+
+.tab.drop-target {
+  color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.host-split-tab {
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  height: calc(100% - 8px);
+  margin-block: 4px;
+  border-radius: 6px;
+}
+
+.host-split-tab.active {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+}
+
+.host-split-icon {
+  flex-shrink: 0;
+}
+
+.host-split-divider {
+  color: var(--border-color);
 }
 
 .tab.active {

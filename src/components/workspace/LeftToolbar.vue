@@ -13,6 +13,8 @@ const props = defineProps<{
   showAiApproval?: boolean
   /** Active SFTP transfers (all sessions); shown when files panel closed */
   activeTransfers?: number
+  /** SFTP is hidden while a cross-host split uses the full SSH canvas. */
+  filesDisabled?: boolean
   /** Docker workspace mode button (not a side panel). */
   dockerActive?: boolean
   dockerDisabled?: boolean
@@ -35,6 +37,12 @@ const dockerTooltip = computed(() => {
   if (props.dockerDisabled) return t('toolbar.dockerDisabled')
   if (props.dockerActive) return t('toolbar.dockerActive')
   return t('toolbar.dockerShortcut')
+})
+
+const sftpTooltip = computed(() => {
+  if (props.filesDisabled) return t('toolbar.sftpCrossHostSplitDisabled')
+  if (props.activeTransfers) return t('toolbar.sftpActive', { count: props.activeTransfers })
+  return t('toolbar.sftp')
 })
 </script>
 
@@ -61,7 +69,7 @@ const dockerTooltip = computed(() => {
     </el-tooltip>
 
     <el-tooltip
-      :content="activeTransfers ? t('toolbar.sftpActive', { count: activeTransfers }) : t('toolbar.sftp')"
+      :content="sftpTooltip"
       placement="right"
       :show-after="300"
     >
@@ -71,7 +79,7 @@ const dockerTooltip = computed(() => {
         :class="{ active: filesActive }"
         :aria-label="activeTransfers ? t('toolbar.sftpAriaActive', { count: activeTransfers }) : t('toolbar.sftpAria')"
         :aria-pressed="filesActive"
-        :disabled="sidePanelsDisabled"
+        :disabled="sidePanelsDisabled || filesDisabled"
         @click="emit('toggle-files')"
       >
         <AppIcon name="folder" size="lg" />

@@ -4,7 +4,7 @@ import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{
-  title: string; label: string; shortLabel?: string; icon: 'shield'; disabled?: boolean
+  title: string; label: string; icon: 'shield'; disabled?: boolean
   value: string; options: Array<{ value: string; label: string; description: string }>
 }>()
 const emit = defineEmits<{ change: [value: string] }>()
@@ -47,7 +47,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 <template>
   <span class="selector-wrap" :title="title">
     <button ref="anchor" type="button" class="composer-selector" :class="{ active: open }" :disabled="disabled" :aria-label="`${title}: ${label}`" aria-haspopup="menu" :aria-expanded="open" @click="open = !open" @keydown.down.prevent="open = true">
-      <AppIcon :name="icon" size="sm" /><span class="selector-label">{{ label }}</span><span v-if="shortLabel" class="selector-short">{{ shortLabel }}</span><AppIcon name="chevron-down" size="xs" />
+      <AppIcon :name="icon" size="sm" /><span class="selector-label">{{ label }}</span><AppIcon name="chevron-down" size="xs" />
     </button>
   </span>
   <Teleport to="body">
@@ -66,9 +66,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 .composer-selector:hover:not(:disabled), .composer-selector.active { background: var(--hover-bg); color: var(--text-primary); border-color: var(--border-color); }
 .composer-selector:disabled { opacity: .45; cursor: not-allowed; }
 .composer-selector:focus-visible, .composer-selector-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.selector-label, .selector-short { align-items: center; line-height: 1; }
-.selector-label { display: inline-flex; }
-.selector-short { display: none; }
+.selector-label { display: inline-flex; align-items: center; line-height: 1; }
 .composer-selector-menu { position: fixed; z-index: 10001; padding: 6px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 8px 24px #0003; overflow-y: auto; box-sizing: border-box; }
 .selector-title { padding: 6px 8px; font-size: 11px; color: var(--text-secondary); }
 .composer-selector-menu button { display: flex; width: 100%; gap: 8px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
@@ -77,5 +75,5 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 .option-dot { display: inline-flex; align-items: center; justify-content: center; width: var(--icon-xs); min-width: var(--icon-xs); height: var(--icon-xs); margin-top: 1px; }
 .composer-selector-menu strong { font-size: 12px; font-weight: 500; }
 .composer-selector-menu small { display: block; margin-top: 4px; font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
-@container ai-composer (max-width: 360px) { .selector-label:has(+ .selector-short) { display: none; } .selector-short { display: inline-flex; } .composer-selector { padding: 0 4px; gap: 3px; } }
+@container ai-composer (max-width: 360px) { .composer-selector { padding: 0 4px; gap: 3px; } }
 </style>

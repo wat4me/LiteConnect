@@ -31,13 +31,15 @@ const { t } = useI18n()
 const props = withDefaults(defineProps<{
   sessionId: string
   active?: boolean
+  /** Increments only when a previously closed AI panel opens for this SSH session. */
+  openGeneration?: number
   selectionRequest?: {
     id: number
     sessionId: string
     text: string
     mode: 'send' | 'insert'
   } | null
-}>(), { active: true })
+}>(), { active: true, openGeneration: 0 })
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -172,6 +174,8 @@ const hasApiConfigured = computed(() => {
 })
 
 let initialLoadPromise: Promise<void> | null = null
+let openPreparationPromise: Promise<void> | null = null
+let handledOpenGeneration = 0
 const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value)
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
@@ -334,7 +338,7 @@ onMounted(() => {
   if (props.active) attachSidebarDomListeners()
   syncFromState()
   void nextTick(resizeComposer)
-  ensureInitialLoad().catch(() => {})
+  ensureOpenPrepared().catch(() => {})
 })
 
 onActivated(() => {
@@ -377,8 +381,18 @@ watch(
     if (oldId) saveSessionInput(oldId, input.value)
     syncFromState()
     initialLoadPromise = null
-    await ensureInitialLoad()
+    openPreparationPromise = null
+    handledOpenGeneration = 0
+    await ensureOpenPrepared()
   }
+)
+
+watch(
+  () => props.openGeneration,
+  (generation) => {
+    if (!props.active || generation <= handledOpenGeneration) return
+    void ensureOpenPrepared()
+  },
 )
 
 watch(input, (value) => {
@@ -391,7 +405,7 @@ watch(
     if (!request?.text) return
     if (request.sessionId !== props.sessionId) return
     if (consumedSelectionIds.has(request.id)) return
-    await ensureInitialLoad()
+    await ensureOpenPrepared()
     consumedSelectionIds.add(request.id)
     emit('selectionConsumed', request.id)
 
@@ -405,7 +419,7 @@ watch(
   { immediate: true }
 )
 
-async function ensureInitialLoad() {
+async function ensureInitialLoad(syncUi = true) {
   if (!initialLoadPromise) {
     initialLoadPromise = (async () => {
       try {
@@ -419,10 +433,40 @@ async function ensureInitialLoad() {
       if (state.messages.length === 0 && history.length > 0) {
         state.messages.push(...history)
       }
-      syncMessages(state.messages)
     })()
   }
   await initialLoadPromise
+  if (syncUi) syncMessages(getSessionState(props.sessionId).messages)
+}
+
+/**
+ * Reopening a closed AI panel starts from an empty draft while keeping prior
+ * conversations in History. A running response is never moved mid-stream.
+ */
+async function ensureOpenPrepared() {
+  if (openPreparationPromise) {
+    await openPreparationPromise
+    if (props.openGeneration <= handledOpenGeneration) return
+  }
+
+  const generation = props.openGeneration
+  openPreparationPromise = (async () => {
+    await ensureInitialLoad(false)
+    const state = getSessionState(props.sessionId)
+    if (generation > handledOpenGeneration) {
+      handledOpenGeneration = generation
+      if (!state.loading && state.messages.length > 0) {
+        await startNewConversation(props.sessionId, syncMessages)
+      }
+    }
+    syncMessages(state.messages)
+  })()
+
+  try {
+    await openPreparationPromise
+  } finally {
+    openPreparationPromise = null
+  }
 }
 
 async function handleNewConversation() {
@@ -848,7 +892,7 @@ async function runCodeToTerminal(code: string) {
               <AppIcon name="chevron-down" size="xs" />
             </button>
           </div>
-          <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :short-label="t(`ai.permissionCompact_${settings.toolPermission || 'ask'}`)" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
+          <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
           <button
             v-if="loading"
             type="button"
@@ -1226,7 +1270,7 @@ async function runCodeToTerminal(code: string) {
   background: transparent;
   color: var(--text-secondary);
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.35;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   cursor: pointer;
   transition: all 0.15s;
@@ -1239,9 +1283,8 @@ async function runCodeToTerminal(code: string) {
 }
 
 .ai-model-switcher-name {
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
+  min-width: 0;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1679,7 +1722,7 @@ async function runCodeToTerminal(code: string) {
 .composer-actions-right { width: 100%; gap: 6px; min-width: 0; }
 .composer-permission-selector { display: flex; height: 34px; align-items: center; margin-left: auto; flex-shrink: 0; }
 .model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: 34px; align-items: center; }
-.ai-model-switcher { height: 34px; min-height: 34px; width: auto; gap: 5px; font-family: inherit; font-size: 11px; padding: 0 4px; justify-content: space-between; }
+.ai-model-switcher { height: 34px; min-height: 34px; width: auto; gap: 5px; font-family: inherit; font-size: 11px; line-height: 1.35; padding: 0 4px; justify-content: space-between; }
 .ai-model-switcher:disabled { cursor: not-allowed; opacity: .5; }
 .send-btn, .stop-btn { width: 38px; height: 38px; min-width: 38px; padding: 0; font-size: 11px; margin-left: 0; }
 .composer-context-warning { font-size: 10px; color: var(--text-secondary); text-align: right; }

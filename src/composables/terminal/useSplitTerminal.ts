@@ -1,5 +1,6 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
 import type { SplitMode, SplitSide } from '@/domain/terminal/types'
+import type { SplitPreviewPayload } from '@/domain/session/types'
 
 export type { SplitMode, SplitSide }
 
@@ -9,9 +10,14 @@ const DIVIDER_SIZE = 6
 
 export function useSplitTerminal() {
   const splitMode = ref<SplitMode>('none')
+  const splitVisible = ref(false)
   const splitRatio = ref(50)
+  /** The two session ids belonging to the persistent combined split tab. */
+  const splitPrimarySessionId = ref<string | null>(null)
   const isResizing = ref(false)
   const previewMode = ref<SplitMode>('none')
+  const previewActive = ref(false)
+  const previewSessionId = ref<string | null>(null)
   /** Previewed drop side during drag; null when not previewing a side-aware drop */
   const previewSide = ref<SplitSide | null>(null)
   /** Explicit secondary pane session; null = auto-pick non-active session */
@@ -19,7 +25,14 @@ export function useSplitTerminal() {
   /** Which side the secondary pane occupies. Driven by drag-drop drop zone. */
   const secondarySide = ref<SplitSide>('right')
 
-  const isSplit = computed(() => splitMode.value !== 'none')
+  const hasSplitGroup = computed(
+    () =>
+      splitMode.value !== 'none' &&
+      !!splitPrimarySessionId.value &&
+      !!secondarySessionId.value &&
+      splitPrimarySessionId.value !== secondarySessionId.value,
+  )
+  const isSplit = computed(() => splitVisible.value && hasSplitGroup.value)
 
   function defaultSideForMode(mode: SplitMode): SplitSide {
     return mode === 'horizontal' ? 'bottom' : 'right'
@@ -29,67 +42,71 @@ export function useSplitTerminal() {
   let containerEl: HTMLElement | null = null
   let maskEl: HTMLElement | null = null
 
-  function toggleHorizontal() {
-    if (splitMode.value === 'horizontal') {
-      splitMode.value = 'none'
-    } else {
-      splitMode.value = 'horizontal'
-      splitRatio.value = 50
-      secondarySide.value = defaultSideForMode('horizontal')
-    }
+  function openSplit(mode: Exclude<SplitMode, 'none'>, primaryId?: string, secondaryId?: string) {
+    if (primaryId) splitPrimarySessionId.value = primaryId
+    if (secondaryId) secondarySessionId.value = secondaryId
+    splitMode.value = mode
+    splitVisible.value = true
+    splitRatio.value = 50
+    secondarySide.value = defaultSideForMode(mode)
   }
 
-  function toggleVertical() {
-    if (splitMode.value === 'vertical') {
-      splitMode.value = 'none'
-    } else {
-      splitMode.value = 'vertical'
-      splitRatio.value = 50
-      secondarySide.value = defaultSideForMode('vertical')
-    }
+  function toggleHorizontal(primaryId?: string, secondaryId?: string) {
+    if (isSplit.value && splitMode.value === 'horizontal') return closeSplit()
+    openSplit('horizontal', primaryId, secondaryId)
+  }
+
+  function toggleVertical(primaryId?: string, secondaryId?: string) {
+    if (isSplit.value && splitMode.value === 'vertical') return closeSplit()
+    openSplit('vertical', primaryId, secondaryId)
   }
 
   function closeSplit() {
     splitMode.value = 'none'
+    splitVisible.value = false
+    splitPrimarySessionId.value = null
     secondarySessionId.value = null
   }
 
-  function setSplitMode(mode: SplitMode, side?: SplitSide) {
-    if (splitMode.value === mode && side === undefined) return
-    splitMode.value = mode
+  function suspendSplit() {
+    splitVisible.value = false
+  }
+
+  function restoreSplit() {
+    if (hasSplitGroup.value) splitVisible.value = true
+  }
+
+  function setSplitMode(mode: SplitMode, side?: SplitSide, primaryId?: string) {
     if (mode === 'none') {
-      secondarySessionId.value = null
-    } else {
-      secondarySide.value = side ?? defaultSideForMode(mode)
+      closeSplit()
+      return
     }
+    if (primaryId) splitPrimarySessionId.value = primaryId
+    splitMode.value = mode
+    splitVisible.value = true
+    secondarySide.value = side ?? defaultSideForMode(mode)
+  }
+
+  function setSplitPrimarySessionId(sessionId: string | null) {
+    splitPrimarySessionId.value = sessionId
   }
 
   function setSecondarySessionId(sessionId: string | null) {
     secondarySessionId.value = sessionId
   }
 
-  function setSecondarySide(side: SplitSide) {
-    secondarySide.value = side
-  }
-
-  function setPreviewMode(mode: SplitMode) {
-    previewMode.value = mode
-    if (mode === 'none') previewSide.value = null
-  }
-
-  function setPreviewSide(side: SplitSide | null) {
-    previewSide.value = side
+  function setSplitPreview(payload: SplitPreviewPayload | null) {
+    previewActive.value = payload !== null
+    previewMode.value = payload?.mode ?? 'none'
+    previewSide.value = payload?.side ?? null
+    previewSessionId.value = payload?.sessionId ?? null
   }
 
   function syncSplitAvailability(sessionCount: number, sessionIds?: string[]) {
-    if (sessionCount < 2 && splitMode.value !== 'none') {
-      splitMode.value = 'none'
-      secondarySessionId.value = null
-      return
-    }
-    if (secondarySessionId.value && sessionIds && !sessionIds.includes(secondarySessionId.value)) {
-      secondarySessionId.value = null
-    }
+    if (sessionCount < 2 || !sessionIds) return closeSplit()
+    const primaryMissing = splitPrimarySessionId.value && !sessionIds.includes(splitPrimarySessionId.value)
+    const secondaryMissing = secondarySessionId.value && !sessionIds.includes(secondarySessionId.value)
+    if (primaryMissing || secondaryMissing) closeSplit()
   }
 
   function onMove(e: MouseEvent) {
@@ -153,21 +170,27 @@ export function useSplitTerminal() {
 
   return {
     splitMode,
+    splitVisible,
     splitRatio,
     isSplit,
+    hasSplitGroup,
     isResizing,
     previewMode,
+    previewActive,
     previewSide,
+    previewSessionId,
+    splitPrimarySessionId,
     secondarySessionId,
     secondarySide,
     toggleHorizontal,
     toggleVertical,
     closeSplit,
+    suspendSplit,
+    restoreSplit,
     setSplitMode,
+    setSplitPrimarySessionId,
     setSecondarySessionId,
-    setSecondarySide,
-    setPreviewMode,
-    setPreviewSide,
+    setSplitPreview,
     syncSplitAvailability,
     startSplitResize,
     resetSplitRatio,

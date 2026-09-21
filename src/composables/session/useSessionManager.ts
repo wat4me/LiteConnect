@@ -231,7 +231,11 @@ export function useSessionManager(deps: {
     connectingConnectionIds.value = next
   }
 
-  async function createSession(connectionId: string): Promise<string | null> {
+  async function createSession(
+    connectionId: string,
+    options: { activateWorkspace?: boolean } = {},
+  ): Promise<string | null> {
+    const activateWorkspace = options.activateWorkspace !== false
     const prev = connectTail.get(connectionId) ?? Promise.resolve()
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
@@ -260,7 +264,7 @@ export function useSessionManager(deps: {
       // main-process stopped sharing in-flight connect promises).
       if (group?.sessions.some((s) => s.id === sessionId)) {
         group.activeSessionId = sessionId
-        activeGroupId.value = connectionId
+        if (activateWorkspace) activeGroupId.value = connectionId
         return sessionId
       }
 
@@ -287,11 +291,13 @@ export function useSessionManager(deps: {
         groups.value.push(group)
       }
 
-      activeGroupId.value = connectionId
-      const sb = requireSidebar()
-      sb.setSidebarTarget(connectionId, sessionId)
-      sb.aiSidebarVisible.value = false
-      sb.sidebarVisible.value = true
+      if (activateWorkspace) {
+        activeGroupId.value = connectionId
+        const sb = requireSidebar()
+        sb.setSidebarTarget(connectionId, sessionId)
+        sb.aiSidebarVisible.value = false
+        sb.sidebarVisible.value = true
+      }
       await window.LiteConnect.recordRecentConnection(connectionId)
       await loadRecentConnections()
       // Reflect useCount / lastConnectedAt in local list when stats are enabled

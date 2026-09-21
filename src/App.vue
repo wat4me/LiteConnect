@@ -34,6 +34,7 @@ import { useSidebarState } from '@/composables/workspace/useSidebarState'
 import { useLatencyState } from './composables/session/useLatencyState'
 import { useAppKeyboard } from '@/composables/app/useAppKeyboard'
 import { useSplitTerminal } from './composables/terminal/useSplitTerminal'
+import { useWorkspaceSplitController } from './composables/terminal/useWorkspaceSplitController'
 import { useAiReplyBadge } from './composables/ai/useAiReplyBadge'
 import { useAiApprovalHint } from './composables/ai/useAiApprovalHint'
 import { disposeAiSessionState } from './composables/ai/useAiChat'
@@ -43,7 +44,6 @@ import { useAppNavigation } from '@/composables/app/useAppNavigation'
 import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
-import { useTitlebarConnection } from '@/composables/app/useTitlebarConnection'
 import { useSnippetHotkeys } from '@/composables/snippets/useSnippetHotkeys'
 import { useDockerSshBridge } from '@/composables/docker/useDockerSshBridge'
 import { useTransferToasts } from '@/composables/app/useTransferToasts'
@@ -56,7 +56,6 @@ const fancyCursorEnabled = ref(false)
 const fancyCursorStyle = ref<FancyCursorStyle>('ring')
 useFancyCursor(fancyCursorEnabled, fancyCursorStyle)
 const pwdTracker = useTerminalPwd()
-const { dbConnectionLabel } = useTitlebarConnection()
 
 function onFancyCursorSettingsChange(e: Event) {
   const detail = (e as CustomEvent<{ enabled?: boolean; style?: string }>).detail
@@ -142,6 +141,7 @@ const connectionsBootstrap = ref<Pick<AppBootstrapData, 'connections' | 'groups'
 const bootstrapPending = ref(true)
 const jumpPaletteVisible = ref(false)
 const shortcutsHelpVisible = ref(false)
+const terminalDropContainer = ref<HTMLElement | null>(null)
 
 const sidebar = useSidebarState({
   groups,
@@ -185,6 +185,8 @@ connectSidebar({
   syncSidebarState,
 })
 
+const { unreadSessions, markUnread, clearUnread, hasUnread } = useAiReplyBadge()
+
 const {
   latencyMap,
   latencyEnabled,
@@ -196,22 +198,172 @@ const {
   splitMode,
   splitRatio,
   isSplit,
+  hasSplitGroup,
   isResizing,
   previewMode,
+  previewActive,
   previewSide,
+  previewSessionId,
+  splitPrimarySessionId,
   secondarySessionId,
   secondarySide,
   toggleHorizontal,
   toggleVertical,
   setSplitMode,
+  setSplitPrimarySessionId,
   setSecondarySessionId,
-  setPreviewMode,
-  setPreviewSide,
+  setSplitPreview,
   syncSplitAvailability,
   startSplitResize,
   resetSplitRatio,
+  closeSplit,
+  suspendSplit,
+  restoreSplit,
   DIVIDER_SIZE,
 } = useSplitTerminal()
+
+const {
+  isCrossHostSplit,
+  selectSplitPaneSession,
+  createSplitPaneSession,
+  closeSplitPaneSession,
+} = useWorkspaceSplitController({
+  isSplit,
+  activeSessionId,
+  primarySessionId: splitPrimarySessionId,
+  secondarySessionId,
+  sidebarVisible,
+  getGroupBySessionId,
+  createSession,
+  closeSession: async (sessionId) => {
+    clearUnread(sessionId)
+    await onCloseSession(sessionId)
+  },
+  setSidebarTarget,
+  setPrimarySessionId: setSplitPrimarySessionId,
+  setSecondarySessionId,
+  closeSplit,
+  suspendSplit,
+  restoreSplit,
+})
+
+watch(hasSplitGroup, (split, wasSplit) => {
+  if (!split || wasSplit) return
+  if (isCrossHostSplit.value) {
+    ElMessage.info({
+      message: t('terminal.crossHostSplitSftpHidden'),
+      duration: 5000,
+      showClose: true,
+    })
+    return
+  }
+  const boundSession = activeGroup.value?.sessions.find(
+    (session) => session.id === sidebarSessionId.value,
+  ) ?? activeGroup.value?.sessions.find(
+    (session) => session.id === splitPrimarySessionId.value,
+  )
+  const terminal = boundSession
+    ? t('terminal.tabLabel', { n: boundSession.tabNumber })
+    : t('terminal.primaryTerminal')
+  ElMessage.info({
+    message: t('terminal.splitSftpFollowHint', { terminal }),
+    duration: 5000,
+    showClose: true,
+  })
+})
+
+function getActiveSplitPair() {
+  const group = activeGroup.value
+  const primaryId = group?.activeSessionId ?? null
+  const retainedSecondaryId = isSplit.value && groups.value.some((candidate) => candidate.sessions.some(
+    (session) => session.id === secondarySessionId.value && session.id !== primaryId,
+  ))
+    ? secondarySessionId.value
+    : null
+  const sameHostSecondaryId = group?.sessions.find((session) => session.id !== primaryId)?.id ?? null
+  const secondaryId = retainedSecondaryId ?? sameHostSecondaryId
+  return primaryId && secondaryId ? { primaryId, secondaryId } : null
+}
+
+function toggleHorizontalForActive() {
+  const pair = getActiveSplitPair()
+  if (!pair) return
+  toggleHorizontal(pair.primaryId, pair.secondaryId)
+}
+
+function toggleVerticalForActive() {
+  const pair = getActiveSplitPair()
+  if (!pair) return
+  toggleVertical(pair.primaryId, pair.secondaryId)
+}
+
+function selectWorkspaceSession(sessionId: string) {
+  if (
+    isSplit.value &&
+    sessionId === secondarySessionId.value &&
+    splitPrimarySessionId.value
+  ) {
+    onSwapSplitPanes({
+      primarySessionId: splitPrimarySessionId.value,
+      secondarySessionId: sessionId,
+    })
+    return
+  }
+  if (
+    isSplit.value &&
+    sessionId !== splitPrimarySessionId.value &&
+    sessionId !== secondarySessionId.value
+  ) {
+    suspendSplit()
+  }
+  const group = getGroupBySessionId(sessionId)
+  if (!group) return
+  if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
+  group.activeSessionId = sessionId
+  setSidebarTarget(group.connectionId, sessionId)
+}
+
+function selectSplitGroup() {
+  const primaryId = splitPrimarySessionId.value
+  const secondaryId = secondarySessionId.value
+  const primaryGroup = primaryId ? getGroupBySessionId(primaryId) : null
+  const secondaryGroup = secondaryId ? getGroupBySessionId(secondaryId) : null
+  if (
+    !primaryId ||
+    !secondaryId ||
+    !primaryGroup ||
+    !secondaryGroup
+  ) {
+    closeSplit()
+    return
+  }
+  if (activeGroupId.value !== primaryGroup.connectionId) onSelectGroup(primaryGroup.connectionId)
+  primaryGroup.activeSessionId = primaryId
+  setSidebarTarget(primaryGroup.connectionId, primaryId)
+  restoreSplit()
+}
+
+function selectConnectionGroup(connectionId: string) {
+  showSettingsPage.value = false
+  appMode.value = 'ssh'
+  const primaryId = splitPrimarySessionId.value
+  const primaryGroup = primaryId ? getGroupBySessionId(primaryId) : null
+  if (hasSplitGroup.value && primaryGroup?.connectionId === connectionId) {
+    primaryGroup.activeSessionId = primaryId
+    setSidebarTarget(connectionId, primaryId)
+    restoreSplit()
+  } else if (isSplit.value) {
+    suspendSplit()
+  }
+  onSelectGroup(connectionId)
+}
+
+async function createStandaloneSession(connectionId: string) {
+  const wasSplit = isSplit.value
+  if (wasSplit) suspendSplit()
+  const sessionId = await createSession(connectionId)
+  if (!sessionId && wasSplit) restoreSplit()
+}
 
 const {
   showSettingsPage,
@@ -229,21 +381,6 @@ const {
   toggleSettingsPage,
   ensureSshWorkspaceMounted,
 } = useAppNavigation({ onSelectHome })
-
-const titlebarConnectionLabel = computed(() => {
-  if (appMode.value === 'database') {
-    return dbConnectionLabel.value || t('app.connectionManage')
-  }
-  if (isHomeActive.value || !activeGroup.value) {
-    return t('app.connectionManage')
-  }
-  const conn = connections.value.find((c) => c.id === activeGroup.value!.connectionId)
-  if (!conn) return t('app.connectionManage')
-  if (conn.port && conn.port !== 22) {
-    return `${conn.username}@${conn.host}:${conn.port}`
-  }
-  return `${conn.username}@${conn.host}`
-})
 
 watch(isHomeActive, (home) => {
   if (!home) ensureSshWorkspaceMounted()
@@ -294,7 +431,7 @@ const {
 })
 
 function guardedToggleSidebar() {
-  if (isDockerMode.value) return
+  if (isDockerMode.value || isCrossHostSplit.value) return
   toggleSidebar()
 }
 function guardedToggleAiSidebar() {
@@ -306,7 +443,7 @@ function jumpToAiApproval(sessionId: string) {
   const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
   if (group) {
     if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
-    if (activeSessionId.value !== sessionId) onSelectSession(sessionId)
+    if (activeSessionId.value !== sessionId) selectWorkspaceSession(sessionId)
   }
   if (isDockerMode.value) enterTerminal()
   aiSidebarVisible.value = true
@@ -378,7 +515,6 @@ const {
   hasOpenSession,
 })
 
-const { unreadSessions, markUnread, clearUnread, hasUnread } = useAiReplyBadge()
 const { pendingApprovalSessions, hasPending: hasAiApprovalPending } = useAiApprovalHint()
 
 const {
@@ -389,26 +525,25 @@ const {
   handleCloseSession,
   onCdCommand,
   onPwdOutput,
-  onDragSplitPreview,
   onDragSplitCommit,
-  onStartSplitResize,
+  onSwapSplitPanes,
 } = useSessionActions({
   groups,
   connections,
   activeGroup,
   pwdTracker,
   getGroupBySessionId,
+  onSelectGroup,
   createSession,
   removeSessionFromState,
   onCloseSession,
   onSessionClosed,
   clearUnread,
   setSidebarTarget,
-  setPreviewMode,
-  setPreviewSide,
+  setSplitPreview,
+  setSplitPrimarySessionId,
   setSecondarySessionId,
   setSplitMode,
-  startSplitResize,
 })
 
 let lastSshWindowWarnLevel = 0
@@ -510,14 +645,7 @@ useDockerSshBridge({
   forgetSession,
 })
 
-watch(
-  () => (activeGroup.value ? activeGroup.value.sessions.map((s) => s.id) : null),
-  (ids) => {
-    // activeGroup 变 null 时保留分屏，切回终端不丢布局
-    if (!ids) return
-    syncSplitAvailability(ids.length, ids)
-  },
-)
+watch(liveSessionIds, (ids) => syncSplitAvailability(ids.length, ids))
 
 provide('theme', theme)
 provide('customColors', customColors)
@@ -727,7 +855,6 @@ onBeforeUnmount(() => {
     <AppTitlebar
       :app-mode="appMode"
       :show-settings-page="showSettingsPage"
-      :connection-label="titlebarConnectionLabel"
       @enter-ssh="handleEnterSshModule"
       @enter-database="handleEnterDatabaseModule"
       @toggle-settings="toggleSettingsPage"
@@ -747,10 +874,19 @@ onBeforeUnmount(() => {
           :ai-approval-sessions="pendingApprovalSessions"
           :disconnected-session-ids="disconnectedSessionIds"
           :home-active="isHomeActive"
-          @select="(id) => { showSettingsPage = false; appMode = 'ssh'; onSelectGroup(id) }"
+          :terminal-container="terminalDropContainer"
+          :split-primary-session-id="splitPrimarySessionId"
+          :split-secondary-session-id="secondarySessionId"
+          :split-mode="splitMode"
+          :split-group-active="isSplit"
+          @select="selectConnectionGroup"
           @close="onCloseGroup"
           @select-home="() => enterSsh(true)"
           @quick-connect="(id) => { showSettingsPage = false; appMode = 'ssh'; onQuickConnect(id) }"
+          @split-preview="setSplitPreview"
+          @split-commit="onDragSplitCommit"
+          @select-split="selectSplitGroup"
+          @close-split="closeSplit"
         />
       </div>
 
@@ -793,6 +929,7 @@ onBeforeUnmount(() => {
           :show-ai-approval="!aiSidebarVisible && !!activeSessionId && hasAiApprovalPending(activeSessionId)"
           :ai-sidebar-visible="aiSidebarVisible"
           :sidebar-visible="sidebarVisible"
+          :sftp-disabled="isCrossHostSplit"
           :sidebar-width="sidebarWidth"
           :sidebar-session-id="sidebarSessionId"
           :ai-selection-request="aiSelectionRequest"
@@ -809,8 +946,11 @@ onBeforeUnmount(() => {
           :is-split="isSplit"
           :is-resizing="isResizing"
           :preview-mode="previewMode"
+          :preview-active="previewActive"
           :preview-side="previewSide"
+          :preview-session-id="previewSessionId"
           :divider-size="DIVIDER_SIZE"
+          :split-primary-session-id="splitPrimarySessionId"
           :secondary-session-id="secondarySessionId"
           :secondary-side="secondarySide"
           :docker-mode="isDockerMode"
@@ -836,21 +976,28 @@ onBeforeUnmount(() => {
           @start-resize="startResize"
           @start-resize-right="startResizeRight"
           @bind-file-sidebar="(el) => { fileSidebarRef.value = el }"
-          @select-session="onSelectSession"
+          @select-session="selectWorkspaceSession"
           @close-session="handleCloseSession"
-          @add-session="createSession"
+          @add-session="createStandaloneSession"
           @session-closed="handleSessionClosed"
           @reconnect="handleReconnect"
           @cd-command="onCdCommand"
           @pwd-output="onPwdOutput"
           @ai-selection="(text, mode) => handleAiSelection(text, mode)"
-          @split-preview="onDragSplitPreview"
+          @split-preview="setSplitPreview"
           @split-commit="onDragSplitCommit"
-          @toggle-horizontal="toggleHorizontal"
-          @toggle-vertical="toggleVertical"
-          @start-split-resize="onStartSplitResize"
+          @swap-split-panes="onSwapSplitPanes"
+          @close-split="closeSplit"
+          @select-split="selectSplitGroup"
+          @toggle-horizontal="toggleHorizontalForActive"
+          @toggle-vertical="toggleVerticalForActive"
+          @start-split-resize="startSplitResize"
           @reset-split-ratio="resetSplitRatio"
           @set-secondary-session="setSecondarySessionId"
+          @bind-terminal-container="(el) => { terminalDropContainer = el }"
+          @select-split-pane-session="selectSplitPaneSession"
+          @add-split-pane-session="createSplitPaneSession"
+          @close-split-pane-session="closeSplitPaneSession"
           @send-to-batch="openBatchWithCommand"
           @clear-batch-initial="clearBatchInitialCommand"
           @close-snippet-palette="closeSnippetPalette"

@@ -11,6 +11,18 @@ const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
 
 export { titleBarThemes }
 
+function resolveWindowIcon(): string {
+  if (process.env.VITE_DEV_SERVER_URL) {
+    // Windows uses the multi-size ICO reliably for the taskbar and window chrome.
+    // Passing the PNG here can leave the Vite/Electron development window with
+    // Electron's default icon (or no visible icon on some Windows versions).
+    return join(__dirname, process.platform === 'win32'
+      ? '../build/LiteConnect.ico'
+      : '../build/LiteConnect-app.png')
+  }
+  return join(__dirname, '../dist/LiteConnect.png')
+}
+
 export type CreateWindowOptions = {
   theme?: string
   customColors?: { fontColor: string; bgColor: string } | null
@@ -188,7 +200,7 @@ export function createWindow(
       symbolColor: titleBarColors.symbolColor,
       height: 36,
     },
-    icon: join(__dirname, process.env.VITE_DEV_SERVER_URL ? '../build/LiteConnect-app.png' : '../dist/LiteConnect.png'),
+    icon: resolveWindowIcon(),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

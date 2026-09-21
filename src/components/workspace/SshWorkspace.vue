@@ -4,7 +4,15 @@ import { useI18n } from 'vue-i18n'
 import LeftToolbar from '@/components/workspace/LeftToolbar.vue'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
 import type { Connection } from '@/env.d'
-import type { ConnectionGroup, Session, SplitDropPayload } from '@/domain/session/types'
+import type {
+  ConnectionGroup,
+  Session,
+  SplitDropPayload,
+  SplitPaneAddPayload,
+  SplitPaneSessionPayload,
+  SplitPreviewPayload,
+  SplitSwapPayload,
+} from '@/domain/session/types'
 import type { SplitMode, SplitSide } from '@/domain/terminal/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { getSnippetContext } from '@/utils/session/sessionDisplay'
@@ -48,6 +56,8 @@ const props = defineProps<{
 
   aiSidebarVisible: boolean
   sidebarVisible: boolean
+  /** Cross-host split owns the full SSH canvas; SFTP returns after leaving it. */
+  sftpDisabled?: boolean
   sidebarWidth: number
   sidebarSessionId: string | null
   aiSelectionRequest: {
@@ -71,8 +81,11 @@ const props = defineProps<{
   isSplit: boolean
   isResizing: boolean
   previewMode: SplitMode
+  previewActive: boolean
   previewSide: SplitSide | null
+  previewSessionId: string | null
   dividerSize: number
+  splitPrimarySessionId: string | null
   secondarySessionId: string | null
   secondarySide: SplitSide
 
@@ -116,8 +129,11 @@ const emit = defineEmits<{
   (e: 'cd-command', sessionId: string, command: string): void
   (e: 'pwd-output', sessionId: string, pwd: string): void
   (e: 'ai-selection', text: string, mode: 'send' | 'insert'): void
-  (e: 'split-preview', payload: SplitDropPayload | null): void
+  (e: 'split-preview', payload: SplitPreviewPayload | null): void
   (e: 'split-commit', payload: SplitDropPayload): void
+  (e: 'swap-split-panes', payload: SplitSwapPayload): void
+  (e: 'close-split'): void
+  (e: 'select-split'): void
   (e: 'toggle-horizontal'): void
   (e: 'toggle-vertical'): void
   (e: 'start-split-resize', event: MouseEvent, container: HTMLElement): void
@@ -125,6 +141,10 @@ const emit = defineEmits<{
   (e: 'set-secondary-session', sessionId: string): void
   (e: 'send-to-batch', command: string): void
   (e: 'clear-batch-initial'): void
+  (e: 'bind-terminal-container', el: HTMLElement | null): void
+  (e: 'select-split-pane-session', payload: SplitPaneSessionPayload): void
+  (e: 'add-split-pane-session', payload: SplitPaneAddPayload): void
+  (e: 'close-split-pane-session', payload: SplitPaneSessionPayload): void
 }>()
 
 const { t } = useI18n()
@@ -136,6 +156,8 @@ const workspaceCacheKeys = reactive<Record<WorkspacePane, string[]>>({
   sftp: [],
   docker: [],
 })
+const aiFreshOpenTokens = reactive<Record<string, number>>({})
+let aiFreshOpenCounter = 0
 const dockerCacheSessionIds = reactive(new Map<string, string>())
 
 function rememberOpenedKey(list: string[], key: string): string[] {
@@ -165,8 +187,14 @@ watch(
 
 watch(
   [() => props.aiSidebarVisible, () => props.activeSession?.id],
-  ([visible, sessionId]) => {
-    if (visible) rememberWorkspace('ai', sessionId as string | undefined)
+  ([visible, sessionId], [wasVisible]) => {
+    if (!visible || !sessionId) return
+    rememberWorkspace('ai', sessionId as string)
+    // A closed AI panel starts with a fresh draft the next time it is opened.
+    // Do not increment on SSH tab switches while the panel remains visible.
+    if (!wasVisible) {
+      aiFreshOpenTokens[sessionId as string] = ++aiFreshOpenCounter
+    }
   },
   { immediate: true },
 )
@@ -192,6 +220,12 @@ watch(
 
 function connectionNameForSession(sessionId: string): string {
   return props.allSessions.find((session) => session.id === sessionId)?.connectionName || ''
+}
+
+/** Uses the stable session tabNumber; closing an earlier tab must not renumber this label. */
+function terminalLabelForSession(sessionId: string): string {
+  const session = props.allSessions.find((item) => item.id === sessionId)
+  return session ? t('terminal.tabLabel', { n: session.tabNumber }) : ''
 }
 
 function dockerSessionId(connectionId: string): string {
@@ -254,8 +288,6 @@ watch(
   },
 )
 
-const showSidePanels = () => true
-
 function onSelectTerminal(sessionId: string) {
   if (props.dockerMode) emit('back-to-terminal')
   emit('select-session', sessionId)
@@ -282,6 +314,7 @@ watch(
       :active-transfers="globalActiveTransfers"
       :docker-active="!!dockerMode"
       :docker-disabled="!dockerButtonEnabled && !dockerTabOpen"
+      :files-disabled="sftpDisabled"
       :side-panels-disabled="!!dockerMode"
       @toggle-ai="emit('toggle-ai')"
       @toggle-files="emit('toggle-files')"
@@ -292,7 +325,7 @@ watch(
     />
 
     <div
-      v-show="showSidePanels() && activeSession && aiSidebarVisible"
+      v-show="activeSession && aiSidebarVisible"
       class="sidebar-panel"
       :style="{ width: sidebarWidth + 'px' }"
     >
@@ -302,13 +335,14 @@ watch(
         :key="sessionId"
         :session-id="sessionId"
         :active="activeSession?.id === sessionId && aiSidebarVisible"
+        :open-generation="aiFreshOpenTokens[sessionId] || 0"
         :selection-request="activeSession?.id === sessionId ? aiSelectionRequest : null"
         @close="emit('close-ai')"
         @selection-consumed="emit('ai-selection-consumed', $event)"
       />
     </div>
     <div
-      v-show="showSidePanels() && activeSession && aiSidebarVisible"
+      v-show="activeSession && aiSidebarVisible"
       class="resize-handle"
       @mousedown="emit('start-resize', $event)"
     ></div>
@@ -319,7 +353,7 @@ watch(
       sessions are removed immediately.
     -->
     <div
-      v-show="showSidePanels() && !aiSidebarVisible && sidebarVisible && sidebarSessionId"
+      v-show="!aiSidebarVisible && sidebarVisible && sidebarSessionId"
       class="sidebar-panel"
       :style="{ width: sidebarWidth + 'px' }"
     >
@@ -330,11 +364,12 @@ watch(
         :ref="(el) => { if (sidebarSessionId === sessionId) emit('bind-file-sidebar', el) }"
         :session-id="sessionId"
         :connection-name="connectionNameForSession(sessionId)"
+        :terminal-label="terminalLabelForSession(sessionId)"
         @close="emit('close-files')"
       />
     </div>
     <div
-      v-show="showSidePanels() && !aiSidebarVisible && sidebarVisible && sidebarSessionId"
+      v-show="!aiSidebarVisible && sidebarVisible && sidebarSessionId"
       class="resize-handle"
       @mousedown="emit('start-resize', $event)"
     ></div>
@@ -368,8 +403,11 @@ watch(
           :is-split="isSplit"
           :is-resizing="isResizing"
           :preview-mode="previewMode"
+          :preview-active="previewActive"
           :preview-side="previewSide"
+          :preview-session-id="previewSessionId"
           :divider-size="dividerSize"
+          :split-primary-session-id="splitPrimarySessionId"
           :secondary-session-id="secondarySessionId"
           :secondary-side="secondarySide"
           :workspace-visible="!dockerMode"
@@ -387,11 +425,18 @@ watch(
           @save-as-snippet="(cmd) => emit('save-as-snippet', cmd)"
           @split-preview="emit('split-preview', $event)"
           @split-commit="emit('split-commit', $event)"
+          @swap-split-panes="emit('swap-split-panes', $event)"
+          @close-split="emit('close-split')"
+          @select-split="emit('select-split')"
           @toggle-horizontal="emit('toggle-horizontal')"
           @toggle-vertical="emit('toggle-vertical')"
           @start-split-resize="(e, el) => emit('start-split-resize', e, el)"
           @reset-split-ratio="emit('reset-split-ratio')"
           @set-secondary-session="emit('set-secondary-session', $event)"
+          @bind-terminal-container="emit('bind-terminal-container', $event)"
+          @select-split-pane-session="emit('select-split-pane-session', $event)"
+          @add-split-pane-session="emit('add-split-pane-session', $event)"
+          @close-split-pane-session="emit('close-split-pane-session', $event)"
           @select-docker="emit('select-docker')"
           @close-docker="emit('close-docker')"
         >
@@ -411,7 +456,7 @@ watch(
       </div>
 
       <div
-        v-if="showSidePanels() && monitorVisible && activeGroup && activeGroup.sessions.length > 0"
+        v-if="monitorVisible && activeGroup && activeGroup.sessions.length > 0"
         v-show="!monitorDetailsOpen"
         class="monitor-dock"
       >
@@ -429,7 +474,7 @@ watch(
     </div>
 
     <CommandSnippetPalette
-      :visible="!!snippetPaletteVisible && showSidePanels()"
+      :visible="!!snippetPaletteVisible"
       :session-id="activeSessionId"
       :snippet-context="activeSession ? getSnippetContext(connections, activeSession.connectionId) : null"
       :sessions="batchSessions.map((s) => ({
@@ -443,7 +488,7 @@ watch(
       @close="emit('close-snippet-palette')"
     />
 
-    <template v-if="showSidePanels() && snippetsPanelVisible">
+    <template v-if="snippetsPanelVisible">
       <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
       <div class="batch-panel-wrapper">
         <CommandSnippetsPanel
@@ -465,7 +510,7 @@ watch(
       </div>
     </template>
 
-    <template v-if="showSidePanels() && batchPanelVisible && batchSessions.length > 0">
+    <template v-if="batchPanelVisible && batchSessions.length > 0">
       <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
       <div class="batch-panel-wrapper">
         <BatchCommandPanel
@@ -477,7 +522,7 @@ watch(
       </div>
     </template>
 
-    <template v-if="showSidePanels() && monitorVisible && monitorDetailsOpen && activeGroup && activeGroup.sessions.length > 0">
+    <template v-if="monitorVisible && monitorDetailsOpen && activeGroup && activeGroup.sessions.length > 0">
       <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
       <div class="monitor-panel-wrapper" :style="{ width: monitorWidth + 'px' }">
         <MonitorPanel

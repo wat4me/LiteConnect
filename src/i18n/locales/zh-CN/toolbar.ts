@@ -7,6 +7,7 @@ export default {
     aiApproval: 'AI 等待允许操作',
     sftp: 'SFTP 文件 (Ctrl+B)',
     sftpActive: 'SFTP 文件 (Ctrl+B) · 传输中 {count}',
+    sftpCrossHostSplitDisabled: '跨 SSH 分屏时已隐藏 SFTP；退出分屏后恢复',
     sftpAria: 'SFTP 文件浏览',
     sftpAriaActive: 'SFTP 文件浏览，传输中 {count}',
     transferring: '传输中 {count}',

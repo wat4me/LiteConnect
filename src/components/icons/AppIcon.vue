@@ -67,6 +67,10 @@ export type AppIconName =
   | 'help-circle'
   | 'split-h'
   | 'split-v'
+  | 'split-exit'
+  | 'swap'
+  | 'maximize'
+  | 'restore'
   | 'lock'
   | 'database'
   | 'table'
@@ -483,6 +487,33 @@ const iconStyle = computed(() => {
     <template v-else-if="name === 'split-v'">
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <line x1="12" y1="3" x2="12" y2="21" />
+    </template>
+    <!-- exit split layout without closing either terminal -->
+    <template v-else-if="name === 'split-exit'">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="7" y1="17" x2="17" y2="7" />
+    </template>
+    <!-- lucide: arrow-left-right -->
+    <template v-else-if="name === 'swap'">
+      <path d="m16 3 4 4-4 4" />
+      <path d="M20 7H4" />
+      <path d="m8 21-4-4 4-4" />
+      <path d="M4 17h16" />
+    </template>
+    <!-- lucide: maximize-2 -->
+    <template v-else-if="name === 'maximize'">
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </template>
+    <!-- lucide: minimize-2 -->
+    <template v-else-if="name === 'restore'">
+      <polyline points="4 14 10 14 10 20" />
+      <polyline points="20 10 14 10 14 4" />
+      <line x1="14" y1="10" x2="21" y2="3" />
+      <line x1="3" y1="21" x2="10" y2="14" />
     </template>
     <template v-else-if="name === 'shield'"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" /><path d="m9 12 2 2 4-4" /></template>
     <!-- lock -->

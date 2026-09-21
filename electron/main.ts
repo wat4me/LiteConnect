@@ -52,6 +52,12 @@ import type { McpHttpGateway } from './mcp/httpGateway'
 
 configureDevelopmentUserDataPath()
 
+// Keep development windows grouped under LiteConnect instead of electron.exe;
+// Windows also uses this identity when resolving the taskbar icon.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.liteconnect.app')
+}
+
 const getMainWindow = () => getPrimaryWindow()
 const knownHosts = new KnownHostsStore()
 const sessionLog = new SessionLogManager()

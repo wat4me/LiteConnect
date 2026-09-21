@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/icons/AppIcon.vue'
+import { resolveSplitDropTarget } from '@/utils/terminal/splitDropTarget'
+import type { SplitDropTarget } from '@/utils/terminal/splitDropTarget'
+import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
+import type { SplitDropPayload, SplitPreviewPayload } from '@/domain/session/types'
+import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
 
 const { t } = useI18n()
 
-type DropSide = 'left' | 'right' | 'top' | 'bottom'
-interface DropPayload {
-  mode: 'horizontal' | 'vertical'
-  side: DropSide
-  sessionId: string
-}
+type SessionItem = { id: string; tabNumber: number }
 
 const SPLIT_TIP_KEY = 'LiteConnect.splitDragTipSeen'
 
 const props = defineProps<{
-  sessions: { id: string; connectionName: string; tabNumber: number }[]
+  sessions: SessionItem[]
   activeSessionId: string | null
   connectionId: string
   unreadSessions?: Set<string>
@@ -25,6 +25,10 @@ const props = defineProps<{
   terminalContainer?: HTMLElement | null
   dockerTabOpen?: boolean
   dockerTabActive?: boolean
+  splitMode?: 'none' | 'horizontal' | 'vertical'
+  splitPrimarySessionId?: string | null
+  splitSecondarySessionId?: string | null
+  splitGroupActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -33,14 +37,28 @@ const emit = defineEmits<{
   (e: 'add', connectionId: string): void
   (e: 'select-docker'): void
   (e: 'close-docker'): void
-  (e: 'split-preview', payload: DropPayload | null): void
-  (e: 'split-commit', payload: DropPayload): void
+  (e: 'split-preview', payload: SplitPreviewPayload | null): void
+  (e: 'split-commit', payload: SplitDropPayload): void
+  (e: 'select-split'): void
+  (e: 'close-split'): void
 }>()
 
-const DRAG_THRESHOLD = 18
-
-const dragging = ref(false)
 const showSplitTip = ref(false)
+
+const displayTabs = computed(() => buildCombinedTabItems(
+  props.sessions,
+  props.splitPrimarySessionId,
+  props.splitSecondarySessionId,
+  (session) => session.id,
+))
+
+function hasSplitStatus(sessionIds: string[], source?: Set<string>) {
+  return !!source && sessionIds.some((id) => source.has(id))
+}
+
+function splitSessionLabel(session: SessionItem) {
+  return t('terminal.tabLabel', { n: session.tabNumber })
+}
 
 function dismissSplitTip() {
   showSplitTip.value = false
@@ -70,97 +88,42 @@ watch(
 )
 
 
-let dragStartX = 0
-let dragStartY = 0
-let dragStarted = false
-let suppressClick = false
-let dragSessionId = ''
-
-function computeDrop(clientX: number, clientY: number): { mode: 'horizontal' | 'vertical'; side: DropSide } | null {
-  const dx = clientX - dragStartX
-  const dy = clientY - dragStartY
-  if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return null
-
+function computeDrop(
+  clientX: number,
+  clientY: number,
+  startX: number,
+  startY: number,
+): SplitDropTarget | null {
   const container = props.terminalContainer
   if (!container) {
     // Fallback to old behavior: direction-only
+    const dx = clientX - startX
+    const dy = clientY - startY
     const mode: 'horizontal' | 'vertical' = Math.abs(dx) > Math.abs(dy) ? 'vertical' : 'horizontal'
     return { mode, side: mode === 'horizontal' ? 'bottom' : 'right' }
   }
 
-  const rect = container.getBoundingClientRect()
-  // Only consider drops inside the terminal area
-  const insideX = clientX >= rect.left && clientX <= rect.right
-  const insideY = clientY >= rect.top && clientY <= rect.bottom
-  const mode: 'horizontal' | 'vertical' = Math.abs(dx) > Math.abs(dy) ? 'vertical' : 'horizontal'
-
-  if (mode === 'vertical') {
-    if (insideY) {
-      const relX = (clientX - rect.left) / rect.width
-      const side: DropSide = relX < 0.5 ? 'left' : 'right'
-      return { mode, side }
-    }
-    // Outside vertically: default by drag direction
-    const side: DropSide = dx > 0 ? 'right' : 'left'
-    return { mode, side }
-  } else {
-    if (insideX) {
-      const relY = (clientY - rect.top) / rect.height
-      const side: DropSide = relY < 0.5 ? 'top' : 'bottom'
-      return { mode, side }
-    }
-    const side: DropSide = dy > 0 ? 'bottom' : 'top'
-    return { mode, side }
-  }
+  return resolveSplitDropTarget(clientX, clientY, container.getBoundingClientRect())
 }
+
+const {
+  draggingId: draggingSessionId,
+  startDrag,
+  consumeSuppressedClick,
+} = useSplitTabDrag({
+  resolveTarget: computeDrop,
+  onPreview: (payload) => emit('split-preview', payload),
+  onCommit: (payload) => emit('split-commit', payload),
+})
 
 function onTabDragStart(e: MouseEvent, sessionId: string) {
   if (e.button !== 0) return
   if (props.sessions.length < 2) return
-  dragStartX = e.clientX
-  dragStartY = e.clientY
-  dragStarted = false
-  dragging.value = true
-  dragSessionId = sessionId
-
-  const onMove = (ev: MouseEvent) => {
-    if (!dragging.value) return
-    const dx = ev.clientX - dragStartX
-    const dy = ev.clientY - dragStartY
-    if (!dragStarted && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-      dragStarted = true
-      suppressClick = true
-    }
-    if (dragStarted) {
-      const drop = computeDrop(ev.clientX, ev.clientY)
-      if (drop) {
-        emit('split-preview', { ...drop, sessionId: dragSessionId })
-      } else {
-        emit('split-preview', null)
-      }
-    }
-  }
-
-  const onUp = (ev: MouseEvent) => {
-    dragging.value = false
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-
-    if (!dragStarted) return
-    const drop = computeDrop(ev.clientX, ev.clientY)
-    emit('split-preview', null)
-    if (drop) emit('split-commit', { ...drop, sessionId: dragSessionId })
-  }
-
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
+  startDrag(e, { dragId: sessionId, sessionId })
 }
 
 function onTabClick(sessionId: string) {
-  if (suppressClick) {
-    suppressClick = false
-    return
-  }
+  if (consumeSuppressedClick()) return
   emit('select', sessionId)
 }
 </script>
@@ -169,38 +132,74 @@ function onTabClick(sessionId: string) {
   <div class="sub-tab-bar-wrap">
     <div class="sub-tab-bar">
       <div class="sub-tabs-scroll">
-        <div
-          v-for="session in sessions"
-          :key="session.id"
-          class="sub-tab"
-          :class="{
-            active: !dockerTabActive && session.id === activeSessionId,
-            dragging,
-            disconnected: disconnectedSessionIds?.has(session.id),
-          }"
-          :title="sessions.length >= 2 ? t('terminal.dragSplitTitle') : undefined"
-          @mousedown="onTabDragStart($event, session.id)"
-          @click="onTabClick(session.id)"
-        >
-          <span class="sub-tab-label">{{ t('terminal.tabLabel', { n: session.tabNumber }) }}</span>
-          <span
-            v-if="disconnectedSessionIds?.has(session.id)"
-            class="sub-tab-disconnected-dot"
-            :title="t('terminal.disconnected')"
-          ></span>
-          <span
-            v-else-if="aiApprovalSessions && session.id !== activeSessionId && aiApprovalSessions.has(session.id)"
-            class="sub-tab-approval-dot"
-            :title="t('ai.approvalHintAction')"
-          ></span>
-          <span
-            v-else-if="unreadSessions && session.id !== activeSessionId && unreadSessions.has(session.id)"
-            class="sub-tab-unread-dot"
-          ></span>
-          <button class="sub-tab-close" @click.stop="emit('close', session.id)">
-            <AppIcon name="close" size="xs" />
-          </button>
-        </div>
+        <template v-for="item in displayTabs" :key="item.kind === 'split' ? 'split-group' : item.item.id">
+          <div
+            v-if="item.kind === 'split'"
+            class="sub-tab split-group-tab"
+            :class="{ active: !dockerTabActive && splitGroupActive }"
+            :title="t('terminal.restoreSplit')"
+            @click="emit('select-split')"
+          >
+            <AppIcon :name="splitMode === 'horizontal' ? 'split-h' : 'split-v'" size="xs" class="split-group-icon" />
+            <span class="sub-tab-label">{{ splitSessionLabel(item.primary) }}</span>
+            <span class="split-group-divider">|</span>
+            <span class="sub-tab-label">{{ splitSessionLabel(item.secondary) }}</span>
+            <span
+              v-if="hasSplitStatus([item.primary.id, item.secondary.id], disconnectedSessionIds)"
+              class="sub-tab-disconnected-dot"
+              :title="t('terminal.disconnected')"
+            ></span>
+            <span
+              v-else-if="hasSplitStatus([item.primary.id, item.secondary.id], aiApprovalSessions)"
+              class="sub-tab-approval-dot"
+              :title="t('ai.approvalHintAction')"
+            ></span>
+            <span
+              v-else-if="hasSplitStatus([item.primary.id, item.secondary.id], unreadSessions)"
+              class="sub-tab-unread-dot"
+            ></span>
+            <button
+              class="sub-tab-close"
+              :title="t('terminal.exitSplit')"
+              :aria-label="t('terminal.exitSplit')"
+              @click.stop="emit('close-split')"
+            >
+              <AppIcon name="close" size="xs" />
+            </button>
+          </div>
+          <div
+            v-else
+            :key="item.item.id"
+            class="sub-tab"
+            :class="{
+              active: !dockerTabActive && !splitGroupActive && item.item.id === activeSessionId,
+              dragging: draggingSessionId === item.item.id,
+              disconnected: disconnectedSessionIds?.has(item.item.id),
+            }"
+            :title="sessions.length >= 2 ? t('terminal.dragSplitTitle') : undefined"
+            @mousedown="onTabDragStart($event, item.item.id)"
+            @click="onTabClick(item.item.id)"
+          >
+            <span class="sub-tab-label">{{ t('terminal.tabLabel', { n: item.item.tabNumber }) }}</span>
+            <span
+              v-if="disconnectedSessionIds?.has(item.item.id)"
+              class="sub-tab-disconnected-dot"
+              :title="t('terminal.disconnected')"
+            ></span>
+            <span
+              v-else-if="aiApprovalSessions && item.item.id !== activeSessionId && aiApprovalSessions.has(item.item.id)"
+              class="sub-tab-approval-dot"
+              :title="t('ai.approvalHintAction')"
+            ></span>
+            <span
+              v-else-if="unreadSessions && item.item.id !== activeSessionId && unreadSessions.has(item.item.id)"
+              class="sub-tab-unread-dot"
+            ></span>
+            <button class="sub-tab-close" @click.stop="emit('close', item.item.id)">
+              <AppIcon name="close" size="xs" />
+            </button>
+          </div>
+        </template>
         <div
           v-if="dockerTabOpen"
           class="sub-tab"
@@ -242,13 +241,13 @@ function onTabClick(sessionId: string) {
 }
 
 .sub-tab-bar {
-  height: 30px;
-  min-height: 30px;
+  height: 28px;
+  min-height: 28px;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  padding-left: 6px;
 }
 
 .split-tip {
@@ -288,7 +287,7 @@ function onTabClick(sessionId: string) {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  height: 22px;
+  height: 20px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 11px;
@@ -311,6 +310,27 @@ function onTabClick(sessionId: string) {
 .sub-tab.active {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.split-group-tab {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  padding-left: 6px;
+}
+
+.split-group-tab.active {
+  background: var(--accent-bg);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+
+.split-group-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.split-group-divider {
+  color: var(--border-color);
+  font-weight: 400;
 }
 
 .sub-tab-label {

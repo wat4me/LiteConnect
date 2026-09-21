@@ -35,6 +35,7 @@ const fileListRef = ref<InstanceType<typeof SftpDirTree> | null>(null)
 const props = defineProps<{
   sessionId: string
   connectionName: string
+  terminalLabel: string
 }>()
 
 const emit = defineEmits<{
@@ -725,6 +726,8 @@ defineExpose({ handleTerminalCd, clearSessionState })
         <SftpToolbar
           :active-transfers="activeTransfers"
           :follow-terminal-path="followTerminalPath"
+          :terminal-label="terminalLabel"
+          :terminal-target="connectionName ? `${connectionName} / ${terminalLabel}` : terminalLabel"
           :locked="actionLocked"
           @sync-cwd="handleSyncCwd"
           @refresh="handleRefresh"
@@ -974,8 +977,8 @@ defineExpose({ handleTerminalCd, clearSessionState })
 .sidebar-navigation {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px 8px 8px;
+  gap: 4px;
+  padding: 4px 6px 6px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
   flex-shrink: 0;

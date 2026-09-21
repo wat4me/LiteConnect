@@ -134,7 +134,7 @@ function onBlur() {
 .path-field {
   width: 100%;
   min-width: 0;
-  height: 30px;
+  height: 28px;
   padding-right: 4px;
   cursor: text;
   box-sizing: border-box;

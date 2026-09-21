@@ -9,7 +9,6 @@ import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 const props = defineProps<{
   appMode: 'ssh' | 'database'
   showSettingsPage: boolean
-  connectionLabel: string
 }>()
 
 const emit = defineEmits<{
@@ -184,10 +183,6 @@ watch(
         </div>
       </div>
 
-      <div class="titlebar-center">
-        <span class="titlebar-conn" :title="connectionLabel">{{ connectionLabel }}</span>
-      </div>
-
       <div class="titlebar-right">
         <button
           type="button"
@@ -296,31 +291,6 @@ watch(
   justify-content: flex-end;
   gap: 4px;
   -webkit-app-region: no-drag;
-}
-
-.titlebar-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(46%, 420px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.titlebar-conn {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--text-secondary);
-  letter-spacing: 0.01em;
 }
 
 .titlebar-brand {

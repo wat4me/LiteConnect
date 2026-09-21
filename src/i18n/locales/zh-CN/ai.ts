@@ -10,7 +10,7 @@ export default {
     historyLimitsHint: '默认保留 50 个会话、每个会话 200 条消息。保存后会立即清理超出上限的较早记录，无法恢复。',
     permissionTitle: '操作权限',
     permission_ask: '执行需确认', permission_auto: '自动执行', permission_readonly: '只读',
-    permissionCompact_ask: '确认', permissionCompact_auto: '自动', permissionCompact_readonly: '只读',
+    permissionCompact_ask: '执行需确认', permissionCompact_auto: '自动执行', permissionCompact_readonly: '只读',
     permissionDesc_ask: '只读检查自动执行；有副作用的命令、修改文件、删除内容、重启服务等操作前确认',
     permissionDesc_auto: '允许 AI 自动执行允许范围内的操作，仍受应用风险规则约束',
     permissionDesc_readonly: 'AI 只能查看和分析，不能执行修改类操作',
