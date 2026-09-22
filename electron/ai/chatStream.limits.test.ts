@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { runAiChatStream } from './chatStream'
-import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
+import {
+  MAX_AI_TOOL_CALLS_PER_TURN,
+  MAX_AI_TURN_API_MESSAGES,
+  normalizeAiToolRounds,
+} from '../../shared/aiToolLimits'
 import { validateAiSettings } from './providerHttp'
 import type { SshMcpRuntime } from '../mcp/runtime'
 const settings = { baseUrl: 'https://example.test/v1', apiKey: 'test', model: 'test', systemPrompt: '', temperature: 0, maxToolRounds: 2 }
@@ -37,4 +41,6 @@ it('normalizes limits and carries them through settings validation', () => {
   expect(normalizeAiToolRounds(999)).toBe(200)
   expect(normalizeAiToolRounds(12.8)).toBe(12)
   expect(validateAiSettings({ maxToolRounds: 30 }).maxToolRounds).toBe(30)
+  expect(MAX_AI_TOOL_CALLS_PER_TURN).toBe(6_400)
+  expect(MAX_AI_TURN_API_MESSAGES).toBe(6_601)
 })

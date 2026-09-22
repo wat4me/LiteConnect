@@ -1,5 +1,6 @@
 import { AI_TOOL_DIFF_MAX_CHARS } from '../../shared/aiToolDiff'
-import { normalizeAiChatMessage } from '../../shared/aiMessages'
+import { limitAiMessagesPreservingToolProtocol } from '../../shared/aiMessages'
+import { MAX_AI_TOOL_CALLS_PER_TURN, MAX_AI_TURN_SEGMENTS } from '../../shared/aiToolLimits'
 import type {
   AiChatMessage,
   AiChatSegment,
@@ -95,7 +96,7 @@ export function pruneEmptyThreads(store: AiSessionStore): void {
 function normalizeSegments(raw: unknown): AiChatSegment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined
   const out: AiChatSegment[] = []
-  for (const item of raw.slice(0, 200)) {
+  for (const item of raw.slice(0, MAX_AI_TURN_SEGMENTS)) {
     if (!item || typeof item !== 'object') continue
     const seg = item as Record<string, unknown>
     if (seg.kind === 'reasoning' || seg.kind === 'content') {
@@ -112,7 +113,7 @@ function normalizeSegments(raw: unknown): AiChatSegment[] | undefined {
 function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined
   const out: AiToolRun[] = []
-  for (const item of raw.slice(0, 20)) {
+  for (const item of raw.slice(0, MAX_AI_TOOL_CALLS_PER_TURN)) {
     if (!item || typeof item !== 'object') continue
     const rec = item as Record<string, unknown>
     const name = typeof rec.name === 'string' ? rec.name.slice(0, 64) : ''
@@ -153,11 +154,7 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
 
 function normalizeApiMessages(raw: unknown): AiChatMessage[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined
-  const out: AiChatMessage[] = []
-  for (const item of raw.slice(0, 40)) {
-    const next = normalizeAiChatMessage(item)
-    if (next) out.push(next)
-  }
+  const out = limitAiMessagesPreservingToolProtocol(raw)
   return out.length ? out : undefined
 }
 

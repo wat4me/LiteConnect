@@ -186,7 +186,14 @@ function updateProgress(
   transferId: string,
   transferred: number,
   total: number,
-  stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
+  stats?: {
+    completedFiles: number
+    failedFiles: number
+    totalFiles: number
+    phase?: 'scanning' | 'preparing' | 'transferring'
+    preparedDirs?: number
+    totalDirs?: number
+  },
 ) {
   const item = getTransfer(sessionId, transferId)
   if (item) {
@@ -197,6 +204,9 @@ function updateProgress(
       item.completedFiles = stats.completedFiles
       item.failedFiles = stats.failedFiles
       item.totalFiles = stats.totalFiles
+      item.phase = stats.phase
+      item.preparedDirs = stats.preparedDirs
+      item.totalDirs = stats.totalDirs
     }
   }
   const last = lastProgress.get(transferId)

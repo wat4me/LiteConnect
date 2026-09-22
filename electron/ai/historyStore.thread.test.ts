@@ -11,6 +11,7 @@ import {
   writeAiSessionStore,
 } from './historyStore'
 import { closeAppDatabase, initializeAppDatabase } from '../store/appDatabase'
+import type { AiChatMessage, AiChatSegment, AiToolRun } from '../../shared/types/ai'
 
 const appPath = vi.hoisted(() => ({ value: '' }))
 vi.mock('electron', () => ({ app: { getPath: () => appPath.value } }))
@@ -97,6 +98,44 @@ it('retains the approval diff through completion and history reload', async () =
   expect(reply.toolRuns?.[0]).toMatchObject(diff)
   const store = await readAiSessionStore('diff-session')
   expect(store.threads[0].messages[0].toolRuns?.[0]).toMatchObject({ status: 'done', ...diff })
+})
+
+it('retains all tool protocol records through the configured 200-round ceiling', async () => {
+  const apiMessages: AiChatMessage[] = []
+  const toolRuns: AiToolRun[] = []
+  const segments: AiChatSegment[] = []
+  for (let round = 0; round < 200; round++) {
+    const calls = [0, 1].map((offset) => ({
+      id: `call-${round}-${offset}`,
+      type: 'function' as const,
+      function: { name: 'exec', arguments: '{}' },
+    }))
+    apiMessages.push({ role: 'assistant', content: '', toolCalls: calls })
+    for (const call of calls) {
+      apiMessages.push({ role: 'tool', toolCallId: call.id, content: 'ok' })
+      toolRuns.push({ id: call.id, name: 'exec', args: '{}', content: 'ok', isError: false, status: 'done' })
+      segments.push({ kind: 'tool', runId: call.id })
+    }
+  }
+  apiMessages.push({ role: 'assistant', content: 'done' })
+
+  await writeAiSessionStore('long-tool-session', {
+    version: 1,
+    activeThreadId: 'thread',
+    threads: [{
+      id: 'thread', title: '', createdAt: 1, updatedAt: 2,
+      messages: [{
+        id: 'assistant', role: 'assistant', content: 'done', createdAt: 2, status: 'completed',
+        apiMessages, toolRuns, segments,
+      }],
+    }],
+  })
+
+  const restored = (await readAiSessionStore('long-tool-session')).threads[0].messages[0]
+  expect(restored.apiMessages).toHaveLength(601)
+  expect(restored.toolRuns).toHaveLength(400)
+  expect(restored.segments).toHaveLength(400)
+  expect(restored.apiMessages?.at(-1)).toMatchObject({ role: 'assistant', content: 'done' })
 })
 
 it('caps retained threads and messages while keeping the active thread', async () => {

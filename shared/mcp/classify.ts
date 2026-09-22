@@ -405,17 +405,251 @@ const FORBIDDEN_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   { re: /\bcrontab\s+-(?!l\b)/i, reason: 'replace crontab' },
 ]
 
-const DESTRUCTIVE_GIT = /\bgit\s+(reset\s+--hard|clean\s|push\s+--force|push\s+-f)\b/i
-const DESTRUCTIVE_SED = /\bsed\s+[^\n]*-i\b/
-const DESTRUCTIVE_FIND = /\bfind\b[\s\S]*\s(-delete|-exec(dir)?\s)/
+const DESTRUCTIVE_GIT = /\bgit\s+(reset\s+--hard|push\b[^\n]*(?:--force(?:-with-lease|-if-includes)?|-f(?:\s|$)))/i
+const DESTRUCTIVE_SED = /\bsed\s+[^\n]*(?:-i(?:\b|[^A-Za-z])|--in-place(?:=|\b))/
+const DESTRUCTIVE_FIND = /\bfind\b[\s\S]*\s(-delete|-exec(dir)?\s|-ok(dir)?\s|-f(print|ls)\s)/
 const DESTRUCTIVE_RSYNC = /\brsync\b[\s\S]*\s--delete\b/
 const AWK_EXECUTES = /\bsystem\s*\(|\|\s*"/
+const AWK_WRITES_FILE = /\b(print|printf)\b[^;}\n]*>{1,2}\s*["']/
 const DESTRUCTIVE_SYSTEMCTL =
   /\bsystemctl\s+(start|stop|restart|reload|enable|disable|mask|unmask|isolate|kill|reset-failed)\b/i
 const READONLY_SYSTEMCTL = /\bsystemctl\s+(status|show|cat|is-active|is-enabled|is-failed|list-units|list-unit-files|list-jobs)\b/i
-const READONLY_JOURNALCTL = /\bjournalctl\b(?![\s\S]*--vacuum)/i
+const MUTATING_JOURNALCTL = /\bjournalctl\b[\s\S]*(--vacuum(?:-[a-z]+)?|--rotate|--flush|--sync|--relinquish-var|--smart-relinquish-var)\b/i
 const DESTRUCTIVE_DOCKER = /\b(docker|podman)\s+(rm|rmi|kill|stop|run|exec|compose\s+down|system\s+prune)\b/i
 const READONLY_DOCKER = /\b(docker|podman)\s+(ps|logs|inspect|images|info|version|stats|top|port|diff)\b/i
+
+const CURL_MUTATING_FLAGS = new Set([
+  '-d', '--data', '--data-ascii', '--data-binary', '--data-raw', '--data-urlencode', '--json',
+  '-F', '--form', '--form-string', '-T', '--upload-file', '-Q', '--quote', '--ftp-create-dirs',
+])
+const CURL_LOCAL_WRITE_FLAGS = new Set([
+  '-o', '--output', '-O', '--remote-name', '--remote-name-all', '--output-dir', '--create-dirs',
+  '-c', '--cookie-jar', '-D', '--dump-header', '--etag-save', '--trace', '--trace-ascii',
+])
+const CURL_READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
+
+function normalizedArgs(args: string[]): string[] {
+  return args.map((arg) => stripQuotes(arg.trim())).filter(Boolean)
+}
+
+function hasFlag(args: string[], flags: Set<string>): boolean {
+  return args.some((arg) => {
+    const [name] = arg.split('=', 1)
+    if (flags.has(name)) return true
+    // curl's common short options are often combined (`-sSLo`). Uppercase is meaningful.
+    return /^-[^-]{2,}/.test(arg) && [...flags].some((flag) => /^-[A-Za-z]$/.test(flag) && arg.slice(1).includes(flag[1]))
+  })
+}
+
+function optionValue(args: string[], shortName: string, longName: string): string | null {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg === shortName || arg === longName) return args[index + 1] ?? ''
+    if (arg.startsWith(`${longName}=`)) return arg.slice(longName.length + 1)
+    if (shortName && arg.startsWith(shortName) && arg.length > shortName.length) return arg.slice(shortName.length)
+  }
+  return null
+}
+
+function classifyCurl(args: string[]): CommandClassification {
+  const tokens = normalizedArgs(args)
+  const method = optionValue(tokens, '-X', '--request')?.toUpperCase()
+  if (hasFlag(tokens, CURL_MUTATING_FLAGS) || hasFlag(tokens, CURL_LOCAL_WRITE_FLAGS)) {
+    return { class: 'safe', binary: 'curl', reason: 'curl sends data or writes a local file' }
+  }
+  if (method != null && !CURL_READ_METHODS.has(method)) {
+    return { class: 'safe', binary: 'curl', reason: `curl ${method || 'custom'} request` }
+  }
+  if (tokens.includes('-K') || tokens.some((arg) => arg === '--config' || arg.startsWith('--config='))) {
+    return { class: 'safe', binary: 'curl', reason: 'curl behavior comes from a config file' }
+  }
+  return { class: 'read-only', binary: 'curl', reason: 'curl download/HTTP query to stdout' }
+}
+
+function classifyWget(args: string[]): CommandClassification {
+  const tokens = normalizedArgs(args)
+  const method = optionValue(tokens, '', '--method')?.toUpperCase()
+  const sendsData = tokens.some((arg) => ['--post-data', '--post-file', '--body-data', '--body-file'].some((flag) => arg === flag || arg.startsWith(`${flag}=`)))
+  if (sendsData || (method != null && !CURL_READ_METHODS.has(method))) {
+    return { class: 'safe', binary: 'wget', reason: `wget ${method || 'data'} request` }
+  }
+  const output = optionValue(tokens, '-O', '--output-document')
+  const stdoutOnly = output === '-' || output === '/dev/null' || tokens.some((arg) => /^-[^-]*O-$/.test(arg))
+  if (tokens.includes('--spider') || stdoutOnly) {
+    return { class: 'read-only', binary: 'wget', reason: 'wget probe/output to stdout' }
+  }
+  return { class: 'safe', binary: 'wget', reason: 'wget writes downloaded content' }
+}
+
+function gitSubcommand(args: string[]): { name: string; rest: string[] } {
+  const tokens = normalizedArgs(args)
+  const valueOptions = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix'])
+  let index = 0
+  while (index < tokens.length && tokens[index].startsWith('-')) {
+    const option = tokens[index]
+    index += valueOptions.has(option) && !option.includes('=') ? 2 : 1
+  }
+  return { name: (tokens[index] || '').toLowerCase(), rest: tokens.slice(index + 1) }
+}
+
+function classifyGit(args: string[]): CommandClassification {
+  const { name, rest } = gitSubcommand(args)
+  if (rest.some((arg) => arg === '--output' || arg.startsWith('--output='))) {
+    return { class: 'safe', binary: 'git', reason: 'git writes an output file' }
+  }
+  const alwaysRead = new Set([
+    'status', 'log', 'diff', 'show', 'shortlog', 'describe', 'rev-parse', 'rev-list', 'ls-files',
+    'ls-tree', 'cat-file', 'grep', 'blame', 'count-objects', 'fsck', 'verify-commit', 'verify-tag',
+  ])
+  if (alwaysRead.has(name)) {
+    if (name === 'fsck' && rest.includes('--lost-found')) return { class: 'safe', binary: 'git', reason: 'git fsck writes lost-found objects' }
+    return { class: 'read-only', binary: 'git', reason: `git ${name} query` }
+  }
+  if (name === 'clean') {
+    const dryRun = rest.some((arg) => arg === '-n' || arg === '--dry-run' || /^-[^-]*n/.test(arg))
+    return { class: dryRun ? 'read-only' : 'destructive', binary: 'git', reason: dryRun ? 'git clean dry run' : 'git clean removes files' }
+  }
+  if (name === 'branch' && (rest.length === 0 || rest.some((arg) => ['--list', '--show-current', '--contains', '--no-contains', '--merged', '--no-merged'].includes(arg)))) {
+    return { class: 'read-only', binary: 'git', reason: 'git branch query' }
+  }
+  if (name === 'tag' && (rest.length === 0 || rest.some((arg) => ['-l', '--list', '--contains', '--no-contains'].includes(arg)))) {
+    return { class: 'read-only', binary: 'git', reason: 'git tag query' }
+  }
+  if ((name === 'stash' || name === 'worktree') && ['list', 'show'].includes((rest[0] || '').toLowerCase())) {
+    return { class: 'read-only', binary: 'git', reason: `git ${name} query` }
+  }
+  if (name === 'remote' && (rest.length === 0 || rest.some((arg) => ['-v', '--verbose', 'show', 'get-url'].includes(arg)))) {
+    return { class: 'read-only', binary: 'git', reason: 'git remote query' }
+  }
+  if (name === 'config' && rest.some((arg) => ['--get', '--get-all', '--get-regexp', '--list', '-l'].includes(arg))) {
+    return { class: 'read-only', binary: 'git', reason: 'git config query' }
+  }
+  return { class: 'safe', binary: 'git', reason: 'git mutation or network operation' }
+}
+
+function firstNonOption(args: string[]): string {
+  return normalizedArgs(args).find((arg) => !arg.startsWith('-'))?.toLowerCase() || ''
+}
+
+function classifyPackageManager(binary: string, args: string[]): CommandClassification | null {
+  const subcommand = firstNonOption(args)
+  const readCommands: Record<string, Set<string>> = {
+    npm: new Set(['list', 'ls', 'view', 'info', 'show', 'search', 'outdated', 'root', 'prefix', 'bin', 'whoami', 'ping', 'fund']),
+    yarn: new Set(['list', 'info', 'why', 'outdated', 'search']),
+    pnpm: new Set(['list', 'ls', 'why', 'view', 'info', 'search', 'outdated', 'root']),
+    pip: new Set(['list', 'show', 'check', 'freeze', 'index', 'debug']),
+    pip3: new Set(['list', 'show', 'check', 'freeze', 'index', 'debug']),
+    apt: new Set(['list', 'show', 'search', 'policy']),
+    'apt-get': new Set(['check']),
+    yum: new Set(['list', 'info', 'search', 'check-update', 'repolist']),
+    dnf: new Set(['list', 'info', 'search', 'check-update', 'repolist']),
+    apk: new Set(['info', 'search', 'list', 'version', 'policy']),
+    brew: new Set(['list', 'info', 'search', 'outdated', 'deps', 'uses', 'config']),
+  }
+  const commands = readCommands[binary]
+  if (!commands) return null
+  if (commands.has(subcommand)) return { class: 'read-only', binary, reason: `${binary} metadata query` }
+  return null
+}
+
+function classifyAdminQuery(binary: string, args: string[]): CommandClassification | null {
+  const tokens = normalizedArgs(args).map((arg) => arg.toLowerCase())
+  if (binary === 'sysctl') {
+    const mutates = tokens.some((arg) => ['-w', '--write', '-p', '--load', '--system'].includes(arg) || arg.startsWith('--load=') || /^[^-=]+=[\s\S]*$/.test(arg))
+    return { class: mutates ? 'destructive' : 'read-only', binary, reason: mutates ? 'sysctl writes kernel settings' : 'sysctl query' }
+  }
+  if (binary === 'timedatectl') {
+    const query = new Set(['status', 'show', 'timesync-status', 'show-timesync', 'list-timezones'])
+    const operands = tokens.filter((arg) => !arg.startsWith('-'))
+    const reads = operands.length === 0 || query.has(operands[0])
+    return { class: reads ? 'read-only' : 'destructive', binary, reason: reads ? 'timedatectl query' : 'timedatectl changes host settings' }
+  }
+  if (binary === 'hostnamectl') {
+    const operands = tokens.filter((arg) => !arg.startsWith('-'))
+    const reads = operands.length === 0 || (operands[0] === 'status' && operands.length === 1)
+    return { class: reads ? 'read-only' : 'destructive', binary, reason: reads ? 'hostnamectl query' : 'hostnamectl changes host settings' }
+  }
+  if (binary === 'systemctl') {
+    const mutating = new Set(['start', 'stop', 'restart', 'reload', 'enable', 'disable', 'mask', 'unmask', 'isolate', 'kill', 'reset-failed'])
+    const reading = new Set(['status', 'show', 'cat', 'is-active', 'is-enabled', 'is-failed', 'list-units', 'list-unit-files', 'list-jobs'])
+    if (tokens.some((arg) => mutating.has(arg))) return { class: 'destructive', binary, reason: 'systemctl mutation' }
+    if (tokens.some((arg) => reading.has(arg))) return { class: 'read-only', binary, reason: 'systemctl status/query' }
+    return { class: 'destructive', binary, reason: 'systemctl (not a query)' }
+  }
+  if (binary === 'ip') {
+    const mutates = tokens.some((arg) => ['add', 'delete', 'del', 'set', 'change', 'replace', 'flush', 'append', 'prepend', 'update', 'remove', 'exec'].includes(arg))
+    return { class: mutates ? 'destructive' : 'read-only', binary, reason: mutates ? 'ip changes network state' : 'ip network query' }
+  }
+  if (binary === 'route') {
+    const mutates = tokens.some((arg) => ['add', 'delete', 'del', 'flush'].includes(arg))
+    return { class: mutates ? 'destructive' : 'read-only', binary, reason: mutates ? 'route changes network state' : 'route query' }
+  }
+  if (binary === 'ifconfig') {
+    const mutates = tokens.some((arg) => ['up', 'down', 'netmask', 'broadcast', 'pointopoint', 'hw', 'mtu', 'add', 'del', 'promisc', '-promisc', 'arp', '-arp', 'txqueuelen'].includes(arg)) || tokens.some((arg) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(arg) || arg.includes(':'))
+    return { class: mutates ? 'destructive' : 'read-only', binary, reason: mutates ? 'ifconfig changes network state' : 'ifconfig query' }
+  }
+  return null
+}
+
+function classifyKnownArguments(binary: string, args: string[]): CommandClassification | null {
+  if (binary === 'curl') return classifyCurl(args)
+  if (binary === 'wget') return classifyWget(args)
+  if (binary === 'git') return classifyGit(args)
+  const packageManager = classifyPackageManager(binary, args)
+  if (packageManager) return packageManager
+  return classifyAdminQuery(binary, args)
+}
+
+function hasAnyArg(args: string[], values: Set<string>): boolean {
+  return normalizedArgs(args).some((arg) => {
+    const lower = arg.toLowerCase()
+    return [...values].some((value) => {
+      const expected = value.toLowerCase()
+      if (lower === expected || lower.startsWith(`${expected}=`)) return true
+      return /^-[a-z]$/.test(expected) && /^-[^-]{2,}/.test(lower) && lower.slice(1).includes(expected[1])
+    })
+  })
+}
+
+function isSignalZeroProbe(args: string[]): boolean {
+  const tokens = normalizedArgs(args).map((arg) => arg.toLowerCase())
+  return tokens.includes('-0') || tokens.includes('--signal=0') || tokens.some((arg, index) => (arg === '-s' || arg === '--signal') && tokens[index + 1] === '0')
+}
+
+function classifyCliQuery(binary: string, args: string[]): CommandClassification | null {
+  const tokens = normalizedArgs(args).map((arg) => arg.toLowerCase())
+  const subcommand = tokens.find((arg) => !arg.startsWith('-')) || ''
+  if (binary === 'kubectl') {
+    const reads = new Set(['get', 'describe', 'logs', 'explain', 'diff', 'top', 'api-resources', 'api-versions', 'cluster-info', 'version'])
+    if (reads.has(subcommand)) return { class: 'read-only', binary, reason: `kubectl ${subcommand} query` }
+    if (subcommand === 'config' && tokens.some((arg) => ['view', 'current-context', 'get-contexts'].includes(arg))) {
+      return { class: 'read-only', binary, reason: 'kubectl config query' }
+    }
+    if (subcommand === 'auth' && tokens.includes('can-i')) return { class: 'read-only', binary, reason: 'kubectl authorization query' }
+  }
+  if (binary === 'helm') {
+    const reads = new Set(['list', 'status', 'get', 'history', 'show', 'search', 'template', 'version', 'env'])
+    if (reads.has(subcommand)) {
+      if (tokens.some((arg) => arg === '--output-dir' || arg.startsWith('--output-dir='))) return { class: 'safe', binary, reason: 'helm writes rendered files' }
+      return { class: 'read-only', binary, reason: `helm ${subcommand} query` }
+    }
+  }
+  if (binary === 'terraform') {
+    const reads = new Set(['show', 'output', 'validate', 'version', 'providers'])
+    if (reads.has(subcommand)) return { class: 'read-only', binary, reason: `terraform ${subcommand} query` }
+    if (subcommand === 'state' && ['list', 'show', 'pull'].includes(tokens[tokens.indexOf(subcommand) + 1] || '')) {
+      return { class: 'read-only', binary, reason: 'terraform state query' }
+    }
+  }
+  if (binary === 'tar' && hasAnyArg(args, new Set(['-t', '--list']))) {
+    const writes = hasAnyArg(args, new Set(['-x', '--extract', '--get', '-c', '--create', '-r', '--append', '-u', '--update', '--delete']))
+    if (!writes) return { class: 'read-only', binary, reason: 'tar archive listing' }
+  }
+  if ((binary === 'gzip' || binary === 'gunzip') && hasAnyArg(args, new Set(['-l', '--list', '-t', '--test']))) {
+    return { class: 'read-only', binary, reason: `${binary} archive query` }
+  }
+  return null
+}
 
 export type CommandValidation =
   | { ok: true; command: string }
@@ -614,9 +848,21 @@ function classifyFlatCommand(command: BashFlatCommand): CommandClassification {
   if (DESTRUCTIVE_RSYNC.test(command.maskedText)) {
     return { class: 'destructive', binary, reason: 'rsync --delete' }
   }
-  if (AWK_BINARIES.has(binary) && AWK_EXECUTES.test(command.text)) {
-    return { class: 'destructive', binary, reason: 'awk runs a shell command' }
+  if (AWK_BINARIES.has(binary) && (AWK_EXECUTES.test(command.text) || AWK_WRITES_FILE.test(command.text))) {
+    return { class: 'destructive', binary, reason: 'awk executes a command or writes a file' }
   }
+  if (binary === 'yq' && hasAnyArg(command.args, new Set(['-i', '--inplace']))) {
+    return { class: 'destructive', binary, reason: 'in-place yq' }
+  }
+  if (binary === 'sort' && hasAnyArg(command.args, new Set(['-o', '--output']))) {
+    return { class: 'destructive', binary, reason: 'sort writes an output file' }
+  }
+  if (binary === 'kill' && isSignalZeroProbe(command.args)) {
+    return { class: 'read-only', binary, reason: 'kill -0 process existence query' }
+  }
+
+  const argumentAware = classifyKnownArguments(binary, command.args) || classifyCliQuery(binary, command.args)
+  if (argumentAware) return argumentAware
 
   if (binary === 'systemctl') {
     if (READONLY_SYSTEMCTL.test(command.maskedText)) {
@@ -629,10 +875,8 @@ function classifyFlatCommand(command: BashFlatCommand): CommandClassification {
   }
 
   if (binary === 'journalctl') {
-    if (READONLY_JOURNALCTL.test(command.maskedText)) {
-      return { class: 'read-only', binary, reason: 'journalctl read' }
-    }
-    return { class: 'destructive', binary, reason: 'journalctl vacuum/mutate' }
+    if (MUTATING_JOURNALCTL.test(command.maskedText)) return { class: 'destructive', binary, reason: 'journalctl mutation' }
+    return { class: 'read-only', binary, reason: 'journalctl read' }
   }
 
   if (binary === 'docker' || binary === 'podman') {
@@ -771,9 +1015,26 @@ function classifySegment(segment: string): CommandClassification {
   if (DESTRUCTIVE_RSYNC.test(segment)) {
     return { class: 'destructive', binary, reason: 'rsync --delete' }
   }
+  if (AWK_BINARIES.has(binary) && (AWK_EXECUTES.test(segment) || AWK_WRITES_FILE.test(segment))) {
+    return { class: 'destructive', binary, reason: 'awk executes a command or writes a file' }
+  }
   if (hasWriteRedirect(segment)) {
     return { class: 'destructive', binary, reason: 'shell write redirection' }
   }
+
+  const args = segmentArgs(segment)
+  if (binary === 'yq' && hasAnyArg(args, new Set(['-i', '--inplace']))) {
+    return { class: 'destructive', binary, reason: 'in-place yq' }
+  }
+  if (binary === 'sort' && hasAnyArg(args, new Set(['-o', '--output']))) {
+    return { class: 'destructive', binary, reason: 'sort writes an output file' }
+  }
+  if (binary === 'kill' && isSignalZeroProbe(args)) {
+    return { class: 'read-only', binary, reason: 'kill -0 process existence query' }
+  }
+
+  const argumentAware = classifyKnownArguments(binary, args) || classifyCliQuery(binary, args)
+  if (argumentAware) return argumentAware
 
   if (binary === 'systemctl') {
     if (READONLY_SYSTEMCTL.test(segment)) {
@@ -786,10 +1047,8 @@ function classifySegment(segment: string): CommandClassification {
   }
 
   if (binary === 'journalctl') {
-    if (READONLY_JOURNALCTL.test(segment)) {
-      return { class: 'read-only', binary, reason: 'journalctl read' }
-    }
-    return { class: 'destructive', binary, reason: 'journalctl vacuum/mutate' }
+    if (MUTATING_JOURNALCTL.test(segment)) return { class: 'destructive', binary, reason: 'journalctl mutation' }
+    return { class: 'read-only', binary, reason: 'journalctl read' }
   }
 
   if (binary === 'docker' || binary === 'podman') {

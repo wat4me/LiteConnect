@@ -26,5 +26,9 @@ export interface TransferItem {
   completedFiles?: number
   failedFiles?: number
   totalFiles?: number
+  /** Current phase of a recursive directory transfer. */
+  phase?: 'scanning' | 'preparing' | 'transferring'
+  preparedDirs?: number
+  totalDirs?: number
   batchId?: string
 }

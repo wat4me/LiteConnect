@@ -1,12 +1,13 @@
 import type { AiChatMessage, AiFunctionToolCall } from './types/ai'
+import { MAX_AI_TOOL_CALLS_PER_ROUND, MAX_AI_TURN_API_MESSAGES } from './aiToolLimits'
 
 export const AI_MESSAGE_CONTENT_MAX = 200_000
-export const AI_TURN_API_MESSAGES_MAX = 40
+export const AI_TURN_API_MESSAGES_MAX = MAX_AI_TURN_API_MESSAGES
 
 export function normalizeToolCalls(raw: unknown): AiFunctionToolCall[] {
   if (!Array.isArray(raw)) return []
   const out: AiFunctionToolCall[] = []
-  for (const item of raw.slice(0, 32)) {
+  for (const item of raw.slice(0, MAX_AI_TOOL_CALLS_PER_ROUND)) {
     if (!item || typeof item !== 'object') continue
     const rec = item as {
       id?: unknown
@@ -77,13 +78,85 @@ export function validateAiMessages(messages: unknown): AiChatMessage[] {
   })
 }
 
+/**
+ * Chat Completions requires every assistant tool call to be followed immediately
+ * by exactly one matching tool result. Old history, cancellation, or context
+ * trimming can leave half of that protocol behind; drop the incomplete unit
+ * instead of sending a request the provider must reject.
+ */
+export function sanitizeAiToolProtocol(messages: readonly unknown[]): AiChatMessage[] {
+  const normalized = messages
+    .map(normalizeAiChatMessage)
+    .filter((message): message is AiChatMessage => message !== null)
+  const out: AiChatMessage[] = []
+
+  for (let index = 0; index < normalized.length;) {
+    const message = normalized[index]
+    if (message.role === 'tool') {
+      // A tool result without the declaring assistant message is invalid.
+      index += 1
+      continue
+    }
+    if (message.role !== 'assistant' || !message.toolCalls?.length) {
+      out.push(message)
+      index += 1
+      continue
+    }
+
+    let nextIndex = index + 1
+    const results = new Map<string, AiChatMessage>()
+    while (nextIndex < normalized.length && normalized[nextIndex].role === 'tool') {
+      const result = normalized[nextIndex]
+      const resultId = result.role === 'tool' ? result.toolCallId : undefined
+      if (resultId && !results.has(resultId)) {
+        results.set(resultId, result)
+      }
+      nextIndex += 1
+    }
+
+    const callIds = message.toolCalls
+      .map((call) => call.id)
+      .filter((id): id is string => typeof id === 'string' && Boolean(id))
+    const uniqueIds = new Set(callIds)
+    const complete = callIds.length === message.toolCalls.length && uniqueIds.size === callIds.length && callIds.every((id) => results.has(id))
+    if (complete) {
+      out.push(message)
+      for (const id of callIds) out.push(results.get(id)!)
+    }
+    index = nextIndex
+  }
+  return out
+}
+
+/** Bound stored/replayed messages without cutting through a tool protocol unit. */
+export function limitAiMessagesPreservingToolProtocol(
+  messages: readonly unknown[],
+  maxMessages = AI_TURN_API_MESSAGES_MAX,
+): AiChatMessage[] {
+  // Bound work before normalization too; if the slice lands inside a tool unit,
+  // the sanitizer drops that incomplete unit rather than keeping a broken tail.
+  const valid = sanitizeAiToolProtocol(messages.slice(0, maxMessages))
+  const out: AiChatMessage[] = []
+  for (let index = 0; index < valid.length;) {
+    const message = valid[index]
+    const unitSize = message.role === 'assistant' && message.toolCalls?.length
+      ? 1 + message.toolCalls.length
+      : 1
+    if (out.length + unitSize > maxMessages) break
+    out.push(...valid.slice(index, index + unitSize))
+    index += unitSize
+  }
+  return out
+}
+
 /** Map packed messages onto the Chat Completions wire. CoT is only sent when `tools` is present. */
 export function toApiChatMessages(messages: unknown[], withTools: boolean): unknown[] {
   if (!Array.isArray(messages)) return []
   const out: unknown[] = []
-  for (const raw of messages) {
-    const m = normalizeAiChatMessage(raw)
-    if (!m) continue
+  const validMessages = withTools
+    ? sanitizeAiToolProtocol(messages)
+    : messages.map(normalizeAiChatMessage).filter((message): message is AiChatMessage => message !== null)
+  for (const m of validMessages) {
     if (m.role === 'tool') {
       if (!withTools) continue
       out.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content })
@@ -132,10 +205,7 @@ export function flattenConversationForApi(
     if (item.role !== 'assistant') continue
     if (item.status && item.status !== 'completed') continue
     if (Array.isArray(item.apiMessages) && item.apiMessages.length) {
-      for (const msg of item.apiMessages.slice(0, AI_TURN_API_MESSAGES_MAX)) {
-        const next = normalizeAiChatMessage(msg)
-        if (next) out.push(next)
-      }
+      out.push(...limitAiMessagesPreservingToolProtocol(item.apiMessages))
       continue
     }
     const content = typeof item.content === 'string' ? item.content : ''
@@ -145,7 +215,7 @@ export function flattenConversationForApi(
     if (reasoning.trim()) row.reasoningContent = reasoning
     out.push(row)
   }
-  return out
+  return sanitizeAiToolProtocol(out)
 }
 
 /** After a tool loop, append the final assistant text if it is not already on the transcript. */

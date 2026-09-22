@@ -22,6 +22,9 @@ const emit = defineEmits<{
 }>()
 
 function getProgress(item: TransferItem): number {
+  if (item.phase === 'preparing' && item.totalDirs) {
+    return Math.min(100, Math.round((item.preparedDirs ?? 0) / item.totalDirs * 100))
+  }
   return item.total ? Math.min(100, Math.round(item.transferred / item.total * 100)) : 0
 }
 </script>
@@ -51,10 +54,14 @@ function getProgress(item: TransferItem): number {
         <div class="transfer-text">
           <span class="transfer-name" :title="item.localPath">{{ item.fileName }}</span>
           <span v-if="item.status === 'downloading' || item.status === 'uploading'" class="transfer-detail">
-            {{ formatSize(item.transferred) }} / {{ formatSize(item.total) }}
-            <span v-if="getSpeed && getSpeed(id) > 0" class="transfer-speed">· {{ formatSpeed(getSpeed(id)) }}</span>
+            <template v-if="item.phase === 'scanning'">{{ t('sftp.transferScanning') }}</template>
+            <template v-else-if="item.phase === 'preparing'">
+              {{ t('sftp.transferPreparingDirs', { done: item.preparedDirs ?? 0, total: item.totalDirs ?? 0 }) }}
+            </template>
+            <template v-else>{{ formatSize(item.transferred) }} / {{ formatSize(item.total) }}</template>
+            <span v-if="item.phase !== 'scanning' && item.phase !== 'preparing' && getSpeed && getSpeed(id) > 0" class="transfer-speed">· {{ formatSpeed(getSpeed(id)) }}</span>
             <span
-              v-if="item.totalFiles != null && item.totalFiles > 0"
+              v-if="item.phase !== 'scanning' && item.phase !== 'preparing' && item.totalFiles != null && item.totalFiles > 0"
               class="transfer-files"
             >· {{ item.completedFiles ?? 0 }}/{{ item.totalFiles }}<span v-if="(item.failedFiles ?? 0) > 0" class="transfer-failed-count"> · <AppIcon name="alert-circle" size="xs" />{{ item.failedFiles }}</span></span>
           </span>
@@ -76,9 +83,12 @@ function getProgress(item: TransferItem): number {
         </div>
       </div>
       <div v-if="item.status === 'downloading' || item.status === 'uploading'" class="transfer-progress-col">
-        <span class="transfer-percent">{{ getProgress(item) }}%</span>
-        <div class="transfer-progress-bar">
-          <div class="transfer-progress-fill" :style="{ width: getProgress(item) + '%' }"></div>
+        <span class="transfer-percent">{{ item.phase === 'scanning' ? '…' : `${getProgress(item)}%` }}</span>
+        <div class="transfer-progress-bar" :class="{ indeterminate: item.phase === 'scanning' }">
+          <div
+            class="transfer-progress-fill"
+            :style="item.phase === 'scanning' ? undefined : { width: getProgress(item) + '%' }"
+          ></div>
         </div>
       </div>
       <button
@@ -262,6 +272,16 @@ function getProgress(item: TransferItem): number {
   background: var(--accent);
   border-radius: 2px;
   transition: width 0.3s ease-out;
+}
+
+.transfer-progress-bar.indeterminate .transfer-progress-fill {
+  width: 38%;
+  animation: transfer-indeterminate 1.15s ease-in-out infinite;
+}
+
+@keyframes transfer-indeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(290%); }
 }
 
 .transfer-action {

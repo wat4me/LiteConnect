@@ -66,6 +66,8 @@ export default {
     delete: '删除',
     transferDoneDownload: '已完成 · 点击在资源管理器中显示',
     transferDoneUpload: '上传完成',
+    transferScanning: '正在扫描文件…',
+    transferPreparingDirs: '正在准备远端目录 {done}/{total}',
     transferPartial: '部分完成：成功 {ok} / 失败 {failed}',
     transferSkipped: '已跳过（同名冲突）',
     transferError: '错误',

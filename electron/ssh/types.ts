@@ -94,6 +94,9 @@ export interface DirTransferProgressStats {
   completedFiles: number
   failedFiles: number
   totalFiles: number
+  phase?: 'scanning' | 'preparing' | 'transferring'
+  preparedDirs?: number
+  totalDirs?: number
 }
 
 /** Outcome of a directory upload/download (not cancelled / not hard-fail). */

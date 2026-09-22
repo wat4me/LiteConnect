@@ -129,16 +129,22 @@ export class TransferRunner {
     parent?.childIds?.delete(childId)
   }
 
-  /** Create a remote directory only when absent; never hide a real mkdir failure. */
-  private async ensureRemoteDirectory(sessionId: string, remotePath: string): Promise<void> {
-    if (await this.sftpOps.sftpExists(sessionId, remotePath)) return
+  /** Create a remote directory directly, tolerating only a concurrent creator. */
+  private async createRemoteDirectory(sessionId: string, remotePath: string): Promise<void> {
     try {
       await this.sftpOps.sftpMkdir(sessionId, remotePath)
     } catch (err) {
-      // Another transfer may have created it after the existence check.
+      // Another transfer may have created it after its parent became visible.
       if (await this.sftpOps.sftpExists(sessionId, remotePath)) return
       throw err
     }
+  }
+
+  /** Create a remote directory only when absent; returns true when this call created it. */
+  private async ensureRemoteDirectory(sessionId: string, remotePath: string): Promise<boolean> {
+    if (await this.sftpOps.sftpExists(sessionId, remotePath)) return false
+    await this.createRemoteDirectory(sessionId, remotePath)
+    return true
   }
 
   sftpDownload(
@@ -588,6 +594,49 @@ export class TransferRunner {
     const parentCancel = () => job.cancelled
 
     try {
+      onProgress(0, 0, {
+        completedFiles: 0,
+        failedFiles: 0,
+        totalFiles: 0,
+        phase: 'scanning',
+      })
+
+      const walked = await walkLocalTree(localPath, {
+        isCancelled: parentCancel,
+      })
+
+      if (job.cancelled) throw new TransferCancelledError()
+
+      const dirRels = [...walked.dirs]
+        .map((d) => d.relativePosix)
+        .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+      const files = walked.files.map((f) => ({
+        local: f.localPath,
+        remote: '',
+        relativePosix: f.relativePosix,
+        size: f.size,
+      }))
+      const total = walked.totalSize
+      const progress = new MonotonicByteProgress(total)
+      let completedFiles = 0
+      let failedFiles = 0
+      const totalFiles = files.length
+      const totalDirs = dirRels.length + 1
+      let preparedDirs = 0
+      let phase: 'preparing' | 'transferring' = 'preparing'
+
+      const emit = () => {
+        onProgress(progress.current, progress.total, {
+          completedFiles,
+          failedFiles,
+          totalFiles,
+          phase,
+          preparedDirs,
+          totalDirs,
+        })
+      }
+      emit()
+
       let rootRemote = remotePath
       if (conflict === 'rename') {
         const rootExists = await this.sftpOps.sftpExists(sessionId, rootRemote)
@@ -607,43 +656,47 @@ export class TransferRunner {
         }
       }
 
-      await this.ensureRemoteDirectory(sessionId, rootRemote)
+      const rootCreated = await this.ensureRemoteDirectory(sessionId, rootRemote)
+      preparedDirs++
+      emit()
 
-      const walked = await walkLocalTree(localPath, {
-        isCancelled: parentCancel,
-      })
-
-      if (job.cancelled) throw new TransferCancelledError()
-
-      const dirRels = [...walked.dirs]
-        .map((d) => d.relativePosix)
-        .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
-
+      const dirsByDepth = new Map<number, string[]>()
       for (const rel of dirRels) {
-        if (job.cancelled) throw new TransferCancelledError()
-        const rp = joinRemoteRelative(rootRemote, rel)
-        await this.ensureRemoteDirectory(sessionId, rp)
+        const depth = rel.split('/').length
+        const level = dirsByDepth.get(depth) ?? []
+        level.push(rel)
+        dirsByDepth.set(depth, level)
       }
 
-      const files = walked.files.map((f) => ({
-        local: f.localPath,
-        remote: joinRemoteRelative(rootRemote, f.relativePosix),
-        size: f.size,
-      }))
-
-      const total = walked.totalSize
-      const progress = new MonotonicByteProgress(total)
-      let completedFiles = 0
-      let failedFiles = 0
-      const totalFiles = files.length
-
-      const emit = () => {
-        onProgress(progress.current, progress.total, {
-          completedFiles,
-          failedFiles,
-          totalFiles,
-        })
+      for (const depth of [...dirsByDepth.keys()].sort((a, b) => a - b)) {
+        await runPool(
+          dirsByDepth.get(depth)!,
+          async (rel) => {
+            if (job.cancelled) throw new TransferCancelledError()
+            const remoteDir = joinRemoteRelative(rootRemote, rel)
+            if (rootCreated) {
+              // A freshly created root cannot contain children yet; avoid an
+              // extra exists round trip for every directory on high-latency SSH.
+              await this.createRemoteDirectory(sessionId, remoteDir)
+            } else {
+              await this.ensureRemoteDirectory(sessionId, remoteDir)
+            }
+            preparedDirs++
+            emit()
+          },
+          {
+            concurrency,
+            isCancelled: parentCancel,
+            stopOnError: true,
+          },
+        )
       }
+
+      for (const file of files) {
+        file.remote = joinRemoteRelative(rootRemote, file.relativePosix)
+      }
+
+      phase = 'transferring'
       emit()
 
       const ensured = new Set<string>([rootRemote, ...dirRels.map((r) => joinRemoteRelative(rootRemote, r))])

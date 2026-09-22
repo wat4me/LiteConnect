@@ -226,6 +226,65 @@ describe('empty directory byte total', () => {
       fs.rmSync(localDir, { recursive: true, force: true })
     }
   })
+
+  it('reports upload phases and prepares sibling directories concurrently by depth', async () => {
+    const session: Session = {
+      id: 'sess-1',
+      client: {} as any,
+      stream: {} as any,
+      connectionId: 'c1',
+      connectionName: 't',
+      sftp: {} as any,
+    }
+    let activeMkdir = 0
+    let maxActiveMkdir = 0
+    const created: string[] = []
+    const runner = new TransferRunner(() => session, {
+      initSftp: async () => {},
+      sftpReaddir: async () => [],
+      sftpExists: async () => false,
+      sftpMkdir: async (_sessionId, remotePath) => {
+        activeMkdir++
+        maxActiveMkdir = Math.max(maxActiveMkdir, activeMkdir)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        created.push(remotePath)
+        activeMkdir--
+      },
+    })
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'litesh-phased-upload-'))
+    fs.mkdirSync(path.join(localDir, 'a', 'child'), { recursive: true })
+    fs.mkdirSync(path.join(localDir, 'b', 'child'), { recursive: true })
+    const reports: Array<{
+      phase?: 'scanning' | 'preparing' | 'transferring'
+      preparedDirs?: number
+      totalDirs?: number
+    }> = []
+
+    try {
+      const result = await runner.sftpUploadDirectory(
+        'sess-1',
+        localDir,
+        '/remote/upload',
+        'ul-phases',
+        (_transferred, _total, stats) => reports.push({
+          phase: stats?.phase,
+          preparedDirs: stats?.preparedDirs,
+          totalDirs: stats?.totalDirs,
+        }),
+        { concurrency: 2 },
+      )
+
+      expect(result.status).toBe('completed')
+      expect(reports[0]?.phase).toBe('scanning')
+      expect(reports.some((report) => report.phase === 'preparing' && report.preparedDirs === 5)).toBe(true)
+      expect(reports.at(-1)?.phase).toBe('transferring')
+      expect(maxActiveMkdir).toBeGreaterThan(1)
+      expect(created.indexOf('/remote/upload/a')).toBeLessThan(created.indexOf('/remote/upload/a/child'))
+      expect(created.indexOf('/remote/upload/b')).toBeLessThan(created.indexOf('/remote/upload/b/child'))
+    } finally {
+      fs.rmSync(localDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('directory download path safety', () => {

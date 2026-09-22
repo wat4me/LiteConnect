@@ -918,7 +918,11 @@ async function copyText(text: string, key: string) {
 .jump-latest {
   position: absolute;
   left: 50%;
-  bottom: 10px;
+  /* The composer floats over the scroller, so lift the pill above it using the
+     measured overlay inset (--ai-composer-overlay-inset is set on .ai-sidebar).
+     +2px keeps the same 10px gap the button had when the composer was in flow:
+     inset = composer height + 20, composer top sits 12px above the shell bottom. */
+  bottom: calc(var(--ai-composer-overlay-inset, 150px) + 2px);
   transform: translateX(-50%);
   z-index: 2;
   height: 28px;
@@ -947,7 +951,11 @@ async function copyText(text: string, key: string) {
   flex-direction: column;
   gap: 2px;
   width: 16px;
-  max-height: calc(100% - 20px);
+  /* The rail stays vertically centered, so its bottom edge sits at
+     (100% - max-height) / 2. Halving the composer overlay inset on both sides
+     keeps the rail — and its 168px hover expansion — clear of the floating
+     composer. +8px leaves a small safety margin for the hover border. */
+  max-height: max(48px, calc(100% - 2 * var(--ai-composer-overlay-inset, 150px) + 8px));
   overflow-x: hidden;
   overflow-y: auto;
   padding: 4px 2px;

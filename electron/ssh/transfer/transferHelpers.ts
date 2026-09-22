@@ -357,6 +357,9 @@ export interface DirTransferProgressStats {
   completedFiles: number
   failedFiles: number
   totalFiles: number
+  phase?: 'scanning' | 'preparing' | 'transferring'
+  preparedDirs?: number
+  totalDirs?: number
 }
 
 export type DirProgressCallback = (

@@ -31,7 +31,7 @@ describe('isContainerEnterCommand', () => {
   })
 
   it('detects enter command in a compound line', () => {
-    expect(isContainerEnterCommand('cd /opt && docker exec -it seeyon bash')).toBe(true)
+    expect(isContainerEnterCommand('cd /opt && docker exec -it webapp bash')).toBe(true)
     expect(isContainerEnterCommand('pwd; docker exec -it c sh')).toBe(true)
   })
 })

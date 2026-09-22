@@ -1,4 +1,5 @@
 import { lookupModelsDevContext } from './modelsDevContext'
+import { sanitizeAiToolProtocol } from './aiMessages'
 import type { AiChatMessage, AiUsage } from './types/ai'
 
 export type AiContextRole = AiChatMessage['role']
@@ -355,7 +356,7 @@ export function packAiMessages(opts: {
     used += messageTokens(sys)
   }
 
-  const conv = (opts.messages || []).filter(keepableMessage)
+  const conv = sanitizeAiToolProtocol(opts.messages || []).filter(keepableMessage)
   const groups = groupConversationTurns(conv)
   const keptGroups: AiContextMessage[][] = []
   let droppedCount = 0
@@ -382,11 +383,13 @@ export function packAiMessages(opts: {
   }
 
   keptGroups.reverse()
+  const messages = sanitizeAiToolProtocol([...packed, ...keptGroups.flat()])
+  const repairedCount = packed.length + keptGroups.flat().length - messages.length
   return {
-    messages: [...packed, ...keptGroups.flat()],
-    promptTokens: used,
+    messages,
+    promptTokens: messages.reduce((sum, message) => sum + messageTokens(message), 0),
     budgetTokens: promptBudget,
-    droppedCount,
+    droppedCount: droppedCount + repairedCount,
     truncatedCount,
   }
 }

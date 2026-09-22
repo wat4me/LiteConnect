@@ -621,7 +621,14 @@ contextBridge.exposeInMainWorld('LiteConnect', {
       transferId: string,
       transferred: number,
       total: number,
-      stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
+      stats?: {
+        completedFiles: number
+        failedFiles: number
+        totalFiles: number
+        phase?: 'scanning' | 'preparing' | 'transferring'
+        preparedDirs?: number
+        totalDirs?: number
+      },
     ) => void,
   ) => {
     const listener = (
@@ -630,7 +637,14 @@ contextBridge.exposeInMainWorld('LiteConnect', {
       transferId: string,
       transferred: number,
       total: number,
-      stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
+      stats?: {
+        completedFiles: number
+        failedFiles: number
+        totalFiles: number
+        phase?: 'scanning' | 'preparing' | 'transferring'
+        preparedDirs?: number
+        totalDirs?: number
+      },
     ) => callback(sessionId, transferId, transferred, total, stats)
     ipcRenderer.on('sftp:transferProgress', listener)
     return () => ipcRenderer.removeListener('sftp:transferProgress', listener)

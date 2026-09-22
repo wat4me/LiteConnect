@@ -552,7 +552,14 @@ export interface LiteConnectApi {
       transferId: string,
       transferred: number,
       total: number,
-      stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
+      stats?: {
+        completedFiles: number
+        failedFiles: number
+        totalFiles: number
+        phase?: 'scanning' | 'preparing' | 'transferring'
+        preparedDirs?: number
+        totalDirs?: number
+      },
     ) => void,
   ) => () => void
   onTransferComplete: (

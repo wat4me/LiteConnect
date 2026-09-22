@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   appendFinalAssistantTurn,
   flattenConversationForApi,
+  limitAiMessagesPreservingToolProtocol,
+  sanitizeAiToolProtocol,
   toApiChatMessages,
   validateAiMessages,
 } from './aiMessages'
@@ -61,6 +63,56 @@ describe('toApiChatMessages', () => {
       { role: 'user', content: 'q' },
       { role: 'assistant', content: 'done' },
     ])
+  })
+
+  it('drops incomplete tool protocol before sending', () => {
+    const out = toApiChatMessages([
+      { role: 'user', content: 'q' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          { id: 'c1', type: 'function', function: { name: 'exec', arguments: '{}' } },
+          { id: 'c2', type: 'function', function: { name: 'exec', arguments: '{}' } },
+        ],
+      },
+      { role: 'tool', toolCallId: 'c1', content: 'only one result' },
+      { role: 'assistant', content: 'later answer' },
+      { role: 'tool', toolCallId: 'orphan', content: 'orphan result' },
+    ], true)
+    expect(out).toEqual([
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: 'later answer' },
+    ])
+  })
+})
+
+describe('tool protocol repair', () => {
+  const calls = [
+    { id: 'c1', type: 'function' as const, function: { name: 'exec', arguments: '{}' } },
+    { id: 'c2', type: 'function' as const, function: { name: 'exec', arguments: '{}' } },
+  ]
+
+  it('keeps complete calls and orders their results by call id', () => {
+    const repaired = sanitizeAiToolProtocol([
+      { role: 'assistant', content: '', toolCalls: calls },
+      { role: 'tool', toolCallId: 'c2', content: 'two' },
+      { role: 'tool', toolCallId: 'c1', content: 'one' },
+    ])
+    expect(repaired.map((message) => message.role === 'tool' ? message.toolCallId : message.role)).toEqual([
+      'assistant', 'c1', 'c2',
+    ])
+  })
+
+  it('never applies a message limit through the middle of a tool unit', () => {
+    const source = [
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: '', toolCalls: calls },
+      { role: 'tool', toolCallId: 'c1', content: 'one' },
+      { role: 'tool', toolCallId: 'c2', content: 'two' },
+    ]
+    expect(limitAiMessagesPreservingToolProtocol(source, 3)).toEqual([{ role: 'user', content: 'q' }])
+    expect(limitAiMessagesPreservingToolProtocol(source, 4)).toHaveLength(4)
   })
 })
 

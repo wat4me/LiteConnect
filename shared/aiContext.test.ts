@@ -181,6 +181,23 @@ describe('packAiMessages', () => {
     expect(pack.droppedCount).toBeGreaterThan(0)
   })
 
+  it('repairs a latest tool turn when fitting it would drop a tool result', () => {
+    const pack = packAiMessages({
+      messages: [
+        { role: 'user', content: 'inspect' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'c1', type: 'function', function: { name: 'exec', arguments: '{}' } }],
+        },
+        { role: 'tool', toolCallId: 'c1', content: 'x'.repeat(20_000) },
+      ],
+      budgetTokens: 1_024,
+      reserveOutputTokens: 200,
+    })
+    expect(pack.messages).toEqual([{ role: 'user', content: 'inspect' }])
+  })
+
   it('does not rewrite a kept historical assistant when the window still fits', () => {
     const long = '答'.repeat(9_000)
     const pack = packAiMessages({

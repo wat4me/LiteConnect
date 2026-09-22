@@ -182,6 +182,20 @@ describe('bash AST engine', () => {
     expect(result.uncertainty).toBeUndefined()
   })
 
+  it('keeps an HTTP inspection pipeline read-only', () => {
+    const command = "curl -s -m 8 http://192.0.2.10/app/index.jsp | grep -oiE '<title>[^<]*</title>|examplecloud[^\"<]*|example[A-Za-z0-9]*Server' | head -10; echo '--- local proxy headers ---'; curl -s -m 6 -I http://127.0.0.1:85/ | head -12"
+    expect(classifyCommand(command).class).toBe('read-only')
+  })
+
+  it('uses command arguments to distinguish queries from mutations', () => {
+    expect(classifyCommand('git log --oneline -10').class).toBe('read-only')
+    expect(classifyCommand('kubectl describe pod web').class).toBe('read-only')
+    expect(classifyCommand('curl -T build.zip https://example.com/upload').class).not.toBe('read-only')
+    expect(classifyCommand('ip addr add 192.0.2.2/24 dev eth0').class).toBe('destructive')
+    expect(classifyCommand('sysctl net.ipv4.ip_forward').class).toBe('read-only')
+    expect(classifyCommand('sort -o result.txt input.txt').class).toBe('destructive')
+  })
+
   it('does not regress the plain-text verdicts', () => {
     expect(classifyCommand('ls -la /var/log').class).toBe('read-only')
     expect(classifyCommand('df -h && free -m').class).toBe('read-only')
