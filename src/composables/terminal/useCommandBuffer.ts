@@ -61,6 +61,10 @@ export function useCommandBuffer(deps: {
   }
 
   function inferSubmittedCommand(command: string): string {
+    // Preserve the conventional leading-space "private history" marker. The
+    // command is still sent to the remote shell unchanged; only local history
+    // collection interprets it.
+    if (/^\s/.test(command) && command.trim()) return command.trimEnd()
     const trimmedCommand = command.trim()
     if (!trimmedCommand) return trimmedCommand
     const visibleLine = stripShellNotifications(getVisibleCommandLine())
@@ -115,6 +119,7 @@ export function useCommandBuffer(deps: {
     let cmd = ''
     const submitLine = capturedSubmitLine.value
     capturedSubmitLine.value = ''
+    const hadUserInput = commandBufferDirty.value || !!commandBuffer.value.trim()
 
     // Dirty (tab / history / multi-line): trust the line captured at Enter time
     // (visible screen). Clean path: merge buffer with the live visible line.
@@ -126,7 +131,9 @@ export function useCommandBuffer(deps: {
       cmd = inferSubmittedCommand(commandBuffer.value)
     }
 
-    if (!cmd) {
+    // An empty Enter must not turn a status line (for example "Connecting to…")
+    // already on screen into a shell command.
+    if (!cmd && hadUserInput) {
       const visibleCmd = extractCommandFromVisibleLine()
       if (visibleCmd) {
         cmd = visibleCmd

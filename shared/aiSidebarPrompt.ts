@@ -6,8 +6,9 @@ import {
   AI_TOOL_EXPLANATION_MAX_CHARS,
 } from './aiToolPolicy'
 import { estimateTokens, packAiMessages, type AiContextPack } from './aiContext'
+import { formatAiConversationContextFile } from './aiFixedContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
-import type { AiChatMessage } from './types/ai'
+import type { AiChatMessage, AiConversationContextFile } from './types/ai'
 
 export function sanitizeTrackedCwd(raw: unknown): string {
   if (typeof raw !== 'string') return ''
@@ -137,6 +138,7 @@ export function estimateSidebarAiRequest(opts: {
   cwd?: string
   model?: string
   contextWindowTokens?: number
+  contextFiles?: AiConversationContextFile[]
 }): SidebarAiRequestEstimate {
   const bound = Boolean(opts.sessionId)
   const extraSystem = bound
@@ -145,8 +147,11 @@ export function estimateSidebarAiRequest(opts: {
         cwd: opts.cwd,
       })
     : ''
+  const files = opts.contextFiles || []
+  const fixedContext = files.map(formatAiConversationContextFile).join('\n\n')
   const pack = packAiMessages({
-    systemPrompt: [opts.systemPrompt, extraSystem].filter((s) => s && s.trim()).join('\n\n'),
+    systemPrompt: [opts.systemPrompt, extraSystem, fixedContext].filter((s) => s && s.trim()).join('\n\n'),
+    systemMaxTokens: files.length ? 40_000 : undefined,
     messages: opts.messages,
     model: opts.model,
     contextWindowTokens: opts.contextWindowTokens,

@@ -288,6 +288,9 @@ watch(
 }
 
 .titlebar-right {
+  /* Only the actual buttons should be no-drag. Let the empty middle area stay
+     inside titlebar-left so it remains a native window drag target. */
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 4px;
   -webkit-app-region: no-drag;

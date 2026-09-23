@@ -156,7 +156,10 @@ const READ_ONLY_BINARIES = new Set([
 /** Shells whose `-c` payload we re-parse; anything else about them is handled by bashParse. */
 const SHELL_BINARIES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'csh', 'tcsh', 'fish'])
 
-const PRIVILEGE_WRAPPERS = new Set(['sudo', 'doas', 'pkexec', 'su', 'runuser'])
+/** Public policy catalogue used by Settings so the UI cannot drift from the classifier. */
+export const MCP_PRIVILEGE_WRAPPER_NAMES = ['sudo', 'doas', 'pkexec', 'su', 'runuser'] as const
+
+const PRIVILEGE_WRAPPERS = new Set<string>(MCP_PRIVILEGE_WRAPPER_NAMES)
 
 const TRANSPARENT_WRAPPERS = new Set([
   'env',
@@ -173,7 +176,8 @@ const TRANSPARENT_WRAPPERS = new Set([
   'xargs',
 ])
 
-const DESTRUCTIVE_BINARIES = new Set([
+/** Binaries classified as destructive unless a more specific read-only rule matches first. */
+export const MCP_DESTRUCTIVE_BINARY_NAMES = [
   'rm',
   'rmdir',
   'unlink',
@@ -238,7 +242,9 @@ const DESTRUCTIVE_BINARIES = new Set([
   'tee',
   'install',
   'mv',
-])
+] as const
+
+const DESTRUCTIVE_BINARIES = new Set<string>(MCP_DESTRUCTIVE_BINARY_NAMES)
 
 const SAFE_BINARIES = new Set([
   'mkdir',
@@ -292,7 +298,8 @@ const SAFE_BINARIES = new Set([
  * agent-permissions settled on. They used to sit in `SAFE_BINARIES`, where a
  * single `python3 -c "import shutil; shutil.rmtree('/')"` rode through `auto`.
  */
-const INTERPRETERS = new Set([
+/** Interpreters whose script body must be inspectable before it can run without a gate. */
+export const MCP_INTERPRETER_NAMES = [
   'python',
   'python2',
   'python3',
@@ -311,7 +318,9 @@ const INTERPRETERS = new Set([
   'rscript',
   'julia',
   'groovy',
-])
+] as const
+
+const INTERPRETERS = new Set<string>(MCP_INTERPRETER_NAMES)
 
 /** Flags that make an interpreter treat the next token as code. */
 const INLINE_CODE_FLAGS = new Set(['-c', '-e', '-E', '-r', '--eval', '--exec'])

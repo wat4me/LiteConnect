@@ -47,11 +47,14 @@ function subtitle(item: ShellSuggestItem): string {
     v-if="visible && items.length > 0"
     class="cmd-suggest"
     :class="{ 'place-above': placeAbove }"
-    role="listbox"
-    :aria-label="t('shellSuggest.aria')"
     :style="{ left: `${left ?? 12}px`, top: `${top ?? 12}px` }"
   >
-    <div ref="listRef" class="cmd-suggest-list">
+    <div
+      ref="listRef"
+      class="cmd-suggest-list"
+      role="listbox"
+      :aria-label="t('shellSuggest.aria')"
+    >
       <button
         v-for="(item, idx) in items"
         :key="item.id"
@@ -62,13 +65,15 @@ function subtitle(item: ShellSuggestItem): string {
         role="option"
         :aria-selected="idx === activeIndex"
         :title="item.source === 'history' ? item.command : undefined"
-        @mouseenter="emit('update:activeIndex', idx)"
+        @mousemove="emit('update:activeIndex', idx)"
         @mousedown.prevent="emit('pick', item)"
       >
         <code class="title">{{ item.title }}</code>
         <span v-if="subtitle(item)" class="sub">{{ subtitle(item) }}</span>
-        <span v-if="idx === activeIndex" class="kbd-hint">{{ t('shellSuggest.selectHint') }}</span>
       </button>
+    </div>
+    <div class="cmd-suggest-footer" aria-hidden="true">
+      {{ t('shellSuggest.hint') }}
     </div>
   </div>
 </template>
@@ -116,8 +121,7 @@ function subtitle(item: ShellSuggestItem): string {
   overflow: hidden;
 }
 
-.cmd-suggest-item.active,
-.cmd-suggest-item:hover {
+.cmd-suggest-item.active {
   background: var(--accent-bg, rgba(74, 158, 255, 0.18));
 }
 
@@ -153,14 +157,17 @@ function subtitle(item: ShellSuggestItem): string {
   white-space: nowrap;
 }
 
-.kbd-hint {
+.cmd-suggest-footer {
   flex-shrink: 0;
-  margin-left: auto;
+  padding: 5px 9px;
+  border-top: 1px solid var(--border-color, #3c3c3c);
+  background: color-mix(in srgb, var(--bg-primary, #1e1e1e) 72%, transparent);
   font-size: 10px;
-  line-height: 14px;
+  line-height: 13px;
   color: var(--text-secondary, #999);
-  opacity: 0.85;
+  opacity: 0.9;
   white-space: nowrap;
-  padding-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

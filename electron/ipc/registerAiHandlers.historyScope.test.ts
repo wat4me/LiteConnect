@@ -1,4 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
+import { randomUUID } from 'crypto'
+import { unlink, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
@@ -48,4 +52,20 @@ it('loads two runtime terminals from the same stable host history', async () => 
 
   expect(mocks.readStore).toHaveBeenNthCalledWith(1, 'host-v1:22:server.example', expect.anything())
   expect(mocks.readStore).toHaveBeenNthCalledWith(2, 'host-v1:22:server.example', expect.anything())
+})
+
+it('reports when a selected local Markdown source was deleted', async () => {
+  const { registerAiHandlers } = await import('./registerAiHandlers')
+  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any)
+  const check = mocks.handlers.get('ai:checkLocalContextFile')!
+  const path = join(tmpdir(), `lite-ai-reference-${randomUUID()}.md`)
+  try {
+    await writeFile(path, '# Reference')
+    expect(await check({}, path)).toBe('available')
+    await unlink(path)
+    expect(await check({}, path)).toBe('missing')
+    await expect(check({}, path.replace(/\.md$/, '.txt'))).rejects.toThrow('Invalid Markdown')
+  } finally {
+    await unlink(path).catch(() => {})
+  }
 })

@@ -6,6 +6,38 @@ import { safeSend } from '../utils/validation'
 
 type MainWindowGetter = () => BrowserWindow | null
 
+/** Update metadata is tiny; do not leave the settings page waiting on GitHub. */
+export const UPDATE_CHECK_TIMEOUT_MS = 20_000
+
+const UPDATE_CHECK_TIMEOUT_CODE = 'ERR_UPDATER_CHECK_TIMEOUT'
+
+function updateCheckTimeoutError(): Error & { code: string } {
+  return Object.assign(new Error('Update check timed out'), { code: UPDATE_CHECK_TIMEOUT_CODE })
+}
+
+/**
+ * AppUpdater does not expose a cancellation token until a check has already
+ * completed. Its dedicated Electron session is public, though, so closing only
+ * that session's connections gives the timeout real cancellation semantics.
+ */
+async function checkForUpdatesWithTimeout(updater: AppUpdater): Promise<UpdateCheckResult | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      void updater.netSession.closeAllConnections().catch((err) => {
+        console.warn('[Updater] Failed to close timed-out update connections:', err)
+      })
+      reject(updateCheckTimeoutError())
+    }, UPDATE_CHECK_TIMEOUT_MS)
+  })
+
+  try {
+    return await Promise.race([updater.checkForUpdates(), timeout])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 /**
  * electron-updater 只在「有新版本」时返回取消令牌，且令牌是一次性的：
  * cancel() 之后 cancelled 永远为 true，无法复用，重试必须换新令牌。
@@ -39,6 +71,16 @@ type UpdaterOperation = 'check' | 'download'
 export function userFacingUpdaterError(err: unknown, operation: UpdaterOperation): string {
   const raw = err instanceof Error ? err.message : String(err ?? '')
   const text = raw.toLowerCase()
+
+  if (
+    (typeof err === 'object' && err !== null && 'code' in err && err.code === UPDATE_CHECK_TIMEOUT_CODE)
+    || text.includes('update check timed out')
+    || text.includes('request timed out')
+  ) {
+    return operation === 'check'
+      ? '检查更新超时，请检查网络后重试'
+      : '下载更新超时，请检查网络后重试'
+  }
 
   if (
     text.includes('cannot find latest.yml') ||
@@ -111,7 +153,15 @@ export function registerUpdaterHandlers(getMainWindow: MainWindowGetter, setting
    * 所以自动下载只能挂在检查的调用方，不能写在事件回调里。
    */
   async function checkAndDownload(updater: AppUpdater): Promise<UpdateCheckResult | null> {
-    const result = await updater.checkForUpdates()
+    let result: UpdateCheckResult | null
+    try {
+      result = await checkForUpdatesWithTimeout(updater)
+    } catch (err) {
+      if (typeof err === 'object' && err !== null && 'code' in err && err.code === UPDATE_CHECK_TIMEOUT_CODE) {
+        publish({ status: 'error', message: userFacingUpdaterError(err, 'check') })
+      }
+      throw err
+    }
     downloadToken = result?.cancellationToken ?? null
     if (result?.isUpdateAvailable && status?.status !== 'downloaded') {
       void startDownload(updater).catch(() => {})

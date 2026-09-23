@@ -1,9 +1,16 @@
 import { ipcMain } from 'electron'
 import { isValidUUID } from '../utils/validation'
 import type { ShellCommandHistoryStore } from '../store/shellCommandHistoryStore'
+import type { SettingsStore } from '../store/settingsStore'
 
-export function registerShellCommandHistoryHandlers(store: ShellCommandHistoryStore): void {
-  const ready = () => store.init()
+export function registerShellCommandHistoryHandlers(
+  store: ShellCommandHistoryStore,
+  settingsStore: SettingsStore,
+): void {
+  const ready = async () => {
+    await Promise.all([store.init(), settingsStore.init()])
+    store.setExcludePatterns(settingsStore.getTerminalCommandHistoryExcludePatterns())
+  }
 
   ipcMain.handle('shellHistory:list', async (_event, connectionId: string) => {
     await ready()

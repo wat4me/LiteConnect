@@ -6,6 +6,7 @@ import type {
   AiChatSegment,
   AiChatStreamPayload,
   AiConversationThread,
+  AiConversationContextFile,
   AiContextCheckpoint,
   AiHistoryRecord,
   AiSessionStore,
@@ -54,6 +55,8 @@ type AiSessionState = {
   loaded: boolean
   disposeAfterReply: boolean
   contextCheckpoint?: AiContextCheckpoint
+  contextFiles: AiConversationContextFile[]
+  defaultContextFiles: AiConversationContextFile[]
 }
 
 const aiSessionStates = new Map<string, AiSessionState>()
@@ -83,6 +86,8 @@ function getAiSessionState(sessionId: string): AiSessionState {
       loaded: false,
       disposeAfterReply: false,
       contextCheckpoint: undefined,
+      contextFiles: [],
+      defaultContextFiles: [],
     })
     aiSessionStates.set(sessionId, state)
   }
@@ -94,6 +99,7 @@ export function listAiResourceUsage(): { sessionCount: number; estimatedBytes: n
   for (const state of aiSessionStates.values()) {
     estimatedBytes += AI_SESSION_OVERHEAD_BYTES
     estimatedBytes += estimateAiTextBytes(state.input?.length || 0)
+    estimatedBytes += estimateAiTextBytes(state.contextFiles.reduce((total, file) => total + file.content.length, 0))
     for (const message of state.messages) {
       estimatedBytes += estimateAiTextBytes(
         (message.content?.length || 0) + (message.reasoningContent?.length || 0),
@@ -363,7 +369,7 @@ export function useAiChat() {
   }
 
   /**
-   * Mirror main-process prune: keep non-empty threads + active draft only.
+   * Mirror main-process prune: keep conversations with messages + active draft.
    * Avoids empty "新对话" shells piling up in local thread list / next persist.
    */
   function pruneEmptyThreadsLocal(store: AiSessionStore): void {
@@ -382,6 +388,7 @@ export function useAiChat() {
           createdAt: Date.now(),
           updatedAt: Date.now(),
           messages: [],
+          contextFiles: [...store.defaultContextFiles],
         },
       ]
       store.activeThreadId = id
@@ -394,6 +401,7 @@ export function useAiChat() {
 
   function syncThreadSummaries(state: AiSessionState, store: AiSessionStore) {
     pruneEmptyThreadsLocal(store)
+    state.defaultContextFiles = store.defaultContextFiles || []
     const summaries: AiThreadSummary[] = store.threads
       .map((thread) => ({
         id: thread.id,
@@ -401,6 +409,7 @@ export function useAiChat() {
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
         messageCount: thread.messages.length,
+        contextFilePath: thread.contextFiles[0]?.path,
         active: thread.id === store.activeThreadId,
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -424,6 +433,7 @@ export function useAiChat() {
     const messages = (thread?.messages || []).map(fromHistoryRecord)
     state.messages.splice(0, state.messages.length, ...messages)
     state.contextCheckpoint = thread?.contextCheckpoint
+    state.contextFiles = thread?.contextFiles || []
   }
 
   async function buildStoreFromState(
@@ -439,6 +449,7 @@ export function useAiChat() {
         version: 1,
         activeThreadId: state.activeThreadId || createThreadId(),
         threads: [],
+        defaultContextFiles: [...state.defaultContextFiles],
       }
     }
 
@@ -452,6 +463,7 @@ export function useAiChat() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
+        contextFiles: [...state.contextFiles],
       })
       store.activeThreadId = threadId
       state.activeThreadId = threadId
@@ -473,7 +485,9 @@ export function useAiChat() {
       .map(toHistoryRecord)
     if (invalidateContextCheckpoint) delete active.contextCheckpoint
     const localSummary = state.threads.find((t) => t.id === active!.id)
-    active.title = resolveThreadTitle(active.messages, { title: active.title || localSummary?.title })
+    active.title = active.messages.length
+      ? resolveThreadTitle(active.messages, { title: active.title || localSummary?.title })
+      : ''
     active.updatedAt = Date.now()
     pruneEmptyThreadsLocal(store)
     return store
@@ -538,6 +552,7 @@ export function useAiChat() {
       state.activeThreadId = active?.id || ''
       const messages = (active?.messages || []).map(fromHistoryRecord)
       state.contextCheckpoint = active?.contextCheckpoint
+      state.contextFiles = active?.contextFiles || []
       state.loaded = true
       return messages
     } catch (err: any) {
@@ -884,6 +899,39 @@ export function useAiChat() {
     return true
   }
 
+  async function setConversationContextFile(
+    sessionId: string,
+    file: AiConversationContextFile,
+  ): Promise<boolean> {
+    const state = getAiSessionState(sessionId)
+    if (state.loading || !state.activeThreadId) return false
+    try {
+      const store = await window.LiteConnect.aiSetContextFile(sessionId, state.activeThreadId, file)
+      const active = store.threads.find((thread) => thread.id === store.activeThreadId)
+      state.contextFiles = active?.contextFiles || []
+      syncThreadSummaries(state, store)
+      return true
+    } catch (err: any) {
+      ElMessage.warning(err?.message || t('ai.contextFileFailed'))
+      return false
+    }
+  }
+
+  async function removeConversationContextFile(sessionId: string, file: AiConversationContextFile): Promise<boolean> {
+    const state = getAiSessionState(sessionId)
+    if (state.loading || !state.activeThreadId) return false
+    try {
+      const store = await window.LiteConnect.aiRemoveContextFile(sessionId, state.activeThreadId, file.source, file.path)
+      const active = store.threads.find(thread => thread.id === store.activeThreadId)
+      state.contextFiles = active?.contextFiles || []
+      syncThreadSummaries(state, store)
+      return true
+    } catch (err: any) {
+      ElMessage.warning(err?.message || t('ai.contextFileFailed'))
+      return false
+    }
+  }
+
   async function startNewConversation(
     sessionId: string,
     onUpdate: (messages: ChatItem[]) => void
@@ -894,8 +942,11 @@ export function useAiChat() {
       return false
     }
 
-    // Already empty active thread → no-op
-    if (state.messages.length === 0) {
+    const currentFile = state.contextFiles
+    const defaultFile = state.defaultContextFiles
+    const alreadyEmptyDefault = state.messages.length === 0 &&
+      JSON.stringify(currentFile) === JSON.stringify(defaultFile)
+    if (alreadyEmptyDefault) {
       ElMessage.info(t('ai.alreadyNewConversation'))
       return false
     }
@@ -922,6 +973,7 @@ export function useAiChat() {
       state.activeThreadId = active?.id || ''
       state.messages.splice(0, state.messages.length)
       state.contextCheckpoint = active?.contextCheckpoint
+      state.contextFiles = active?.contextFiles || []
       syncThreadSummaries(state, store)
       onUpdate(state.messages)
       return true
@@ -990,6 +1042,7 @@ export function useAiChat() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
+        contextFiles: [...store.defaultContextFiles],
       }
       store.threads.push(empty)
       store.activeThreadId = empty.id
@@ -1022,17 +1075,28 @@ export function useAiChat() {
       return false
     }
 
+    let defaultContextFiles: AiConversationContextFile[]
+    try {
+      const saved = await window.LiteConnect.getAiSessionStore(sessionId)
+      defaultContextFiles = saved.defaultContextFiles
+    } catch (err: any) {
+      ElMessage.warning(err?.message || t('ai.clearHistoryFailed'))
+      return false
+    }
+
     const empty: AiConversationThread = {
       id: createThreadId(),
       title: '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
+      contextFiles: [...defaultContextFiles],
     }
     const store: AiSessionStore = {
       version: 1,
       activeThreadId: empty.id,
       threads: [empty],
+      defaultContextFiles,
     }
 
     try {
@@ -1045,6 +1109,7 @@ export function useAiChat() {
     state.activeThreadId = empty.id
     state.messages.splice(0, state.messages.length)
     state.contextCheckpoint = undefined
+    state.contextFiles = [...defaultContextFiles]
     syncThreadSummaries(state, store)
     onUpdate(state.messages)
     return true
@@ -1094,6 +1159,8 @@ export function useAiChat() {
     saveSessionInput,
     onReplyComplete,
     startNewConversation,
+    setConversationContextFile,
+    removeConversationContextFile,
     switchConversation,
     deleteConversation,
     clearAllConversations,

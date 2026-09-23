@@ -1,4 +1,8 @@
 import { COLLECTIONS, getAppDatabase } from './appDatabase'
+import {
+  normalizeShellHistoryExcludePatterns,
+  shouldStoreShellCommand,
+} from '../../shared/shellHistoryPrivacy'
 
 export type ShellCommandHistoryItem = {
   command: string
@@ -14,6 +18,7 @@ export class ShellCommandHistoryStore {
   private initialized = false
   private initPromise: Promise<void> | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
+  private excludePatterns: string[] = []
 
   async init(): Promise<void> {
     if (this.initialized) return
@@ -31,10 +36,16 @@ export class ShellCommandHistoryStore {
       items: ShellCommandHistoryItem[]
     }>(COLLECTIONS.shellCommandHistory)
     const next: Record<string, ShellCommandHistoryItem[]> = {}
+    let removedUnsafeItem = false
     for (const record of records) {
       if (!record || typeof record.connectionId !== 'string' || !Array.isArray(record.items)) continue
       next[record.connectionId] = record.items
         .filter((item) => item && typeof item.command === 'string' && item.command.trim())
+        .filter((item) => {
+          const keep = shouldStoreShellCommand(item.command)
+          if (!keep) removedUnsafeItem = true
+          return keep
+        })
         .map((item) => ({
           command: String(item.command).trim().slice(0, MAX_COMMAND_CHARS),
           at: typeof item.at === 'number' ? item.at : Date.now(),
@@ -42,6 +53,27 @@ export class ShellCommandHistoryStore {
         .slice(0, MAX_PER_CONNECTION)
     }
     this.byConnection = next
+    if (removedUnsafeItem) this.scheduleSave()
+  }
+
+  setExcludePatterns(patterns: unknown): void {
+    const nextPatterns = normalizeShellHistoryExcludePatterns(patterns)
+    if (
+      nextPatterns.length === this.excludePatterns.length
+      && nextPatterns.every((pattern, index) => pattern === this.excludePatterns[index])
+    ) return
+    this.excludePatterns = nextPatterns
+
+    let changed = false
+    for (const [connectionId, items] of Object.entries(this.byConnection)) {
+      const safeItems = items.filter((item) => shouldStoreShellCommand(item.command, this.excludePatterns))
+      if (safeItems.length !== items.length) {
+        changed = true
+        if (safeItems.length) this.byConnection[connectionId] = safeItems
+        else delete this.byConnection[connectionId]
+      }
+    }
+    if (changed) this.scheduleSave()
   }
 
   private scheduleSave() {
@@ -76,8 +108,9 @@ export class ShellCommandHistoryStore {
   async push(connectionId: string, command: string): Promise<ShellCommandHistoryItem[]> {
     await this.init()
     if (!connectionId || typeof connectionId !== 'string') return []
-    const cmd = String(command || '')
-      .replace(/\r?\n/g, ' ')
+    const raw = String(command || '').replace(/\r?\n/g, ' ')
+    if (!shouldStoreShellCommand(raw, this.excludePatterns)) return this.list(connectionId)
+    const cmd = raw
       .trim()
       .slice(0, MAX_COMMAND_CHARS)
     if (!cmd) return this.list(connectionId)

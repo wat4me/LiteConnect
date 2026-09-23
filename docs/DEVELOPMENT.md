@@ -88,20 +88,26 @@ npm install
 npm run dev
 ```
 
-测试数据迁移或持久化时，使用隔离开发数据目录，避免读写系统中的正式数据：
+开发版默认使用独立数据目录，不会读取或修改已安装正式版的连接、凭据、设置、AI 历史、日志和数据库。默认位置为：
+
+- Windows：`%APPDATA%\LiteConnect-Dev\`
+- macOS：`~/Library/Application Support/LiteConnect-Dev/`
+- Linux：Electron `appData` 目录下的 `LiteConnect-Dev/`
+
+测试数据迁移或需要一次性独立配置时，可使用仓库内的隔离数据目录：
 
 ```bash
 npm run dev:isolated
 ```
 
-默认目录为仓库根目录下的 `.liteconnect-dev-data/`（已加入 `.gitignore`）。也可以指定其他目录；相对路径按仓库根目录解析：
+`dev:isolated` 默认使用仓库根目录下的 `.liteconnect-dev-data/`（已加入 `.gitignore`）。也可以指定其他目录；相对路径按仓库根目录解析：
 
 ```powershell
 $env:LITECONNECT_DEV_USER_DATA_DIR = "$PWD\\tmp\\migration-profile"
 npm run dev:isolated
 ```
 
-把待迁移的旧版 JSON/JSONL 测试数据放入该目录后启动应用，即可验证自动迁移。该开关仅在开发版生效，打包后的应用会忽略它；不要使用 Electron 的 `--user-data-dir` 代替，因为它不保证改变 LiteConnect 的业务数据目录。
+把待迁移的旧版 JSON/JSONL 测试数据放入该目录后启动应用，即可验证自动迁移。该开关仅在开发版生效，打包后的应用会忽略它；不要使用 Electron 的 `--user-data-dir` 代替，因为它不保证改变 LiteConnect 的业务数据目录。若需要清空普通开发环境，关闭开发版后删除 `LiteConnect-Dev` 目录即可，不会影响正式版。
 
 类型检查和测试：
 
@@ -150,8 +156,8 @@ git push origin v1.0.0
 
 | 命令 | 作用 |
 |---|---|
-| `npm run dev` | 启动 Vite 和 Electron 开发环境 |
-| `npm run dev:isolated` | 使用 `.liteconnect-dev-data/` 启动隔离的开发环境 |
+| `npm run dev` | 使用系统 `LiteConnect-Dev` 独立目录启动 Vite 和 Electron |
+| `npm run dev:isolated` | 使用仓库内 `.liteconnect-dev-data/` 启动一次性隔离环境 |
 | `npm run typecheck` | 运行 Vue/TypeScript 类型检查 |
 | `npm test` | 运行 Vitest 测试 |
 | `npm run test:watch` | 以 watch 模式运行测试 |

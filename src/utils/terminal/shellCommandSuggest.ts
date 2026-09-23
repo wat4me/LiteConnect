@@ -284,6 +284,31 @@ export function buildShellSuggestions(opts: {
 }
 
 /**
+ * Move the keyboard highlight without preselecting a row when the popup opens.
+ * From the neutral state (-1), the first Down selects the first item and the
+ * first Up selects the last item.
+ */
+export function nextShellSuggestIndex(
+  current: number,
+  itemCount: number,
+  direction: 1 | -1,
+): number {
+  if (itemCount <= 0) return -1
+  if (current < 0 || current >= itemCount) return direction > 0 ? 0 : itemCount - 1
+  return (current + direction + itemCount) % itemCount
+}
+
+/** xterm invokes its custom key handler for both keydown and keyup. */
+export function shellSuggestNavigationDirection(
+  event: Pick<KeyboardEvent, 'type' | 'key'>,
+): 1 | -1 | null {
+  if (event.type !== 'keydown') return null
+  if (event.key === 'ArrowDown') return 1
+  if (event.key === 'ArrowUp') return -1
+  return null
+}
+
+/**
  * How to apply a suggestion onto the current buffer segment.
  * Returns the full line that should appear after accept (including pipe prefixes).
  */

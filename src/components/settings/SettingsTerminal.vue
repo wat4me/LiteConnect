@@ -11,6 +11,8 @@ import {
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 import { PASTE_CONFIRM_MAX_CHARS_OPTIONS } from '@/utils/terminal/terminalPaste'
 import AppIcon from '../icons/AppIcon.vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { appConfirm } from '@/composables/app/useAppDialog'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -61,6 +63,29 @@ function updateFontSize(delta: number) {
 
 function openLogDir() {
   void window.LiteConnect.openSessionLogDir()
+}
+
+async function clearCommandHistory() {
+  try {
+    await appConfirm({
+      title: t('settingsTerminal.clearHistoryTitle'),
+      message: t('settingsTerminal.clearHistoryMessage'),
+      detail: t('settingsTerminal.clearHistoryDetail'),
+      confirmText: t('common.clear'),
+      cancelText: t('common.cancel'),
+      tone: 'warning',
+      danger: true,
+    })
+  } catch {
+    return
+  }
+  try {
+    await window.LiteConnect.clearShellCommandHistory()
+    window.dispatchEvent(new CustomEvent('shell-command-history-cleared'))
+    ElMessage.success(t('settingsTerminal.clearHistoryDone'))
+  } catch (err: any) {
+    ElMessage.error(err?.message || t('settingsTerminal.clearHistoryFailed'))
+  }
 }
 </script>
 
@@ -128,6 +153,21 @@ function openLogDir() {
         </label>
         <div class="settings-hint">{{ t('settingsTerminal.commandSuggestHint') }}</div>
 
+        <div class="settings-label" style="margin-top: 14px" data-setting="terminal.commandHistoryPrivacy">
+          {{ t('settingsTerminal.commandHistoryPrivacy') }}
+        </div>
+        <textarea
+          v-model="draft.terminalCommandHistoryExcludePatterns"
+          class="ui-textarea ui-input-sm ui-input-mono command-history-patterns"
+          :placeholder="t('settingsTerminal.commandHistoryPrivacyPlaceholder')"
+          rows="3"
+          spellcheck="false"
+        ></textarea>
+        <div class="settings-hint">{{ t('settingsTerminal.commandHistoryPrivacyHint') }}</div>
+        <button type="button" class="ui-btn session-log-btn" @click="clearCommandHistory">
+          {{ t('settingsTerminal.clearHistory') }}
+        </button>
+
         <div class="settings-label" style="margin-top: 18px" data-setting="terminal.sessionLog">{{ t('settingsTerminal.sessionLog') }}</div>
         <label class="settings-check">
           <input v-model="draft.sessionLogEnabled" type="checkbox" />
@@ -159,3 +199,9 @@ function openLogDir() {
   </section>
 </template>
 
+<style scoped>
+.command-history-patterns {
+  width: 100%;
+  resize: vertical;
+}
+</style>

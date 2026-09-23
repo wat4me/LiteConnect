@@ -13,6 +13,18 @@ function mockTerminal() {
   return { terminal, writes }
 }
 
+function controlledTerminal() {
+  const writes: string[] = []
+  const completions: Array<() => void> = []
+  const terminal = {
+    write(data: string, cb?: () => void) {
+      writes.push(data)
+      if (cb) completions.push(cb)
+    },
+  } as unknown as Terminal
+  return { terminal, writes, completeNext: () => completions.shift()?.() }
+}
+
 describe('useRenderBatch', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -103,5 +115,81 @@ describe('useRenderBatch', () => {
     batch.appendRenderBatch('tail')
     batch.setRenderFrozen(false)
     expect(writes.join('')).toContain('tail')
+  })
+
+  it('keeps one asynchronous xterm write in flight and coalesces waiting output', () => {
+    const { terminal, writes, completeNext } = controlledTerminal()
+    const batch = useRenderBatch(() => terminal)
+
+    batch.appendRenderBatch('first')
+    batch.flushRenderBatch()
+    batch.appendRenderBatch('second')
+    batch.flushRenderBatch()
+    batch.appendRenderBatch('+third')
+    batch.flushRenderBatch()
+
+    expect(writes).toEqual(['first'])
+    expect(batch.getPendingBatchLength()).toBe('firstsecond+third'.length)
+
+    completeNext()
+    expect(writes).toEqual(['first', 'second+third'])
+    completeNext()
+    expect(batch.getPendingBatchLength()).toBe(0)
+  })
+
+  it('runs a flush barrier before output that arrives afterward', () => {
+    const { terminal, writes, completeNext } = controlledTerminal()
+    const events: string[] = []
+    const batch = useRenderBatch(() => terminal)
+
+    batch.appendRenderBatch('active')
+    batch.flushRenderBatch()
+    batch.appendRenderBatch('before-resize')
+    batch.flushRenderBatch(() => events.push('resize'))
+    batch.appendRenderBatch('after-resize')
+    batch.flushRenderBatch()
+
+    completeNext()
+    expect(writes).toEqual(['active', 'before-resize'])
+    expect(events).toEqual([])
+
+    completeNext()
+    expect(events).toEqual(['resize'])
+    expect(writes).toEqual(['active', 'before-resize', 'after-resize'])
+  })
+
+  it('pauses a fast producer and resumes after xterm drains the backlog', () => {
+    const { terminal, completeNext } = controlledTerminal()
+    const flowChanges: boolean[] = []
+    const batch = useRenderBatch(() => terminal, (paused) => flowChanges.push(paused))
+    const chunk = 'x'.repeat(256 * 1024)
+
+    for (let i = 0; i < 5; i++) {
+      batch.appendRenderBatch(chunk)
+      batch.flushRenderBatch()
+    }
+    expect(flowChanges).toEqual([true])
+    expect(batch.getPendingBatchLength()).toBe(5 * chunk.length)
+
+    for (let i = 0; i < 4; i++) completeNext()
+    expect(flowChanges).toEqual([true])
+    expect(batch.getPendingBatchLength()).toBe(chunk.length)
+    completeNext()
+    expect(flowChanges).toEqual([true, false])
+    expect(batch.getPendingBatchLength()).toBe(0)
+  })
+
+  it('releases backpressure when a terminal is torn down', () => {
+    const { terminal, completeNext } = controlledTerminal()
+    const flowChanges: boolean[] = []
+    const batch = useRenderBatch(() => terminal, (paused) => flowChanges.push(paused))
+    batch.appendRenderBatch('x'.repeat(512 * 1024))
+    batch.flushRenderBatch()
+    expect(flowChanges).toEqual([true])
+
+    batch.resetRenderBatch()
+    completeNext()
+    expect(flowChanges).toEqual([true, false])
+    expect(batch.getPendingBatchLength()).toBe(0)
   })
 })

@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   getRendererState: (key: string) => ipcRenderer.invoke('store:getRendererState', key),
   setRendererState: (key: string, value: string | null) =>
     ipcRenderer.invoke('store:setRendererState', key, value),
+  onSftpPathBookmarksChanged: (callback: (connectionId: string) => void) => {
+    const listener = (_event: unknown, connectionId: string) => callback(connectionId)
+    ipcRenderer.on('store:sftpPathBookmarksChanged', listener)
+    return () => ipcRenderer.removeListener('store:sftpPathBookmarksChanged', listener)
+  },
   migrateRendererState: (entries: Record<string, string>) =>
     ipcRenderer.invoke('store:migrateRendererState', entries),
 
@@ -129,6 +134,10 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('ai:resolveToolApproval', requestId, callId, approved),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
+  aiSelectLocalContextFile: () => ipcRenderer.invoke('ai:selectLocalContextFile'),
+  aiCheckLocalContextFile: (path: string) => ipcRenderer.invoke('ai:checkLocalContextFile', path),
+  aiSetContextFile: (sessionId: string, threadId: string, file: unknown) => ipcRenderer.invoke('ai:setContextFile', sessionId, threadId, file),
+  aiRemoveContextFile: (sessionId: string, threadId: string, source: string, path: string) => ipcRenderer.invoke('ai:removeContextFile', sessionId, threadId, source, path),
   setAiSessionStore: (sessionId: string, store: any) => ipcRenderer.invoke('ai:setSessionStore', sessionId, store),
   aiCreateConversation: (
     sessionId: string,
@@ -192,6 +201,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   sshTakeStartupNotices: (sessionId: string) => ipcRenderer.invoke('ssh:takeStartupNotices', sessionId),
   sshDisconnect: (sessionId: string) => ipcRenderer.invoke('ssh:disconnect', sessionId),
   sshWrite: (sessionId: string, data: string) => ipcRenderer.send('ssh:write', sessionId, data),
+  sshSetOutputPaused: (sessionId: string, paused: boolean) => ipcRenderer.send('ssh:outputFlowControl', sessionId, paused),
   sshResize: (sessionId: string, cols: number, rows: number) => ipcRenderer.send('ssh:resize', sessionId, cols, rows),
   sshTestConnection: (connectionId: string) => ipcRenderer.invoke('ssh:testConnection', connectionId),
   sshTestConnectionParams: (params: {

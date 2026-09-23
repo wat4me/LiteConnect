@@ -76,6 +76,10 @@ let dockerCloser: { closeAll: () => void } | null = null
 let mcpHttpGateway: McpHttpGateway | null = null
 let deferredMain: Promise<void> | null = null
 
+// Register this before the general before-quit cleanup below. When an update
+// download is active, the guard must get the first chance to cancel quitting.
+installUpdateGuard()
+
 function openMainWindow(theme?: string, customColors?: { fontColor: string; bgColor: string } | null) {
   const resolvedTheme = theme ?? settingsStore.getTheme()
   const resolvedColors =
@@ -214,7 +218,7 @@ app.whenReady().then(async () => {
     },
     reopenMainWindow: () => openMainWindow(),
   })
-  registerShellCommandHistoryHandlers(shellCommandHistoryStore)
+  registerShellCommandHistoryHandlers(shellCommandHistoryStore, settingsStore)
   registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog)
   dbManager.setTunnelDeps(credentialStore, knownHosts)
   registerDbHandlers(
@@ -262,8 +266,6 @@ app.whenReady().then(async () => {
 
   // Tray / close-to-tray / global hotkey (reacts to settings via syncTrayFromSettings)
   installCloseToTray(settingsStore, () => openMainWindow())
-  // Ask before quitting while an update is still downloading.
-  installUpdateGuard()
   void settingsStore.init().then(() => {
     syncTrayFromSettings(settingsStore)
   }).catch((err) => {
@@ -294,7 +296,10 @@ app.on('browser-window-blur', () => {
   credentialStore.clearDecryptedCache()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  // The update guard may keep the app alive while a package is downloading.
+  // Do not make `quitting` sticky or tear down live sessions in that case.
+  if (event.defaultPrevented) return
   markQuitting()
   clearLatencyTimers()
   monitorCollector.stopAll()

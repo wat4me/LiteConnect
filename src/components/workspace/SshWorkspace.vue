@@ -222,6 +222,10 @@ function connectionNameForSession(sessionId: string): string {
   return props.allSessions.find((session) => session.id === sessionId)?.connectionName || ''
 }
 
+function connectionIdForSession(sessionId: string): string {
+  return props.allSessions.find((session) => session.id === sessionId)?.connectionId || ''
+}
+
 /** Uses the stable session tabNumber; closing an earlier tab must not renumber this label. */
 function terminalLabelForSession(sessionId: string): string {
   const session = props.allSessions.find((item) => item.id === sessionId)
@@ -363,6 +367,7 @@ watch(
         :key="sessionId"
         :ref="(el) => { if (sidebarSessionId === sessionId) emit('bind-file-sidebar', el) }"
         :session-id="sessionId"
+        :connection-id="connectionIdForSession(sessionId)"
         :connection-name="connectionNameForSession(sessionId)"
         :terminal-label="terminalLabelForSession(sessionId)"
         @close="emit('close-files')"

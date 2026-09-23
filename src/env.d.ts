@@ -70,7 +70,13 @@ export type {
   SnippetSendMode,
 } from '../shared/types/snippets'
 
-export type { FileEntry, TransferConflictStrategy, TransferItem } from '../shared/types/sftp'
+export type {
+  FileEntry,
+  SftpPathBookmark,
+  SftpPathBookmarkScope,
+  TransferConflictStrategy,
+  TransferItem,
+} from '../shared/types/sftp'
 
 export type {
   AiChatMessage,
@@ -78,6 +84,7 @@ export type {
   AiChatSegment,
   AiChatStreamPayload,
   AiConversationThread,
+  AiConversationContextFile,
   AiContextCheckpoint,
   AiFunctionToolCall,
   AiHistoryRecord,

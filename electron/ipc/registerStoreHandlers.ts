@@ -19,6 +19,7 @@ import { registerSnippetHandlers } from './registerSnippetHandlers'
 import { registerConnectionsExportHandlers } from './registerConnectionsExportHandlers'
 import { registerDownloadPathHandlers } from './registerDownloadPathHandlers'
 import { getAppDatabase, rendererStateKey } from '../store/appDatabase'
+import { stripConnectionPathBookmarks } from '../../shared/sftp/pathBookmarks'
 
 type MainWindowGetter = () => BrowserWindow | null
 
@@ -26,6 +27,7 @@ const RENDERER_STATE_KEYS = new Set([
   'db-query-drafts',
   'db-saved-queries',
   'batch-command-history',
+  'sftp-path-bookmarks',
 ])
 const RENDERER_STATE_MAX_CHARS = 5_000_000
 
@@ -143,7 +145,21 @@ export function registerStoreHandlers(
     if (!isValidUUID(id)) {
       throw new Error('Invalid connection id')
     }
-    return await credentialStore.deleteConnection(id)
+    const deleted = await credentialStore.deleteConnection(id)
+    if (!deleted) return deleted
+    const database = getAppDatabase()
+    const storageKey = rendererStateKey('sftp-path-bookmarks')
+    const raw = database.getSingleton<string>(storageKey) ?? null
+    const stripped = stripConnectionPathBookmarks(raw, id)
+    if (stripped.changed) {
+      if (stripped.value === null) database.deleteSingleton(storageKey)
+      else database.setSingleton(storageKey, stripped.value)
+    }
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) continue
+      win.webContents.send('store:sftpPathBookmarksChanged', id)
+    }
+    return deleted
   })
 
   ipcMain.handle('store:reorderConnections', async (_event, orderedIds: string[]) => {

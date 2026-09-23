@@ -1,15 +1,20 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { readFile, stat } from 'fs/promises'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import { listAiProviderModels, testAiProviderConfig, validateAiSettings } from '../ai/providerHttp'
 import {
   createNewConversationAtomic,
+  AI_CONTEXT_FILE_MAX_BYTES,
   getActiveThread,
+  normalizeAiContextFile,
   normalizeSessionStore,
   pruneAllAiHistoryStores,
   readAiSessionStore,
   readAiSessionStoreAndGc,
+  removeAiConversationContextFile,
+  setAiConversationContextFile,
   upsertAiHistoryRecord,
   writeAiHistoryRecords,
   writeAiContextCheckpoint,
@@ -21,6 +26,7 @@ import { runAiChatCompletion } from '../ai/chatCompletion'
 import { runPersistedAiReply } from '../ai/streamPersistence'
 import { createStreamPublisher } from '../ai/streamPublisher'
 import { flattenConversationForApi } from '../../shared/aiMessages'
+import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { showAiApprovalNotification } from '../ai/approvalNotification'
 
 export function registerAiHandlers(
@@ -117,6 +123,50 @@ export function registerAiHandlers(
     }
   })
 
+  ipcMain.handle('ai:selectLocalContextFile', async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+    }
+    const result = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths[0]) return null
+    const path = result.filePaths[0]
+    if (!isAiMarkdownFilePath(path)) throw new Error(t('ai.markdownOnly'))
+    const info = await stat(path)
+    if (!info.isFile() || info.size > AI_CONTEXT_FILE_MAX_BYTES) {
+      throw new Error(t('ai.markdownSizeLimit'))
+    }
+    const file = { source: 'local' as const, path, content: await readFile(path, 'utf8') }
+    if (!normalizeAiContextFile(file)) throw new Error(t('ai.markdownEmpty'))
+    return file
+  })
+
+  ipcMain.handle('ai:checkLocalContextFile', async (_event, path: string) => {
+    if (typeof path !== 'string' || path.length > 1024 || !isAiMarkdownFilePath(path) || /[\0\r\n]/.test(path)) {
+      throw new Error('Invalid Markdown file path')
+    }
+    try {
+      return (await stat(path)).isFile() ? 'available' : 'missing'
+    } catch (error: any) {
+      return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'missing' : 'unavailable'
+    }
+  })
+
+  ipcMain.handle('ai:setContextFile', async (_event, sessionId: string, threadId: string, file: unknown) => {
+    if (typeof threadId !== 'string' || !threadId) throw new Error('Invalid AI conversation')
+    await ensureSettingsReady()
+    return setAiConversationContextFile(historyIdForSession(sessionId), threadId, file, getHistoryLimits())
+  })
+
+  ipcMain.handle('ai:removeContextFile', async (_event, sessionId: string, threadId: string, source: 'local' | 'ssh', path: string) => {
+    if (typeof threadId !== 'string' || !threadId || (source !== 'local' && source !== 'ssh') || typeof path !== 'string') throw new Error('Invalid AI context file')
+    await ensureSettingsReady()
+    return removeAiConversationContextFile(historyIdForSession(sessionId), threadId, source, path, getHistoryLimits())
+  })
+
   ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any, threadId?: string) => {
     await ensureSettingsReady()
     await upsertAiHistoryRecord(
@@ -181,6 +231,7 @@ export function registerAiHandlers(
             sessionId: target.sessionId,
             cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
             settings, sshMcpRuntime,
+            contextFiles: thread?.contextFiles,
             getToolPermission: () => settingsStore.getAiResolvedConfig().toolPermission,
             onToolApprovalRequested: ({ sessionId, toolName }) => {
               if (!settingsStore.getAiSettings().approvalNotifications) return

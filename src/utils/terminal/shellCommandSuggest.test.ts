@@ -6,9 +6,47 @@ import {
   extractSuggestPrefix,
   flagMatchesTypedArgs,
   isFlagSuggestMode,
+  nextShellSuggestIndex,
   parseSuggestSegment,
+  shellSuggestNavigationDirection,
   suggestCompletionSuffix,
 } from './shellCommandSuggest'
+
+describe('nextShellSuggestIndex', () => {
+  it('selects A on the first ArrowDown from the neutral state', () => {
+    expect(nextShellSuggestIndex(-1, 3, 1)).toBe(0)
+  })
+
+  it('selects the last item on the first ArrowUp and wraps afterwards', () => {
+    expect(nextShellSuggestIndex(-1, 3, -1)).toBe(2)
+    expect(nextShellSuggestIndex(2, 3, 1)).toBe(0)
+    expect(nextShellSuggestIndex(0, 3, -1)).toBe(2)
+  })
+
+  it('keeps an empty list unselected', () => {
+    expect(nextShellSuggestIndex(-1, 0, 1)).toBe(-1)
+  })
+})
+
+describe('shellSuggestNavigationDirection', () => {
+  it('handles one physical ArrowDown exactly once across xterm key phases', () => {
+    const phases = [
+      { type: 'keydown', key: 'ArrowDown' },
+      { type: 'keyup', key: 'ArrowDown' },
+    ]
+    let index = -1
+    for (const event of phases) {
+      const direction = shellSuggestNavigationDirection(event)
+      if (direction != null) index = nextShellSuggestIndex(index, 3, direction)
+    }
+    expect(index).toBe(0)
+  })
+
+  it('ignores keyup and non-navigation keys', () => {
+    expect(shellSuggestNavigationDirection({ type: 'keyup', key: 'ArrowUp' })).toBeNull()
+    expect(shellSuggestNavigationDirection({ type: 'keydown', key: 'Enter' })).toBeNull()
+  })
+})
 
 describe('extractSuggestPrefix', () => {
   it('uses last pipeline segment', () => {

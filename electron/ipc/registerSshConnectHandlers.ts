@@ -16,6 +16,7 @@ import { CredentialStore } from '../store/credentialStore'
 import {
   broadcast,
   clearSessionOwner,
+  getSessionsOwnedBy,
   setSessionOwner,
 } from '../window/windowRegistry'
 
@@ -517,6 +518,12 @@ export function registerSshConnectHandlers(
       clearSessionOwner(sessionId)
       broadcast(`ssh:error:${sessionId}`, 'Connection lost')
     }
+  })
+
+  ipcMain.on('ssh:outputFlowControl', (event, sessionId: string, paused: boolean) => {
+    if (!isValidUUID(sessionId) || typeof paused !== 'boolean') return
+    if (!getSessionsOwnedBy(event.sender.id).includes(sessionId)) return
+    sshManager.setOutputPaused(sessionId, paused)
   })
 
   ipcMain.on('ssh:resize', (_event, sessionId: string, cols: number, rows: number) => {

@@ -30,6 +30,7 @@ import {
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '../../shared/connectionSort'
 import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
+import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -414,6 +415,10 @@ export class SettingsStore {
   async setTerminalCommandSuggestEnabled(enabled: boolean): Promise<void> {
     this.settings.terminalCommandSuggestEnabled = !!enabled
     await this.save()
+  }
+
+  getTerminalCommandHistoryExcludePatterns(): string[] {
+    return normalizeShellHistoryExcludePatterns(this.settings.terminalCommandHistoryExcludePatterns)
   }
 
   /** Default strategy when a local download path already exists. */
@@ -1155,6 +1160,7 @@ export class SettingsStore {
       terminalPasteConfirmEnabled: this.getTerminalPasteConfirmEnabled(),
       terminalPasteConfirmMaxChars: this.getTerminalPasteConfirmMaxChars(),
       terminalCommandSuggestEnabled: this.getTerminalCommandSuggestEnabled(),
+      terminalCommandHistoryExcludePatterns: this.getTerminalCommandHistoryExcludePatterns(),
       downloadConflictStrategy: this.getDownloadConflictStrategy(),
       dirTransferConcurrency: this.getDirTransferConcurrency(),
       dirTransferFailPolicy: this.getDirTransferFailPolicy(),
@@ -1224,6 +1230,11 @@ export class SettingsStore {
     }
     if (patch.terminalCommandSuggestEnabled !== undefined) {
       this.settings.terminalCommandSuggestEnabled = !!patch.terminalCommandSuggestEnabled
+    }
+    if (patch.terminalCommandHistoryExcludePatterns !== undefined) {
+      this.settings.terminalCommandHistoryExcludePatterns = normalizeShellHistoryExcludePatterns(
+        patch.terminalCommandHistoryExcludePatterns,
+      )
     }
     if (patch.downloadConflictStrategy !== undefined) {
       const v = patch.downloadConflictStrategy

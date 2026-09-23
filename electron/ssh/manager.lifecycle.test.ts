@@ -54,6 +54,22 @@ describe('SSHManager host-key confirm + generation', () => {
     manager = new SSHManager(knownHosts)
   })
 
+  it('pauses and resumes both interactive output streams', () => {
+    const stdout = { pause: vi.fn(), resume: vi.fn() }
+    const stderr = { pause: vi.fn(), resume: vi.fn() }
+    ;(manager as any).sessions.set('session', {
+      stream: { ...stdout, stderr },
+    })
+
+    expect(manager.setOutputPaused('session', true)).toBe(true)
+    expect(stdout.pause).toHaveBeenCalledTimes(1)
+    expect(stderr.pause).toHaveBeenCalledTimes(1)
+    expect(manager.setOutputPaused('session', false)).toBe(true)
+    expect(stdout.resume).toHaveBeenCalledTimes(1)
+    expect(stderr.resume).toHaveBeenCalledTimes(1)
+    expect(manager.setOutputPaused('missing', true)).toBe(false)
+  })
+
   it('confirmHostKey retries under resumeSessionId via reconnect (not a new random session)', async () => {
     const connection = fakeConnection()
     const callbacks = fakeCallbacks()

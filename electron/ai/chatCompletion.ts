@@ -3,7 +3,14 @@ import { isContextLengthError, resolveContextWindowTokens } from '../../shared/a
 import { t } from '../i18n'
 import { extractAiUsage, getAiChatCompletionsUrl, getFirstString, normalizeAiContent, packRequestMessages, readHttpErrorMessage, toApiChatMessages, validateAiMessages } from './providerHttp'
 
-export async function runAiChatCompletion(settings: AiResolvedConfig, messages: unknown, signal?: AbortSignal) {
+export async function runAiChatCompletion(
+  settings: AiResolvedConfig,
+  messages: unknown,
+  signal?: AbortSignal,
+  extraSystem?: string,
+  systemMaxTokens?: number,
+  requiredContext?: string,
+) {
   const chatMessages = validateAiMessages(messages)
   if (!settings.apiKey.trim()) {
     throw new Error(t('ai.apiKeyRequired'))
@@ -24,7 +31,13 @@ export async function runAiChatCompletion(settings: AiResolvedConfig, messages: 
       }),
     })
 
-  let packed = packRequestMessages(settings, chatMessages)
+  const assertFixedContext = (packed: ReturnType<typeof packRequestMessages>) => {
+    if (requiredContext && !packed[0]?.content.includes(requiredContext)) {
+      throw new Error('Fixed context file is too large for the selected model context window')
+    }
+  }
+  let packed = packRequestMessages(settings, chatMessages, undefined, extraSystem, systemMaxTokens)
+  assertFixedContext(packed)
   let response = await postChat(packed)
   if (!response.ok) {
     const message = await readHttpErrorMessage(
@@ -36,7 +49,10 @@ export async function runAiChatCompletion(settings: AiResolvedConfig, messages: 
       settings,
       chatMessages,
       Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
+      extraSystem,
+      systemMaxTokens,
     )
+    assertFixedContext(packed)
     response = await postChat(packed)
     if (!response.ok) {
       throw new Error(await readHttpErrorMessage(response, message))

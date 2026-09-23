@@ -11,12 +11,15 @@ const props = defineProps<{
   x: number
   y: number
   entry: FileEntry | null
+  /** Directory is already saved on this connection. */
+  bookmarked?: boolean
   canEdit: (name: string) => boolean
   isArchive: (name: string) => boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'open', entry: FileEntry): void
+  (e: 'bookmark', entry: FileEntry): void
   (e: 'download', entry: FileEntry): void
   (e: 'download-to', entry: FileEntry): void
   (e: 'download-dir', entry: FileEntry): void
@@ -81,6 +84,15 @@ watch(
       >
         <AppIcon name="folder" size="xs" />
         <span>{{ t('sftp.open') }}</span>
+      </button>
+      <button
+        v-if="entry.isDirectory"
+        type="button"
+        class="ui-menu-item"
+        @click="emit('bookmark', entry)"
+      >
+        <AppIcon :name="bookmarked ? 'star-fill' : 'star'" size="xs" />
+        <span>{{ bookmarked ? t('sftp.removeDirectoryBookmark') : t('sftp.addDirectoryBookmark') }}</span>
       </button>
       <button
         v-if="!entry.isDirectory"

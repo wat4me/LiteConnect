@@ -44,3 +44,48 @@ it('normalizes limits and carries them through settings validation', () => {
   expect(MAX_AI_TOOL_CALLS_PER_TURN).toBe(6_400)
   expect(MAX_AI_TURN_API_MESSAGES).toBe(6_601)
 })
+
+it('includes a fixed context file in every reply request without adding it to chat history', async () => {
+  const fetcher = vi.fn().mockImplementation(() => Promise.resolve(sse({ content: 'done' })))
+  vi.stubGlobal('fetch', fetcher)
+  const file = { source: 'local' as const, path: 'C:/rules.txt', content: 'Always answer in concise steps.' }
+  const secondFile = { source: 'ssh' as const, path: '/srv/checklist.md', content: 'Check disk usage before changes.' }
+  for (let turn = 0; turn < 2; turn++) {
+    await runAiChatStream({
+      settings,
+      messages: [{ role: 'user', content: `question ${turn}` }],
+      contextFiles: [file, secondFile],
+      requestId: `fixed-context-${turn}`,
+      emit: () => {},
+    })
+  }
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  for (const call of fetcher.mock.calls) {
+    const body = JSON.parse(call[1].body)
+    expect(body.messages[0]).toMatchObject({ role: 'system' })
+    expect(body.messages[0].content).toContain(file.content)
+    expect(body.messages[0].content).toContain(secondFile.content)
+    expect(body.messages.filter((message: { role: string }) => message.role === 'user')).toHaveLength(1)
+  }
+})
+
+it('keeps fixed context when a stream falls back to a normal completion', async () => {
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(new Response(new ReadableStream({
+      start(controller) { controller.error(new Error('stream interrupted')) },
+    })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: 'fallback' } }] })))
+  vi.stubGlobal('fetch', fetcher)
+  const file = { source: 'ssh' as const, path: '/home/user/rules.txt', content: 'Reply in steps.' }
+  const result = await runAiChatStream({
+    settings,
+    messages: [{ role: 'user', content: 'help' }],
+    contextFiles: [file],
+    requestId: 'fixed-context-fallback',
+    emit: () => {},
+  })
+  expect(result.content).toBe('fallback')
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  const fallbackBody = JSON.parse(fetcher.mock.calls[1][1].body)
+  expect(fallbackBody.messages[0].content).toContain(file.content)
+})

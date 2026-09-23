@@ -3,7 +3,9 @@ import { computed, ref, watch, onMounted, onBeforeUnmount, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FileEntry } from '../../env.d.ts'
+import type { SftpPathBookmark, SftpPathBookmarkScope } from '@shared/types/sftp'
 import { useSftpNavigation } from '../../composables/sftp/useSftpNavigation'
+import { useSftpPathBookmarks } from '../../composables/sftp/useSftpPathBookmarks'
 import { useSftpDirTree } from '../../composables/sftp/useSftpDirTree'
 import { useTransfers, ensureTransferListeners } from '../../composables/sftp/useTransfers'
 import { useContextMenu } from '@/composables/shared/useContextMenu'
@@ -19,6 +21,8 @@ import {
   isSftpFollowPausedByContainer,
 } from '../../composables/sftp/sftpFollowPause'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
+import { defaultBookmarkName, normalizeBookmarkPath, SftpBookmarkLimitError } from '@/utils/sftp/pathBookmarks'
 import SftpDirTree from './SftpDirTree.vue'
 import SftpToolbar from './SftpToolbar.vue'
 import SftpPathBar from './SftpPathBar.vue'
@@ -34,6 +38,7 @@ const fileListRef = ref<InstanceType<typeof SftpDirTree> | null>(null)
 
 const props = defineProps<{
   sessionId: string
+  connectionId: string
   connectionName: string
   terminalLabel: string
 }>()
@@ -82,6 +87,159 @@ const {
   resolvePath,
   cleanRemotePath,
 } = useSftpNavigation(() => props.sessionId, pwdTracker)
+
+const pathBookmarks = useSftpPathBookmarks(() => props.connectionId)
+const currentConnectionBookmark = computed(() => pathBookmarks.findConnectionPath(currentPath.value))
+
+function bookmarkError(err: unknown) {
+  console.error('[SFTP Bookmarks]', err)
+  if (err instanceof SftpBookmarkLimitError) {
+    ElMessage.error(t('sftp.bookmarkLimitReached'))
+    return
+  }
+  ElMessage.error(t('sftp.bookmarkSaveFailed'))
+}
+
+async function addPathBookmark(
+  path: string,
+  scope: SftpPathBookmarkScope,
+  askName: boolean,
+): Promise<void> {
+  const cleanPath = normalizeBookmarkPath(path)
+  let name = defaultBookmarkName(cleanPath)
+  if (askName) {
+    try {
+      name = await appPrompt({
+        title: scope === 'global' ? t('sftp.addGlobalBookmark') : t('sftp.addConnectionBookmark'),
+        message: cleanPath,
+        inputValue: name,
+        inputPlaceholder: t('sftp.bookmarkNamePlaceholder'),
+        maxLength: 80,
+      })
+    } catch {
+      return
+    }
+  }
+  try {
+    const before = pathBookmarks.bookmarks.value.find((item) =>
+      item.scope === scope
+      && item.path === cleanPath
+      && (scope === 'global' || item.connectionId === props.connectionId),
+    )
+    await pathBookmarks.add({ name, path: cleanPath, scope })
+    ElMessage.success(before ? t('sftp.bookmarkAlreadyExists') : t('sftp.bookmarkAdded'))
+  } catch (err) {
+    bookmarkError(err)
+  }
+}
+
+async function toggleCurrentPathBookmark(): Promise<void> {
+  if (!currentPath.value) return
+  const existing = pathBookmarks.findConnectionPath(currentPath.value)
+  try {
+    if (existing) {
+      await pathBookmarks.remove(existing.id)
+      ElMessage.success(t('sftp.bookmarkRemoved'))
+    } else {
+      await addPathBookmark(currentPath.value, 'connection', false)
+    }
+  } catch (err) {
+    bookmarkError(err)
+  }
+}
+
+async function handleAddBookmark(scope: SftpPathBookmarkScope): Promise<void> {
+  if (!currentPath.value) return
+  await addPathBookmark(currentPath.value, scope, scope === 'global')
+}
+
+async function handleOpenBookmark(bookmark: SftpPathBookmark): Promise<void> {
+  await runExclusive(async () => {
+    if (followTerminalPath.value) {
+      followTerminalPath.value = false
+      ElMessage.info(t('sftp.followPausedBookmark'))
+    }
+    await loadDirectory(bookmark.path)
+    saveCurrentState()
+  })
+}
+
+async function handleRenameBookmark(bookmark: SftpPathBookmark): Promise<void> {
+  let name: string
+  try {
+    name = await appPrompt({
+      title: t('sftp.renameBookmark'),
+      message: bookmark.path,
+      inputValue: bookmark.name,
+      inputPlaceholder: t('sftp.bookmarkNamePlaceholder'),
+      maxLength: 80,
+    })
+  } catch {
+    return
+  }
+  try {
+    await pathBookmarks.rename(bookmark.id, name)
+  } catch (err) {
+    bookmarkError(err)
+  }
+}
+
+async function handleRemoveBookmark(bookmark: SftpPathBookmark): Promise<void> {
+  try {
+    await appConfirm({
+      title: t('sftp.deleteBookmark'),
+      message: t('sftp.deleteBookmarkMessage', { name: bookmark.name }),
+      detail: bookmark.path,
+      danger: true,
+    })
+    await pathBookmarks.remove(bookmark.id)
+    ElMessage.success(t('sftp.bookmarkRemoved'))
+  } catch (err) {
+    if (err !== 'cancel') bookmarkError(err)
+  }
+}
+
+async function handleMoveBookmark(bookmark: SftpPathBookmark, direction: -1 | 1): Promise<void> {
+  try {
+    await pathBookmarks.move(bookmark.id, direction)
+  } catch (err) {
+    bookmarkError(err)
+  }
+}
+
+async function handleEditBookmarkPath(bookmark: SftpPathBookmark): Promise<void> {
+  let nextPath: string
+  try {
+    nextPath = await appPrompt({
+      title: t('sftp.editBookmarkPath'),
+      message: bookmark.name,
+      detail: bookmark.path,
+      inputValue: bookmark.path,
+      inputPlaceholder: t('sftp.bookmarkPathPlaceholder'),
+      maxLength: 500,
+    })
+  } catch {
+    return
+  }
+  try {
+    const result = await pathBookmarks.updatePath(bookmark.id, nextPath)
+    if (result === 'duplicate') ElMessage.info(t('sftp.bookmarkAlreadyExists'))
+  } catch (err) {
+    bookmarkError(err)
+  }
+}
+
+async function handleReorderBookmark(
+  draggedId: string,
+  targetId: string,
+  place: 'before' | 'after',
+): Promise<void> {
+  try {
+    await pathBookmarks.reorder(draggedId, targetId, place)
+  } catch (err) {
+    bookmarkError(err)
+  }
+}
 
 /** In-flight guard for toolbar / path actions (covers tree refresh after readdir). */
 const actionBusy = ref(false)
@@ -531,6 +689,19 @@ function onContextMenuOpen(entry: FileEntry) {
   hideContextMenu()
 }
 
+function onContextMenuBookmark(entry: FileEntry) {
+  hideContextMenu()
+  if (!entry.isDirectory) return
+  const existing = pathBookmarks.findConnectionPath(entry.path)
+  if (!existing) {
+    void addPathBookmark(entry.path, 'connection', false)
+    return
+  }
+  void pathBookmarks.remove(existing.id)
+    .then(() => { ElMessage.success(t('sftp.bookmarkRemoved')) })
+    .catch(bookmarkError)
+}
+
 function onContextMenuExtract(entry: FileEntry) {
   void extractArchive(entry)
 }
@@ -673,6 +844,7 @@ function sftpEntryCount(): number {
 }
 
 onMounted(async () => {
+  void pathBookmarks.ensureLoaded().catch(bookmarkError)
   registerSftpResource(props.sessionId, () => ({ entryCount: sftpEntryCount() }))
   bindSessionClosedListener(props.sessionId)
   ensureTransferListeners()
@@ -743,11 +915,22 @@ defineExpose({ handleTerminalCd, clearSessionState })
           :path-input="pathInput"
           :show-path-input="showPathInput"
           :locked="actionLocked"
+          :connection-bookmarks="pathBookmarks.grouped.value.connection"
+          :global-bookmarks="pathBookmarks.grouped.value.global"
+          :connection-bookmarked="!!currentConnectionBookmark"
           @update:path-input="pathInput = $event"
           @toggle="togglePathInput()"
           @submit="handlePathSubmit"
           @cancel="cancelPathInput"
           @blur-submit="handlePathSubmit"
+          @toggle-bookmark="toggleCurrentPathBookmark"
+          @add-bookmark="handleAddBookmark"
+          @open-bookmark="handleOpenBookmark"
+          @rename-bookmark="handleRenameBookmark"
+          @remove-bookmark="handleRemoveBookmark"
+          @move-bookmark="handleMoveBookmark"
+          @edit-bookmark-path="handleEditBookmarkPath"
+          @reorder-bookmark="handleReorderBookmark"
         />
       </div>
 
@@ -841,10 +1024,12 @@ defineExpose({ handleTerminalCd, clearSessionState })
       :x="contextMenuX"
       :y="contextMenuY"
       :entry="contextMenuEntry"
+      :bookmarked="!!contextMenuEntry && contextMenuEntry.isDirectory && !!pathBookmarks.findConnectionPath(contextMenuEntry.path)"
       :can-edit="canEditFile"
       :is-archive="isArchiveName"
       @dismiss="hideContextMenu"
       @open="onContextMenuOpen"
+      @bookmark="onContextMenuBookmark"
       @download="onContextMenuDownload"
       @download-to="onContextMenuDownloadTo"
       @download-dir="onContextMenuDownloadDir"

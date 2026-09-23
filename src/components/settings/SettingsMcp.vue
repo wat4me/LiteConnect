@@ -6,6 +6,11 @@ import { appConfirm } from '@/composables/app/useAppDialog'
 import type { McpHttpStatus } from '../../env.d'
 import type { ApprovalMode } from '@shared/mcp/types'
 import { MCP_HTTP_DEFAULT_PORT } from '@shared/mcp/limits'
+import {
+  MCP_DESTRUCTIVE_BINARY_NAMES,
+  MCP_INTERPRETER_NAMES,
+  MCP_PRIVILEGE_WRAPPER_NAMES,
+} from '@shared/mcp/classify'
 
 const { t } = useI18n()
 
@@ -18,6 +23,36 @@ const approvalModes: Array<{ id: ApprovalMode; label: string; hint: string }> = 
   { id: 'ask-destructive', label: 'settingsMcp.approvalAsk', hint: 'settingsMcp.approvalAskHint' },
   { id: 'auto', label: 'settingsMcp.approvalAuto', hint: 'settingsMcp.approvalAutoHint' },
 ]
+
+const dynamicPolicyExamples = [
+  { command: 'kill -0 <PID>', result: 'settingsMcp.policyRuleKillProbe' },
+  { command: 'systemctl status / start / stop', result: 'settingsMcp.policyRuleSystemctl' },
+  { command: 'git clean / reset --hard / push --force', result: 'settingsMcp.policyRuleGit' },
+  { command: 'sed -i / find -delete / rsync --delete', result: 'settingsMcp.policyRuleMutationFlags' },
+  { command: 'curl / wget', result: 'settingsMcp.policyRuleNetwork' },
+  { command: 'docker / podman / kubectl / helm / terraform', result: 'settingsMcp.policyRuleCli' },
+  { command: 'sh -c / bash -c / python -c / node -e', result: 'settingsMcp.policyRuleScripts' },
+] as const
+
+const highRiskExamples = [
+  'rm -rf /',
+  'dd … of=/dev/…',
+  'curl … | sh',
+  'chmod -R … /',
+  '> /etc/passwd',
+  '… > ~/.ssh/authorized_keys',
+]
+
+const activePolicySummary = computed(() => {
+  const mode = mcpStatus.value?.approvalMode || 'deny-destructive'
+  if (mode === 'auto') {
+    return { tone: 'danger', title: t('settingsMcp.policyCurrentAuto'), detail: t('settingsMcp.policyCurrentAutoHint') }
+  }
+  if (mode === 'ask-destructive') {
+    return { tone: 'ask', title: t('settingsMcp.policyCurrentAsk'), detail: t('settingsMcp.policyCurrentAskHint') }
+  }
+  return { tone: 'deny', title: t('settingsMcp.policyCurrentDeny'), detail: t('settingsMcp.policyCurrentDenyHint') }
+})
 
 async function refreshMcpStatus() {
   try {
@@ -185,6 +220,72 @@ onMounted(() => {
           <span class="mcp-approval-desc">{{ t(item.hint) }}</span>
         </button>
       </div>
+      <details class="command-policy-details">
+        <summary>
+          <span>{{ t('settingsMcp.policyDetails') }}</span>
+          <span class="policy-count">{{ MCP_DESTRUCTIVE_BINARY_NAMES.length }}</span>
+        </summary>
+        <div class="command-policy-body">
+          <div class="active-policy" :data-tone="activePolicySummary.tone">
+            <strong>{{ activePolicySummary.title }}</strong>
+            <span>{{ activePolicySummary.detail }}</span>
+          </div>
+          <p class="settings-hint policy-intro">{{ t('settingsMcp.policyDetailsHint') }}</p>
+
+          <div class="policy-section">
+            <div class="policy-section-title">
+              <span>{{ t('settingsMcp.policyDestructive') }}</span>
+              <span>{{ t('settingsMcp.policyItems', { count: MCP_DESTRUCTIVE_BINARY_NAMES.length }) }}</span>
+            </div>
+            <p class="settings-hint">{{ t('settingsMcp.policyDestructiveHint') }}</p>
+            <div class="command-chip-list">
+              <code v-for="name in MCP_DESTRUCTIVE_BINARY_NAMES" :key="name">{{ name }}</code>
+            </div>
+          </div>
+
+          <div class="policy-section">
+            <div class="policy-section-title">
+              <span>{{ t('settingsMcp.policyPrivileged') }}</span>
+              <span>{{ t('settingsMcp.policyItems', { count: MCP_PRIVILEGE_WRAPPER_NAMES.length }) }}</span>
+            </div>
+            <p class="settings-hint">{{ t('settingsMcp.policyPrivilegedHint') }}</p>
+            <div class="command-chip-list">
+              <code v-for="name in MCP_PRIVILEGE_WRAPPER_NAMES" :key="name">{{ name }}</code>
+            </div>
+          </div>
+
+          <div class="policy-section">
+            <div class="policy-section-title">
+              <span>{{ t('settingsMcp.policyHighRisk') }}</span>
+            </div>
+            <p class="settings-hint">{{ t('settingsMcp.policyHighRiskHint') }}</p>
+            <div class="command-chip-list danger">
+              <code v-for="command in highRiskExamples" :key="command">{{ command }}</code>
+            </div>
+          </div>
+
+          <div class="policy-section">
+            <div class="policy-section-title">
+              <span>{{ t('settingsMcp.policyDynamic') }}</span>
+            </div>
+            <p class="settings-hint">{{ t('settingsMcp.policyDynamicHint') }}</p>
+            <div class="policy-rule-list">
+              <div v-for="rule in dynamicPolicyExamples" :key="rule.command" class="policy-rule">
+                <code>{{ rule.command }}</code>
+                <span>{{ t(rule.result) }}</span>
+              </div>
+              <div class="policy-rule">
+                <code>{{ MCP_INTERPRETER_NAMES.join(' / ') }}</code>
+                <span>{{ t('settingsMcp.policyRuleInterpreters') }}</span>
+              </div>
+              <div class="policy-rule">
+                <code>{{ t('settingsMcp.policyUnknownCommand') }}</code>
+                <span>{{ t('settingsMcp.policyRuleUnknown') }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
       <p class="settings-hint" :class="{ warn: !!mcpStatus?.lastError }">
         <template v-if="mcpStatus?.listening">{{ t('settingsMcp.listening', { url: mcpStatus.url }) }}</template>
         <template v-else-if="mcpStatus?.lastError">{{ t('settingsMcp.startFailed', { error: mcpStatus.lastError }) }}</template>
@@ -341,6 +442,172 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+.command-policy-details {
+  margin-top: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.command-policy-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.command-policy-details > summary::-webkit-details-marker,
+.command-policy-details > summary::marker {
+  display: none;
+}
+
+.command-policy-details > summary::before {
+  content: '›';
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.command-policy-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.policy-count {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-align: center;
+}
+
+.command-policy-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.active-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.active-policy strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.active-policy[data-tone='deny'] {
+  border-color: color-mix(in srgb, var(--warning-color, #d98e04) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--warning-color, #d98e04) 8%, transparent);
+}
+
+.active-policy[data-tone='ask'] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  background: var(--accent-bg);
+}
+
+.active-policy[data-tone='danger'] {
+  border-color: color-mix(in srgb, var(--danger-color, #d94a4a) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color, #d94a4a) 8%, transparent);
+}
+
+.policy-intro {
+  margin-top: 10px;
+}
+
+.policy-section {
+  margin-top: 14px;
+}
+
+.policy-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.policy-section-title > span:last-child:not(:first-child) {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.policy-section .settings-hint {
+  margin: 4px 0 7px;
+}
+
+.command-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.command-chip-list code,
+.policy-rule code {
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: 10px;
+}
+
+.command-chip-list code {
+  padding: 3px 6px;
+}
+
+.command-chip-list.danger code {
+  color: var(--danger-color, #d94a4a);
+}
+
+.policy-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.policy-rule {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+  gap: 8px;
+  align-items: start;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.policy-rule code {
+  padding: 4px 6px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .policy-rule {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
 }
 
 .mcp-snippet {

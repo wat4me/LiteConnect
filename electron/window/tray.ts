@@ -12,6 +12,8 @@ let tray: Tray | null = null
 let quitting = false
 /** Accelerator this app currently owns, so changes can unregister the old combo. */
 let registeredAccelerator: string | null = null
+/** Avoid installing duplicate close handlers if tray setup is called again. */
+const closeHandlerWindows = new WeakSet<BrowserWindow>()
 
 function trayIconPath(): string | null {
   const candidates = app.isPackaged
@@ -136,12 +138,20 @@ export function installCloseToTray(
   reopenMainWindow: () => void,
 ): void {
   openMainWindowFallback = reopenMainWindow
-  app.on('browser-window-created', (_e, win) => {
+
+  const installWindowHandler = (win: BrowserWindow) => {
+    if (closeHandlerWindows.has(win)) return
+    closeHandlerWindows.add(win)
     win.on('close', (e) => {
       if (quitting || win.isDestroyed()) return
       if (!settingsStore.getCloseToTrayEnabled()) return
       e.preventDefault()
       win.hide()
     })
-  })
+  }
+
+  // The first BrowserWindow may already exist by the time settings finish
+  // loading. Cover it as well as detached / DB windows created afterwards.
+  for (const win of BrowserWindow.getAllWindows()) installWindowHandler(win)
+  app.on('browser-window-created', (_e, win) => installWindowHandler(win))
 }

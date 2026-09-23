@@ -4,6 +4,8 @@ import type { Terminal } from '@xterm/xterm'
 import {
   buildShellSuggestions,
   extractSuggestPrefix,
+  nextShellSuggestIndex,
+  shellSuggestNavigationDirection,
   suggestCompletionSuffix,
   type ShellHistoryEntry,
   type ShellSuggestItem,
@@ -143,6 +145,11 @@ export function useTerminalShellSuggest(deps: {
     }
   }
 
+  function onShellCommandHistoryCleared() {
+    shellHistory.value = []
+    hideSuggest()
+  }
+
   async function pushShellHistory(command: string) {
     try {
       const list = await window.LiteConnect.pushShellCommandHistory(deps.connectionId(), command)
@@ -222,21 +229,22 @@ export function useTerminalShellSuggest(deps: {
 
   function handleSuggestKey(event: KeyboardEvent): boolean {
     if (!suggestVisible.value) return true
+    // xterm calls attachCustomKeyEventHandler for keydown and keyup. Mutating
+    // selection on both phases makes one physical ArrowDown skip A and land on B.
+    if (event.type !== 'keydown') return true
     if (event.key === 'Escape') {
       event.preventDefault()
       hideSuggest()
       return false
     }
-    if (event.key === 'ArrowDown') {
+    const navigationDirection = shellSuggestNavigationDirection(event)
+    if (navigationDirection != null) {
       event.preventDefault()
-      const n = suggestItems.value.length
-      if (n > 0) suggestActiveIndex.value = suggestActiveIndex.value < 0 ? 0 : (suggestActiveIndex.value + 1) % n
-      return false
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      const n = suggestItems.value.length
-      if (n > 0) suggestActiveIndex.value = suggestActiveIndex.value < 0 ? n - 1 : (suggestActiveIndex.value - 1 + n) % n
+      suggestActiveIndex.value = nextShellSuggestIndex(
+        suggestActiveIndex.value,
+        suggestItems.value.length,
+        navigationDirection,
+      )
       return false
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -257,11 +265,14 @@ export function useTerminalShellSuggest(deps: {
     })
   }
 
-  watch(suggestItems, (list) => {
-    if (suggestActiveIndex.value >= list.length) {
+  watch(
+    () => suggestItems.value.map((item) => item.id).join('\u0000'),
+    () => {
+      // Typing can replace the list without changing its length. Do not carry a
+      // keyboard highlight from the previous query into the new candidates.
       suggestActiveIndex.value = -1
-    }
-  })
+    },
+  )
 
   watch(
     [deps.commandBuffer, suggestItems],
@@ -296,6 +307,7 @@ export function useTerminalShellSuggest(deps: {
     suggestDismissed,
     loadCommandSuggestSetting,
     onTerminalBehaviorSettingsChange,
+    onShellCommandHistoryCleared,
     scheduleHistorySniff,
     feedHistorySniff,
     hideSuggest,

@@ -319,6 +319,8 @@ export function truncateToTokenBudget(text: string, maxTokens: number): string {
 
 export function packAiMessages(opts: {
   systemPrompt?: string
+  /** Explicitly selected fixed context may need more room than the default system cap. */
+  systemMaxTokens?: number
   messages: AiContextMessage[]
   model?: string
   /** Full model window. Prompt budget = window - reserveOutputTokens. */
@@ -345,7 +347,11 @@ export function packAiMessages(opts: {
   let truncatedCount = 0
 
   if (systemRaw) {
-    const sysBudget = Math.min(2_000, Math.floor(promptBudget * 0.25), maxMessageTokens)
+    const sysBudget = Math.min(
+      opts.systemMaxTokens ?? 2_000,
+      Math.floor(promptBudget * (opts.systemMaxTokens ? 0.5 : 0.25)),
+      maxMessageTokens,
+    )
     let content = systemRaw
     if (estimateTokens(content) > sysBudget) {
       content = truncateToTokenBudget(content, sysBudget)

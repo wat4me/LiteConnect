@@ -4,8 +4,11 @@ import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve, sep } from 'path'
 import {
+  createNewConversationAtomic,
   readAiSessionStore,
   readAiSessionStoreAndGc,
+  removeAiConversationContextFile,
+  setAiConversationContextFile,
   upsertAiHistoryRecord,
   writeAiContextCheckpoint,
   writeAiSessionStore,
@@ -98,6 +101,56 @@ it('retains the approval diff through completion and history reload', async () =
   expect(reply.toolRuns?.[0]).toMatchObject(diff)
   const store = await readAiSessionStore('diff-session')
   expect(store.threads[0].messages[0].toolRuns?.[0]).toMatchObject({ status: 'done', ...diff })
+})
+
+it('persists up to five reference files and removes one without changing older conversations', async () => {
+  const initial = await readAiSessionStoreAndGc('context-file-session')
+  const threadId = initial.activeThreadId
+  const file = { source: 'ssh' as const, path: '/home/user/AGENTS.md', content: 'Always check status first.' }
+  await setAiConversationContextFile('context-file-session', threadId, file)
+  expect((await readAiSessionStore('context-file-session')).threads[0].contextFiles).toEqual([file])
+  expect((await readAiSessionStore('context-file-session')).defaultContextFiles).toEqual([file])
+  await expect(setAiConversationContextFile('context-file-session', 'wrong-thread', file)).rejects.toThrow('changed')
+  await expect(setAiConversationContextFile('context-file-session', threadId, { ...file, content: 'x'.repeat(40 * 1024) }))
+    .rejects.toThrow('oversized')
+  await expect(setAiConversationContextFile('context-file-session', threadId, { ...file, path: '/home/user/rules.txt' }))
+    .rejects.toThrow('Invalid')
+  for (let i = 0; i < 4; i++) await setAiConversationContextFile('context-file-session', threadId, { ...file, path: `/home/user/rules-${i}.md` })
+  await expect(setAiConversationContextFile('context-file-session', threadId, { ...file, path: '/home/user/sixth.md' })).rejects.toThrow('5')
+  await setAiConversationContextFile('context-file-session', threadId, { ...file, content: 'Updated snapshot.' })
+  expect((await readAiSessionStore('context-file-session')).threads[0].contextFiles[0].content).toBe('Updated snapshot.')
+  await removeAiConversationContextFile('context-file-session', threadId, file.source, file.path)
+  expect((await readAiSessionStore('context-file-session')).threads[0].contextFiles).toHaveLength(4)
+  expect((await readAiSessionStore('context-file-session')).defaultContextFiles).toHaveLength(4)
+})
+
+it('loads the saved reference file in each new conversation', async () => {
+  const initial = await readAiSessionStoreAndGc('context-draft-session')
+  const threadId = initial.activeThreadId
+  const file = { source: 'local' as const, path: 'C:/rules.markdown', content: 'Run the checklist.' }
+  await setAiConversationContextFile('context-draft-session', threadId, file)
+  await upsertAiHistoryRecord('context-draft-session', {
+    id: 'first-question', role: 'user', content: 'Check this server', createdAt: Date.now(),
+  }, threadId)
+  const next = await createNewConversationAtomic('context-draft-session', { threadId })
+  expect(next.activeThreadId).not.toBe(threadId)
+  expect(next.threads.find(thread => thread.id === threadId)?.contextFiles).toEqual([file])
+  expect(next.threads.find(thread => thread.id === threadId)?.messages).toHaveLength(1)
+  expect(next.threads.find(thread => thread.id === next.activeThreadId)?.contextFiles).toEqual([file])
+  expect(next.defaultContextFiles).toEqual([file])
+
+  const replacement = { source: 'ssh' as const, path: '/srv/rules.md', content: 'Check disk usage first.' }
+  await setAiConversationContextFile('context-draft-session', next.activeThreadId, replacement)
+  const third = await createNewConversationAtomic('context-draft-session', { threadId: next.activeThreadId })
+  expect(third.threads.find(thread => thread.id === threadId)?.contextFiles).toEqual([file])
+  expect(third.threads.some(thread => thread.id === next.activeThreadId)).toBe(false)
+  expect(third.threads.find(thread => thread.id === third.activeThreadId)?.contextFiles).toEqual([file, replacement])
+
+  await removeAiConversationContextFile('context-draft-session', third.activeThreadId, file.source, file.path)
+  await removeAiConversationContextFile('context-draft-session', third.activeThreadId, replacement.source, replacement.path)
+  const fourth = await createNewConversationAtomic('context-draft-session', { threadId: third.activeThreadId })
+  expect(fourth.defaultContextFiles).toEqual([])
+  expect(fourth.threads.find(thread => thread.id === fourth.activeThreadId)?.contextFiles).toEqual([])
 })
 
 it('retains all tool protocol records through the configured 200-round ceiling', async () => {

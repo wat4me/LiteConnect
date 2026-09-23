@@ -164,10 +164,12 @@ export function packRequestMessages(
   incoming: AiChatMessage[],
   budgetTokens?: number,
   extraSystem?: string,
+  systemMaxTokens?: number,
 ): AiContextMessage[] {
   const systemPrompt = [settings.systemPrompt, extraSystem].filter((s) => s && s.trim()).join('\n\n')
   return packAiMessages({
     systemPrompt,
+    systemMaxTokens,
     messages: incoming.filter((m) => m.role !== 'system'),
     model: settings.model,
     budgetTokens,

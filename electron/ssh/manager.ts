@@ -440,6 +440,20 @@ export class SSHManager {
     return false
   }
 
+  /** Apply renderer backpressure to both sides of the interactive shell. */
+  setOutputPaused(sessionId: string, paused: boolean): boolean {
+    const stream = this.sessions.get(sessionId)?.stream
+    if (!stream) return false
+    if (paused) {
+      stream.pause()
+      stream.stderr.pause()
+    } else {
+      stream.resume()
+      stream.stderr.resume()
+    }
+    return true
+  }
+
   /**
    * Tear down a session that is no longer writable without bumping epoch,
    * so the renderer still receives the matching close/error from IPC.

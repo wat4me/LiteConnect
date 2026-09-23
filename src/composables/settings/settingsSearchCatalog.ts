@@ -113,6 +113,13 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['补全', '提示', '历史命令'],
   },
   {
+    id: 'terminal.commandHistoryPrivacy',
+    tab: 'terminal',
+    titleKey: 'settingsTerminal.commandHistoryPrivacy',
+    hintKey: 'settingsTerminal.commandHistoryPrivacyHint',
+    keywords: ['隐私', '敏感', '密钥', '密码', 'token', '排除', '清空历史'],
+  },
+  {
     id: 'terminal.sessionLog',
     tab: 'terminal',
     titleKey: 'settingsTerminal.sessionLog',

@@ -157,6 +157,13 @@ export interface AiContextCheckpoint {
   model?: string
 }
 
+/** A user-selected Markdown file captured as text for AI conversations. */
+export interface AiConversationContextFile {
+  source: 'local' | 'ssh'
+  path: string
+  content: string
+}
+
 export interface AiConversationThread {
   id: string
   /** First user message, verbatim. Always re-derived; never model-generated. */
@@ -166,12 +173,15 @@ export interface AiConversationThread {
   messages: AiHistoryRecord[]
   /** Derived model context. Full display history remains in `messages`. */
   contextCheckpoint?: AiContextCheckpoint
+  contextFiles: AiConversationContextFile[]
 }
 
 export interface AiSessionStore {
   version: 1
   activeThreadId: string
   threads: AiConversationThread[]
+  /** Host-scoped default copied into each new conversation; null disables inheritance. */
+  defaultContextFiles: AiConversationContextFile[]
 }
 
 export interface AiThreadSummary {
@@ -180,6 +190,7 @@ export interface AiThreadSummary {
   createdAt: number
   updatedAt: number
   messageCount: number
+  contextFilePath?: string
   active: boolean
 }
 

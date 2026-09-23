@@ -10,6 +10,19 @@ export interface FileEntry {
 
 export type TransferConflictStrategy = 'overwrite' | 'skip' | 'rename'
 
+export type SftpPathBookmarkScope = 'connection' | 'global'
+
+export interface SftpPathBookmark {
+  id: string
+  name: string
+  path: string
+  scope: SftpPathBookmarkScope
+  /** Required for connection-scoped bookmarks; absent for global bookmarks. */
+  connectionId?: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface TransferItem {
   id: string
   sessionId: string

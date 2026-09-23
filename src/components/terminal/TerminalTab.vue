@@ -146,7 +146,10 @@ const {
   appendRenderBatch,
   resetRenderBatch,
   setRenderFrozen,
-} = useRenderBatch(getTerminal)
+  isOutputPaused,
+} = useRenderBatch(getTerminal, (paused) => {
+  window.LiteConnect.sshSetOutputPaused(props.sessionId, paused)
+})
 
 flushRenderBatchFn = flushRenderBatch
 
@@ -204,7 +207,7 @@ onCommandSubmitted = (cmd) => {
     )
   }
   if (!cmd || !cmd.trim()) return
-  suggest.scheduleHistorySniff(cmd.trim())
+  suggest.scheduleHistorySniff(cmd)
 }
 
 const {
@@ -478,6 +481,7 @@ onMounted(async () => {
   attachSettingsListeners()
   await suggest.loadCommandSuggestSetting()
   window.addEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
+  window.addEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
 
   const terminal = createTerminal(props.connectionName)
   if (!terminal) return
@@ -508,6 +512,7 @@ onMounted(async () => {
 
   unsubReconnected = window.LiteConnect.onSshReconnected?.(props.sessionId, () => {
     reconnect.markReconnectedInPlace()
+    if (isOutputPaused()) window.LiteConnect.sshSetOutputPaused(props.sessionId, true)
     void flushStartupNotices()
   }) ?? null
 
@@ -541,6 +546,7 @@ watch([theme, customColors, terminalPalette], () => {
 onBeforeUnmount(() => {
   unregisterTerminalResource(props.sessionId)
   window.removeEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
+  window.removeEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
   window.removeEventListener('request-terminal-pwd', onRequestTerminalPwd)
   window.removeEventListener('ssh-reconnect-failed', reconnect.onReconnectFailed)
   window.removeEventListener('beforeunload', reconnect.onAppUnloading)

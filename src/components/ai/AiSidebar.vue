@@ -2,9 +2,9 @@
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiSettings, AiToolRun } from '../../env.d.ts'
+import type { AiConversationContextFile, AiSettings, AiToolRun } from '../../env.d.ts'
 import { useAiChat, type ChatItem } from '../../composables/ai/useAiChat'
-import { appConfirm } from '@/composables/app/useAppDialog'
+import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
 import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
@@ -20,6 +20,7 @@ import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConver
 import { flattenConversationForApi } from '@shared/aiMessages'
 import { projectAiHistoryForContext } from '@shared/aiCompaction'
 import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
+import { isAiMarkdownFilePath } from '@shared/aiFixedContext'
 import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import { diffPreviewRows } from '@/utils/ai/diffPreviewRows'
@@ -60,6 +61,8 @@ const {
   getSessionState,
   saveSessionInput,
   startNewConversation,
+  setConversationContextFile,
+  removeConversationContextFile,
   switchConversation,
   deleteConversation,
   clearAllConversations,
@@ -71,6 +74,43 @@ const {
 } = useAiChat()
 
 const messages = ref<ChatItem[]>([])
+const contextFiles = computed(() => getSessionState(props.sessionId).contextFiles)
+const contextFileName = (file: AiConversationContextFile) => file.path.split(/[\\/]/).pop() || file.path
+const contextFileSourceStatus = ref<Record<string, 'checking' | 'available' | 'missing' | 'unavailable'>>({})
+const contextFileKey = (file: AiConversationContextFile) => `${file.source}:${file.path}`
+let contextFileCheckVersion = 0
+
+async function checkContextFileSource() {
+  const version = ++contextFileCheckVersion
+  if (!props.active) {
+    contextFileSourceStatus.value = {}
+    return
+  }
+  const files = [...contextFiles.value]
+  contextFileSourceStatus.value = Object.fromEntries(files.map(file => [contextFileKey(file), 'checking']))
+  await Promise.all(files.map(async file => {
+    let status: 'available' | 'missing' | 'unavailable'
+    try {
+      if (file.source === 'local') status = await window.LiteConnect.aiCheckLocalContextFile(file.path)
+      else {
+        const stat = await window.LiteConnect.sftpStat(props.sessionId, file.path)
+        status = stat.isDirectory ? 'missing' : 'available'
+      }
+    } catch (error: any) {
+      status = file.source === 'ssh' && /no such file|not found|does not exist|不存在/i.test(String(error?.message || ''))
+        ? 'missing' : 'unavailable'
+    }
+    if (version === contextFileCheckVersion) contextFileSourceStatus.value[contextFileKey(file)] = status
+  }))
+}
+
+watch([contextFiles, () => props.active, () => props.openGeneration, () => props.sessionId], () => {
+  void checkContextFileSource()
+}, { immediate: true })
+
+function onContextFileMenuToggle() {
+  if (contextFileMenuRef.value?.open) void checkContextFileSource()
+}
 const input = ref('')
 const loading = ref(false)
 watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
@@ -87,6 +127,7 @@ const sidebarRef = ref<HTMLElement | null>(null)
 const chatViewRef = ref<InstanceType<typeof AiChatView> | null>(null)
 const composerAreaRef = ref<HTMLElement | null>(null)
 const composerInputRef = ref<HTMLTextAreaElement | null>(null)
+const contextFileMenuRef = ref<HTMLDetailsElement | null>(null)
 let composerObserver: ResizeObserver | undefined
 let composerLayoutRaf = 0
 let composerOverlayInset = 0
@@ -95,6 +136,7 @@ let documentKeydownActive = false
 function attachSidebarDomListeners() {
   if (!documentKeydownActive) {
     document.addEventListener('keydown', closePopoverOnEscape)
+    document.addEventListener('pointerdown', closeContextFileMenuOnOutsideClick)
     documentKeydownActive = true
   }
   if (sidebarRef.value) composerObserver?.observe(sidebarRef.value)
@@ -105,6 +147,7 @@ function detachSidebarDomListeners() {
   composerObserver?.disconnect()
   if (documentKeydownActive) {
     document.removeEventListener('keydown', closePopoverOnEscape)
+    document.removeEventListener('pointerdown', closeContextFileMenuOnOutsideClick)
     documentKeydownActive = false
   }
 }
@@ -116,8 +159,9 @@ function resizeComposer() {
   const form = el.closest('form')!
   const formStyle = getComputedStyle(form)
   const toolbarHeight = form.querySelector('.composer-actions')?.getBoundingClientRect().height || 30
+  const referenceHeight = form.querySelector('.composer-reference-list')?.getBoundingClientRect().height || 0
   const statusHeight = panel.querySelector('.composer-context-warning')?.getBoundingClientRect().height || 0
-  const chromeHeight = statusHeight + 4 + toolbarHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) + 2
+  const chromeHeight = statusHeight + 4 + toolbarHeight + referenceHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) * (referenceHeight ? 2 : 1) + 2
   const maxHeight = Math.max(lineHeight * 2, Math.min(lineHeight * 8, panel.clientHeight * 0.3 - chromeHeight))
   el.style.height = '0px'
   el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`
@@ -148,6 +192,7 @@ function onComposerKeydown(event: KeyboardEvent) {
 const composerModelLabel = computed(() => activeProvider.value?.models.find(m => m.id === displayModelName.value)?.displayName || displayModelName.value)
 const permissionLabel = computed(() => t(`ai.permissionShort${settings.value.toolPermission === 'auto' ? 'Auto' : settings.value.toolPermission === 'readonly' ? 'Readonly' : 'Ask'}`))
 const savingComposer = ref(false)
+const contextFileBusy = ref(false)
 const permissionOptions = computed(() => ['ask', 'auto', 'readonly'].map(value => ({ value, label: t(`ai.permission_${value}`), description: t(`ai.permissionDesc_${value}`) })))
 async function savePermission(value: string) {
   if (loading.value || savingComposer.value) return
@@ -161,7 +206,7 @@ async function savePermission(value: string) {
   } catch (err: any) { ElMessage.warning(err?.message || t('ai.saveSettingsFailed')) }
   finally { savingComposer.value = false }
 }
-watch([input, showSettings, showHistory], () => { void nextTick(resizeComposer) })
+watch([input, showSettings, showHistory, contextFiles], () => { void nextTick(resizeComposer) })
 const historyQuery = ref('')
 const filteredHistoryItems = computed(() => {
   const query = historyQuery.value.trim().toLocaleLowerCase()
@@ -176,7 +221,7 @@ const hasApiConfigured = computed(() => {
 let initialLoadPromise: Promise<void> | null = null
 let openPreparationPromise: Promise<void> | null = null
 let handledOpenGeneration = 0
-const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value)
+const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value && !contextFileBusy.value)
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
 const pendingApprovals = computed(() => {
@@ -253,6 +298,7 @@ const contextDroppedCount = computed(() => {
     cwd: sftpListedCwdState()[props.sessionId],
     model: settings.value.activeModel || displayModelName.value,
     contextWindowTokens: activeContextWindowTokens.value,
+    contextFiles: contextFiles.value,
   }).droppedCount
 })
 
@@ -470,13 +516,77 @@ async function ensureOpenPrepared() {
 }
 
 async function handleNewConversation() {
-  if (loading.value) return
+  if (loading.value || contextFileBusy.value) return
   await startNewConversation(props.sessionId, syncMessages)
   syncFromState()
 }
 
+async function chooseLocalContextFile() {
+  contextFileMenuRef.value?.removeAttribute('open')
+  if (loading.value || contextFileBusy.value) return
+  contextFileBusy.value = true
+  try {
+    await ensureInitialLoad(false)
+    const file = await window.LiteConnect.aiSelectLocalContextFile()
+    if (file) await setConversationContextFile(props.sessionId, file)
+  } catch (err: any) {
+    ElMessage.warning(err?.message || t('ai.contextFileFailed'))
+  } finally {
+    contextFileBusy.value = false
+  }
+}
+
+async function chooseSshContextFile() {
+  contextFileMenuRef.value?.removeAttribute('open')
+  if (loading.value || contextFileBusy.value) return
+  contextFileBusy.value = true
+  let path: string
+  try {
+    await ensureInitialLoad(false)
+    path = (await appPrompt({
+      title: t('ai.contextFileSsh'),
+      message: t('ai.contextFileSshHint'),
+      inputPlaceholder: '/home/user/AGENTS.md',
+      maxLength: 1024,
+    })).trim()
+  } catch {
+    contextFileBusy.value = false
+    return
+  }
+  if (!path) {
+    contextFileBusy.value = false
+    return
+  }
+  try {
+    if (!isAiMarkdownFilePath(path)) throw new Error(t('ai.contextFileMarkdownOnly'))
+    const content = await window.LiteConnect.sftpReadFile(props.sessionId, path)
+    const file: AiConversationContextFile = { source: 'ssh', path, content }
+    if (!content.trim() || content.includes('\0') || new TextEncoder().encode(content).length > 32 * 1024) {
+      throw new Error(t('ai.contextFileInvalid'))
+    }
+    await setConversationContextFile(props.sessionId, file)
+  } catch (err: any) {
+    ElMessage.warning(err?.message || t('ai.contextFileFailed'))
+  } finally {
+    contextFileBusy.value = false
+  }
+}
+
+async function removeContextFile(file: AiConversationContextFile) {
+  if (loading.value || contextFileBusy.value) return
+  contextFileBusy.value = true
+  try {
+    await ensureInitialLoad(false)
+    await removeConversationContextFile(props.sessionId, file)
+  } catch (err: any) {
+    ElMessage.warning(err?.message || t('ai.contextFileFailed'))
+  } finally {
+    contextFileBusy.value = false
+  }
+}
+
 async function handleSwitchConversation(threadId: string) {
-  if (loading.value) return
+  if (loading.value || contextFileBusy.value) return
   await switchConversation(props.sessionId, threadId, syncMessages)
   syncFromState()
   closeHistoryPanel()
@@ -694,8 +804,15 @@ function formatHistoryTime(timestamp: number) {
 function closePopoverOnEscape(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   showModelSwitcher.value = false
+  contextFileMenuRef.value?.removeAttribute('open')
   closeSettingsPanel()
   closeHistoryPanel()
+}
+
+function closeContextFileMenuOnOutsideClick(event: PointerEvent) {
+  if (!contextFileMenuRef.value?.contains(event.target as Node)) {
+    contextFileMenuRef.value?.removeAttribute('open')
+  }
 }
 
 async function clearCurrentHistory() {
@@ -777,7 +894,7 @@ async function runCodeToTerminal(code: string) {
           type="button"
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
           :disabled="loading"
-          :title="t('ai.newConversation')"
+          :title="t('ai.newConversationHint')"
           @click="handleNewConversation"
         >
           <AppIcon name="plus" size="sm" />
@@ -863,6 +980,21 @@ async function runCodeToTerminal(code: string) {
 
     <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area">
     <form class="composer" @submit.prevent="sendMessage">
+      <div v-if="contextFiles.length" class="composer-reference-list">
+        <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-reference" :title="file.path">
+          <AppIcon name="file-text" size="sm" />
+          <div class="composer-reference-info">
+            <div class="composer-reference-title">
+              <strong class="composer-reference-name">{{ contextFileName(file) }}</strong>
+              <span class="composer-reference-source" :class="file.source">{{ file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal') }}</span>
+            </div>
+            <span class="composer-reference-path">{{ file.path }}</span>
+            <span v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="composer-reference-status missing">{{ t('ai.contextFileMissing') }}</span>
+            <span v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'" class="composer-reference-status">{{ t('ai.contextFileUnavailable') }}</span>
+          </div>
+          <button type="button" class="composer-reference-remove" :disabled="loading || contextFileBusy" :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" :title="t('ai.contextFileRemove')" @click="removeContextFile(file)"><AppIcon name="close" size="xs" /></button>
+        </div>
+      </div>
       <textarea
         ref="composerInputRef"
         v-model="input"
@@ -875,6 +1007,29 @@ async function runCodeToTerminal(code: string) {
       />
       <div class="composer-actions">
         <div class="composer-actions-right">
+          <details ref="contextFileMenuRef" class="composer-context-menu" :class="{ active: contextFiles.length > 0 }" @toggle="onContextFileMenuToggle">
+            <summary :aria-label="t('ai.contextFileMenu')" :title="t('ai.contextFileSnapshotHint')">
+              <AppIcon name="file-text" size="sm" />
+              <span class="composer-context-label">{{ contextFiles.length ? t('ai.contextFileCount', { count: contextFiles.length }) : t('ai.contextFileMenu') }}</span>
+              <AppIcon name="chevron-down" size="xs" />
+            </summary>
+            <div class="composer-context-dropdown">
+              <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-context-selected">
+                <div class="composer-reference-title">
+                  <strong class="composer-reference-name">{{ contextFileName(file) }}</strong>
+                  <span class="composer-reference-source" :class="file.source">{{ file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal') }}</span>
+                </div>
+                <span>{{ file.path }}</span>
+                <small v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="missing">{{ t('ai.contextFileMissing') }}</small>
+                <small v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'">{{ t('ai.contextFileUnavailable') }}</small>
+                <button type="button" :disabled="loading || contextFileBusy" @click="removeContextFile(file)">{{ t('ai.contextFileRemove') }}</button>
+              </div>
+              <div class="composer-context-help">{{ t('ai.contextFileMenuHint') }}</div>
+              <button type="button" :disabled="loading || contextFileBusy" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
+              <button type="button" :disabled="loading || contextFileBusy" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
+              <div v-if="contextFiles.length >= 5" class="composer-context-help">{{ t('ai.contextFileLimit') }}</div>
+            </div>
+          </details>
           <div class="model-switcher-wrap">
             <button
               v-if="displayModelName"
@@ -1679,7 +1834,8 @@ async function runCodeToTerminal(code: string) {
 .model-option-label { overflow-wrap: anywhere; min-width: 0; }
 .model-option-label small { display: block; color: var(--text-secondary); font-size: 10px; margin-top: 3px; }
 .header-more { position: relative; }
-.header-more summary { cursor: pointer; list-style: none; padding: 4px 6px; color: var(--text-secondary); }
+.header-more summary { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; list-style: none; padding: 4px 6px; color: var(--text-secondary); }
+.header-more summary::-webkit-details-marker { display: none; }
 .header-more-menu {
   position: absolute;
   top: 100%;
@@ -1706,6 +1862,109 @@ async function runCodeToTerminal(code: string) {
   cursor: pointer;
 }
 .header-more-menu button:hover { background: var(--hover-bg); }
+.header-more-menu button:disabled { opacity: 0.5; cursor: not-allowed; }
+.composer-reference-list { display: flex; flex-direction: column; gap: 4px; max-height: min(22vh, 150px); overflow-y: auto; min-height: 0; scrollbar-color: var(--scrollbar-thumb) transparent; }
+.composer-reference {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.composer-reference > :deep(.app-icon) { flex-shrink: 0; color: var(--accent); }
+.composer-reference-info { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.composer-reference-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.composer-reference-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.composer-reference-path { color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); overflow-wrap: anywhere; max-height: 2.7em; overflow: hidden; }
+.composer-reference-status { color: var(--text-secondary); }
+.composer-reference-status.missing { color: color-mix(in srgb, var(--warning) 40%, var(--text-primary)); }
+.composer-reference-remove { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; margin: -3px -4px 0 0; border: 0; border-radius: 5px; background: transparent; color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); cursor: pointer; }
+.composer-reference-remove:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.composer-reference-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.composer-reference-remove:disabled { opacity: 0.5; cursor: not-allowed; }
+.composer-context-menu { position: relative; flex: 0 1 auto; min-width: 0; }
+.composer-context-menu summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: 136px;
+  height: 34px;
+  padding: 0 5px;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary));
+  font-size: 11px;
+  line-height: 1;
+  list-style: none;
+  cursor: pointer;
+}
+.composer-context-menu summary::-webkit-details-marker { display: none; }
+.composer-context-menu summary:hover,
+.composer-context-menu[open] summary { background: var(--hover-bg); color: var(--text-primary); }
+.composer-context-menu.active summary { color: color-mix(in srgb, var(--accent) 40%, var(--text-primary)); }
+.composer-context-menu summary :deep(.app-icon) { flex-shrink: 0; }
+.composer-context-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-context-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(210px, calc(100cqw - 12px));
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-bg) 55%, transparent);
+}
+.composer-context-selected {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.composer-context-selected strong { font-weight: 600; overflow-wrap: anywhere; }
+.composer-context-selected span { color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); overflow-wrap: anywhere; }
+.composer-reference-title .composer-reference-source { flex-shrink: 0; padding: 1px 5px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 10px; line-height: 1.3; white-space: nowrap; }
+.composer-reference-title .composer-reference-source.ssh { border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color)); background: var(--accent-bg); color: color-mix(in srgb, var(--accent) 40%, var(--text-primary)); }
+.composer-context-selected small { color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); font-size: 10px; }
+.composer-context-selected small.missing { color: color-mix(in srgb, var(--warning) 40%, var(--text-primary)); }
+.composer-context-help {
+  padding: 5px 8px 7px;
+  color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary));
+  font-size: 11px;
+  line-height: 1.45;
+}
+.composer-context-dropdown button {
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.composer-context-dropdown button:hover { background: var(--hover-bg); }
+.composer-context-dropdown button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.composer-context-dropdown button:disabled { opacity: 0.5; cursor: not-allowed; }
+.composer-context-dropdown .composer-context-selected button { color: var(--danger); }
+.composer-context-dropdown .composer-context-selected button:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .composer-area {
   position: absolute;
   z-index: 4;
@@ -1729,6 +1988,9 @@ async function runCodeToTerminal(code: string) {
 .composer-context-warning.warn { color: var(--warning); }
 .composer-context-warning.danger { color: var(--danger); font-weight: 600; }
 .model-context-info { padding: 6px; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); }
+@container ai-composer (max-width: 420px) {
+  .composer-context-label { display: none; }
+}
 @container ai-composer (max-width: 220px) {
   .composer-actions-right { display: grid; grid-template-columns: minmax(0, 1fr) 38px; column-gap: 12px; row-gap: 3px; }
   .model-switcher-wrap { grid-column: 1; }

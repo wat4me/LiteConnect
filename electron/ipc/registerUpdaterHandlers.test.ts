@@ -1,6 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { registerUpdaterHandlers, userFacingUpdaterError } from './registerUpdaterHandlers'
+import {
+  registerUpdaterHandlers,
+  UPDATE_CHECK_TIMEOUT_MS,
+  userFacingUpdaterError,
+} from './registerUpdaterHandlers'
 import type { SettingsStore } from '../store/settingsStore'
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
@@ -27,6 +31,7 @@ beforeEach(() => {
   mocks.tokens = []
   mocks.updater = Object.assign(new EventEmitter(), {
     downloadUpdate: vi.fn(), quitAndInstall: vi.fn(),
+    netSession: { closeAllConnections: vi.fn(async () => {}) },
     checkForUpdates: vi.fn(async () => {
       mocks.updater.emit('checking-for-update')
       mocks.updater.emit('update-available', { version: '9.0.0' })
@@ -122,4 +127,35 @@ it('returns a generic retry message instead of unknown updater internals', async
     new Error('unexpected failure at C:\\Users\\private-name\\AppData\\app.asar'),
   )
   expect(await invoke('check')).toEqual({ ok: false, error: '检查更新失败，请稍后重试' })
+})
+
+it('aborts a hanging update check after the explicit network timeout', async () => {
+  vi.useFakeTimers()
+  try {
+    mocks.updater.checkForUpdates.mockReturnValueOnce(new Promise(() => {}))
+    const pending = invoke('check')
+
+    // The updater is lazy-loaded; let the IPC handler reach checkForUpdates
+    // before advancing the clock that owns the explicit timeout.
+    await vi.dynamicImportSettled()
+    expect(mocks.updater.checkForUpdates).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(UPDATE_CHECK_TIMEOUT_MS)
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      error: '检查更新超时，请检查网络后重试',
+    })
+    expect(invoke('status')).toEqual({
+      status: 'error',
+      message: '检查更新超时，请检查网络后重试',
+    })
+    expect(mocks.updater.netSession.closeAllConnections).toHaveBeenCalledOnce()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('classifies the updater default timeout as a network timeout', () => {
+  expect(userFacingUpdaterError(new Error('Request timed out'), 'check'))
+    .toBe('检查更新超时，请检查网络后重试')
 })

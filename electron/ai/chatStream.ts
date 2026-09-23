@@ -1,4 +1,5 @@
 import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
+import { formatAiConversationContextFile } from '../../shared/aiFixedContext'
 import { t } from '../i18n'
 import { runAiChatCompletion } from './chatCompletion'
 import {
@@ -126,6 +127,7 @@ export async function runAiChatStream(opts: {
   sessionId?: string
   cwd?: string
   settings: AiResolvedConfig
+  contextFiles?: import('../../shared/types/ai').AiConversationContextFile[]
   sshMcpRuntime?: SshMcpRuntime
   getToolPermission?: () => AiToolPermissionMode
   onToolApprovalRequested?: (input: {
@@ -181,6 +183,8 @@ export async function runAiChatStream(opts: {
       cwd,
     })
   }
+  const contextFiles = opts.contextFiles || []
+  for (const file of contextFiles) extraSystem += `\n\n${formatAiConversationContextFile(file)}`
 
   const control = opts.abortController ? undefined : createAiStreamControl(requestId)
   const abortController = opts.abortController || control!.controller
@@ -207,7 +211,14 @@ export async function runAiChatStream(opts: {
       throw error
     }
   }
-  let packedMessages = packRequestMessages(settings, contextMessages, undefined, extraSystem)
+  const packMessages = (incoming: AiChatMessage[], budgetTokens?: number) => {
+    const packed = packRequestMessages(settings, incoming, budgetTokens, extraSystem, contextFiles.length ? 40_000 : undefined)
+    if (contextFiles.some(file => !packed[0]?.content.includes(file.content))) {
+      throw new Error('Fixed context file is too large for the selected model context window')
+    }
+    return packed
+  }
+  let packedMessages = packMessages(contextMessages)
 
   const createBody = (includeUsage: boolean, msgs: any[], withTools: boolean) => ({
     model: settings.model,
@@ -271,11 +282,9 @@ export async function runAiChatStream(opts: {
           toolsEnabled = false
           response = await openStream(apiMessages, false)
         } else if (isContextLengthError(message) && round === 0) {
-          packedMessages = packRequestMessages(
-            settings,
+          packedMessages = packMessages(
             contextMessages,
             Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
-            extraSystem,
           )
           apiMessages = packedMessages
           response = await openStream(apiMessages, toolsEnabled)
@@ -533,7 +542,10 @@ export async function runAiChatStream(opts: {
       return { content: '', aborted: true, contextCheckpoint: activeContextCheckpoint }
     }
     if (!receivedText && streamAccepted) {
-      const reply = await runAiChatCompletion(settings, contextMessages, abortController.signal)
+      const reply = await runAiChatCompletion(
+        settings, contextMessages, abortController.signal, extraSystem,
+        contextFiles.length ? 40_000 : undefined, contextFiles.length ? contextFiles.map(formatAiConversationContextFile).join('\n\n') : undefined,
+      )
       if (reply.reasoningContent) send({ type: 'reasoning', value: reply.reasoningContent })
       send({ type: 'content', value: reply.content })
       if (reply.usage) send({ type: 'usage', value: reply.usage })

@@ -3,6 +3,7 @@ import type {
   AiChatResult,
   AiChatStreamPayload,
   AiChatStreamOptions,
+  AiConversationContextFile,
   AiHistoryRecord,
   AiSessionStore,
   AiSettings,
@@ -80,8 +81,9 @@ export interface LiteConnectApi {
   getSavedCredentialPassword: (id: string) => Promise<string>
   saveSavedCredential: (credential: Partial<SavedCredential> & { name: string; username: string; password: string }) => Promise<SavedCredential>
   deleteSavedCredential: (id: string) => Promise<boolean>
-  getRendererState: (key: 'db-query-drafts' | 'db-saved-queries' | 'batch-command-history') => Promise<string | null>
-  setRendererState: (key: 'db-query-drafts' | 'db-saved-queries' | 'batch-command-history', value: string | null) => Promise<void>
+  getRendererState: (key: 'db-query-drafts' | 'db-saved-queries' | 'batch-command-history' | 'sftp-path-bookmarks') => Promise<string | null>
+  setRendererState: (key: 'db-query-drafts' | 'db-saved-queries' | 'batch-command-history' | 'sftp-path-bookmarks', value: string | null) => Promise<void>
+  onSftpPathBookmarksChanged: (callback: (connectionId: string) => void) => () => void
   migrateRendererState: (entries: Partial<Record<'db-query-drafts' | 'db-saved-queries' | 'batch-command-history', string>>) => Promise<void>
 
   getGroups: () => Promise<Group[]>
@@ -201,6 +203,10 @@ export interface LiteConnectApi {
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) => Promise<boolean>
   getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
+  aiSelectLocalContextFile: () => Promise<AiConversationContextFile | null>
+  aiCheckLocalContextFile: (path: string) => Promise<'available' | 'missing' | 'unavailable'>
+  aiSetContextFile: (sessionId: string, threadId: string, file: AiConversationContextFile) => Promise<AiSessionStore>
+  aiRemoveContextFile: (sessionId: string, threadId: string, source: 'local' | 'ssh', path: string) => Promise<AiSessionStore>
   setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
   aiCreateConversation: (
     sessionId: string,
@@ -260,6 +266,7 @@ export interface LiteConnectApi {
   sshTakeStartupNotices: (sessionId: string) => Promise<string[]>
   sshDisconnect: (sessionId: string) => Promise<void>
   sshWrite: (sessionId: string, data: string) => void
+  sshSetOutputPaused: (sessionId: string, paused: boolean) => void
   sshResize: (sessionId: string, cols: number, rows: number) => void
   sshTestConnection: (connectionId: string) => Promise<{
     ok: boolean
