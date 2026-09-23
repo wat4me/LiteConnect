@@ -127,14 +127,23 @@ All main-process application data is stored in `liteconnect.sqlite`, managed by 
 
 Settings IPC is composed from `electron/ipc/settings/*.ts`. New settings go through `settings:getAll` / `settings:setMany` (`AppSettingsAll` + `SettingsStore.applyMany`), not a new one-off get/set channel.
 `electron/store/settingsPatch.ts` owns the synchronous validation and normalization for `setMany`; `SettingsStore` owns persistence and the public getter/setter API.
+`electron/store/aiSettingsService.ts` owns AI provider normalization, model selection, and resolved runtime configuration. `electron/store/settingsSecrets.ts` holds the Electron safeStorage boundary shared by AI keys and the MCP HTTP token; `SettingsStore` retains migration and persistence ownership.
 
 SSH MCP tool implementations live under `electron/mcp/tools/` (sessions, exec, sftp, pty, service). `electron/mcp/runtime.ts` is dispatch + session guards.
+Interactive SSH connection authentication, keyboard prompts, and host-verifier configs live in `electron/ssh/connectionAuth.ts`; X11 readiness policy lives in `electron/ssh/connectionX11.ts`. `ConnectionService` retains session generation, shell, jump transport, and resource cleanup. Single-file SFTP stream execution lives in `electron/ssh/transfer/fileTransfer.ts`; `TransferRunner` retains transfer registration, cancellation, and directory-job orchestration.
 
 DB query-tab run/export orchestration is `src/composables/database/useDbQueryRun.ts` and `useDbResultExport.ts`. Engine metadata/browse SQL lives in `electron/db/drivers/{postgres,mysql,oracle}Browse.ts` (class files stay the `DbDriver` entry and keep a private `warmExactCount` wrapper for tests).
+`DatabaseView.vue` loads `DbQueryTab.vue` (including CodeMirror) and `DbTableWorkspace.vue` only when the corresponding tab is opened; the database shell remains a separate lazy view from `App.vue`.
 
 App-shell wiring extracted from `App.vue`: snippet hotkeys (`useSnippetHotkeys`), Docker SSH session listeners (`useDockerSshBridge`), SFTP/batch toasts (`useTransferToasts`).
+Terminal split pane geometry lives in `src/utils/terminal/splitPaneLayout.ts`, split shortcuts in `useTerminalSplitKeyboard.ts`, and xterm input classification/writes in `useTerminalUserInput.ts`. Terminal components keep mounted xterm instances and visual coordination.
+`src/composables/app/useAppWindowRouting.ts` owns launch URL parsing and SSH/DB window entry policy; `App.vue` remains the composition root.
+
+MySQL streaming row caps and connection discard behavior live in `electron/db/drivers/mysqlQueryStream.ts`; PostgreSQL result mapping and cursor reads live in `postgresQueryExecution.ts`. Driver classes retain the query/session lifecycle and cancellation state.
 
 AI sidebar context-file availability checks live in `src/composables/ai/useAiContextFileStatus.ts`; its scoped presentation rules live in `src/components/ai/AiSidebar.css`.
+AI sidebar history filtering and mutations live in `src/composables/ai/useAiSidebarHistory.ts`.
+AI chat message footer display and controls live in `src/components/ai/AiMessageFooter.vue`; `AiChatView.vue` keeps scroll and timeline coordination, with scoped rules in `AiChatView.css`.
 SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
 
 UI-only helpers stay in `src/utils/**`, never in `shared/`.

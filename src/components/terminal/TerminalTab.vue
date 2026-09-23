@@ -12,6 +12,7 @@ import { useTerminalPwdQuery } from '../../composables/terminal/useTerminalPwdQu
 import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
 import { useTerminalKeyHandler } from '../../composables/terminal/useTerminalKeyHandler'
 import { useXtermInstance } from '../../composables/terminal/useXtermInstance'
+import { useTerminalUserInput } from '../../composables/terminal/useTerminalUserInput'
 import { useTerminalShellSuggest } from '../../composables/terminal/useTerminalShellSuggest'
 import { useSftpPathBookmarks } from '../../composables/sftp/useSftpPathBookmarks'
 import { useTerminalReconnect } from '../../composables/terminal/useTerminalReconnect'
@@ -263,16 +264,6 @@ const {
   reRunSearch,
 } = useTerminalSearch({ getTerminal, getSearchAddon })
 
-function isLocallyEchoable(data: string): boolean {
-  if (data.length === 0) return false
-  if (data.charCodeAt(0) === 0x1b) return false
-  for (const ch of data) {
-    const code = ch.charCodeAt(0)
-    if (code < 0x20 || code === 0x7f) return false
-  }
-  return true
-}
-
 let cursorPulseTimer: ReturnType<typeof setTimeout> | null = null
 
 function pulseCursor() {
@@ -285,87 +276,27 @@ function pulseCursor() {
   }, 120)
 }
 
-let tabCompletionInput: string | null = null
-
-function handleTerminalUserInput(data: string) {
-  if (readOnly.value) {
-    showReadOnlyHintOnce()
-    return
-  }
-  updatePasteState(data)
-
-  if (data.length === 1 && isLocallyEchoable(data) && !isPasting()) {
-    pulseCursor()
-  }
-
-  const isSubmit = data === '\r' || data === '\n'
-  const isCancel = data === '\x03' || data === '\x15'
-  const isBackspace = data === '\x7f' || data === '\x08'
-  const isTab = data === '\t' || data === '\x09'
-  const isEscape = data.charCodeAt(0) === 0x1b
-  const hasNewline = data.includes('\r') || data.includes('\n')
-
-  if (tabCompletionInput !== null && !isTab) {
-    if (syncAfterTabCompletion(tabCompletionInput, true)) {
-      suggest.suggestDismissed.value = false
-    }
-    tabCompletionInput = null
-  }
-
-  const plainChunk = data
-    .replace(/\x1b\[200~/g, '')
-    .replace(/\x1b\[201~/g, '')
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-
-  if (isSubmit) {
-    suggest.hideSuggest()
-    capturedSubmitLine.value = getVisibleCommandLine().replace(/\[Pasted[^\]]*\]\s*/g, '')
-    scheduleSubmit()
-  } else if (isCancel) {
-    cancelPendingSubmit()
-    resetCommandBuffer()
-    suggest.hideSuggest()
-  } else if (isBackspace) {
-    suggest.suggestDismissed.value = false
-    if (commandBuffer.value.length > 0) commandBuffer.value = commandBuffer.value.slice(0, -1)
-  } else if (data === '\x17') {
-    suggest.suggestDismissed.value = false
-    commandBuffer.value = commandBuffer.value.replace(/\S+\s*$/, '')
-  } else if (isTab) {
-    suggest.hideSuggest()
-    tabCompletionInput = commandBuffer.value || null
-    commandBufferDirty.value = true
-  } else if (isLocallyEchoable(data) && !isPasting()) {
-    suggest.suggestDismissed.value = false
-    commandBuffer.value += data
-  } else if (isEscape) {
-    if (suggest.suggestVisible.value) {
-      // Esc closes suggest only (handleKey); do not wipe buffer
-    } else {
-      commandBuffer.value = ''
-      commandBufferDirty.value = true
-    }
-  } else if (hasNewline) {
-    suggest.hideSuggest()
-    commandBufferDirty.value = true
-    const lines = plainChunk.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').split(/\r?\n/)
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (/(?:^|[;&|]\s*)cd(?:\s|$)/.test(trimmed)) {
-        setTimeout(() => {
-          emit('cdCommand', props.sessionId, trimmed)
-        }, 50)
-      }
-    }
-    scheduleSubmit()
-  }
-
-  if (data.length > 32 || getWriteQueueLength() > 0) {
-    enqueueWrite(data, props.sessionId)
-  } else {
-    window.LiteConnect.sshWrite(props.sessionId, data)
-  }
-}
+const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompletion } = useTerminalUserInput({
+  sessionId: () => props.sessionId,
+  readOnly,
+  showReadOnlyHintOnce,
+  updatePasteState,
+  isPasting,
+  pulseCursor,
+  syncAfterTabCompletion,
+  suggest,
+  capturedSubmitLine,
+  getVisibleCommandLine,
+  scheduleSubmit,
+  cancelPendingSubmit,
+  resetCommandBuffer,
+  commandBuffer,
+  commandBufferDirty,
+  emitCdCommand: (command) => emit('cdCommand', props.sessionId, command),
+  getWriteQueueLength,
+  enqueueWrite,
+  write: (data) => window.LiteConnect.sshWrite(props.sessionId, data),
+})
 
 const { pasteWithConfirm } = useTerminalPasteConfirm({
   getTerminal,
@@ -473,12 +404,8 @@ function appendIncomingTerminalData(data: string) {
   if (visibleData.length > 0) {
     suggest.feedHistorySniff(visibleData)
     appendRenderBatch(visibleData)
-    if (tabCompletionInput !== null) {
-      flushRenderBatch(() => {
-        if (tabCompletionInput !== null && syncAfterTabCompletion(tabCompletionInput, true)) {
-          suggest.suggestDismissed.value = false
-        }
-      })
+    if (hasPendingTabCompletion()) {
+      flushRenderBatch(syncPendingTabCompletion)
     } else {
       scheduleRenderFlush()
     }

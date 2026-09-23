@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { defineAsyncComponent, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from '../components/icons/AppIcon.vue'
 import DbNavTree from '../components/database/DbNavTree.vue'
-import DbQueryTab from '../components/database/DbQueryTab.vue'
-import DbTableWorkspace from '../components/database/DbTableWorkspace.vue'
 import DbNavContextMenu from '../components/database/DbNavContextMenu.vue'
 import DbConnectionDialog from '../components/database/DbConnectionDialog.vue'
 import DbCreateDatabaseDialog from '../components/database/DbCreateDatabaseDialog.vue'
@@ -11,6 +9,20 @@ import { useI18n } from 'vue-i18n'
 import { useDbWorkspace } from '../composables/database/useDbWorkspace'
 
 const { t } = useI18n()
+
+// Query editing pulls in CodeMirror; table browsing has its own large UI tree.
+// Load each workspace only when its tab is first opened.
+const DbWorkspaceLoading = () => h('div', { class: 'bk-tab-empty' }, t('common.loading'))
+const DbQueryTab = defineAsyncComponent({
+  loader: () => import('../components/database/DbQueryTab.vue'),
+  loadingComponent: DbWorkspaceLoading,
+  delay: 100,
+})
+const DbTableWorkspace = defineAsyncComponent({
+  loader: () => import('../components/database/DbTableWorkspace.vue'),
+  loadingComponent: DbWorkspaceLoading,
+  delay: 100,
+})
 
 const {
   dbRootRef,

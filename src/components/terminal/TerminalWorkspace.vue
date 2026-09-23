@@ -20,6 +20,8 @@ import {
   type FocusableTerminalTab,
 } from '@/utils/terminal/workspaceTerminalFocus'
 import AppIcon from '../icons/AppIcon.vue'
+import { getSessionPaneStyle as resolveSessionPaneStyle, getDividerStyle as resolveDividerStyle } from '@/utils/terminal/splitPaneLayout'
+import { useTerminalSplitKeyboard } from '@/composables/terminal/useTerminalSplitKeyboard'
 
 const TerminalTab = defineAsyncComponent(() => import('./TerminalTab.vue'))
 const SubTabBar = defineAsyncComponent(() => import('@/components/workspace/SubTabBar.vue'))
@@ -305,136 +307,49 @@ function closeSplit() {
   if (props.activeSession) focusPane(props.activeSession.id)
 }
 
-function onTerminalSplitShortcut(event: KeyboardEvent) {
-  if (props.workspaceVisible === false || props.dockerTabActive) return
-  const eventTarget = event.target as Node | null
-  if (!eventTarget || !terminalContainerRef.value?.contains(eventTarget)) return
-
-  if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
-    if (event.repeat || (event.code !== 'Backslash' && event.code !== 'Minus')) return
-    if (!canUseLayoutButtons.value) return
-    event.preventDefault()
-    event.stopPropagation()
-    if (event.code === 'Backslash' && (!props.isSplit || props.splitMode !== 'vertical')) {
-      emit('toggle-vertical')
-    } else if (event.code === 'Minus' && (!props.isSplit || props.splitMode !== 'horizontal')) {
-      emit('toggle-horizontal')
-    }
-    return
-  }
-
-  if (!event.altKey || event.ctrlKey || event.metaKey || !splitHasSecondary.value) return
-  const secondary = secondarySession.value
-  const primary = props.activeSession
-  if (!secondary || !primary) return
-
-  let targetId: string | null = null
-  if (props.splitMode === 'vertical' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-    const targetSide = event.key === 'ArrowLeft' ? 'left' : 'right'
-    targetId = props.secondarySide === targetSide ? secondary.id : primary.id
-  } else if (props.splitMode === 'horizontal' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-    const targetSide = event.key === 'ArrowUp' ? 'top' : 'bottom'
-    targetId = props.secondarySide === targetSide ? secondary.id : primary.id
-  }
-  if (!targetId) return
-  event.preventDefault()
-  event.stopPropagation()
-  maximizedSessionId.value = null
-  focusPane(targetId)
-}
+useTerminalSplitKeyboard({
+  workspaceVisible: () => props.workspaceVisible !== false,
+  dockerTabActive: () => !!props.dockerTabActive,
+  container: () => terminalContainerRef.value,
+  canUseLayoutButtons: () => canUseLayoutButtons.value,
+  isSplit: () => props.isSplit,
+  splitMode: () => props.splitMode,
+  splitHasSecondary: () => splitHasSecondary.value,
+  primarySessionId: () => props.activeSession?.id ?? null,
+  secondarySessionId: () => secondarySession.value?.id ?? null,
+  secondarySide: () => props.secondarySide,
+  toggleVertical: () => emit('toggle-vertical'),
+  toggleHorizontal: () => emit('toggle-horizontal'),
+  clearMaximize: () => { maximizedSessionId.value = null },
+  focusSession: (sessionId) => focusPane(sessionId),
+})
 
 onMounted(() => {
-  window.addEventListener('keydown', onTerminalSplitShortcut, true)
   void nextTick(() => emit('bind-terminal-container', terminalContainerRef.value))
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onTerminalSplitShortcut, true)
   emit('bind-terminal-container', null)
 })
 
-/**
- * Absolute layout so panes never move TerminalTab between different parents
- * (DOM moves would remount xterm and drop scrollback).
- * splitRatio always represents the primary pane's share; the secondary pane
- * takes the opposite side per secondarySide.
- */
+function splitPaneLayoutState() {
+  return {
+    dividerSize: props.dividerSize,
+    splitRatio: props.splitRatio,
+    splitMode: props.splitMode,
+    secondarySide: props.secondarySide,
+    splitHasSecondary: splitHasSecondary.value,
+    maximizedSessionId: maximizedSessionId.value,
+    primarySessionId: props.activeSession?.id ?? null,
+    secondarySessionId: secondarySession.value?.id ?? null,
+  }
+}
+
 function getSessionPaneStyle(sessionId: string): Record<string, string> {
-  const half = props.dividerSize / 2
-  const ratio = props.splitRatio
-  const secRatio = 100 - ratio
-
-  if (splitHasSecondary.value && maximizedSessionId.value) {
-    if (sessionId !== maximizedSessionId.value) return { display: 'none' }
-    return { top: '0', left: '0', right: '0', bottom: '0' }
-  }
-
-  if (!splitHasSecondary.value) {
-    if (!isPrimarySession(sessionId)) {
-      return { display: 'none' }
-    }
-    return { top: '0', left: '0', right: '0', bottom: '0' }
-  }
-
-  const side = props.secondarySide
-  const isVertical = props.splitMode === 'vertical'
-  const primaryIsLeft = isVertical && side === 'right'
-  const primaryIsRight = isVertical && side === 'left'
-  const primaryIsTop = !isVertical && side === 'bottom'
-  const primaryIsBottom = !isVertical && side === 'top'
-
-  if (isPrimarySession(sessionId)) {
-    if (primaryIsLeft) {
-      return { top: '0', left: '0', bottom: '0', width: `calc(${ratio}% - ${half}px)` }
-    }
-    if (primaryIsRight) {
-      return { top: '0', right: '0', bottom: '0', width: `calc(${ratio}% - ${half}px)` }
-    }
-    if (primaryIsTop) {
-      return { top: '0', left: '0', right: '0', height: `calc(${ratio}% - ${half}px)` }
-    }
-    // primaryIsBottom
-    return { bottom: '0', left: '0', right: '0', height: `calc(${ratio}% - ${half}px)` }
-  }
-
-  if (isSecondarySession(sessionId)) {
-    if (primaryIsLeft) {
-      // secondary on right
-      return { top: '0', right: '0', bottom: '0', width: `calc(${secRatio}% - ${half}px)` }
-    }
-    if (primaryIsRight) {
-      // secondary on left
-      return { top: '0', left: '0', bottom: '0', width: `calc(${secRatio}% - ${half}px)` }
-    }
-    if (primaryIsTop) {
-      // secondary on bottom
-      return { bottom: '0', left: '0', right: '0', height: `calc(${secRatio}% - ${half}px)` }
-    }
-    // secondary on top
-    return { top: '0', left: '0', right: '0', height: `calc(${secRatio}% - ${half}px)` }
-  }
-
-  // Mounted but hidden (other tabs) - preserve xterm instance & scrollback
-  return { display: 'none' }
+  return resolveSessionPaneStyle(sessionId, splitPaneLayoutState())
 }
 
 function getDividerStyle(): Record<string, string> {
-  const half = props.dividerSize / 2
-  const ratio = props.splitRatio
-  const side = props.secondarySide
-  if (props.splitMode === 'vertical') {
-    if (side === 'left') {
-      // secondary on left => divider sits at (100 - ratio)% from left
-      return { top: '0', bottom: '0', left: `calc(${100 - ratio}% - ${half}px)`, width: `${props.dividerSize}px` }
-    }
-    // secondary on right (default) => divider at ratio% from left
-    return { top: '0', bottom: '0', left: `calc(${ratio}% - ${half}px)`, width: `${props.dividerSize}px` }
-  }
-  // horizontal
-  if (side === 'top') {
-    return { left: '0', right: '0', top: `calc(${100 - ratio}% - ${half}px)`, height: `${props.dividerSize}px` }
-  }
-  // secondary on bottom (default)
-  return { left: '0', right: '0', top: `calc(${ratio}% - ${half}px)`, height: `${props.dividerSize}px` }
+  return resolveDividerStyle(splitPaneLayoutState())
 }
 
 function onSplitDividerMousedown(e: MouseEvent) {

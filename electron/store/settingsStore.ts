@@ -1,4 +1,3 @@
-import { normalizeAiToolRounds, DEFAULT_AI_TOOL_ROUNDS } from '../../shared/aiToolLimits'
 /**
  * Persisted app settings. Public API stays on this class so IPC callers do not change.
  * New keys: add to AppSettingsAll, then getAll() + applyMany(). Prefer settings:setMany
@@ -7,27 +6,17 @@ import { normalizeAiToolRounds, DEFAULT_AI_TOOL_ROUNDS } from '../../shared/aiTo
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
-import { DecryptionError, isValidUUID } from '../utils/validation'
+import { isValidUUID } from '../utils/validation'
 import { getAppDatabase, SINGLETONS } from './appDatabase'
 import { applySettingsPatch } from './settingsPatch'
-import { sealSecret } from '../utils/secretCrypto'
+import { AiSettingsService, type AiResolvedSettings, type AiSettingsSnapshot } from './aiSettingsService'
+import { decryptSettingsSecretOrEmpty, encryptSettingsSecret, settingsEncryptionAvailable } from './settingsSecrets'
 import { appBackgroundImageUrl, sanitizeWallpaperFileName } from '../window/appBackgroundProtocol'
 import { getDefaultAiSystemPrompt, LEGACY_AI_SYSTEM_PROMPT } from '../utils/constants'
-import {
-  clampContextWindowTokens,
-  firstAiModelId,
-  parseAiModels,
-  resolveModelContextWindow,
-} from '../../shared/aiContext'
 import { t } from '../i18n'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
 import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
 import type { ApprovalMode } from '../../shared/mcp/types'
-import { sanitizeAiToolPermission, type AiToolPermissionMode } from '../../shared/aiToolPolicy'
-import {
-  normalizeAiHistoryMaxMessages,
-  normalizeAiHistoryMaxThreads,
-} from '../../shared/aiHistoryLimits'
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '../../shared/connectionSort'
 import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
@@ -65,6 +54,15 @@ function normalizeWorkspaceSessionIds(raw: unknown, count: number): string[] | u
 
 export class SettingsStore {
   private settings: Record<string, any> = {}
+  private readonly aiSettings = new AiSettingsService(
+    () => this.settings,
+    () => this.save(),
+    {
+      encrypt: encryptSettingsSecret,
+      decryptOrEmpty: decryptSettingsSecretOrEmpty,
+      encryptionAvailable: settingsEncryptionAvailable,
+    },
+  )
   private readonly recentConnectionsLimit = 12
   private initialized = false
   private initPromise: Promise<void> | null = null
@@ -138,7 +136,7 @@ export class SettingsStore {
     const ai = this.settings.ai
     if (!ai || typeof ai !== 'object') return
     const rawApiKey = typeof ai.apiKey === 'string' ? ai.apiKey : ''
-    const apiKey = ai.apiKeyEncrypted ? this.decryptOrEmpty(rawApiKey) : rawApiKey
+    const apiKey = ai.apiKeyEncrypted ? decryptSettingsSecretOrEmpty(rawApiKey) : rawApiKey
     const baseUrl = typeof ai.baseUrl === 'string' && ai.baseUrl.trim() ? ai.baseUrl : 'https://api.openai.com/v1'
     const model = typeof ai.model === 'string' && ai.model.trim() ? ai.model : 'gpt-4o-mini'
     const providerId = 'default'
@@ -148,7 +146,7 @@ export class SettingsStore {
           id: providerId,
           name: 'OpenAI',
           baseUrl,
-          apiKey: this.encrypt(apiKey),
+          apiKey: encryptSettingsSecret(apiKey),
           apiKeyEncrypted: safeStorage.isEncryptionAvailable() && !!apiKey,
           models: [model],
         },
@@ -175,7 +173,7 @@ export class SettingsStore {
     let changed = false
     for (const provider of ai.providers) {
       if (typeof provider.apiKey === 'string' && provider.apiKey && !provider.apiKeyEncrypted) {
-        provider.apiKey = this.encrypt(provider.apiKey)
+        provider.apiKey = encryptSettingsSecret(provider.apiKey)
         provider.apiKeyEncrypted = safeStorage.isEncryptionAvailable() && !!provider.apiKey
         changed = true
       }
@@ -519,7 +517,7 @@ export class SettingsStore {
   getMcpHttpToken(): string {
     const raw = this.settings.mcpHttpToken
     if (typeof raw !== 'string' || !raw) return ''
-    if (this.settings.mcpHttpTokenEncrypted) return this.decryptOrEmpty(raw)
+    if (this.settings.mcpHttpTokenEncrypted) return decryptSettingsSecretOrEmpty(raw)
     return raw
   }
 
@@ -543,7 +541,7 @@ export class SettingsStore {
   async rotateMcpHttpToken(): Promise<string> {
     const token = randomBytes(32).toString('hex')
     try {
-      this.settings.mcpHttpToken = this.encrypt(token)
+      this.settings.mcpHttpToken = encryptSettingsSecret(token)
       this.settings.mcpHttpTokenEncrypted = true
     } catch {
       this.settings.mcpHttpToken = token
@@ -955,195 +953,20 @@ export class SettingsStore {
     return join(app.getPath('userData'), 'app-background')
   }
 
-  private encrypt(value: string): string {
-    if (!value) return value
-    return sealSecret(value, {
-      available: safeStorage.isEncryptionAvailable(),
-      encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
-      unavailableMessage: t('crypto.encryptionUnavailable'),
-    }).value
-  }
-
-  private decrypt(value: string): string {
-    if (!value) return value
-    if (safeStorage.isEncryptionAvailable()) {
-      try {
-        return safeStorage.decryptString(Buffer.from(value, 'base64'))
-      } catch {
-        throw new DecryptionError(t('crypto.apiKeyDecryptFailed'), 'apiKey')
-      }
-    }
-    return value
-  }
-
-  private decryptOrEmpty(value: string): string {
-    try {
-      return this.decrypt(value)
-    } catch {
-      return ''
-    }
-  }
-
-  getAiSettings(): {
-    maxToolRounds: number
-    providers: any[]
-    activeProviderId: string | null
-    activeModel: string
-    systemPrompt: string
-    temperature: number
-    contextWindowTokens?: number
-    toolPermission: AiToolPermissionMode
-    approvalNotifications: boolean
-    historyMaxThreads: number
-    historyMaxMessages: number
-  } {
-    const ai = this.settings.ai
-    if (!ai || !Array.isArray(ai.providers) || ai.providers.length === 0) {
-      return this.getDefaultAiSettings()
-    }
-    const providers = ai.providers.map((p: any) => this.normalizeAiProvider(p))
-    const activeProviderId = typeof ai.activeProviderId === 'string' && ai.activeProviderId
-      ? ai.activeProviderId
-      : (providers[0]?.id ?? null)
-    const activeProvider = providers.find((p: any) => p.id === activeProviderId) || providers[0]
-    const activeModel = typeof ai.activeModel === 'string' && ai.activeModel.trim()
-      ? ai.activeModel
-      : (firstAiModelId(activeProvider?.models) || 'gpt-4o-mini')
-    return {
-      providers,
-      activeProviderId,
-      activeModel,
-      systemPrompt: typeof ai.systemPrompt === 'string' && ai.systemPrompt !== LEGACY_AI_SYSTEM_PROMPT
-        ? ai.systemPrompt
-        : getDefaultAiSystemPrompt(),
-      temperature: this.clampAiTemperature(ai.temperature),
-      maxToolRounds: normalizeAiToolRounds(ai.maxToolRounds),
-      contextWindowTokens: clampContextWindowTokens(ai.contextWindowTokens),
-      toolPermission: sanitizeAiToolPermission(ai.toolPermission),
-      approvalNotifications: ai.approvalNotifications !== false,
-      historyMaxThreads: normalizeAiHistoryMaxThreads(ai.historyMaxThreads),
-      historyMaxMessages: normalizeAiHistoryMaxMessages(ai.historyMaxMessages),
-    }
-  }
-
-  private clampAiTemperature(raw: unknown): number {
-    const n = typeof raw === 'number' ? raw : Number(raw)
-    if (Number.isNaN(n)) return 0.7
-    return Math.max(0, Math.min(2, Math.round(n * 100) / 100))
-  }
-
-  private getDefaultAiSettings() {
-    return {
-      providers: [],
-      activeProviderId: null,
-      activeModel: '',
-      systemPrompt: getDefaultAiSystemPrompt(),
-      temperature: 0.7,
-      maxToolRounds: DEFAULT_AI_TOOL_ROUNDS,
-      toolPermission: sanitizeAiToolPermission(undefined),
-      approvalNotifications: true,
-      historyMaxThreads: normalizeAiHistoryMaxThreads(undefined),
-      historyMaxMessages: normalizeAiHistoryMaxMessages(undefined),
-    }
-  }
-
-  private normalizeAiProvider(p: any): any {
-    const rawApiKey = typeof p.apiKey === 'string' ? p.apiKey : ''
-    const apiKey = p.apiKeyEncrypted ? this.decryptOrEmpty(rawApiKey) : rawApiKey
-    return {
-      id: typeof p.id === 'string' && p.id ? p.id : randomBytes(6).toString('hex'),
-      name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
-      baseUrl: typeof p.baseUrl === 'string' && p.baseUrl.trim() ? p.baseUrl.trim() : 'https://api.openai.com/v1',
-      apiKey,
-      models: parseAiModels(p.models),
-    }
+  getAiSettings(): AiSettingsSnapshot {
+    return this.aiSettings.getAiSettings()
   }
 
   async setAiSettings(settings: any): Promise<void> {
-    const providers = Array.isArray(settings.providers) ? settings.providers : []
-    this.settings.ai = {
-      providers: providers.map((p: any) => ({
-        id: typeof p.id === 'string' && p.id ? p.id : randomBytes(6).toString('hex'),
-        name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
-        baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '',
-        apiKey: this.encrypt(typeof p.apiKey === 'string' ? p.apiKey : ''),
-        apiKeyEncrypted: safeStorage.isEncryptionAvailable() && !!p.apiKey,
-        models: parseAiModels(p.models),
-      })),
-      activeProviderId: typeof settings.activeProviderId === 'string' ? settings.activeProviderId : (providers[0]?.id ?? null),
-      activeModel: typeof settings.activeModel === 'string' ? settings.activeModel.trim() : '',
-      systemPrompt: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : getDefaultAiSystemPrompt(),
-      temperature: this.clampAiTemperature(settings.temperature),
-      maxToolRounds: normalizeAiToolRounds(settings.maxToolRounds ?? this.settings.ai?.maxToolRounds),
-      // Keep reading leftover global value; new saves omit it when unset.
-      contextWindowTokens: clampContextWindowTokens(settings.contextWindowTokens),
-      toolPermission: sanitizeAiToolPermission(
-        settings.toolPermission ?? this.settings.ai?.toolPermission,
-      ),
-      approvalNotifications:
-        typeof settings.approvalNotifications === 'boolean'
-          ? settings.approvalNotifications
-          : this.settings.ai?.approvalNotifications !== false,
-      historyMaxThreads: normalizeAiHistoryMaxThreads(
-        settings.historyMaxThreads ?? this.settings.ai?.historyMaxThreads,
-      ),
-      historyMaxMessages: normalizeAiHistoryMaxMessages(
-        settings.historyMaxMessages ?? this.settings.ai?.historyMaxMessages,
-      ),
-    }
-    await this.save()
+    await this.aiSettings.setAiSettings(settings)
   }
 
-  async switchAiModel(providerId: string, model: string): Promise<any> {
-    const ai = this.settings.ai
-    if (!ai || !Array.isArray(ai.providers)) return this.getAiSettings()
-    const provider = ai.providers.find((p: any) => p.id === providerId)
-    if (!provider) return this.getAiSettings()
-    ai.activeProviderId = providerId
-    ai.activeModel = model.trim() || firstAiModelId(provider.models)
-    await this.save()
-    return this.getAiSettings()
+  async switchAiModel(providerId: string, model: string): Promise<AiSettingsSnapshot> {
+    return this.aiSettings.switchAiModel(providerId, model)
   }
 
-  getAiResolvedConfig(): {
-    maxToolRounds: number
-    baseUrl: string
-    model: string
-    apiKey: string
-    systemPrompt: string
-    temperature: number
-    contextWindowTokens?: number
-    toolPermission: AiToolPermissionMode
-  } {
-    const settings = this.getAiSettings()
-    const provider = settings.providers.find((p: any) => p.id === settings.activeProviderId) || settings.providers[0]
-    if (!provider) {
-      return {
-        baseUrl: '',
-        model: '',
-        apiKey: '',
-        systemPrompt: settings.systemPrompt,
-        temperature: settings.temperature,
-      maxToolRounds: settings.maxToolRounds,
-        contextWindowTokens: settings.contextWindowTokens,
-        toolPermission: settings.toolPermission,
-      }
-    }
-    const model = settings.activeModel || firstAiModelId(provider.models)
-    return {
-      baseUrl: provider.baseUrl,
-      model,
-      apiKey: provider.apiKey,
-      systemPrompt: settings.systemPrompt,
-      temperature: settings.temperature,
-      maxToolRounds: settings.maxToolRounds,
-      contextWindowTokens: resolveModelContextWindow({
-        model,
-        models: provider.models,
-        fallback: settings.contextWindowTokens,
-      }),
-      toolPermission: settings.toolPermission,
-    }
+  getAiResolvedConfig(): AiResolvedSettings {
+    return this.aiSettings.getAiResolvedConfig()
   }
 
   getAll(): SettingsAll {

@@ -1,5 +1,6 @@
 import mysql, { type RowDataPacket, type ResultSetHeader, type FieldPacket } from 'mysql2/promise'
 import { v4 as uuidv4 } from 'uuid'
+import { queryStreamCapped as runMysqlQueryStreamCapped } from './mysqlQueryStream'
 import {
   assertIdent,
   cancelledError,
@@ -985,14 +986,6 @@ export class MySqlDriver implements DbDriver {
     }
   }
 
-  /**
-   * True streaming via mysql2 raw (non-promise) connection.query().stream().
-   * SQL runs once; at most maxRows rows are retained; the (maxRows+1)th row only sets truncated.
-   *
-   * mysql2 Query.stream()._destroy only removes listeners + resume — it does NOT stop the
-   * protocol consumer. Early truncate therefore destroys the physical pool connection so it
-   * is never released while still busy.
-   */
   private queryStreamCapped(
     conn: mysql.PoolConnection,
     sql: string,
@@ -1001,143 +994,10 @@ export class MySqlDriver implements DbDriver {
     start: number,
     queryId: string | null,
   ): Promise<{ result: DbQueryResult; connectionReusable: boolean }> {
-    return new Promise((resolve, reject) => {
-      const rows: Record<string, unknown>[] = []
-      let columns: string[] = []
-      let truncated = false
-      let settled = false
-      let sawResultSet = false
-      /** false once we discard the physical connection (truncate / mid-stream cancel). */
-      let connectionReusable = true
-      let stream: any = null
-
-      const finish = (fn: () => void) => {
-        if (settled) return
-        settled = true
-        fn()
-      }
-
-      /**
-       * Discard pool connection: stream.destroy does not end COM_QUERY consumption.
-       * PromisePoolConnection.destroy() → core connection.destroy() removes it from the pool.
-       */
-      const discardConnection = () => {
-        connectionReusable = false
-        try {
-          stream?.destroy()
-        } catch {}
-        try {
-          // Prefer promise wrapper destroy (pool-aware)
-          if (typeof (conn as any).destroy === 'function') {
-            ;(conn as any).destroy()
-          } else {
-            const rawConn = (conn as any).connection
-            if (rawConn && typeof rawConn.destroy === 'function') rawConn.destroy()
-          }
-        } catch {}
-      }
-
-      // Promise PoolConnection wraps a raw connection; only raw.query returns Query with .stream()
-      const raw = (conn as any).connection
-      if (!raw || typeof raw.query !== 'function') {
-        finish(() => reject(new Error('MySQL streaming requires raw connection')))
-        return
-      }
-
-      let queryCmd: any
-      try {
-        queryCmd = raw.query({ sql, timeout: timeoutMs })
-      } catch (err) {
-        finish(() => reject(err instanceof Error ? err : new Error(String(err))))
-        return
-      }
-
-      if (!queryCmd || typeof queryCmd.stream !== 'function') {
-        finish(() => reject(new Error('MySQL driver does not support query streaming')))
-        return
-      }
-
-      stream = queryCmd.stream({ highWaterMark: 32, objectMode: true })
-
-      stream.on('fields', (fields: FieldPacket[]) => {
-        sawResultSet = true
-        if (Array.isArray(fields)) columns = fields.map((f) => f.name)
-      })
-
-      stream.on('data', (row: RowDataPacket) => {
-        sawResultSet = true
-        if (settled) return
-        if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-          discardConnection()
-          finish(() =>
-            reject(Object.assign(cancelledError(), { connectionReusable: false })),
-          )
-          return
-        }
-        // maxRows+1st row: mark truncated, keep only maxRows, discard connection (not release)
-        if (rows.length >= maxRows) {
-          truncated = true
-          discardConnection()
-          finish(() =>
-            resolve({
-              connectionReusable: false,
-              result: {
-                columns,
-                rows,
-                rowCount: rows.length,
-                truncated: true,
-                durationMs: Date.now() - start,
-                hasResultSet: true,
-              },
-            }),
-          )
-          return
-        }
-        const out: Record<string, unknown> = {}
-        if (columns.length === 0) columns = Object.keys(row)
-        for (const col of columns) out[col] = serializeCell((row as any)[col])
-        rows.push(out)
-      })
-
-      const rejectDiscarded = (err: Error) => {
-        if (connectionReusable) discardConnection()
-        finish(() =>
-          reject(Object.assign(err, { connectionReusable: false as const })),
-        )
-      }
-
-      stream.on('error', (err: Error) => {
-        if (settled) return
-        if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-          rejectDiscarded(cancelledError())
-          return
-        }
-        // Protocol/stream error mid-flight: never release a half-consumed conn
-        rejectDiscarded(err)
-      })
-
-      stream.on('end', () => {
-        if (settled) return
-        if (queryId && this.activeQueries.get(queryId)?.cancelled) {
-          rejectDiscarded(cancelledError())
-          return
-        }
-        // Full drain — connection is idle and safe to release
-        finish(() =>
-          resolve({
-            connectionReusable: true,
-            result: {
-              columns,
-              rows,
-              rowCount: rows.length,
-              truncated,
-              durationMs: Date.now() - start,
-              hasResultSet: sawResultSet || columns.length > 0 || rows.length > 0,
-            },
-          }),
-        )
-      })
-    })
+    return runMysqlQueryStreamCapped(
+      conn, sql, maxRows, timeoutMs, start,
+      () => !!queryId && this.activeQueries.get(queryId)?.cancelled === true,
+    )
   }
 
   private requireSession(sessionId: string): LiveSession {

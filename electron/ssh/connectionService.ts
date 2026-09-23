@@ -1,13 +1,11 @@
-import type { Client, ClientChannel, ConnectConfig } from 'ssh2'
+import type { Client, ClientChannel } from 'ssh2'
 import * as net from 'net'
 import { v4 as uuidv4 } from 'uuid'
 import { KnownHostsStore } from './trust/knownHosts'
-import { buildAuthFields } from './auth'
-import { createHostVerifier, type HostKeyRejectInfo } from './trust/hostKeyVerify'
+import type { HostKeyRejectInfo } from './trust/hostKeyVerify'
 import { closeLocalForwardServers, setupLocalForwards } from './localForwards'
 import { setupDynamicForwards } from './dynamicForwards'
 import { closeRemoteForwards, setupRemoteForwards, type RemoteForwardHandle } from './remoteForwards'
-import { autoAnswerKeyboardPrompts } from './keyboardInteractive'
 import { applySocketKeepalive, resolveSshKeepalive } from './keepalive'
 import { clientCloseOutcome } from './connectLifecycle'
 import {
@@ -19,6 +17,8 @@ import {
   probeX11Port,
 } from './x11/x11'
 import { loadSsh2 } from './loadSsh2'
+import { resolveConnectionX11, recheckConnectionX11 } from './connectionX11'
+import { attachKeyboardInteractive, targetConnectConfig, jumpConnectConfig } from './connectionAuth'
 import { disposeSshChannel, disposeSshClient } from './clientCleanup'
 import { t } from '../i18n'
 import type { Connection, PendingHostKey, Session, SSHCallbacks } from './types'
@@ -38,7 +38,7 @@ export class ConnectionService {
   constructor(private deps: ConnectionServiceDeps) {}
 
   async connect(connection: Connection, callbacks: SSHCallbacks): Promise<string> {
-    const { useX11, x11Notice } = await this.resolveX11(connection)
+    const { useX11, x11Notice } = await resolveConnectionX11(connection)
     const sessionId = uuidv4()
     const epoch = this.deps.bumpSessionEpoch(sessionId)
     return this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch)
@@ -76,33 +76,9 @@ export class ConnectionService {
     callbacks: SSHCallbacks,
     epoch: number,
   ): Promise<string> {
-    return this.resolveX11(connection).then(({ useX11, x11Notice }) =>
+    return resolveConnectionX11(connection).then(({ useX11, x11Notice }) =>
       this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch),
     )
-  }
-
-  private async resolveX11(connection: Connection): Promise<{
-    useX11: boolean
-    x11Notice?: string
-  }> {
-    if (connection.x11Forwarding !== true) {
-      return { useX11: false }
-    }
-    const host = getX11Host(connection)
-    const display = getX11Display(connection)
-    const { ensureX11ServerReady } = await import('./x11/x11Server')
-    const result = await ensureX11ServerReady(host, display)
-    if (result.ready) {
-      const note = result.started
-        ? `\r\n\x1b[32m[LiteConnect] ${t('x11.autoStarted', { host, port: result.port })}\x1b[0m\r\n`
-        : undefined
-      return { useX11: true, x11Notice: note }
-    }
-    const detail = result.message || t('x11.notReady')
-    return {
-      useX11: false,
-      x11Notice: `\r\n\x1b[33m[LiteConnect] ${t('x11.skipped', { detail })}\x1b[0m\r\n`,
-    }
   }
 
   /** True if this openConnection attempt is still the live generation for the session. */
@@ -183,72 +159,9 @@ export class ConnectionService {
         })
       }
 
-      const attachKeyboard = (sshClient: Client, role: 'target' | 'jump', password: string) => {
-        sshClient.on(
-          'keyboard-interactive',
-          (
-            name: string,
-            instructions: string,
-            _lang: string,
-            prompts: Array<{ prompt: string; echo: boolean }>,
-            finish: (responses: string[]) => void,
-          ) => {
-            const list = (prompts || []).map((p) => ({
-              prompt: String(p?.prompt || ''),
-              echo: p?.echo !== false,
-            }))
-            const auto = autoAnswerKeyboardPrompts(list, password)
-            if (auto.complete) {
-              finish(auto.answers)
-              return
-            }
-            if (!callbacks.onKeyboardInteractive) {
-              finish(list.map(() => ''))
-              return
-            }
-            void callbacks
-              .onKeyboardInteractive({
-                requestId: uuidv4(),
-                sessionId,
-                name: String(name || ''),
-                instructions: String(instructions || ''),
-                prompts: list,
-                role,
-              })
-              .then((answers) => {
-                if (!answers || answers.length === 0) {
-                  finish(list.map(() => ''))
-                  return
-                }
-                finish(list.map((_, i) => String(answers[i] ?? '')))
-              })
-              .catch(() => finish(list.map(() => '')))
-          },
-        )
-      }
-
-      attachKeyboard(client, 'target', connection.password || '')
-
-      const targetConfig = (sock?: import('stream').Duplex): ConnectConfig => ({
-        ...(sock
-          ? { sock }
-          : { host: connection.host, port: connection.port || 22 }),
-        ...buildAuthFields({
-          username: connection.username,
-          password: connection.password,
-          privateKey: connection.privateKey,
-          useAgent: connection.useAgent,
-        }),
-        readyTimeout: 20000,
-        ...keepalive,
-        hostVerifier: createHostVerifier(
-          knownHosts,
-          connection.host,
-          connection.port || 22,
-          'target',
-          rememberHostKeyReject,
-        ),
-      })
+      attachKeyboardInteractive(client, 'target', connection.password || '', sessionId, callbacks)
+      const targetConfig = (sock?: import('stream').Duplex) =>
+        targetConnectConfig(connection, knownHosts, keepalive, rememberHostKeyReject, sock)
 
       // Mutable: may drop X11 after SSH auth if local display dies during handshake
       let activeUseX11 = useX11
@@ -327,29 +240,15 @@ export class ConnectionService {
             openShell(false)
             return
           }
-          const x11Host = getX11Host(connection)
-          const x11Display = getX11Display(connection)
-          const x11Port = 6000 + x11Display
-          if (await probeX11Port(x11Host, x11Port)) {
+          const result = await recheckConnectionX11(connection)
+          if (result.ready) {
+            if (result.notice) activeX11Notice = result.notice
             openShell(true)
             return
           }
-          const again = await ensureX11ServerReady(x11Host, x11Display)
-          if (again.ready) {
-            const note = again.started
-              ? `\r\n\x1b[32m[LiteConnect] ${t('x11.autoStarted', { host: x11Host, port: x11Port })}\x1b[0m\r\n`
-              : undefined
-            if (note) activeX11Notice = note
-            openShell(true)
-            return
-          }
-          // Local X still unavailable — open plain shell with a clear start-failure notice
           activeUseX11 = false
           destroyX11Sockets(x11Sockets)
-          const detail = again.message || t('x11.notReady')
-          activeX11Notice = `\r\n\x1b[33m[LiteConnect] ${t('x11.skipped', {
-            detail: t('x11.recheckFailed', { host: x11Host, port: x11Port, detail }),
-          })}\x1b[0m\r\n`
+          activeX11Notice = result.notice
           openShell(false)
         }
 
@@ -547,14 +446,9 @@ export class ConnectionService {
       }
 
       jumpClient = new Client()
-      attachKeyboard(
-        jumpClient,
-        'jump',
-        connection.jumpPassword || connection.password || '',
+      attachKeyboardInteractive(
+        jumpClient, 'jump', connection.jumpPassword || connection.password || '', sessionId, callbacks,
       )
-      const jumpHost = connection.jumpHost!.trim()
-      const jumpPort = connection.jumpPort || 22
-      const jumpUser = connection.jumpUsername || connection.username
       jumpClient
         .on('ready', () => {
           if (!this.isLiveEpoch(sessionId, epoch)) {
@@ -641,25 +535,7 @@ export class ConnectionService {
           } catch {}
           callbacks.onClose(sessionId)
         })
-        .connect({
-          host: jumpHost,
-          port: jumpPort,
-          ...buildAuthFields({
-            username: jumpUser,
-            password: connection.jumpPassword ?? connection.password,
-            privateKey: connection.jumpPrivateKey ?? connection.privateKey,
-            useAgent: connection.useAgent,
-          }),
-          readyTimeout: 20000,
-          ...keepalive,
-          hostVerifier: createHostVerifier(
-            knownHosts,
-            jumpHost,
-            jumpPort,
-            'jump',
-            rememberHostKeyReject,
-          ),
-        })
+        .connect(jumpConnectConfig(connection, knownHosts, keepalive, rememberHostKeyReject))
     })
   }
 }

@@ -25,6 +25,7 @@ import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import { useAiContextFileStatus } from '@/composables/ai/useAiContextFileStatus'
 import { diffPreviewRows } from '@/utils/ai/diffPreviewRows'
+import { useAiSidebarHistory } from '@/composables/ai/useAiSidebarHistory'
 import { threadTitleTooltip } from '@/utils/ai/threadTitle'
 import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
 
@@ -91,7 +92,6 @@ const input = ref('')
 const loading = ref(false)
 watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
 const showSettings = ref(false)
-const showHistory = ref(false)
 const showModelSwitcher = ref(false)
 const threadSummaries = ref(getSessionState(props.sessionId).threads)
 const consumedSelectionIds = new Set<number>()
@@ -182,12 +182,26 @@ async function savePermission(value: string) {
   } catch (err: any) { ElMessage.warning(err?.message || t('ai.saveSettingsFailed')) }
   finally { savingComposer.value = false }
 }
-watch([input, showSettings, showHistory, contextFiles], () => { void nextTick(resizeComposer) })
-const historyQuery = ref('')
-const filteredHistoryItems = computed(() => {
-  const query = historyQuery.value.trim().toLocaleLowerCase()
-  return historyItems.value.filter(item => item.title.toLocaleLowerCase().includes(query))
+const {
+  showHistory, historyQuery, historyItems, filteredHistoryItems,
+  openHistoryPanel, closeHistoryPanel, handleSwitchConversation,
+  handleDeleteConversation, handleClearAllHistory, formatHistoryTime,
+} = useAiSidebarHistory({
+  sessionId: () => props.sessionId,
+  threadSummaries,
+  activeThreadId: () => getSessionState(props.sessionId).activeThreadId,
+  loading,
+  contextFileBusy,
+  syncMessages,
+  syncFromState,
+  switchConversation,
+  deleteConversation,
+  clearAllConversations,
+  t: (key, params) => t(key, params ?? {}),
+  closeModelSwitcher: () => { showModelSwitcher.value = false },
+  closeSettings: () => { showSettings.value = false },
 })
+watch([input, showSettings, showHistory, contextFiles], () => { void nextTick(resizeComposer) })
 
 const hasApiConfigured = computed(() => {
   const list = settings.value.providers || []
@@ -304,23 +318,6 @@ const contextMeterTitle = computed(() =>
     used: formatTokenCount(contextUsedTokens.value),
     budget: formatTokenCount(contextBudgetTokens.value),
   }),
-)
-
-/** History panel: only threads that actually have messages (hide empty active draft). */
-const historyItems = computed(() =>
-  threadSummaries.value
-    .filter((thread) => (thread.messageCount || 0) > 0)
-    .slice()
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((thread) => ({
-      id: thread.id,
-      title: thread.title || t('ai.newConversationTitle'),
-      /** Hover shows the untouched first user message. */
-      tip: threadTitleTooltip(thread.title),
-      createdAt: thread.updatedAt || thread.createdAt,
-      messageCount: thread.messageCount,
-      active: thread.active || thread.id === getSessionState(props.sessionId).activeThreadId,
-    })),
 )
 
 const modelSwitcherGroups = computed(() => {
@@ -561,51 +558,6 @@ async function removeContextFile(file: AiConversationContextFile) {
   }
 }
 
-async function handleSwitchConversation(threadId: string) {
-  if (loading.value || contextFileBusy.value) return
-  await switchConversation(props.sessionId, threadId, syncMessages)
-  syncFromState()
-  closeHistoryPanel()
-}
-
-async function handleDeleteConversation(threadId: string, event?: Event) {
-  event?.stopPropagation()
-  try {
-    await appConfirm({
-      title: t('ai.deleteHistoryTitle'),
-      message: t('ai.deleteHistoryMessage'),
-      detail: t('ai.deleteHistoryDetail'),
-      confirmText: t('ai.clear'),
-      cancelText: t('common.cancel'),
-      danger: true,
-      tone: 'danger',
-    })
-  } catch {
-    return
-  }
-  const ok = await deleteConversation(props.sessionId, threadId, syncMessages)
-  if (ok) ElMessage.success(t('ai.historyDeleted'))
-}
-
-async function handleClearAllHistory() {
-  const count = historyItems.value.length
-  if (count === 0) return
-  try {
-    await appConfirm({
-      title: t('ai.clearAllHistoryTitle'),
-      message: t('ai.clearAllHistoryMessage', { count }),
-      confirmText: t('ai.clear'),
-      cancelText: t('common.cancel'),
-      danger: true,
-      tone: 'danger',
-    })
-  } catch {
-    return
-  }
-  const ok = await clearAllConversations(props.sessionId, syncMessages)
-  if (ok) ElMessage.success(t('ai.allHistoryCleared'))
-}
-
 async function handleRegenerate(messageId: string) {
   loading.value = true
   try {
@@ -754,27 +706,6 @@ async function openSettingsPanel() {
 
 function closeSettingsPanel() {
   showSettings.value = false
-}
-
-async function openHistoryPanel() {
-  historyQuery.value = ''
-  showModelSwitcher.value = false
-  showHistory.value = true
-  showSettings.value = false
-  await nextTick()
-}
-
-function closeHistoryPanel() {
-  showHistory.value = false
-}
-
-function formatHistoryTime(timestamp: number) {
-  return new Date(timestamp).toLocaleString(undefined, {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function closePopoverOnEscape(event: KeyboardEvent) {

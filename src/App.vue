@@ -41,13 +41,13 @@ import { disposeAiSessionState } from './composables/ai/useAiChat'
 import { onAiReplyComplete } from './composables/ai/aiReplyEvents'
 import { useSecurityDialogs } from '@/composables/app/useSecurityDialogs'
 import { useAppNavigation } from '@/composables/app/useAppNavigation'
+import { useAppWindowRouting } from '@/composables/app/useAppWindowRouting'
 import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
 import { useSnippetHotkeys } from '@/composables/snippets/useSnippetHotkeys'
 import { useDockerSshBridge } from '@/composables/docker/useDockerSshBridge'
 import { useTransferToasts } from '@/composables/app/useTransferToasts'
-import { sanitizeDbOpenMode } from '@shared/dbOpenMode'
 import { sshSessionWarnLevel } from '@shared/appResourceStats'
 
 const { t } = useI18n()
@@ -667,54 +667,13 @@ watch(
 
 useTransferToasts()
 
-/** Detached multi-window launch: ?detached=1&connectionId=uuid ; DB window: ?mode=db */
-function readLaunchParams() {
-  try {
-    const params = new URLSearchParams(window.location.search)
-    return {
-      detached: params.get('detached') === '1',
-      connectionId: params.get('connectionId') || '',
-      mode: params.get('mode') || '',
-    }
-  } catch {
-    return { detached: false, connectionId: '', mode: '' }
-  }
-}
-
-const launchParams = readLaunchParams()
-const isDetachedWindow = launchParams.detached && !!launchParams.connectionId
-/** Dedicated DB window (?mode=db): boot straight into the database module. */
-const isDbWindow = launchParams.mode === 'db'
-if (isDbWindow) {
-  enterDatabase()
-}
-
-/** Titlebar SSH → DB: dedicated DB window is a no-op; otherwise honor dbOpenMode. */
-async function handleEnterDatabaseModule() {
-  if (isDbWindow) return
-  if (appMode.value === 'database') {
-    enterDatabase()
-    return
-  }
-  try {
-    const all = await window.LiteConnect.getAllSettings()
-    if (sanitizeDbOpenMode(all.dbOpenMode) === 'currentWindow') {
-      enterDatabase()
-      return
-    }
-  } catch {
-    // Missing setting → historical dedicated-window default.
-  }
-  void window.LiteConnect.openDatabaseWindow()
-}
-
-function handleEnterSshModule(forceHome?: boolean) {
-  if (isDbWindow) {
-    void window.LiteConnect.focusMainWindow()
-    return
-  }
-  enterSsh(forceHome)
-}
+const {
+  launchParams,
+  isDetachedWindow,
+  isDbWindow,
+  handleEnterDatabaseModule,
+  handleEnterSshModule,
+} = useAppWindowRouting({ appMode, enterDatabase, enterSsh })
 
 onMounted(async () => {
   unsubAiApprovalNotification = window.LiteConnect.onAiApprovalNotificationClick((sessionId) => {
