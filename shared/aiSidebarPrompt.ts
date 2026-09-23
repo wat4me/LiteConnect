@@ -163,3 +163,17 @@ export function estimateSidebarAiRequest(opts: {
     totalTokens: pack.promptTokens + toolSchemaTokens,
   }
 }
+
+/** Match the main-process guard: every selected file body must survive system-message packing. */
+export function sidebarContextFilesFit(opts: {
+  systemPrompt: string
+  sessionId?: string
+  cwd?: string
+  model?: string
+  contextWindowTokens?: number
+  contextFiles: AiConversationContextFile[]
+}): boolean {
+  if (!opts.contextFiles.length) return true
+  const system = estimateSidebarAiRequest({ ...opts, messages: [] }).messages[0]?.content || ''
+  return opts.contextFiles.every(file => system.includes(file.content))
+}

@@ -683,31 +683,131 @@
 }
 .header-more-menu button:hover { background: var(--hover-bg); }
 .header-more-menu button:disabled { opacity: 0.5; cursor: not-allowed; }
-.composer-reference-list { display: flex; flex-direction: column; gap: 4px; max-height: min(22vh, 150px); overflow-y: auto; min-height: 0; scrollbar-color: var(--scrollbar-thumb) transparent; }
-.composer-reference {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
+.composer-context-files { position: relative; min-width: 0; }
+.composer-context-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.composer-context-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
   min-width: 0;
-  padding: 6px 8px;
+  height: 26px;
+  padding-right: 2px;
   border: 1px solid var(--border-color);
   border-radius: 7px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 11px;
-  line-height: 1.35;
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
 }
-.composer-reference > :deep(.app-icon) { flex-shrink: 0; color: var(--accent); }
-.composer-reference-info { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
-.composer-reference-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.composer-reference-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.composer-reference-path { color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); overflow-wrap: anywhere; max-height: 2.7em; overflow: hidden; }
-.composer-reference-status { color: var(--text-secondary); }
-.composer-reference-status.missing { color: color-mix(in srgb, var(--warning) 40%, var(--text-primary)); }
-.composer-reference-remove { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; margin: -3px -4px 0 0; border: 0; border-radius: 5px; background: transparent; color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); cursor: pointer; }
-.composer-reference-remove:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.composer-reference-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.composer-reference-remove:disabled { opacity: 0.5; cursor: not-allowed; }
+.composer-context-chip.missing { border-color: color-mix(in srgb, var(--warning) 50%, var(--border-color)); }
+.composer-context-chip.previewing {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  background: var(--accent-bg);
+}
+.composer-context-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 240px;
+  height: 24px;
+  padding: 0 4px 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.composer-context-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-reference-source {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.composer-reference-source.ssh {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  background: var(--accent-bg);
+  color: color-mix(in srgb, var(--accent) 40%, var(--text-primary));
+}
+.composer-context-chip-alert { display: inline-flex; flex-shrink: 0; color: var(--warning); }
+.composer-context-chip-alert.is-unavailable { color: var(--text-secondary); }
+.composer-context-chip-main:focus-visible,
+.composer-context-chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.composer-context-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.composer-context-chip-remove:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.composer-context-chip-remove:disabled { opacity: 0.5; cursor: not-allowed; }
+.composer-context-more {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.composer-context-more-wrap { flex-shrink: 0; }
+.composer-context-more:hover { color: var(--text-primary); background: var(--hover-bg); }
+.composer-context-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.composer-context-preview {
+  position: absolute;
+  z-index: 6;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-bg) 55%, transparent);
+  overflow: hidden;
+}
+.composer-context-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.composer-context-preview-head > span:first-child { flex-shrink: 0; }
+.composer-context-preview-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-context-preview pre {
+  margin: 0;
+  max-height: min(40vh, 280px);
+  overflow: auto;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .composer-context-menu { position: relative; flex: 0 1 auto; min-width: 0; }
 .composer-context-menu summary {
   display: inline-flex;
@@ -727,6 +827,7 @@
 .composer-context-menu summary::-webkit-details-marker { display: none; }
 .composer-context-menu summary:hover,
 .composer-context-menu[open] summary { background: var(--hover-bg); color: var(--text-primary); }
+.composer-context-menu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .composer-context-menu.active summary { color: color-mix(in srgb, var(--accent) 40%, var(--text-primary)); }
 .composer-context-menu summary :deep(.app-icon) { flex-shrink: 0; }
 .composer-context-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -738,7 +839,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  width: min(210px, calc(100cqw - 12px));
+  width: min(280px, calc(100cqw - 16px));
   max-height: min(50vh, 360px);
   overflow-y: auto;
   padding: 4px;
@@ -747,21 +848,10 @@
   background: var(--bg-primary);
   box-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-bg) 55%, transparent);
 }
-.composer-context-selected {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border-color);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.composer-context-selected strong { font-weight: 600; overflow-wrap: anywhere; }
-.composer-context-selected span { color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); overflow-wrap: anywhere; }
-.composer-reference-title .composer-reference-source { flex-shrink: 0; padding: 1px 5px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 10px; line-height: 1.3; white-space: nowrap; }
-.composer-reference-title .composer-reference-source.ssh { border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color)); background: var(--accent-bg); color: color-mix(in srgb, var(--accent) 40%, var(--text-primary)); }
-.composer-context-selected small { color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary)); font-size: 10px; }
-.composer-context-selected small.missing { color: color-mix(in srgb, var(--warning) 40%, var(--text-primary)); }
+.composer-context-overflow-list { border-bottom: 1px solid var(--border-color); padding-bottom: 4px; }
+.composer-context-overflow-row { display: flex; align-items: center; min-width: 0; }
+.composer-context-dropdown .composer-context-overflow-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-context-dropdown .composer-context-overflow-remove { flex-shrink: 0; width: 28px; text-align: center; }
 .composer-context-help {
   padding: 5px 8px 7px;
   color: color-mix(in srgb, var(--text-secondary) 50%, var(--text-primary));
@@ -783,8 +873,6 @@
 .composer-context-dropdown button:hover { background: var(--hover-bg); }
 .composer-context-dropdown button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .composer-context-dropdown button:disabled { opacity: 0.5; cursor: not-allowed; }
-.composer-context-dropdown .composer-context-selected button { color: var(--danger); }
-.composer-context-dropdown .composer-context-selected button:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .composer-area {
   position: absolute;
   z-index: 4;
@@ -807,12 +895,16 @@
 .composer-context-warning { font-size: 10px; color: var(--text-secondary); text-align: right; }
 .composer-context-warning.warn { color: var(--warning); }
 .composer-context-warning.danger { color: var(--danger); font-weight: 600; }
+.composer-context-warning.context-file-too-long { display: block; font-size: 11px; line-height: 1.45; text-align: left; }
 .model-context-info { padding: 6px; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); }
 @container ai-composer (max-width: 420px) {
-  .composer-context-label { display: none; }
+  .composer-context-chips { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; }
+  .composer-context-chip { grid-column: 1; width: fit-content; max-width: 100%; }
+  .composer-context-more-wrap { grid-column: 2; grid-row: 2; }
 }
 @container ai-composer (max-width: 220px) {
   .composer-actions-right { display: grid; grid-template-columns: minmax(0, 1fr) 38px; column-gap: 12px; row-gap: 3px; }
+  .composer-context-label { display: none; }
   .model-switcher-wrap { grid-column: 1; }
   .send-btn, .stop-btn { grid-column: 2; grid-row: 1 / 3; margin-left: 0; }
 }

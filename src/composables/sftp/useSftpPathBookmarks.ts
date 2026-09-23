@@ -16,6 +16,7 @@ import {
 
 const STORAGE_KEY = 'sftp-path-bookmarks' as const
 const bookmarks = ref<SftpPathBookmark[]>([])
+let persistedBookmarks: SftpPathBookmark[] = []
 let loadPromise: Promise<void> | null = null
 let saveTail: Promise<void> = Promise.resolve()
 
@@ -30,7 +31,10 @@ async function ensureLoaded(): Promise<void> {
   installExternalSync()
   if (loadPromise) return loadPromise
   loadPromise = window.LiteConnect.getRendererState(STORAGE_KEY)
-    .then((raw) => { bookmarks.value = parseSftpPathBookmarks(raw) })
+    .then((raw) => {
+      persistedBookmarks = parseSftpPathBookmarks(raw)
+      bookmarks.value = persistedBookmarks
+    })
     .catch((err) => {
       loadPromise = null
       throw err
@@ -39,16 +43,17 @@ async function ensureLoaded(): Promise<void> {
 }
 
 async function commit(next: SftpPathBookmark[]): Promise<void> {
-  const previous = bookmarks.value
-  bookmarks.value = next.slice(0, SFTP_PATH_BOOKMARK_LIMIT)
-  const payload = JSON.stringify(bookmarks.value)
+  const snapshot = next.slice(0, SFTP_PATH_BOOKMARK_LIMIT)
+  bookmarks.value = snapshot
+  const payload = JSON.stringify(snapshot)
   const write = saveTail.then(() => window.LiteConnect.setRendererState(STORAGE_KEY, payload))
   saveTail = write.catch(() => {})
   try {
     await write
+    persistedBookmarks = snapshot
   } catch (err) {
-    // Only roll back when no newer mutation has replaced this snapshot.
-    if (JSON.stringify(bookmarks.value) === payload) bookmarks.value = previous
+    // A prior queued write may have failed too; restore the last confirmed state.
+    if (JSON.stringify(bookmarks.value) === payload) bookmarks.value = persistedBookmarks
     throw err
   }
 }

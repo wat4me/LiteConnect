@@ -19,7 +19,7 @@ import AiChatView from './AiChatView.vue'
 import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConversationUsage } from '@shared/aiContext'
 import { flattenConversationForApi } from '@shared/aiMessages'
 import { projectAiHistoryForContext } from '@shared/aiCompaction'
-import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
+import { estimateSidebarAiRequest, sidebarContextFilesFit } from '@shared/aiSidebarPrompt'
 import { isAiMarkdownFilePath } from '@shared/aiFixedContext'
 import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
@@ -88,6 +88,39 @@ const { contextFileSourceStatus, contextFileKey, checkContextFileSource } = useA
 function onContextFileMenuToggle() {
   if (contextFileMenuRef.value?.open) void checkContextFileSource()
 }
+const contextFilePreviewKey = ref('')
+const previewContextFile = computed(() => contextFiles.value.find(file => contextFileKey(file) === contextFilePreviewKey.value) || null)
+const composerAreaWidth = ref(0)
+const visibleContextFiles = computed(() => contextFiles.value.slice(0, composerAreaWidth.value > 420 ? 5 : 2))
+const overflowContextFiles = computed(() => contextFiles.value.slice(visibleContextFiles.value.length))
+function toggleContextFilePreview(file: AiConversationContextFile) {
+  const key = contextFileKey(file)
+  contextFilePreviewKey.value = contextFilePreviewKey.value === key ? '' : key
+}
+function previewOverflowContextFile(file: AiConversationContextFile) {
+  contextFileMenuRef.value?.removeAttribute('open')
+  toggleContextFilePreview(file)
+}
+function contextFileStatusNote(file: AiConversationContextFile) {
+  const status = contextFileSourceStatus.value[contextFileKey(file)]
+  if (status === 'missing') return t('ai.contextFileMissing')
+  if (status === 'unavailable') return t('ai.contextFileUnavailable')
+  return ''
+}
+function contextFileTitle(file: AiConversationContextFile) {
+  const note = contextFileStatusNote(file) || t('ai.contextFileSnapshotHint')
+  return `${file.path}\n${note}`
+}
+function contextFileChipLabel(file: AiConversationContextFile) {
+  const preview = t('ai.contextFilePreviewNamed', { name: contextFileName(file) })
+  const note = contextFileStatusNote(file)
+  return note ? `${preview}。${note}` : preview
+}
+watch(contextFiles, (files) => {
+  if (contextFilePreviewKey.value && !files.some(file => contextFileKey(file) === contextFilePreviewKey.value)) {
+    contextFilePreviewKey.value = ''
+  }
+})
 const input = ref('')
 const loading = ref(false)
 watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
@@ -131,13 +164,14 @@ function resizeComposer() {
   const el = composerInputRef.value
   const panel = sidebarRef.value
   if (!el || !panel || !el.getClientRects().length) return
+  composerAreaWidth.value = composerAreaRef.value?.clientWidth || 0
   const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 19.5
   const form = el.closest('form')!
   const formStyle = getComputedStyle(form)
   const toolbarHeight = form.querySelector('.composer-actions')?.getBoundingClientRect().height || 30
-  const referenceHeight = form.querySelector('.composer-reference-list')?.getBoundingClientRect().height || 0
   const statusHeight = panel.querySelector('.composer-context-warning')?.getBoundingClientRect().height || 0
-  const chromeHeight = statusHeight + 4 + toolbarHeight + referenceHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) * (referenceHeight ? 2 : 1) + 2
+  const filesHeight = form.querySelector('.composer-context-files')?.getBoundingClientRect().height || 0
+  const chromeHeight = statusHeight + filesHeight + 4 + toolbarHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) + 2
   const maxHeight = Math.max(lineHeight * 2, Math.min(lineHeight * 8, panel.clientHeight * 0.3 - chromeHeight))
   el.style.height = '0px'
   el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`
@@ -211,7 +245,16 @@ const hasApiConfigured = computed(() => {
 let initialLoadPromise: Promise<void> | null = null
 let openPreparationPromise: Promise<void> | null = null
 let handledOpenGeneration = 0
-const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value && !contextFileBusy.value)
+const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
+  systemPrompt: settings.value.systemPrompt,
+  sessionId: props.sessionId,
+  cwd: sftpListedCwdState()[props.sessionId],
+  model: settings.value.activeModel || displayModelName.value,
+  contextWindowTokens: activeContextWindowTokens.value,
+  contextFiles: contextFiles.value,
+}))
+const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value && !contextFileBusy.value && !contextFilesTooLong.value)
+watch(contextFilesTooLong, () => { void nextTick(resizeComposer) })
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
 const pendingApprovals = computed(() => {
@@ -559,6 +602,7 @@ async function removeContextFile(file: AiConversationContextFile) {
 }
 
 async function handleRegenerate(messageId: string) {
+  if (contextFilesTooLong.value) return
   loading.value = true
   try {
     await regenerateMessage(props.sessionId, messageId, syncMessages)
@@ -568,6 +612,7 @@ async function handleRegenerate(messageId: string) {
 }
 
 async function handleRetry(messageId: string) {
+  if (contextFilesTooLong.value) return
   loading.value = true
   try {
     await retryMessage(props.sessionId, messageId, syncMessages)
@@ -581,6 +626,10 @@ async function handleEditResend(
   newText: string,
   done: (success: boolean) => void,
 ) {
+  if (contextFilesTooLong.value) {
+    done(false)
+    return
+  }
   let started = false
   try {
     const ok = await editUserMessageAndResend(
@@ -668,7 +717,7 @@ watch(showModelSwitcher, (open) => {
 
 async function handleSendText(text: string): Promise<boolean> {
   const content = text.trim()
-  if (!content || savingComposer.value) return false
+  if (!content || savingComposer.value || contextFilesTooLong.value) return false
   loading.value = true
   const result = await sendText(props.sessionId, content, syncMessages)
   loading.value = getSessionState(props.sessionId).loading
@@ -712,6 +761,7 @@ function closePopoverOnEscape(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   showModelSwitcher.value = false
   contextFileMenuRef.value?.removeAttribute('open')
+  contextFilePreviewKey.value = ''
   closeSettingsPanel()
   closeHistoryPanel()
 }
@@ -719,6 +769,9 @@ function closePopoverOnEscape(event: KeyboardEvent) {
 function closeContextFileMenuOnOutsideClick(event: PointerEvent) {
   if (!contextFileMenuRef.value?.contains(event.target as Node)) {
     contextFileMenuRef.value?.removeAttribute('open')
+  }
+  if (!composerAreaRef.value?.querySelector('.composer-context-files')?.contains(event.target as Node)) {
+    contextFilePreviewKey.value = ''
   }
 }
 
@@ -887,19 +940,62 @@ async function runCodeToTerminal(code: string) {
 
     <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area">
     <form class="composer" @submit.prevent="sendMessage">
-      <div v-if="contextFiles.length" class="composer-reference-list">
-        <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-reference" :title="file.path">
-          <AppIcon name="file-text" size="sm" />
-          <div class="composer-reference-info">
-            <div class="composer-reference-title">
-              <strong class="composer-reference-name">{{ contextFileName(file) }}</strong>
+      <div v-if="contextFiles.length" class="composer-context-files">
+        <div class="composer-context-chips" role="list" :aria-label="t('ai.contextFileCount', { count: contextFiles.length })">
+          <div
+            v-for="file in visibleContextFiles"
+            :key="contextFileKey(file)"
+            class="composer-context-chip"
+            role="listitem"
+            :class="{
+              missing: contextFileSourceStatus[contextFileKey(file)] === 'missing',
+              previewing: contextFilePreviewKey === contextFileKey(file),
+            }"
+          >
+            <button
+              type="button"
+              class="composer-context-chip-main"
+              :aria-expanded="contextFilePreviewKey === contextFileKey(file)"
+              :aria-label="contextFileChipLabel(file)"
+              :title="contextFileTitle(file)"
+              @click="toggleContextFilePreview(file)"
+            >
+              <AppIcon name="file-text" size="xs" />
+              <span class="composer-context-chip-name">{{ contextFileName(file) }}</span>
               <span class="composer-reference-source" :class="file.source">{{ file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal') }}</span>
-            </div>
-            <span class="composer-reference-path">{{ file.path }}</span>
-            <span v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="composer-reference-status missing">{{ t('ai.contextFileMissing') }}</span>
-            <span v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'" class="composer-reference-status">{{ t('ai.contextFileUnavailable') }}</span>
+              <span v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="composer-context-chip-alert" :title="t('ai.contextFileMissing')">
+                <AppIcon name="alert-triangle" size="xs" />
+              </span>
+              <span v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'" class="composer-context-chip-alert is-unavailable" :title="t('ai.contextFileUnavailable')">
+                <AppIcon name="alert-circle" size="xs" />
+              </span>
+            </button>
+            <button
+              type="button"
+              class="composer-context-chip-remove"
+              :disabled="loading || contextFileBusy"
+              :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })"
+              :title="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })"
+              @click="removeContextFile(file)"
+            >
+              <AppIcon name="close" size="xs" />
+            </button>
           </div>
-          <button type="button" class="composer-reference-remove" :disabled="loading || contextFileBusy" :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" :title="t('ai.contextFileRemove')" @click="removeContextFile(file)"><AppIcon name="close" size="xs" /></button>
+          <div v-if="overflowContextFiles.length" class="composer-context-more-wrap" role="listitem">
+            <button
+              type="button"
+              class="composer-context-more"
+              :aria-label="t('ai.contextFileMore', { count: overflowContextFiles.length })"
+              @click="contextFileMenuRef?.setAttribute('open', '')"
+            >+{{ overflowContextFiles.length }}</button>
+          </div>
+        </div>
+        <div v-if="previewContextFile" class="composer-context-preview">
+          <div class="composer-context-preview-head">
+            <span>{{ t('ai.contextFilePreviewCaption') }}</span>
+            <span class="composer-context-preview-path" :title="previewContextFile.path">{{ previewContextFile.path }}</span>
+          </div>
+          <pre>{{ previewContextFile.content }}</pre>
         </div>
       </div>
       <textarea
@@ -915,25 +1011,22 @@ async function runCodeToTerminal(code: string) {
       <div class="composer-actions">
         <div class="composer-actions-right">
           <details ref="contextFileMenuRef" class="composer-context-menu" :class="{ active: contextFiles.length > 0 }" @toggle="onContextFileMenuToggle">
-            <summary :aria-label="t('ai.contextFileMenu')" :title="t('ai.contextFileSnapshotHint')">
+            <summary :aria-label="t('ai.contextFileMenu')" :title="`${t('ai.contextFileMenuHint')} ${t('ai.contextFileSnapshotHint')}`">
               <AppIcon name="file-text" size="sm" />
-              <span class="composer-context-label">{{ contextFiles.length ? t('ai.contextFileCount', { count: contextFiles.length }) : t('ai.contextFileMenu') }}</span>
+              <span class="composer-context-label">{{ t('ai.contextFileMenu') }}</span>
               <AppIcon name="chevron-down" size="xs" />
             </summary>
             <div class="composer-context-dropdown">
-              <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-context-selected">
-                <div class="composer-reference-title">
-                  <strong class="composer-reference-name">{{ contextFileName(file) }}</strong>
-                  <span class="composer-reference-source" :class="file.source">{{ file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal') }}</span>
+              <div v-if="overflowContextFiles.length" class="composer-context-overflow-list">
+                <div v-for="file in overflowContextFiles" :key="contextFileKey(file)" class="composer-context-overflow-row">
+                  <button type="button" class="composer-context-overflow-preview" :title="contextFileTitle(file)" @click="previewOverflowContextFile(file)">{{ contextFileName(file) }}</button>
+                  <button type="button" class="composer-context-overflow-remove" :disabled="loading || contextFileBusy" :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" @click="removeContextFile(file)"><AppIcon name="close" size="xs" /></button>
                 </div>
-                <span>{{ file.path }}</span>
-                <small v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="missing">{{ t('ai.contextFileMissing') }}</small>
-                <small v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'">{{ t('ai.contextFileUnavailable') }}</small>
-                <button type="button" :disabled="loading || contextFileBusy" @click="removeContextFile(file)">{{ t('ai.contextFileRemove') }}</button>
               </div>
               <div class="composer-context-help">{{ t('ai.contextFileMenuHint') }}</div>
-              <button type="button" :disabled="loading || contextFileBusy" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
-              <button type="button" :disabled="loading || contextFileBusy" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
+              <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
+              <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
+              <div class="composer-context-help">{{ t('ai.contextFileSnapshotHint') }}</div>
               <div v-if="contextFiles.length >= 5" class="composer-context-help">{{ t('ai.contextFileLimit') }}</div>
             </div>
           </details>
@@ -970,7 +1063,8 @@ async function runCodeToTerminal(code: string) {
           </button>
         </div>
       </div>
-      <span v-if="showContextMeter" class="composer-context-warning" :class="contextTone" :title="contextMeterTitle" role="status">{{ t('ai.contextPercent', { n: Math.round(contextRatio * 100) }) }}</span>
+      <span v-if="contextFilesTooLong" class="composer-context-warning danger context-file-too-long" role="alert">{{ t('ai.contextFileTooLong') }}</span>
+      <span v-else-if="showContextMeter" class="composer-context-warning" :class="contextTone" :title="contextMeterTitle" role="status">{{ t('ai.contextPercent', { n: Math.round(contextRatio * 100) }) }}</span>
     </form>
     </div>
 

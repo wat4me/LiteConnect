@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { estimateTokens, packAiMessages } from './aiContext'
 import {
   estimateSidebarAiRequest,
+  sidebarContextFilesFit,
   sidebarToolSchemaTokens,
   sshToolsForChat,
   sshToolSystemAddendum,
 } from './aiSidebarPrompt'
 
 describe('estimateSidebarAiRequest', () => {
+  it('detects when a selected file would be truncated from the system message', () => {
+    const file = { source: 'local' as const, path: '/notes.md', content: 'important document body ' + 'details '.repeat(3000) }
+    expect(sidebarContextFilesFit({ systemPrompt: '', contextFiles: [file], contextWindowTokens: 8192 })).toBe(false)
+    expect(sidebarContextFilesFit({ systemPrompt: '', contextFiles: [file], contextWindowTokens: 131072 })).toBe(true)
+  })
   it('matches a plain pack when the sidebar is not bound to a session', () => {
     const messages = [
       { role: 'user' as const, content: 'hello' },
