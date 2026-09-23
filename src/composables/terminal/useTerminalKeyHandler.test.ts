@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { useTerminalKeyHandler } from './useTerminalKeyHandler'
+import { resetPageScrollHintForTests, useTerminalKeyHandler } from './useTerminalKeyHandler'
 
 function makeHandler() {
   const setFontSize = vi.fn()
@@ -57,6 +57,44 @@ describe('useTerminalKeyHandler font zoom', () => {
       tiny.handleKey(keydown({ key: '-', code: 'Minus', ctrlKey: true }))
     }
     expect(tiny.getFontSize()).toBe(10)
+  })
+
+  it('tips once for bare PageUp and PageDown on the normal buffer', () => {
+    resetPageScrollHintForTests()
+    const onBarePageKey = vi.fn()
+    const { handleKey } = useTerminalKeyHandler({
+      getTerminal: () => ({ buffer: { active: { type: 'normal' } } }) as never,
+      getFontSize: () => 14,
+      setFontSize: vi.fn(),
+      toggleSearch: vi.fn(),
+      onBarePageKey,
+    })
+    expect(handleKey(keydown({ key: 'PageDown' }))).toBe(true)
+    expect(handleKey(keydown({ key: 'PageUp' }))).toBe(true)
+    expect(handleKey(keydown({ key: 'PageDown', shiftKey: true }))).toBe(true)
+    expect(onBarePageKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not tip inside a full-screen program or while the key repeats', () => {
+    resetPageScrollHintForTests()
+    const onBarePageKey = vi.fn()
+    const base = {
+      getFontSize: () => 14,
+      setFontSize: vi.fn(),
+      toggleSearch: vi.fn(),
+      onBarePageKey,
+    }
+    const alternate = useTerminalKeyHandler({
+      ...base,
+      getTerminal: () => ({ buffer: { active: { type: 'alternate' } } }) as never,
+    })
+    alternate.handleKey(keydown({ key: 'PageDown' }))
+    const repeating = useTerminalKeyHandler({
+      ...base,
+      getTerminal: () => ({ buffer: { active: { type: 'normal' } } }) as never,
+    })
+    repeating.handleKey({ ...keydown({ key: 'PageDown' }), repeat: true } as KeyboardEvent)
+    expect(onBarePageKey).not.toHaveBeenCalled()
   })
 
   it('does not grow past 24', () => {

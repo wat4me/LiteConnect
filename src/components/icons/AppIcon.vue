@@ -36,6 +36,9 @@ export type AppIconName =
   | 'folder'
   | 'folder-up'
   | 'list-collapse'
+  | 'locate'
+  | 'pin'
+  | 'pin-fill'
   | 'monitor'
   | 'activity'
   | 'terminal'
@@ -44,7 +47,6 @@ export type AppIconName =
   | 'ai-chat'
   | 'sync'
   | 'transfer'
-  | 'link-2'
   | 'settings'
   | 'history'
   | 'send'
@@ -292,13 +294,27 @@ const iconStyle = computed(() => {
       <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
       <path d="M12 17v-6m-3 3 3-3 3 3" />
     </template>
-    <!-- list-collapse: fold tree branches (keep current path only) -->
+    <!-- list-collapse: arrows folding toward the center line -->
     <template v-else-if="name === 'list-collapse'">
-      <path d="m7 10 2.5-2.5L12 10" />
-      <path d="m7 14 2.5 2.5L12 14" />
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <line x1="13" y1="12" x2="21" y2="12" />
-      <line x1="13" y1="18" x2="21" y2="18" />
+      <polyline points="8 5 12 9 16 5" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="8 19 12 15 16 19" />
+    </template>
+    <!-- locate: circle with a cross through the center -->
+    <template v-else-if="name === 'locate'">
+      <circle cx="12" cy="12" r="6" />
+      <line x1="12" y1="2" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+    </template>
+    <!-- pin outline -->
+    <template v-else-if="name === 'pin'">
+      <path d="M8 3h8v6l2.5 3h-13L8 9z" />
+      <line x1="12" y1="12" x2="12" y2="21" />
+    </template>
+    <!-- pin filled -->
+    <template v-else-if="name === 'pin-fill'">
+      <path d="M8 3h8v6l2.5 3h-13L8 9z" fill="currentColor" stroke="none" />
+      <line x1="12" y1="12" x2="12" y2="21" />
     </template>
     <!-- monitor -->
     <template v-else-if="name === 'monitor'">
@@ -343,15 +359,12 @@ const iconStyle = computed(() => {
       <polyline points="1 20 1 14 7 14" />
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l5.64 4.36A9 9 0 0 0 20.49 15" />
     </template>
-    <!-- transfer -->
+    <!-- transfer: upload and download side by side -->
     <template v-else-if="name === 'transfer'">
-      <path d="M7 7h11l-3-3M17 17H6l3 3" />
-      <path d="m18 7-3 3M6 17l3-3" />
-    </template>
-    <!-- link-2 (follow path) -->
-    <template v-else-if="name === 'link-2'">
-      <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.1" />
-      <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.1" />
+      <line x1="7" y1="19" x2="7" y2="6" />
+      <polyline points="4 9 7 5 10 9" />
+      <line x1="17" y1="5" x2="17" y2="18" />
+      <polyline points="14 15 17 19 20 15" />
     </template>
     <!-- settings gear -->
     <template v-else-if="name === 'settings'">

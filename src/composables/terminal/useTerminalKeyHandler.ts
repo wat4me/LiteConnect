@@ -12,6 +12,8 @@ export function useTerminalKeyHandler(deps: {
   toggleSearch: () => void
   /** Paste with optional multi-line confirm */
   pasteText?: (text: string) => void | Promise<void>
+  /** Bare PageUp/PageDown on the normal buffer. Fired once per app run. */
+  onBarePageKey?: () => void
 }) {
   function handleKey(event: KeyboardEvent): boolean {
     if (event.type !== 'keydown') return true
@@ -73,8 +75,34 @@ export function useTerminalKeyHandler(deps: {
       return false
     }
 
+    if (isBarePageKey(event) && !isAlternateScreen(terminal) && takePageScrollHint()) {
+      deps.onBarePageKey?.()
+    }
+
     return true
   }
 
   return { handleKey }
+}
+
+let pageScrollHintTaken = false
+
+export function resetPageScrollHintForTests(): void {
+  pageScrollHintTaken = false
+}
+
+function takePageScrollHint(): boolean {
+  if (pageScrollHintTaken) return false
+  pageScrollHintTaken = true
+  return true
+}
+
+function isBarePageKey(event: KeyboardEvent): boolean {
+  if (event.repeat) return false
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false
+  return event.key === 'PageUp' || event.key === 'PageDown'
+}
+
+function isAlternateScreen(terminal: Terminal | null): boolean {
+  return terminal?.buffer.active.type === 'alternate'
 }

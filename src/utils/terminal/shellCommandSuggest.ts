@@ -1,6 +1,6 @@
 import { getFlagsForCommand } from '@/utils/terminal/shellCommandFlags'
 
-export type ShellSuggestSource = 'history' | 'flag'
+export type ShellSuggestSource = 'history' | 'flag' | 'bookmark'
 
 export type ShellSuggestItem = {
   id: string
@@ -24,6 +24,13 @@ export type ShellHistoryEntry = {
 export const HISTORY_SUGGEST_LIMIT = 5
 /** Flag rows always reserved (floor), independent of history */
 export const SYSTEM_SUGGEST_LIMIT = 3
+/** Bookmarked directories offered while typing `cd`. */
+export const CD_BOOKMARK_LIMIT = 5
+
+export type CdBookmarkHint = {
+  name: string
+  path: string
+}
 
 /** First token of the current input line (no leading pipe/and chains). */
 export function extractSuggestPrefix(input: string): string {
@@ -53,16 +60,14 @@ export function parseSuggestSegment(segment: string): ParsedSuggestSegment {
 }
 
 /**
- * Flag/option mode: known command already typed, and either trailing space
- * or additional tokens (partial flag / more args).
+ * Flag/option mode starts as soon as a known command is fully typed.
+ * Partial command names still use history matching.
  */
 export function isFlagSuggestMode(segment: string): boolean {
-  const { tokens, endsWithSpace } = parseSuggestSegment(segment)
+  const { tokens } = parseSuggestSegment(segment)
   if (tokens.length === 0) return false
   const cmd = tokens[0].toLowerCase()
-  if (getFlagsForCommand(cmd).length === 0) return false
-  if (tokens.length === 1) return endsWithSpace
-  return true
+  return getFlagsForCommand(cmd).length > 0
 }
 
 function scoreHistory(cmd: string, q: string): number {
@@ -130,6 +135,7 @@ function buildHistoryItems(
 ): ShellSuggestItem[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
+  const queryCommand = q.split(/\s+/)[0]
   const histItems: Array<ShellSuggestItem & { score: number; at: number }> = []
   const seenHist = new Set<string>()
 
@@ -138,7 +144,11 @@ function buildHistoryItems(
     if (!cmd || seenHist.has(cmd)) continue
     // Exact same line as typed — nothing to complete.
     if (cmd.toLowerCase() === q) continue
-    if (opts?.bareCommand && !historyMatchesBareCommand(cmd, q)) continue
+    if (opts?.bareCommand) {
+      if (!historyMatchesBareCommand(cmd, q)) continue
+    } else if (cmd.toLowerCase().split(/\s+/)[0] !== queryCommand) {
+      continue
+    }
     const score = scoreHistory(cmd, q)
     if (score <= 0) continue
     seenHist.add(cmd)
@@ -241,14 +251,70 @@ function buildFlagItems(
   return scored.slice(0, limit).map(({ score: _s, ...item }) => item)
 }
 
+/** Quote a remote path so it is one shell word. Safe paths stay bare. */
+export function shellQuotePath(path: string): string {
+  if (/^[A-Za-z0-9_./:@+=,~-]+$/.test(path)) return path
+  return `'${path.replace(/'/g, `'\\''`)}'`
+}
+
+export function cdBookmarkCommand(path: string): string {
+  return `cd ${shellQuotePath(path)}`
+}
+
+/**
+ * Path typed after `cd`, or null when this segment is not a cd command.
+ * `cd` and `cd ` both yield an empty prefix so every bookmark can be offered.
+ */
+export function cdPathQuery(segment: string): string | null {
+  const raw = (segment || '').replace(/^\s+/, '')
+  const match = /^cd(?:\s([\s\S]*))?$/i.exec(raw)
+  if (!match) return null
+  return (match[1] ?? '').trim().replace(/^['"]/, '').replace(/['"]$/, '')
+}
+
+export function buildCdBookmarkSuggestions(
+  segment: string,
+  bookmarks: readonly CdBookmarkHint[],
+  limit = CD_BOOKMARK_LIMIT,
+): ShellSuggestItem[] {
+  const typed = cdPathQuery(segment)
+  if (typed == null) return []
+  const seen = new Set<string>()
+  const out: ShellSuggestItem[] = []
+  const typedLine = segment.replace(/^\s+/, '')
+  for (const item of bookmarks) {
+    const path = item.path
+    if (!path || seen.has(path)) continue
+    if (typed && !path.startsWith(typed)) continue
+    const quoted = shellQuotePath(path)
+    if (typed === path || typed === quoted) continue
+    const command = `cd ${quoted}`
+    if (typedLine === command) continue
+    seen.add(path)
+    const name = item.name.trim() || path
+    out.push({
+      id: `b:${path}`,
+      source: 'bookmark',
+      command,
+      title: path,
+      subtitle: name === path ? undefined : name,
+    })
+    if (out.length >= limit) break
+  }
+  return out
+}
+
 /**
  * History (up to 5, latest relevant) plus parameter hints (up to 3).
  * Static command-name suggestions are intentionally omitted: remote shells have
  * their own commands, aliases and PATH, while history is reliably contextual.
+ * `cd` also offers bookmarked directories for the current connection.
  */
 export function buildShellSuggestions(opts: {
   query: string
   history: ShellHistoryEntry[]
+  /** Connection bookmarks first, then global. Same path keeps the earlier row. */
+  bookmarks?: readonly CdBookmarkHint[]
   historyLimit?: number
   systemLimit?: number
   /** @deprecated use historyLimit + systemLimit */
@@ -264,7 +330,7 @@ export function buildShellSuggestions(opts: {
   const sysLimit = opts.systemLimit ?? SYSTEM_SUGGEST_LIMIT
 
   if (isFlagSuggestMode(raw)) {
-    // Flag mode already has args/space — history of full past lines is useful again.
+    // A complete known command offers its presets even without history or a trailing space.
     const histItems = buildHistoryItems(raw, opts.history, histLimit)
     const out: ShellSuggestItem[] = [...histItems]
     for (const f of buildFlagItems(raw, sysLimit, opts.describe)) {
@@ -276,11 +342,16 @@ export function buildShellSuggestions(opts: {
   }
 
   const { tokens, endsWithSpace } = parseSuggestSegment(raw)
-  // `docker` / `ps` without trailing space: suppress "docker ps" style history.
-  // Partial names (`dock`) still surface longer history first-token matches.
+  // Partial or unknown command names use first-token history matches.
   const bareCommand = tokens.length === 1 && !endsWithSpace
   const histItems = buildHistoryItems(q, opts.history, histLimit, { bareCommand })
-  return histItems
+  const bookmarkItems = buildCdBookmarkSuggestions(raw, opts.bookmarks ?? [])
+  if (bookmarkItems.length === 0) return histItems
+  const seen = new Set(bookmarkItems.map((item) => item.command))
+  return [
+    ...bookmarkItems,
+    ...histItems.filter((item) => !seen.has(item.command)),
+  ]
 }
 
 /**

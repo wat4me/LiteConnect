@@ -3,8 +3,7 @@ import { ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nex
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import '@xterm/xterm/css/xterm.css'
-import { isLightTerminalBackground, type Theme, type CustomColors } from '@/composables/app/useTheme'
-import { rewriteOtherWritableAnsi } from '@/utils/terminal/otherWritableAnsi'
+import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
 import { useCommandBuffer } from '../../composables/terminal/useCommandBuffer'
 import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
@@ -14,6 +13,7 @@ import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
 import { useTerminalKeyHandler } from '../../composables/terminal/useTerminalKeyHandler'
 import { useXtermInstance } from '../../composables/terminal/useXtermInstance'
 import { useTerminalShellSuggest } from '../../composables/terminal/useTerminalShellSuggest'
+import { useSftpPathBookmarks } from '../../composables/sftp/useSftpPathBookmarks'
 import { useTerminalReconnect } from '../../composables/terminal/useTerminalReconnect'
 import { useTerminalSelectionMenu } from '../../composables/terminal/useTerminalSelectionMenu'
 import { useTerminalPasteConfirm } from '../../composables/terminal/useTerminalPasteConfirm'
@@ -128,11 +128,11 @@ const {
   commandBuffer,
   commandBufferDirty,
   capturedSubmitLine,
-  submitBufferedCommand,
   scheduleSubmit,
   cancelPendingSubmit,
   resetCommandBuffer,
   getVisibleCommandLine,
+  syncAfterTabCompletion,
   extractCommandFromVisibleLine,
 } = useCommandBuffer({
   getTerminal,
@@ -176,6 +176,7 @@ const {
   autoReconnectMaxRetries,
 } = reconnect
 
+const pathBookmarks = useSftpPathBookmarks(() => props.connectionId)
 const suggest = useTerminalShellSuggest({
   terminalRef,
   getTerminal,
@@ -185,7 +186,11 @@ const suggest = useTerminalShellSuggest({
   disconnected: reconnect.disconnected,
   commandBuffer,
   commandBufferDirty,
-  submitBufferedCommand,
+  cdBookmarks: () => {
+    const grouped = pathBookmarks.grouped.value
+    return [...grouped.connection, ...grouped.global]
+  },
+  ensureCdBookmarks: () => pathBookmarks.ensureLoaded(),
 })
 const {
   suggestVisible,
@@ -280,6 +285,8 @@ function pulseCursor() {
   }, 120)
 }
 
+let tabCompletionInput: string | null = null
+
 function handleTerminalUserInput(data: string) {
   if (readOnly.value) {
     showReadOnlyHintOnce()
@@ -297,6 +304,13 @@ function handleTerminalUserInput(data: string) {
   const isTab = data === '\t' || data === '\x09'
   const isEscape = data.charCodeAt(0) === 0x1b
   const hasNewline = data.includes('\r') || data.includes('\n')
+
+  if (tabCompletionInput !== null && !isTab) {
+    if (syncAfterTabCompletion(tabCompletionInput, true)) {
+      suggest.suggestDismissed.value = false
+    }
+    tabCompletionInput = null
+  }
 
   const plainChunk = data
     .replace(/\x1b\[200~/g, '')
@@ -319,6 +333,7 @@ function handleTerminalUserInput(data: string) {
     commandBuffer.value = commandBuffer.value.replace(/\S+\s*$/, '')
   } else if (isTab) {
     suggest.hideSuggest()
+    tabCompletionInput = commandBuffer.value || null
     commandBufferDirty.value = true
   } else if (isLocallyEchoable(data) && !isPasting()) {
     suggest.suggestDismissed.value = false
@@ -383,6 +398,9 @@ const { handleKey: handleTerminalKey } = useTerminalKeyHandler({
   },
   toggleSearch,
   pasteText: pasteWithConfirm,
+  onBarePageKey: () => {
+    ElMessage.info(t('terminal.pageScrollHint'))
+  },
 })
 
 function handleKey(event: KeyboardEvent): boolean {
@@ -451,17 +469,19 @@ watch(
 
 function appendIncomingTerminalData(data: string) {
   if (!getTerminal()) return
-  let visibleData = processPwdQueryData(data)
-  if (
-    visibleData.length > 0 &&
-    isLightTerminalBackground(theme.value, customColors.value, terminalPalette.value)
-  ) {
-    visibleData = rewriteOtherWritableAnsi(visibleData)
-  }
+  const visibleData = processPwdQueryData(data)
   if (visibleData.length > 0) {
     suggest.feedHistorySniff(visibleData)
     appendRenderBatch(visibleData)
-    scheduleRenderFlush()
+    if (tabCompletionInput !== null) {
+      flushRenderBatch(() => {
+        if (tabCompletionInput !== null && syncAfterTabCompletion(tabCompletionInput, true)) {
+          suggest.suggestDismissed.value = false
+        }
+      })
+    } else {
+      scheduleRenderFlush()
+    }
   }
 }
 

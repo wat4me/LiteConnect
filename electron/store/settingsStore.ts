@@ -9,6 +9,7 @@ import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { DecryptionError, isValidUUID } from '../utils/validation'
 import { getAppDatabase, SINGLETONS } from './appDatabase'
+import { applySettingsPatch } from './settingsPatch'
 import { sealSecret } from '../utils/secretCrypto'
 import { appBackgroundImageUrl, sanitizeWallpaperFileName } from '../window/appBackgroundProtocol'
 import { getDefaultAiSystemPrompt, LEGACY_AI_SYSTEM_PROMPT } from '../utils/constants'
@@ -1201,144 +1202,10 @@ export class SettingsStore {
 
   /** Apply many fields then persist once. Wallpaper file bytes are handled by IPC. */
   async applyMany(patch: SettingsAllPatch): Promise<SettingsAll> {
-    if (patch.theme !== undefined) this.settings.theme = patch.theme
-    if (patch.customColors !== undefined) this.settings.customColors = patch.customColors
-    if (patch.downloadPath !== undefined) this.settings.downloadPath = patch.downloadPath
-    if (patch.terminalFontSize !== undefined) {
-      this.settings.terminalFontSize = Math.max(10, Math.min(24, Math.round(patch.terminalFontSize)))
-    }
-    if (patch.terminalFontFamily !== undefined) {
-      this.settings.terminalFontFamily =
-        typeof patch.terminalFontFamily === 'string' && patch.terminalFontFamily.trim()
-          ? patch.terminalFontFamily.trim()
-          : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
-    }
-    if (patch.terminalPalette !== undefined) {
-      const allowed = ['auto', 'dark', 'light', 'eyecare', 'dracula', 'solarized-dark', 'solarized-light', 'monokai']
-      if (allowed.includes(patch.terminalPalette)) this.settings.terminalPalette = patch.terminalPalette
-    }
-    if (patch.terminalScrollback !== undefined) {
-      this.settings.terminalScrollback = Math.max(2000, Math.min(20000, Math.round(patch.terminalScrollback)))
-    }
-    if (patch.terminalPasteConfirmEnabled !== undefined) {
-      this.settings.terminalPasteConfirmEnabled = !!patch.terminalPasteConfirmEnabled
-    }
-    if (patch.terminalPasteConfirmMaxChars !== undefined) {
-      this.settings.terminalPasteConfirmMaxChars = sanitizeTerminalPasteConfirmMaxChars(
-        patch.terminalPasteConfirmMaxChars,
-      )
-    }
-    if (patch.terminalCommandSuggestEnabled !== undefined) {
-      this.settings.terminalCommandSuggestEnabled = !!patch.terminalCommandSuggestEnabled
-    }
-    if (patch.terminalCommandHistoryExcludePatterns !== undefined) {
-      this.settings.terminalCommandHistoryExcludePatterns = normalizeShellHistoryExcludePatterns(
-        patch.terminalCommandHistoryExcludePatterns,
-      )
-    }
-    if (patch.downloadConflictStrategy !== undefined) {
-      const v = patch.downloadConflictStrategy
-      if (v === 'overwrite' || v === 'skip' || v === 'rename') this.settings.downloadConflictStrategy = v
-    }
-    if (patch.dirTransferConcurrency !== undefined) {
-      this.settings.dirTransferConcurrency = Math.max(1, Math.min(8, Math.round(patch.dirTransferConcurrency)))
-    }
-    if (patch.dirTransferFailPolicy !== undefined) {
-      if (patch.dirTransferFailPolicy === 'continue' || patch.dirTransferFailPolicy === 'stop') {
-        this.settings.dirTransferFailPolicy = patch.dirTransferFailPolicy
-      }
-    }
-    if (patch.dbFontFamily !== undefined) {
-      this.settings.dbFontFamily =
-        typeof patch.dbFontFamily === 'string' && patch.dbFontFamily.trim()
-          ? patch.dbFontFamily.trim()
-          : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
-    }
-    if (patch.dbFontSize !== undefined) {
-      this.settings.dbFontSize = Math.max(10, Math.min(24, Math.round(patch.dbFontSize)))
-    }
-    if (patch.dbPageSize !== undefined) {
-      const allowed = [50, 100, 200, 500]
-      this.settings.dbPageSize = allowed.includes(patch.dbPageSize) ? patch.dbPageSize : 100
-    }
-    if (patch.dbConfirmDangerousSql !== undefined) {
-      this.settings.dbConfirmDangerousSql = !!patch.dbConfirmDangerousSql
-    }
-    if (patch.dbDefaultMaxRows !== undefined) {
-      this.settings.dbDefaultMaxRows = sanitizeDbDefaultMaxRows(patch.dbDefaultMaxRows)
-    }
-    if (patch.dbDefaultQueryTimeoutSec !== undefined) {
-      this.settings.dbDefaultQueryTimeoutSec = sanitizeDbDefaultQueryTimeoutSec(patch.dbDefaultQueryTimeoutSec)
-    }
-    if (patch.dbDefaultRunScope !== undefined) {
-      this.settings.dbDefaultRunScope = sanitizeDbDefaultRunScope(patch.dbDefaultRunScope)
-    }
-    if (patch.dbOpenMode !== undefined) {
-      this.settings.dbOpenMode = sanitizeDbOpenMode(patch.dbOpenMode)
-    }
-    if (patch.latencyEnabled !== undefined) this.settings.latencyEnabled = !!patch.latencyEnabled
-    if (patch.latencyIntervalMs !== undefined) {
-      this.settings.latencyIntervalMs = Math.max(1000, Math.min(60000, Math.round(patch.latencyIntervalMs)))
-    }
-    if (patch.connectionUsageStatsEnabled !== undefined) {
-      this.settings.connectionUsageStatsEnabled = !!patch.connectionUsageStatsEnabled
-    }
-    if (patch.connectionSortMode !== undefined) {
-      this.settings.connectionSortMode = normalizeConnectionSortMode(
-        patch.connectionSortMode,
-        patch.connectionUsageStatsEnabled ?? this.getConnectionUsageStatsEnabled(),
-      )
-    } else if (patch.connectionUsageStatsEnabled === false) {
-      this.settings.connectionSortMode = 'manual'
-    }
-    if (patch.fancyCursorEnabled !== undefined) this.settings.fancyCursorEnabled = !!patch.fancyCursorEnabled
-    if (patch.fancyCursorStyle !== undefined) {
-      const s = patch.fancyCursorStyle
-      this.settings.fancyCursorStyle =
-        s === 'dot' || s === 'trail' || s === 'cross' || s === 'ring' ? s : 'ring'
-    }
-    if (patch.appBackground !== undefined) {
-      const cur = this.getAppBackground()
-      const next = patch.appBackground
-      const fit =
-        next.fit === 'contain' || next.fit === 'fill' || next.fit === 'cover' ? next.fit : cur.fit
-      const overlay =
-        typeof next.overlay === 'number' ? Math.max(0, Math.min(90, Math.round(next.overlay))) : cur.overlay
-      const fileName = typeof next.fileName === 'string' ? next.fileName : cur.fileName
-      this.settings.appBackground = { fileName, fit, overlay }
-    }
-    if (patch.monitorEnabled !== undefined) this.settings.monitorEnabled = !!patch.monitorEnabled
-    if (patch.monitorIntervalMs !== undefined) {
-      this.settings.monitorIntervalMs = Math.max(2000, Math.min(30000, Math.round(patch.monitorIntervalMs)))
-    }
-    if (patch.autoReconnectEnabled !== undefined) {
-      this.settings.autoReconnectEnabled = !!patch.autoReconnectEnabled
-    }
-    if (patch.workspaceRestoreEnabled !== undefined) {
-      this.settings.workspaceRestoreEnabled = !!patch.workspaceRestoreEnabled
-      if (!this.settings.workspaceRestoreEnabled) delete this.settings.workspaceTabs
-    }
-    if (patch.closeToTrayEnabled !== undefined) {
-      this.settings.closeToTrayEnabled = !!patch.closeToTrayEnabled
-    }
-    if (patch.globalHotkeyEnabled !== undefined) {
-      this.settings.globalHotkeyEnabled = !!patch.globalHotkeyEnabled
-    }
-    if (patch.globalHotkey !== undefined) {
-      this.settings.globalHotkey = normalizeGlobalHotkey(patch.globalHotkey) ?? DEFAULT_GLOBAL_HOTKEY
-    }
-    if (patch.sessionLogEnabled !== undefined) {
-      this.settings.sessionLogEnabled = !!patch.sessionLogEnabled
-    }
-    if (patch.autoReconnectMaxRetries !== undefined) {
-      this.settings.autoReconnectMaxRetries = Math.max(0, Math.min(20, Math.round(patch.autoReconnectMaxRetries)))
-    }
-    if (patch.x11AutoStartEnabled !== undefined) {
-      this.settings.x11AutoStartEnabled = !!patch.x11AutoStartEnabled
-    }
-    if (patch.x11ServerPath !== undefined) {
-      this.settings.x11ServerPath = typeof patch.x11ServerPath === 'string' ? patch.x11ServerPath.trim() : ''
-    }
+    applySettingsPatch(this.settings, patch, {
+      connectionUsageStatsEnabled: () => this.getConnectionUsageStatsEnabled(),
+      appBackground: () => this.getAppBackground(),
+    })
     await this.save()
     return this.getAll()
   }

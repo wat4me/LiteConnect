@@ -409,7 +409,7 @@ export function useAiChat() {
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
         messageCount: thread.messages.length,
-        contextFilePath: thread.contextFiles[0]?.path,
+        contextFilePath: thread.contextFiles?.[0]?.path,
         active: thread.id === store.activeThreadId,
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt)

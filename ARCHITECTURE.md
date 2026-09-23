@@ -126,12 +126,16 @@ AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; HTTP/parse lives in 
 All main-process application data is stored in `liteconnect.sqlite`, managed by `electron/store/appDatabase.ts`. The database uses WAL, foreign-key enforcement, full synchronous commits, schema versions, and transactional legacy migration. Collection rows are updated only when their order or payload changes. JSON/JSONL remains an import/export format and a one-time upgrade source, not a live application store.
 
 Settings IPC is composed from `electron/ipc/settings/*.ts`. New settings go through `settings:getAll` / `settings:setMany` (`AppSettingsAll` + `SettingsStore.applyMany`), not a new one-off get/set channel.
+`electron/store/settingsPatch.ts` owns the synchronous validation and normalization for `setMany`; `SettingsStore` owns persistence and the public getter/setter API.
 
 SSH MCP tool implementations live under `electron/mcp/tools/` (sessions, exec, sftp, pty, service). `electron/mcp/runtime.ts` is dispatch + session guards.
 
 DB query-tab run/export orchestration is `src/composables/database/useDbQueryRun.ts` and `useDbResultExport.ts`. Engine metadata/browse SQL lives in `electron/db/drivers/{postgres,mysql,oracle}Browse.ts` (class files stay the `DbDriver` entry and keep a private `warmExactCount` wrapper for tests).
 
 App-shell wiring extracted from `App.vue`: snippet hotkeys (`useSnippetHotkeys`), Docker SSH session listeners (`useDockerSshBridge`), SFTP/batch toasts (`useTransferToasts`).
+
+AI sidebar context-file availability checks live in `src/composables/ai/useAiContextFileStatus.ts`; its scoped presentation rules live in `src/components/ai/AiSidebar.css`.
+SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
 
 UI-only helpers stay in `src/utils/**`, never in `shared/`.
 

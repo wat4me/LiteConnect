@@ -86,7 +86,8 @@ it('atomically saves an edited user message before resending it', async () => {
   vi.stubGlobal('window', { LiteConnect: {
     getAiSessionStore: async () => ({
       version: 1, activeThreadId: 'edit-thread',
-      threads: [{ id: 'edit-thread', title: 'old', createdAt: 1, updatedAt: 2, messages: [] }],
+      defaultContextFiles: [],
+      threads: [{ id: 'edit-thread', title: 'old', createdAt: 1, updatedAt: 2, messages: [], contextFiles: [] }],
     }),
     setAiSessionStore: async (_id: string, store: unknown) => { saved.push(store) },
     onAiChatStream: () => () => {},
@@ -112,7 +113,8 @@ it('restores the original turn when saving an edit fails', async () => {
   vi.stubGlobal('window', { LiteConnect: {
     getAiSessionStore: async () => ({
       version: 1, activeThreadId: 'edit-thread',
-      threads: [{ id: 'edit-thread', title: 'old', createdAt: 1, updatedAt: 2, messages: [] }],
+      defaultContextFiles: [],
+      threads: [{ id: 'edit-thread', title: 'old', createdAt: 1, updatedAt: 2, messages: [], contextFiles: [] }],
     }),
     setAiSessionStore: async () => { throw new Error('disk full') },
     onAiChatStream: () => () => {},
@@ -137,7 +139,8 @@ it('rolls back regenerate, delete, and clear when history persistence fails', as
   vi.stubGlobal('window', { LiteConnect: {
     getAiSessionStore: async () => ({
       version: 1, activeThreadId: 'thread',
-      threads: [{ id: 'thread', title: 'question', createdAt: 1, updatedAt: 2, messages: [] }],
+      defaultContextFiles: [],
+      threads: [{ id: 'thread', title: 'question', createdAt: 1, updatedAt: 2, messages: [], contextFiles: [] }],
     }),
     setAiSessionStore: async () => { throw new Error('disk full') },
     onAiChatStream: () => () => {},

@@ -453,7 +453,14 @@ function onMenuAction(action: MenuAction) {
             @click.stop
             @contextmenu.prevent
           >
-            <button type="button" class="ui-menu-item" role="menuitem" :disabled="connecting" @click="onMenuAction('connect')">
+            <button
+              v-if="menuMode === 'context'"
+              type="button"
+              class="ui-menu-item"
+              role="menuitem"
+              :disabled="connecting"
+              @click="onMenuAction('connect')"
+            >
               <AppIcon name="link" size="sm" class="more-item-icon" />
               {{ connecting ? t('connections.connecting') : t('connections.connect') }}
             </button>
@@ -471,12 +478,12 @@ function onMenuAction(action: MenuAction) {
               <AppIcon name="crosshair" size="sm" class="more-item-icon" />
               {{ t('connections.testConnection') }}
             </button>
-            <div class="ui-menu-sep" role="separator"></div>
-            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
+            <div v-if="menuMode === 'context'" class="ui-menu-sep" role="separator"></div>
+            <button v-if="menuMode === 'context'" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
               <AppIcon name="copy" size="sm" class="more-item-icon" />
               {{ t('connections.copyConnection') }}
             </button>
-            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
+            <button v-if="menuMode === 'context'" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
               <AppIcon name="edit" size="sm" class="more-item-icon" />
               {{ t('connections.edit') }}
             </button>

@@ -491,9 +491,11 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 4px 6px 2px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px 5px 2px;
   border: none;
   background: transparent;
   color: var(--text-primary);
@@ -503,8 +505,10 @@ onBeforeUnmount(() => {
 
 .bookmark-name-line {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 6px;
+  max-width: 46%;
   min-width: 0;
 }
 
@@ -537,9 +541,11 @@ onBeforeUnmount(() => {
 }
 
 .bookmark-path {
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .bookmark-more {

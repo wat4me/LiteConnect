@@ -78,6 +78,7 @@ export default {
     readOnlyOff: '已关闭只读模式',
     readOnlyBadge: '只读',
     readOnlyHint: '当前终端处于只读模式，输入已被拦截。右键菜单可关闭。',
+    pageScrollHint: '翻看终端记录请按住 Shift，再按 PageUp 或 PageDown',
     risk: {
       ddDevice: 'dd 写设备',
       redirectBlock: '重定向到块设备',

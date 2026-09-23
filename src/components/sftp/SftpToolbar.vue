@@ -40,7 +40,7 @@ function onGuarded(action: () => void) {
       :title="t('sftp.locateTerminalCwd')"
       @click="onGuarded(() => emit('sync-cwd'))"
     >
-      <AppIcon name="crosshair" size="md" />
+      <AppIcon name="locate" size="md" />
     </button>
     <button
       type="button"
@@ -95,7 +95,7 @@ function onGuarded(action: () => void) {
       :title="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
       @click="onGuarded(() => emit('toggle-follow'))"
     >
-      <AppIcon name="link-2" size="md" />
+      <AppIcon :name="followTerminalPath ? 'pin-fill' : 'pin'" size="md" />
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSidebar')" @click="emit('close')">
       <AppIcon name="close" size="sm" />

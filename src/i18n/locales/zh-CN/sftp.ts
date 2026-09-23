@@ -48,7 +48,7 @@ export default {
     bookmarkCurrentPath: '收藏到此连接',
     removeCurrentBookmark: '取消此连接的收藏',
     addConnectionBookmark: '收藏到此连接',
-    addGlobalBookmark: '收藏为全局…',
+    addGlobalBookmark: '收藏为全局书签',
     showGlobalBookmark: '查看全局书签',
     addDirectoryBookmark: '收藏此目录',
     removeDirectoryBookmark: '取消收藏',

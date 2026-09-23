@@ -42,6 +42,20 @@ export function useCommandBuffer(deps: {
     }
   }
 
+  function syncAfterTabCompletion(originalInput: string, requireChange = false): boolean {
+    const terminal = deps.getTerminal()
+    const activeBuffer = terminal?.buffer?.active
+    if (!activeBuffer || !originalInput || !commandBuffer.value.startsWith(originalInput)) return false
+    const cursorY = activeBuffer.baseY + activeBuffer.cursorY
+    const currentLine = activeBuffer.getLine(cursorY)?.translateToString(true) ?? ''
+    const command = extractCommandFromLine(stripShellNotifications(currentLine))
+    if (!command.startsWith(commandBuffer.value)) return false
+    if (requireChange && command === commandBuffer.value) return false
+    commandBuffer.value = command
+    commandBufferDirty.value = false
+    return true
+  }
+
   function extractCommandFromLine(line: string): string {
     if (!line.trim()) return ''
     const separators = ['$ ', '# ', '> ', '% ']
@@ -189,6 +203,7 @@ export function useCommandBuffer(deps: {
     submitBufferedCommand,
     stripTerminalSequences,
     getVisibleCommandLine,
+    syncAfterTabCompletion,
     inferSubmittedCommand,
     extractCommandFromLine,
     extractCommandFromVisibleLine,

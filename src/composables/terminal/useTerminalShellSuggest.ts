@@ -7,6 +7,7 @@ import {
   nextShellSuggestIndex,
   shellSuggestNavigationDirection,
   suggestCompletionSuffix,
+  type CdBookmarkHint,
   type ShellHistoryEntry,
   type ShellSuggestItem,
 } from '@/utils/terminal/shellCommandSuggest'
@@ -23,7 +24,9 @@ export function useTerminalShellSuggest(deps: {
   disconnected: Ref<boolean>
   commandBuffer: Ref<string>
   commandBufferDirty: Ref<boolean>
-  submitBufferedCommand: () => void
+  /** Current-connection bookmarks, then global. Empty when suggestions are off. */
+  cdBookmarks?: () => readonly CdBookmarkHint[]
+  ensureCdBookmarks?: () => Promise<void>
 }) {
   const { t } = useI18n()
 
@@ -51,6 +54,7 @@ export function useTerminalShellSuggest(deps: {
     return buildShellSuggestions({
       query: q,
       history: shellHistory.value,
+      bookmarks: deps.cdBookmarks?.() ?? [],
       historyLimit: 5,
       systemLimit: 3,
       describe: (key) => t(key),
@@ -67,8 +71,9 @@ export function useTerminalShellSuggest(deps: {
     if (!wrap || !term?.element) return
 
     const wrapRect = wrap.getBoundingClientRect()
-    const panelW = Math.min(420, wrapRect.width - 16)
-    const panelH = Math.min(160, wrapRect.height * 0.35)
+    const panel = wrap.querySelector('.cmd-suggest') as HTMLElement | null
+    const panelW = panel?.getBoundingClientRect().width || Math.min(280, wrapRect.width - 16)
+    const panelH = panel?.getBoundingClientRect().height || Math.min(220, wrapRect.height * 0.42)
     const gap = 14
 
     const core = term as unknown as {
@@ -129,7 +134,10 @@ export function useTerminalShellSuggest(deps: {
     } catch {
       commandSuggestEnabled.value = false
     }
-    if (commandSuggestEnabled.value) void loadShellHistory()
+    if (commandSuggestEnabled.value) {
+      void loadShellHistory()
+      void deps.ensureCdBookmarks?.()
+    }
   }
 
   function onTerminalBehaviorSettingsChange(event: Event) {
@@ -139,6 +147,7 @@ export function useTerminalShellSuggest(deps: {
     if (enabled) {
       suggestDismissed.value = false
       void loadShellHistory()
+      void deps.ensureCdBookmarks?.()
     } else {
       cancelHistorySniff()
       hideSuggest()
@@ -201,7 +210,7 @@ export function useTerminalShellSuggest(deps: {
     suggestActiveIndex.value = -1
   }
 
-  function applySuggestItem(item: ShellSuggestItem, execute = false) {
+  function applySuggestItem(item: ShellSuggestItem) {
     const segment = extractSuggestPrefix(deps.commandBuffer.value)
     const { clearCount, write } = suggestCompletionSuffix(segment, item.command)
     let payload = ''
@@ -216,10 +225,6 @@ export function useTerminalShellSuggest(deps: {
     deps.commandBuffer.value = `${prefix}${leadingWs}${item.command}`
     deps.commandBufferDirty.value = false
     hideSuggest()
-    if (execute) {
-      deps.submitBufferedCommand()
-      payload += '\r'
-    }
     if (payload) window.LiteConnect.sshWrite(deps.sessionId(), payload)
   }
 
@@ -251,7 +256,7 @@ export function useTerminalShellSuggest(deps: {
       const item = suggestItems.value[suggestActiveIndex.value]
       if (!item) return true
       event.preventDefault()
-      applySuggestItem(item, true)
+      applySuggestItem(item)
       return false
     }
     return true

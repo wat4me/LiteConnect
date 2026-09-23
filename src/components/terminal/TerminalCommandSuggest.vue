@@ -64,7 +64,7 @@ function subtitle(item: ShellSuggestItem): string {
         :data-idx="idx"
         role="option"
         :aria-selected="idx === activeIndex"
-        :title="item.source === 'history' ? item.command : undefined"
+        :title="item.source === 'history' || item.source === 'bookmark' ? item.command : undefined"
         @mousemove="emit('update:activeIndex', idx)"
         @mousedown.prevent="emit('pick', item)"
       >
@@ -82,7 +82,9 @@ function subtitle(item: ShellSuggestItem): string {
 .cmd-suggest {
   position: absolute;
   z-index: 50;
-  width: min(440px, calc(100% - 16px));
+  width: max-content;
+  min-width: min(280px, calc(100% - 16px));
+  max-width: min(720px, calc(100% - 16px));
   max-height: min(220px, 42%);
   display: flex;
   flex-direction: column;
@@ -107,6 +109,7 @@ function subtitle(item: ShellSuggestItem): string {
 
 .cmd-suggest-item {
   display: flex;
+  flex-flow: row nowrap;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -139,11 +142,23 @@ function subtitle(item: ShellSuggestItem): string {
 
 /* history = warm amber; parameter hints = cool accent */
 .cmd-suggest-item.history .title {
+  flex: 1 1 auto;
+  max-width: none;
   color: var(--warning);
 }
 
 .cmd-suggest-item.flag .title {
   color: var(--accent);
+}
+
+.cmd-suggest-item.bookmark .title {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+.cmd-suggest-item.bookmark .sub {
+  flex: 0 1 auto;
+  max-width: 35%;
 }
 
 .sub {
@@ -166,8 +181,7 @@ function subtitle(item: ShellSuggestItem): string {
   line-height: 13px;
   color: var(--text-secondary, #999);
   opacity: 0.9;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 </style>

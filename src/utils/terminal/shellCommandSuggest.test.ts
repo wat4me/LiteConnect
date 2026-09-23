@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   applyFlagToSegment,
   applySuggestionToLine,
+  buildCdBookmarkSuggestions,
   buildShellSuggestions,
+  cdBookmarkCommand,
   extractSuggestPrefix,
   flagMatchesTypedArgs,
   isFlagSuggestMode,
@@ -56,10 +58,12 @@ describe('extractSuggestPrefix', () => {
 })
 
 describe('parseSuggestSegment / isFlagSuggestMode', () => {
-  it('detects flag mode after command + space', () => {
+  it('detects flag mode for a complete known command', () => {
     expect(isFlagSuggestMode('ls ')).toBe(true)
-    expect(isFlagSuggestMode('ls')).toBe(false)
+    expect(isFlagSuggestMode('ls')).toBe(true)
     expect(isFlagSuggestMode('ls -')).toBe(true)
+    expect(isFlagSuggestMode('docker')).toBe(true)
+    expect(isFlagSuggestMode('dock')).toBe(false)
     expect(isFlagSuggestMode('xyz ')).toBe(false)
   })
 
@@ -97,6 +101,12 @@ describe('buildShellSuggestions', () => {
     expect(items).toEqual([])
   })
 
+  it('offers Docker presets on a fresh connection without history or a trailing space', () => {
+    const items = buildShellSuggestions({ query: 'docker', history: [] })
+    expect(items.some((item) => item.source === 'flag' && item.command === 'docker logs')).toBe(true)
+    expect(items.some((item) => item.source === 'flag' && item.command === 'docker images')).toBe(true)
+  })
+
   it('partial bare name still matches longer history first-token', () => {
     const items = buildShellSuggestions({
       query: 'doc',
@@ -120,6 +130,20 @@ describe('buildShellSuggestions', () => {
       describe: () => '',
     })
     expect(items.some((x) => x.source === 'history' && x.command === 'docker ps')).toBe(true)
+  })
+
+  it('does not suggest other commands just because their paths contain the typed command', () => {
+    const history = [
+      { command: 'docker ps', at: 3 },
+      { command: 'vim /home/buildfile/dockerfile', at: 2 },
+      { command: 'cat /home/buildfile/dockerfile', at: 1 },
+    ]
+    for (const query of ['docker', 'docker ']) {
+      const items = buildShellSuggestions({ query, history })
+      expect(items.filter((item) => item.source === 'history').map((item) => item.command)).toEqual([
+        'docker ps',
+      ])
+    }
   })
 
   it('keeps up to 5 history when completing past bare name', () => {
@@ -205,6 +229,69 @@ describe('buildShellSuggestions', () => {
     expect(titles).not.toContain('exec -it')
     expect(titles).not.toContain('ps')
     expect(titles).toContain('ps -a')
+  })
+})
+
+describe('cd bookmark suggestions', () => {
+  const bookmarks = [
+    { name: '站点', path: '/home/v5-automation-servers' },
+    { name: '日志', path: '/var/log' },
+    { name: '同样', path: '/var/log' },
+    { name: '文档', path: '/home/文档' },
+  ]
+
+  it('offers bookmarked directories when the user types cd', () => {
+    const items = buildCdBookmarkSuggestions('cd', bookmarks)
+    expect(items.map((item) => item.command)).toEqual([
+      'cd /home/v5-automation-servers',
+      'cd /var/log',
+      "cd '/home/文档'",
+    ])
+    expect(items[0]).toMatchObject({
+      source: 'bookmark',
+      title: '/home/v5-automation-servers',
+      subtitle: '站点',
+    })
+    expect(cdBookmarkCommand('/home/文档')).toBe("cd '/home/文档'")
+  })
+
+  it('keeps only paths that continue the typed prefix and hides a finished path', () => {
+    expect(buildCdBookmarkSuggestions('cd /var', bookmarks).map((item) => item.command)).toEqual([
+      'cd /var/log',
+    ])
+    expect(buildCdBookmarkSuggestions('cd /var/log', bookmarks)).toEqual([])
+    expect(buildCdBookmarkSuggestions('cd "/home/v5', bookmarks).map((item) => item.title)).toEqual(['/home/v5-automation-servers'])
+  })
+
+  it('does not repeat the path when a bookmark has no custom name', () => {
+    expect(buildCdBookmarkSuggestions('cd', [{ name: '', path: '/home/user' }])[0]).toMatchObject({
+      title: '/home/user',
+      subtitle: undefined,
+    })
+  })
+
+  it('ignores other commands and stays inside the shell suggestion list', () => {
+    expect(buildCdBookmarkSuggestions('ls', bookmarks)).toEqual([])
+    const items = buildShellSuggestions({
+      query: 'cd /home',
+      history: [
+        { command: 'cd /home/v5-automation-servers', at: 3 },
+        { command: 'cd /home/other', at: 2 },
+        { command: 'cd /tmp', at: 1 },
+      ],
+      bookmarks,
+    })
+    expect(items[0]).toMatchObject({
+      source: 'bookmark',
+      title: '/home/v5-automation-servers',
+      subtitle: '站点',
+    })
+    expect(items.filter((item) => item.command === 'cd /home/v5-automation-servers')).toHaveLength(1)
+    expect(items.some((item) => item.source === 'history' && item.command === 'cd /home/other')).toBe(true)
+    expect(items.some((item) => item.command === 'cd /tmp')).toBe(false)
+    expect(buildShellSuggestions({ query: 'ps', history: [], bookmarks }).every(
+      (item) => item.source === 'flag',
+    )).toBe(true)
   })
 })
 
