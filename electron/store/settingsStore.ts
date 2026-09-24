@@ -984,6 +984,7 @@ export class SettingsStore {
       terminalPasteConfirmEnabled: this.getTerminalPasteConfirmEnabled(),
       terminalPasteConfirmMaxChars: this.getTerminalPasteConfirmMaxChars(),
       terminalCommandSuggestEnabled: this.getTerminalCommandSuggestEnabled(),
+      terminalLocalEchoEnabled: this.settings.terminalLocalEchoEnabled === true,
       terminalCommandHistoryExcludePatterns: this.getTerminalCommandHistoryExcludePatterns(),
       downloadConflictStrategy: this.getDownloadConflictStrategy(),
       dirTransferConcurrency: this.getDirTransferConcurrency(),

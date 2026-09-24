@@ -3,6 +3,7 @@ export default {
     aria: '工作区工具',
     ai: 'AI 助手',
     aiShortcut: 'AI 助手 (Ctrl+Shift+A)',
+    aiSplitDisabled: '分屏时已关闭 AI 助手；退出分屏后恢复',
     aiUnread: '有未读 AI 回复',
     aiApproval: 'AI 等待允许操作',
     sftp: 'SFTP 文件 (Ctrl+B)',

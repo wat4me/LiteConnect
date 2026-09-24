@@ -36,4 +36,12 @@ describe('applySettingsPatch', () => {
     expect(settings.workspaceTabs).toBeUndefined()
     expect(settings.connectionSortMode).toBe('manual')
   })
+
+  it('persists the optional terminal local echo switch', () => {
+    const settings: Record<string, any> = {}
+    applySettingsPatch(settings, { terminalLocalEchoEnabled: true }, current(settings))
+    expect(settings.terminalLocalEchoEnabled).toBe(true)
+    applySettingsPatch(settings, { terminalLocalEchoEnabled: false }, current(settings))
+    expect(settings.terminalLocalEchoEnabled).toBe(false)
+  })
 })

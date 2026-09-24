@@ -230,8 +230,18 @@ export function createWindow(
     void mainWindow.loadFile(target.file)
   }
 
-  if (process.env.VITE_DEV_SERVER_URL && process.env.LITECONNECT_OPEN_DEVTOOLS === '1') {
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return
+      const shortcut = input.key === 'F12'
+        || (input.control && input.shift && input.key.toLowerCase() === 'i')
+      if (!shortcut) return
+      event.preventDefault()
+      mainWindow.webContents.toggleDevTools()
+    })
+    if (process.env.LITECONNECT_OPEN_DEVTOOLS === '1') {
+      mainWindow.webContents.openDevTools({ mode: 'detach' })
+    }
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

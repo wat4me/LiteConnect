@@ -285,16 +285,18 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
     typeof raw.updatedAt === 'number'
       ? raw.updatedAt
       : messages[messages.length - 1]?.createdAt || createdAt
-  // Always derive: titles are the first user message, so a stored (previously
-  // model-generated) value must never win over the transcript.
-  const title =
-    titleFromMessages(messages) ||
+  const customTitle = typeof raw.customTitle === 'string'
+    ? raw.customTitle.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
+    : ''
+  const title = customTitle || titleFromMessages(messages) ||
     (typeof raw.title === 'string' ? raw.title.trim().slice(0, TITLE_MAX) : '')
   const contextCheckpoint = normalizeContextCheckpoint(raw.contextCheckpoint, messages)
   const contextFiles = normalizeAiContextFiles(raw.contextFiles)
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : createThreadId(),
     title,
+    ...(customTitle ? { customTitle } : {}),
+    ...(raw.pinned === true ? { pinned: true } : {}),
     createdAt,
     updatedAt,
     messages,
@@ -319,11 +321,12 @@ export function applyAiHistoryLimits(
 
   const active = store.threads.find((thread) => thread.id === store.activeThreadId)
   const activeCountsTowardLimit = Boolean(active?.messages.length)
+  const protectedThreads = store.threads.filter(thread => thread.pinned && thread.id !== active?.id)
   const kept = [...store.threads]
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .filter((thread) => thread.id !== active?.id)
-    .slice(0, Math.max(0, limits.maxThreads - (activeCountsTowardLimit ? 1 : 0)))
-  const keptIds = new Set([...(active ? [active.id] : []), ...kept.map((thread) => thread.id)])
+    .filter((thread) => thread.id !== active?.id && !thread.pinned)
+    .slice(0, Math.max(0, limits.maxThreads - protectedThreads.length - (activeCountsTowardLimit ? 1 : 0)))
+  const keptIds = new Set([...(active ? [active.id] : []), ...protectedThreads.map(thread => thread.id), ...kept.map((thread) => thread.id)])
   store.threads = store.threads.filter((thread) => keptIds.has(thread.id))
 }
 
@@ -617,7 +620,7 @@ export async function writeAiHistoryRecords(sessionId: string, records: AiHistor
     const active = getActiveThread(store)
     active.messages = records.map((r) => normalizeAiHistoryRecord(r)).sort((a, b) => a.createdAt - b.createdAt)
     delete active.contextCheckpoint
-    active.title = titleFromMessages(active.messages) || active.title
+    active.title = active.customTitle || titleFromMessages(active.messages) || active.title
     active.updatedAt = Date.now()
   }, limits)
 }
@@ -652,7 +655,7 @@ export async function upsertAiHistoryRecord(sessionId: string, record: any, thre
     }
     else active.messages.push(next)
     active.messages.sort((a, b) => a.createdAt - b.createdAt)
-    active.title = titleFromMessages(active.messages) || active.title
+    active.title = active.customTitle || titleFromMessages(active.messages) || active.title
     active.updatedAt = Date.now()
   }, limits)
 }
@@ -692,7 +695,14 @@ export async function setAiConversationContextFile(
       files.push(file)
     }
     active.contextFiles = files
-    store.defaultContextFiles = [...files]
+    const defaults = [...store.defaultContextFiles]
+    const defaultIndex = defaults.findIndex(item => item.source === file.source && item.path === file.path)
+    if (defaultIndex >= 0) defaults[defaultIndex] = file
+    else {
+      if (defaults.length >= AI_CONTEXT_FILES_MAX) throw new Error(t('ai.contextFileLimit', { count: AI_CONTEXT_FILES_MAX }))
+      defaults.push(file)
+    }
+    store.defaultContextFiles = defaults
     active.updatedAt = Date.now()
   }, limits)
 }
@@ -702,6 +712,7 @@ export async function removeAiConversationContextFile(
   threadId: string,
   source: 'local' | 'ssh',
   path: string,
+  removeFromFuture = true,
   limits?: Partial<AiHistoryLimits>,
 ): Promise<AiSessionStore> {
   return mutateAiSessionStore(historyId, (store) => {
@@ -709,9 +720,36 @@ export async function removeAiConversationContextFile(
     const active = getActiveThread(store)
     const files = active.contextFiles.filter(file => file.source !== source || file.path !== path)
     active.contextFiles = files
-    store.defaultContextFiles = [...files]
+    if (removeFromFuture) {
+      store.defaultContextFiles = store.defaultContextFiles.filter(file => file.source !== source || file.path !== path)
+    }
     active.updatedAt = Date.now()
   }, limits)
+}
+
+export async function updateAiConversationMetadata(
+  historyId: string,
+  threadId: string,
+  patch: { customTitle?: string | null; pinned?: boolean },
+  limits?: Partial<AiHistoryLimits>,
+): Promise<AiSessionStore> {
+  const updated = await mutateAiSessionStore(historyId, (store) => {
+    const thread = store.threads.find(item => item.id === threadId)
+    if (!thread) throw new Error('AI conversation no longer exists')
+    if (Object.prototype.hasOwnProperty.call(patch, 'customTitle')) {
+      if (patch.customTitle !== null && typeof patch.customTitle !== 'string') throw new Error('Invalid AI conversation title')
+      const title = (patch.customTitle || '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
+      if (title) thread.customTitle = title
+      else delete thread.customTitle
+      thread.title = thread.customTitle || titleFromMessages(thread.messages)
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'pinned')) {
+      if (typeof patch.pinned !== 'boolean') throw new Error('Invalid AI conversation pin state')
+      if (patch.pinned) thread.pinned = true
+      else delete thread.pinned
+    }
+  }, limits)
+  return normalizeSessionStore(updated, limits)
 }
 
 export async function createNewConversationAtomic(
@@ -748,7 +786,7 @@ export async function createNewConversationAtomic(
         .sort((a, b) => a.createdAt - b.createdAt)
     }
 
-    active.title = titleFromMessages(active.messages) || (payload.title || '').trim().slice(0, TITLE_MAX)
+    active.title = active.customTitle || titleFromMessages(active.messages) || (payload.title || '').trim().slice(0, TITLE_MAX)
     active.updatedAt = now
 
     const fresh = createEmptyThread(now)

@@ -58,13 +58,13 @@ const {
   activeContextWindowTokens,
   sendText,
   stopGeneration,
-  clearMessages,
   loadHistory,
   getSessionState,
   saveSessionInput,
   startNewConversation,
   setConversationContextFile,
   removeConversationContextFile,
+  updateConversation,
   switchConversation,
   deleteConversation,
   clearAllConversations,
@@ -86,20 +86,17 @@ const { contextFileSourceStatus, contextFileKey, checkContextFileSource } = useA
 })
 
 function onContextFileMenuToggle() {
-  if (contextFileMenuRef.value?.open) void checkContextFileSource()
+  if (contextFileMenuRef.value?.open) {
+    contextFilePreviewKey.value = ''
+    void checkContextFileSource()
+  }
 }
 const contextFilePreviewKey = ref('')
 const previewContextFile = computed(() => contextFiles.value.find(file => contextFileKey(file) === contextFilePreviewKey.value) || null)
-const composerAreaWidth = ref(0)
-const visibleContextFiles = computed(() => contextFiles.value.slice(0, composerAreaWidth.value > 420 ? 5 : 2))
-const overflowContextFiles = computed(() => contextFiles.value.slice(visibleContextFiles.value.length))
 function toggleContextFilePreview(file: AiConversationContextFile) {
+  contextFileMenuRef.value?.removeAttribute('open')
   const key = contextFileKey(file)
   contextFilePreviewKey.value = contextFilePreviewKey.value === key ? '' : key
-}
-function previewOverflowContextFile(file: AiConversationContextFile) {
-  contextFileMenuRef.value?.removeAttribute('open')
-  toggleContextFilePreview(file)
 }
 function contextFileStatusNote(file: AiConversationContextFile) {
   const status = contextFileSourceStatus.value[contextFileKey(file)]
@@ -109,7 +106,8 @@ function contextFileStatusNote(file: AiConversationContextFile) {
 }
 function contextFileTitle(file: AiConversationContextFile) {
   const note = contextFileStatusNote(file) || t('ai.contextFileSnapshotHint')
-  return `${file.path}\n${note}`
+  const source = file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal')
+  return `${source} · ${file.path}\n${note}`
 }
 function contextFileChipLabel(file: AiConversationContextFile) {
   const preview = t('ai.contextFilePreviewNamed', { name: contextFileName(file) })
@@ -164,7 +162,6 @@ function resizeComposer() {
   const el = composerInputRef.value
   const panel = sidebarRef.value
   if (!el || !panel || !el.getClientRects().length) return
-  composerAreaWidth.value = composerAreaRef.value?.clientWidth || 0
   const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 19.5
   const form = el.closest('form')!
   const formStyle = getComputedStyle(form)
@@ -219,7 +216,8 @@ async function savePermission(value: string) {
 const {
   showHistory, historyQuery, historyItems, filteredHistoryItems,
   openHistoryPanel, closeHistoryPanel, handleSwitchConversation,
-  handleDeleteConversation, handleClearAllHistory, formatHistoryTime,
+  handleDeleteConversation, handleRenameConversation, handleTogglePin,
+  handleClearAllHistory, formatHistoryTime,
 } = useAiSidebarHistory({
   sessionId: () => props.sessionId,
   threadSummaries,
@@ -231,6 +229,7 @@ const {
   switchConversation,
   deleteConversation,
   clearAllConversations,
+  updateConversation,
   t: (key, params) => t(key, params ?? {}),
   closeModelSwitcher: () => { showModelSwitcher.value = false },
   closeSettings: () => { showSettings.value = false },
@@ -590,10 +589,28 @@ async function chooseSshContextFile() {
 
 async function removeContextFile(file: AiConversationContextFile) {
   if (loading.value || contextFileBusy.value) return
+  const sessionId = props.sessionId
+  const threadId = getSessionState(sessionId).activeThreadId
+  let choice: 'confirm' | 'tertiary'
+  try {
+    choice = await appConfirm({
+      title: t('ai.contextFileRemoveTitle'),
+      message: t('ai.contextFileRemoveChoice', { name: contextFileName(file) }),
+      detail: file.path,
+      confirmText: t('ai.contextFileRemoveFuture'),
+      tertiaryText: t('ai.contextFileRemoveCurrent'),
+      cancelText: t('common.cancel'),
+      danger: true,
+      tone: 'warning',
+    })
+  } catch { return }
+  if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
   contextFileBusy.value = true
   try {
     await ensureInitialLoad(false)
-    await removeConversationContextFile(props.sessionId, file)
+    if (await removeConversationContextFile(sessionId, file, choice === 'confirm')) {
+      ElMessage.success(t(choice === 'confirm' ? 'ai.contextFileRemovedFuture' : 'ai.contextFileRemovedCurrent'))
+    }
   } catch (err: any) {
     ElMessage.warning(err?.message || t('ai.contextFileFailed'))
   } finally {
@@ -719,16 +736,24 @@ async function handleSendText(text: string): Promise<boolean> {
   const content = text.trim()
   if (!content || savingComposer.value || contextFilesTooLong.value) return false
   loading.value = true
-  const result = await sendText(props.sessionId, content, syncMessages)
-  loading.value = getSessionState(props.sessionId).loading
-  return result
+  try {
+    return await sendText(props.sessionId, content, syncMessages)
+  } finally {
+    loading.value = getSessionState(props.sessionId).loading
+  }
 }
 
 async function sendMessage() {
   if (!canSend.value) return
   const content = input.value.trim()
   input.value = ''
-  await handleSendText(content)
+  try {
+    const sent = await handleSendText(content)
+    if (!sent && !input.value) input.value = content
+  } catch (err: any) {
+    if (!input.value) input.value = content
+    ElMessage.warning(err?.message || t('ai.requestFailed'))
+  }
 }
 
 async function handleStop() {
@@ -775,21 +800,39 @@ function closeContextFileMenuOnOutsideClick(event: PointerEvent) {
   }
 }
 
-async function clearCurrentHistory() {
-  if (messages.value.length === 0) return
+async function refreshContextFile(file: AiConversationContextFile) {
+  if (loading.value || contextFileBusy.value) return
+  contextFileBusy.value = true
+  const sessionId = props.sessionId
+  const threadId = getSessionState(sessionId).activeThreadId
   try {
+    const latest = file.source === 'local'
+      ? await window.LiteConnect.aiReadLocalContextFile(sessionId, threadId, file.path)
+      : { source: 'ssh' as const, path: file.path, content: await window.LiteConnect.sftpReadFile(sessionId, file.path) }
+    if (!latest.content.trim() || latest.content.includes('\0') || new TextEncoder().encode(latest.content).length > 32 * 1024) {
+      throw new Error(t('ai.contextFileInvalid'))
+    }
+    if (latest.content === file.content) {
+      ElMessage.info(t('ai.contextFileUnchanged'))
+      return
+    }
     await appConfirm({
-      title: t('ai.clearHistoryTitle'),
-      message: t('ai.clearHistoryMessage'),
-      confirmText: t('ai.clear'),
+      title: t('ai.contextFileRefreshTitle'),
+      message: t('ai.contextFileRefreshConfirm', { name: contextFileName(file) }),
+      detail: file.path,
+      confirmText: t('ai.contextFileRefresh'),
       cancelText: t('common.cancel'),
-      danger: true,
-      tone: 'danger',
     })
-  } catch {
-    return
+    if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
+    if (await setConversationContextFile(sessionId, latest)) {
+      ElMessage.success(t('ai.contextFileRefreshed'))
+      void checkContextFileSource()
+    }
+  } catch (err: any) {
+    if (err !== 'cancel') ElMessage.warning(err?.message || t('ai.contextFileRefreshFailed'))
+  } finally {
+    contextFileBusy.value = false
   }
-  await clearMessages(props.sessionId, syncMessages)
 }
 
 async function confirmAiTerminalAction(action: 'fill' | 'run', code: string): Promise<string | null> {
@@ -844,12 +887,6 @@ async function runCodeToTerminal(code: string) {
         <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
       </div>
       <div class="ai-header-actions">
-        <details class="header-more">
-          <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')"><AppIcon name="more" size="sm" /></summary>
-          <div class="header-more-menu">
-            <button type="button" @click="clearCurrentHistory">{{ t('ai.clearChat') }}</button>
-          </div>
-        </details>
         <button
           type="button"
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
@@ -940,60 +977,42 @@ async function runCodeToTerminal(code: string) {
 
     <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area">
     <form class="composer" @submit.prevent="sendMessage">
-      <div v-if="contextFiles.length" class="composer-context-files">
-        <div class="composer-context-chips" role="list" :aria-label="t('ai.contextFileCount', { count: contextFiles.length })">
-          <div
-            v-for="file in visibleContextFiles"
-            :key="contextFileKey(file)"
-            class="composer-context-chip"
-            role="listitem"
-            :class="{
-              missing: contextFileSourceStatus[contextFileKey(file)] === 'missing',
-              previewing: contextFilePreviewKey === contextFileKey(file),
-            }"
-          >
-            <button
-              type="button"
-              class="composer-context-chip-main"
-              :aria-expanded="contextFilePreviewKey === contextFileKey(file)"
-              :aria-label="contextFileChipLabel(file)"
-              :title="contextFileTitle(file)"
-              @click="toggleContextFilePreview(file)"
-            >
-              <AppIcon name="file-text" size="xs" />
-              <span class="composer-context-chip-name">{{ contextFileName(file) }}</span>
-              <span class="composer-reference-source" :class="file.source">{{ file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal') }}</span>
-              <span v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="composer-context-chip-alert" :title="t('ai.contextFileMissing')">
-                <AppIcon name="alert-triangle" size="xs" />
-              </span>
-              <span v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'" class="composer-context-chip-alert is-unavailable" :title="t('ai.contextFileUnavailable')">
-                <AppIcon name="alert-circle" size="xs" />
-              </span>
-            </button>
-            <button
-              type="button"
-              class="composer-context-chip-remove"
-              :disabled="loading || contextFileBusy"
-              :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })"
-              :title="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })"
-              @click="removeContextFile(file)"
-            >
-              <AppIcon name="close" size="xs" />
-            </button>
-          </div>
-          <div v-if="overflowContextFiles.length" class="composer-context-more-wrap" role="listitem">
-            <button
-              type="button"
-              class="composer-context-more"
-              :aria-label="t('ai.contextFileMore', { count: overflowContextFiles.length })"
-              @click="contextFileMenuRef?.setAttribute('open', '')"
-            >+{{ overflowContextFiles.length }}</button>
+      <div class="composer-context-files">
+        <div class="composer-context-strip">
+          <details ref="contextFileMenuRef" class="composer-context-menu" @toggle="onContextFileMenuToggle">
+            <summary :aria-label="t('ai.contextFileAdd')" :title="`${t('ai.contextFileAdd')} · ${t('ai.contextFileCount', { count: contextFiles.length })}`">
+              <AppIcon name="plus" size="sm" />
+            </summary>
+            <div class="composer-context-dropdown">
+              <div class="composer-context-info">
+                <div class="composer-context-info-title">{{ t('ai.contextFileHowItWorks') }}</div>
+                <p>{{ t('ai.contextFileMenuHint') }}</p>
+              </div>
+              <div class="composer-context-add-actions">
+                <div class="composer-context-actions-title">{{ t('ai.contextFileChooseSource') }}</div>
+                <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
+                <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
+                <div v-if="contextFiles.length >= 5" class="composer-context-limit">{{ t('ai.contextFileLimit') }}</div>
+              </div>
+            </div>
+          </details>
+          <div v-if="contextFiles.length" class="composer-context-chips" role="list" :aria-label="t('ai.contextFileCount', { count: contextFiles.length })">
+            <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-context-chip" role="listitem" :class="{ missing: contextFileSourceStatus[contextFileKey(file)] === 'missing', previewing: contextFilePreviewKey === contextFileKey(file) }">
+              <button type="button" class="composer-context-chip-main" :aria-expanded="contextFilePreviewKey === contextFileKey(file)" :aria-label="contextFileChipLabel(file)" :title="contextFileTitle(file)" @click="toggleContextFilePreview(file)">
+                <AppIcon name="file-text" size="xs" />
+                <span class="composer-context-chip-name">{{ contextFileName(file) }}</span>
+                <span v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="composer-context-chip-alert"><AppIcon name="alert-triangle" size="xs" /></span>
+                <span v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'" class="composer-context-chip-alert is-unavailable"><AppIcon name="alert-circle" size="xs" /></span>
+              </button>
+              <button type="button" class="composer-context-chip-remove" :disabled="loading || contextFileBusy" :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" :title="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" @click="removeContextFile(file)"><AppIcon name="close" size="xs" /></button>
+            </div>
           </div>
         </div>
         <div v-if="previewContextFile" class="composer-context-preview">
           <div class="composer-context-preview-head">
             <span>{{ t('ai.contextFilePreviewCaption') }}</span>
             <span class="composer-context-preview-path" :title="previewContextFile.path">{{ previewContextFile.path }}</span>
+            <button type="button" class="composer-context-refresh" :disabled="loading || contextFileBusy" @click="refreshContextFile(previewContextFile)"><AppIcon name="refresh" size="xs" />{{ t('ai.contextFileCheckUpdate') }}</button>
           </div>
           <pre>{{ previewContextFile.content }}</pre>
         </div>
@@ -1010,26 +1029,6 @@ async function runCodeToTerminal(code: string) {
       />
       <div class="composer-actions">
         <div class="composer-actions-right">
-          <details ref="contextFileMenuRef" class="composer-context-menu" :class="{ active: contextFiles.length > 0 }" @toggle="onContextFileMenuToggle">
-            <summary :aria-label="t('ai.contextFileMenu')" :title="`${t('ai.contextFileMenuHint')} ${t('ai.contextFileSnapshotHint')}`">
-              <AppIcon name="file-text" size="sm" />
-              <span class="composer-context-label">{{ t('ai.contextFileMenu') }}</span>
-              <AppIcon name="chevron-down" size="xs" />
-            </summary>
-            <div class="composer-context-dropdown">
-              <div v-if="overflowContextFiles.length" class="composer-context-overflow-list">
-                <div v-for="file in overflowContextFiles" :key="contextFileKey(file)" class="composer-context-overflow-row">
-                  <button type="button" class="composer-context-overflow-preview" :title="contextFileTitle(file)" @click="previewOverflowContextFile(file)">{{ contextFileName(file) }}</button>
-                  <button type="button" class="composer-context-overflow-remove" :disabled="loading || contextFileBusy" :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" @click="removeContextFile(file)"><AppIcon name="close" size="xs" /></button>
-                </div>
-              </div>
-              <div class="composer-context-help">{{ t('ai.contextFileMenuHint') }}</div>
-              <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
-              <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
-              <div class="composer-context-help">{{ t('ai.contextFileSnapshotHint') }}</div>
-              <div v-if="contextFiles.length >= 5" class="composer-context-help">{{ t('ai.contextFileLimit') }}</div>
-            </div>
-          </details>
           <div class="model-switcher-wrap">
             <button
               v-if="displayModelName"
@@ -1158,20 +1157,18 @@ async function runCodeToTerminal(code: string) {
             :title="item.tip || item.title"
             @click="handleSwitchConversation(item.id)"
           >
-            <span class="ai-history-item-title">{{ item.title }}</span>
+            <span class="ai-history-item-title"><AppIcon v-if="item.pinned" name="pin-fill" size="xs" />{{ item.title }}</span>
+            <span v-if="item.match" class="ai-history-item-match">{{ item.match }}</span>
             <span v-if="item.active" class="ai-history-current"><AppIcon name="check" size="xs" />{{ t('common.current') }}</span>
             <span class="ai-history-item-meta">
               {{ t('ai.messageCount', { count: item.messageCount, time: formatHistoryTime(item.createdAt) }) }}
             </span>
           </button>
-          <button
-            type="button"
-            class="ai-history-item-delete"
-            :title="t('ai.deleteHistoryItem')"
-            @click="handleDeleteConversation(item.id, $event)"
-          >
-            <AppIcon name="delete" size="xs" />
-          </button>
+          <div class="ai-history-item-actions">
+            <button type="button" class="ai-history-item-action" :title="t('ai.renameConversation')" :aria-label="t('ai.renameConversation')" @click="handleRenameConversation(item.id, item.customTitle || item.title, $event)"><AppIcon name="edit" size="xs" /></button>
+            <button type="button" class="ai-history-item-action" :title="t(item.pinned ? 'ai.unpinConversation' : 'ai.pinConversation')" :aria-label="t(item.pinned ? 'ai.unpinConversation' : 'ai.pinConversation')" @click="handleTogglePin(item.id, item.pinned, $event)"><AppIcon :name="item.pinned ? 'pin-fill' : 'pin'" size="xs" /></button>
+            <button type="button" class="ai-history-item-action danger" :title="t('ai.deleteHistoryItem')" :aria-label="t('ai.deleteHistoryItem')" @click="handleDeleteConversation(item.id, $event)"><AppIcon name="delete" size="xs" /></button>
+          </div>
         </div>
       </div>
     </section>

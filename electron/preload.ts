@@ -135,9 +135,11 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
   aiSelectLocalContextFile: () => ipcRenderer.invoke('ai:selectLocalContextFile'),
+  aiReadLocalContextFile: (sessionId: string, threadId: string, path: string) => ipcRenderer.invoke('ai:readLocalContextFile', sessionId, threadId, path),
   aiCheckLocalContextFile: (path: string) => ipcRenderer.invoke('ai:checkLocalContextFile', path),
   aiSetContextFile: (sessionId: string, threadId: string, file: unknown) => ipcRenderer.invoke('ai:setContextFile', sessionId, threadId, file),
-  aiRemoveContextFile: (sessionId: string, threadId: string, source: string, path: string) => ipcRenderer.invoke('ai:removeContextFile', sessionId, threadId, source, path),
+  aiRemoveContextFile: (sessionId: string, threadId: string, source: string, path: string, removeFromFuture: boolean) => ipcRenderer.invoke('ai:removeContextFile', sessionId, threadId, source, path, removeFromFuture),
+  aiUpdateConversation: (sessionId: string, threadId: string, patch: { customTitle?: string | null; pinned?: boolean }) => ipcRenderer.invoke('ai:updateConversation', sessionId, threadId, patch),
   setAiSessionStore: (sessionId: string, store: any) => ipcRenderer.invoke('ai:setSessionStore', sessionId, store),
   aiCreateConversation: (
     sessionId: string,

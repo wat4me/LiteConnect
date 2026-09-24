@@ -13,7 +13,9 @@ import {
 } from '@/utils/terminal/shellCommandSuggest'
 import { looksLikeFailedShellOutput } from '@/utils/terminal/shellHistoryEligibility'
 
-const HISTORY_SNIFF_MS = 1000
+/** Allow slow SSH echoes to arrive before committing a command to history. */
+const HISTORY_INITIAL_WAIT_MS = 6000
+const HISTORY_OUTPUT_QUIET_MS = 1000
 
 export function useTerminalShellSuggest(deps: {
   terminalRef: Ref<HTMLDivElement | undefined>
@@ -182,6 +184,11 @@ export function useTerminalShellSuggest(deps: {
     cancelHistorySniff()
     historySniffCmd = command
     historySniffBuf = ''
+    armHistorySniff(HISTORY_INITIAL_WAIT_MS)
+  }
+
+  function armHistorySniff(delayMs: number) {
+    if (historySniffTimer) clearTimeout(historySniffTimer)
     historySniffTimer = setTimeout(() => {
       const cmd = historySniffCmd
       const buf = historySniffBuf
@@ -191,7 +198,7 @@ export function useTerminalShellSuggest(deps: {
       if (!cmd) return
       if (looksLikeFailedShellOutput(buf)) return
       void pushShellHistory(cmd)
-    }, HISTORY_SNIFF_MS)
+    }, delayMs)
   }
 
   function feedHistorySniff(chunk: string) {
@@ -202,6 +209,8 @@ export function useTerminalShellSuggest(deps: {
     }
     if (looksLikeFailedShellOutput(historySniffBuf)) {
       cancelHistorySniff()
+    } else {
+      armHistorySniff(HISTORY_OUTPUT_QUIET_MS)
     }
   }
 

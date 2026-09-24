@@ -6,6 +6,8 @@ const BACKGROUND_FLUSH_MS = 200
 const MAX_BATCH_CHARS = 256 * 1024
 const PAUSE_AT_CHARS = 512 * 1024
 const RESUME_AT_CHARS = 128 * 1024
+/** Small replies after a key press should not wait for the next animation frame. */
+const INTERACTIVE_REPLY_CHARS = 4 * 1024
 
 export function useRenderBatch(
   getTerminal: () => Terminal | null,
@@ -147,6 +149,13 @@ export function useRenderBatch(
     })
   }
 
+  function flushInteractiveResponse(callback?: () => void): boolean {
+    if (frozen || activeWrite || writeQueue.length > 0) return false
+    if (renderBatch.length === 0 || renderBatch.length > INTERACTIVE_REPLY_CHARS) return false
+    flushRenderBatch(callback)
+    return true
+  }
+
   function appendRenderBatch(data: string) {
     if (!data) return
     renderBatch += data
@@ -198,6 +207,7 @@ export function useRenderBatch(
   return {
     flushRenderBatch,
     scheduleRenderFlush,
+    flushInteractiveResponse,
     appendRenderBatch,
     resetRenderBatch,
     setRenderFrozen,

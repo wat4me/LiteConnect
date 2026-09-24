@@ -57,7 +57,7 @@ jobs:
             exit 1
           fi
       - name: Unit tests
-        run: npm test
+        run: npm test -- --maxWorkers=4
       - name: Build
         run: npm run build
       # Every platform builds privately. Publishing from inside the matrix makes
@@ -87,6 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: LiteConnect-*
@@ -108,7 +109,7 @@ jobs:
       - name: Publish complete GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: docs/releases/${{ github.ref_name }}.md
           fail_on_unmatched_files: true
           files: |
             release/*.exe

@@ -69,6 +69,7 @@ export interface SettingsDraft {
   terminalPasteConfirmMaxChars: PasteConfirmMaxChars
   /** Local shell history / parameter popup. Defaults off. */
   terminalCommandSuggestEnabled: boolean
+  terminalLocalEchoEnabled: boolean
   /** Newline-separated, case-insensitive shell glob exclusions. */
   terminalCommandHistoryExcludePatterns: string
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
@@ -128,6 +129,7 @@ export function createEmptyDraft(): SettingsDraft {
     terminalPasteConfirmEnabled: true,
     terminalPasteConfirmMaxChars: PASTE_CONFIRM_MAX_CHARS,
     terminalCommandSuggestEnabled: false,
+    terminalLocalEchoEnabled: false,
     terminalCommandHistoryExcludePatterns: '',
     downloadConflictStrategy: 'rename',
     dirTransferConcurrency: 3,
@@ -181,6 +183,7 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.terminalPasteConfirmEnabled === b.terminalPasteConfirmEnabled
     && a.terminalPasteConfirmMaxChars === b.terminalPasteConfirmMaxChars
     && a.terminalCommandSuggestEnabled === b.terminalCommandSuggestEnabled
+    && a.terminalLocalEchoEnabled === b.terminalLocalEchoEnabled
     && a.terminalCommandHistoryExcludePatterns === b.terminalCommandHistoryExcludePatterns
     && a.downloadConflictStrategy === b.downloadConflictStrategy
     && a.dirTransferConcurrency === b.dirTransferConcurrency
@@ -260,6 +263,7 @@ export function useSettingsDraft(): {
       terminalPasteConfirmEnabled: true,
       terminalPasteConfirmMaxChars: PASTE_CONFIRM_MAX_CHARS,
       terminalCommandSuggestEnabled: false,
+      terminalLocalEchoEnabled: false,
       terminalCommandHistoryExcludePatterns: '',
       downloadConflictStrategy: 'rename',
       dirTransferConcurrency: 3,
@@ -314,6 +318,7 @@ export function useSettingsDraft(): {
         terminalPasteConfirmEnabled: all.terminalPasteConfirmEnabled !== false,
         terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(all.terminalPasteConfirmMaxChars),
         terminalCommandSuggestEnabled: all.terminalCommandSuggestEnabled === true,
+        terminalLocalEchoEnabled: all.terminalLocalEchoEnabled === true,
         terminalCommandHistoryExcludePatterns: Array.isArray(all.terminalCommandHistoryExcludePatterns)
           ? all.terminalCommandHistoryExcludePatterns.join('\n')
           : '',
@@ -425,6 +430,7 @@ export function useSettingsDraft(): {
         terminalPasteConfirmEnabled: d.terminalPasteConfirmEnabled,
         terminalPasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
         terminalCommandSuggestEnabled: d.terminalCommandSuggestEnabled,
+        terminalLocalEchoEnabled: d.terminalLocalEchoEnabled,
         terminalCommandHistoryExcludePatterns: d.terminalCommandHistoryExcludePatterns
           .split(/\r?\n/)
           .map((pattern) => pattern.trim())
@@ -521,6 +527,7 @@ export function useSettingsDraft(): {
           pasteConfirmEnabled: d.terminalPasteConfirmEnabled,
           pasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
           commandSuggestEnabled: d.terminalCommandSuggestEnabled,
+          localEchoEnabled: d.terminalLocalEchoEnabled,
         },
       }))
       window.dispatchEvent(new CustomEvent('latency-settings-change', {

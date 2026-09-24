@@ -8,6 +8,7 @@ defineProps<{
   y: number
   selectedText: string
   readOnly: boolean
+  aiDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -76,12 +77,12 @@ const { t } = useI18n()
         <span>{{ readOnly ? t('terminal.readOnlyOffMenu') : t('terminal.readOnlyOnMenu') }}</span>
       </button>
       <template v-if="selectedText">
-        <div class="ui-menu-sep" role="separator"></div>
-        <button type="button" class="ui-menu-item" @click="emit('send-to-ai', 'send')">
+        <div v-if="!aiDisabled" class="ui-menu-sep" role="separator"></div>
+        <button v-if="!aiDisabled" type="button" class="ui-menu-item" @click="emit('send-to-ai', 'send')">
           <AppIcon name="send" size="sm" />
           <span>{{ t('terminal.sendToAi') }}</span>
         </button>
-        <button type="button" class="ui-menu-item" @click="emit('send-to-ai', 'insert')">
+        <button v-if="!aiDisabled" type="button" class="ui-menu-item" @click="emit('send-to-ai', 'insert')">
           <AppIcon name="ai-chat" size="sm" />
           <span>{{ t('terminal.insertToAi') }}</span>
         </button>

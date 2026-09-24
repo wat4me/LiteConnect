@@ -9,6 +9,7 @@ import {
   readAiSessionStoreAndGc,
   removeAiConversationContextFile,
   setAiConversationContextFile,
+  updateAiConversationMetadata,
   upsertAiHistoryRecord,
   writeAiContextCheckpoint,
   writeAiSessionStore,
@@ -103,6 +104,26 @@ it('retains the approval diff through completion and history reload', async () =
   expect(store.threads[0].messages[0].toolRuns?.[0]).toMatchObject({ status: 'done', ...diff })
 })
 
+it('keeps custom titles through message writes and protects pinned history from pruning', async () => {
+  await writeAiSessionStore('pinned-session', {
+    version: 1,
+    activeThreadId: 'active',
+    defaultContextFiles: [],
+    threads: [
+      { id: 'old', title: 'Old', createdAt: 1, updatedAt: 1, messages: [{ id: 'u-old', role: 'user', content: 'Old question', createdAt: 1 }], contextFiles: [] },
+      { id: 'middle', title: 'Middle', createdAt: 2, updatedAt: 2, messages: [{ id: 'u-middle', role: 'user', content: 'Middle question', createdAt: 2 }], contextFiles: [] },
+      { id: 'active', title: 'Active', createdAt: 3, updatedAt: 3, messages: [{ id: 'u-active', role: 'user', content: 'Active question', createdAt: 3 }], contextFiles: [] },
+    ],
+  })
+  await updateAiConversationMetadata('pinned-session', 'old', { customTitle: 'Important host', pinned: true })
+  await upsertAiHistoryRecord('pinned-session', { id: 'a-old', role: 'assistant', content: 'Done', createdAt: 4 }, 'old')
+  const limited = await readAiSessionStore('pinned-session', { maxThreads: 2 })
+  expect(limited.threads.map(thread => thread.id).sort()).toEqual(['active', 'old'])
+  expect(limited.threads.find(thread => thread.id === 'old')).toMatchObject({ title: 'Important host', customTitle: 'Important host', pinned: true })
+  await updateAiConversationMetadata('pinned-session', 'old', { customTitle: null }, { maxThreads: 2 })
+  expect((await readAiSessionStore('pinned-session')).threads.find(thread => thread.id === 'old')?.title).toBe('Old question')
+})
+
 it('persists up to five reference files and removes one without changing older conversations', async () => {
   const initial = await readAiSessionStoreAndGc('context-file-session')
   const threadId = initial.activeThreadId
@@ -122,6 +143,29 @@ it('persists up to five reference files and removes one without changing older c
   await removeAiConversationContextFile('context-file-session', threadId, file.source, file.path)
   expect((await readAiSessionStore('context-file-session')).threads[0].contextFiles).toHaveLength(4)
   expect((await readAiSessionStore('context-file-session')).defaultContextFiles).toHaveLength(4)
+})
+
+it('removes a reference from only the current conversation while preserving future defaults', async () => {
+  const initial = await readAiSessionStoreAndGc('context-scope-session')
+  const threadId = initial.activeThreadId
+  const recurring = { source: 'local' as const, path: 'C:/recurring.md', content: 'Keep this for future conversations.' }
+  const other = { source: 'ssh' as const, path: '/srv/other.md', content: 'Other context.' }
+  await setAiConversationContextFile('context-scope-session', threadId, recurring)
+  await setAiConversationContextFile('context-scope-session', threadId, other)
+  await removeAiConversationContextFile('context-scope-session', threadId, recurring.source, recurring.path, false)
+  let store = await readAiSessionStore('context-scope-session')
+  expect(store.threads[0].contextFiles.map(file => file.path)).toEqual([other.path])
+  expect(store.defaultContextFiles.map(file => file.path)).toEqual([recurring.path, other.path])
+
+  await setAiConversationContextFile('context-scope-session', threadId, { ...other, content: 'Updated other context.' })
+  store = await readAiSessionStore('context-scope-session')
+  expect(store.defaultContextFiles.map(file => file.path)).toEqual([recurring.path, other.path])
+  await upsertAiHistoryRecord('context-scope-session', { id: 'question', role: 'user', content: 'Start', createdAt: 1 }, threadId)
+  const next = await createNewConversationAtomic('context-scope-session', { threadId })
+  expect(next.threads.find(thread => thread.id === next.activeThreadId)?.contextFiles.map(file => file.path)).toEqual([recurring.path, other.path])
+
+  await removeAiConversationContextFile('context-scope-session', next.activeThreadId, recurring.source, recurring.path, true)
+  expect((await readAiSessionStore('context-scope-session')).defaultContextFiles.map(file => file.path)).toEqual([other.path])
 })
 
 it('loads the saved reference file in each new conversation', async () => {

@@ -598,6 +598,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
             :connection-name="session.connectionName"
             :connection-id="session.connectionId"
             :start-disconnected="session.pending === true"
+            :ai-disabled="isSplit"
             :active="isSessionVisible(session.id)"
             :workspace-visible="workspaceVisible !== false"
             @closed="emit('session-closed', $event)"

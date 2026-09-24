@@ -15,6 +15,7 @@ import {
   readAiSessionStoreAndGc,
   removeAiConversationContextFile,
   setAiConversationContextFile,
+  updateAiConversationMetadata,
   upsertAiHistoryRecord,
   writeAiHistoryRecords,
   writeAiContextCheckpoint,
@@ -155,16 +156,41 @@ export function registerAiHandlers(
     }
   })
 
+  ipcMain.handle('ai:readLocalContextFile', async (_event, sessionId: string, threadId: string, path: string) => {
+    if (typeof path !== 'string' || path.length > 1024 || !isAiMarkdownFilePath(path) || /[\0\r\n]/.test(path)) {
+      throw new Error('Invalid Markdown file path')
+    }
+    await ensureSettingsReady()
+    const store = await readAiSessionStore(historyIdForSession(sessionId), getHistoryLimits())
+    const thread = store.threads.find(item => item.id === threadId)
+    if (!thread || store.activeThreadId !== threadId || !thread.contextFiles.some(file => file.source === 'local' && file.path === path)) {
+      throw new Error('AI context file is no longer attached to this conversation')
+    }
+    const info = await stat(path)
+    if (!info.isFile() || info.size > AI_CONTEXT_FILE_MAX_BYTES) throw new Error(t('ai.markdownSizeLimit'))
+    const file = { source: 'local' as const, path, content: await readFile(path, 'utf8') }
+    if (!normalizeAiContextFile(file)) throw new Error(t('ai.markdownEmpty'))
+    return file
+  })
+
+  ipcMain.handle('ai:updateConversation', async (_event, sessionId: string, threadId: string, patch: unknown) => {
+    if (typeof threadId !== 'string' || !threadId || !patch || typeof patch !== 'object') {
+      throw new Error('Invalid AI conversation update')
+    }
+    await ensureSettingsReady()
+    return updateAiConversationMetadata(historyIdForSession(sessionId), threadId, patch, getHistoryLimits())
+  })
+
   ipcMain.handle('ai:setContextFile', async (_event, sessionId: string, threadId: string, file: unknown) => {
     if (typeof threadId !== 'string' || !threadId) throw new Error('Invalid AI conversation')
     await ensureSettingsReady()
     return setAiConversationContextFile(historyIdForSession(sessionId), threadId, file, getHistoryLimits())
   })
 
-  ipcMain.handle('ai:removeContextFile', async (_event, sessionId: string, threadId: string, source: 'local' | 'ssh', path: string) => {
-    if (typeof threadId !== 'string' || !threadId || (source !== 'local' && source !== 'ssh') || typeof path !== 'string') throw new Error('Invalid AI context file')
+  ipcMain.handle('ai:removeContextFile', async (_event, sessionId: string, threadId: string, source: 'local' | 'ssh', path: string, removeFromFuture: boolean) => {
+    if (typeof threadId !== 'string' || !threadId || (source !== 'local' && source !== 'ssh') || typeof path !== 'string' || typeof removeFromFuture !== 'boolean') throw new Error('Invalid AI context file')
     await ensureSettingsReady()
-    return removeAiConversationContextFile(historyIdForSession(sessionId), threadId, source, path, getHistoryLimits())
+    return removeAiConversationContextFile(historyIdForSession(sessionId), threadId, source, path, removeFromFuture, getHistoryLimits())
   })
 
   ipcMain.handle('ai:appendSessionHistory', async (_event, sessionId: string, record: any, threadId?: string) => {

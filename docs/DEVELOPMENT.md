@@ -109,6 +109,36 @@ npm run dev:isolated
 
 把待迁移的旧版 JSON/JSONL 测试数据放入该目录后启动应用，即可验证自动迁移。该开关仅在开发版生效，打包后的应用会忽略它；不要使用 Electron 的 `--user-data-dir` 代替，因为它不保证改变 LiteConnect 的业务数据目录。若需要清空普通开发环境，关闭开发版后删除 `LiteConnect-Dev` 目录即可，不会影响正式版。
 
+### 模拟 SSH 终端高延迟
+
+在开发版窗口按 `F12` 或 `Ctrl+Shift+I` 打开开发者工具，切换到 Console 标签。
+
+在开发版的开发者工具 Console 执行以下命令，然后新开一个 SSH 终端标签：
+
+```js
+sessionStorage.setItem('liteconnect:terminal-simulated-latency-ms', '1500')
+sessionStorage.setItem('liteconnect:terminal-typing-diagnostics', '1')
+```
+
+第一项会在终端收到 SSH 输出后额外等待 1500 毫秒再交给终端渲染，最大值为 5000 毫秒；它只在开发版和当前应用窗口中生效，关闭窗口后不会保留。模拟会延迟该标签的所有输出，包括提示符。第二项会在 Console 输出 `[TerminalTyping]` 的输入处理、按键到首段输出、输出到 xterm 写入完成的耗时。首段输出可能是服务器主动发送的数据，因此这组数字用于比较测试，不等同于精确网络 RTT。
+
+要比较本地预览回显的效果，在「设置 → 终端」开启「本地预览回显」，保存后回到 SSH 标签输入普通命令。开关默认关闭；预览字符为浅色，服务器回显仍是最终显示内容。
+
+测试完成后执行下面的命令，再新开标签恢复正常：
+
+```js
+sessionStorage.removeItem('liteconnect:terminal-simulated-latency-ms')
+sessionStorage.removeItem('liteconnect:terminal-typing-diagnostics')
+```
+
+如果曾按旧版说明使用 `localStorage`，还需执行 `localStorage.removeItem('liteconnect:terminal-simulated-latency-ms')` 清除旧值；新版不再读取它。已打开的终端标签要重新打开才会丢弃先前创建的延迟队列。
+
+不连接服务器也可以运行假时钟测试，覆盖 1500 毫秒回显、输出顺序和会话销毁：
+
+```bash
+npx vitest run src/composables/terminal/terminalTypingLatency.test.ts src/utils/terminal/localEchoModel.test.ts
+```
+
 类型检查和测试：
 
 ```bash

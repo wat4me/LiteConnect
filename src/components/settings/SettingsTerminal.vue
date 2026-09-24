@@ -153,6 +153,12 @@ async function clearCommandHistory() {
         </label>
         <div class="settings-hint">{{ t('settingsTerminal.commandSuggestHint') }}</div>
 
+        <label class="settings-check" style="margin-top: 14px" data-setting="terminal.localEcho">
+          <input v-model="draft.terminalLocalEchoEnabled" type="checkbox" />
+          <span>{{ t('settingsTerminal.localEcho') }}</span>
+        </label>
+        <div class="settings-hint">{{ t('settingsTerminal.localEchoHint') }}</div>
+
         <div class="settings-label" style="margin-top: 14px" data-setting="terminal.commandHistoryPrivacy">
           {{ t('settingsTerminal.commandHistoryPrivacy') }}
         </div>

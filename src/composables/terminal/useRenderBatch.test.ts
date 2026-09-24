@@ -76,6 +76,41 @@ describe('useRenderBatch', () => {
     expect(writes).toEqual(['ab'])
   })
 
+  it('submits a small interactive reply immediately', () => {
+    const { terminal, writes } = mockTerminal()
+    const batch = useRenderBatch(() => terminal)
+    const completed = vi.fn()
+
+    batch.appendRenderBatch('echo')
+    expect(batch.flushInteractiveResponse(completed)).toBe(true)
+    expect(writes).toEqual(['echo'])
+    expect(completed).toHaveBeenCalledOnce()
+  })
+
+  it('keeps large or backed-up replies on the regular path', () => {
+    const { terminal, writes, completeNext } = controlledTerminal()
+    const batch = useRenderBatch(() => terminal)
+
+    batch.appendRenderBatch('first')
+    batch.flushRenderBatch()
+    batch.appendRenderBatch('second')
+    expect(batch.flushInteractiveResponse()).toBe(false)
+    expect(writes).toEqual(['first'])
+    completeNext()
+    batch.appendRenderBatch('x'.repeat(4097))
+    expect(batch.flushInteractiveResponse()).toBe(false)
+  })
+
+  it('does not bypass throttling for a background terminal', () => {
+    const { terminal, writes } = mockTerminal()
+    const batch = useRenderBatch(() => terminal)
+    batch.setRenderFrozen(true)
+    batch.appendRenderBatch('echo')
+
+    expect(batch.flushInteractiveResponse()).toBe(false)
+    expect(writes).toEqual([])
+  })
+
   it('flushes pending data when unfrozen', () => {
     const { terminal, writes } = mockTerminal()
     const batch = useRenderBatch(() => terminal)

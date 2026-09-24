@@ -16,6 +16,8 @@ export default {
     pasteConfirmThresholdHint: '多行始终确认；仅单行文本超过该字符数时弹出确认',
     commandSuggest: '命令行提示',
     commandSuggestHint: '根据当前连接的命令历史和常用参数显示候选；输入 cd 时也会推荐已收藏的目录。含凭据的命令不会保存，以空格开头的命令也不会记录。',
+    localEcho: '本地预览回显（默认关闭）',
+    localEchoHint: '仅预览常见 Shell 提示符后的英文、数字和符号按键，服务器回显后校正。自定义提示符或程序可能无法准确识别；输入敏感内容前请关闭。按键仍会立即发送到服务器。',
     commandHistoryPrivacy: '命令历史隐私',
     commandHistoryPrivacyPlaceholder: '例如：vault *\nkubectl config set-credentials *',
     commandHistoryPrivacyHint: '每行一条、不区分大小写，支持 * 和 ? 通配符。匹配的整条命令不会保存到本地历史。',

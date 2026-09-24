@@ -23,6 +23,7 @@ export function looksLikeFailedShellOutput(raw: string): boolean {
   if (/\bcommand not found:\s*\S+/i.test(s)) return true
   if (/\bUnknown command[:\s]/i.test(s)) return true
   if (/\bno such command\b/i.test(s)) return true
+  if (/^\s*(?:-?bash|sh|zsh|fish):[^\r\n]*(?:未找到命令|找不到命令|命令未找到)/im.test(s)) return true
 
   // getopt-style
   if (/\bunrecognized (option|argument|command)\b/i.test(s)) return true

@@ -14,6 +14,7 @@ export function useWorkspaceSplitController(deps: {
   primarySessionId: Ref<string | null>
   secondarySessionId: Ref<string | null>
   sidebarVisible: Ref<boolean>
+  aiSidebarVisible: Ref<boolean>
   getGroupBySessionId: (sessionId: string) => ConnectionGroup | null
   createSession: CreateSession
   closeSession: (sessionId: string) => Promise<void>
@@ -36,6 +37,18 @@ export function useWorkspaceSplitController(deps: {
   })
 
   let sftpVisibleBeforeCrossHostSplit: boolean | null = null
+  let aiVisibleBeforeSplit: boolean | null = null
+  watch(deps.isSplit, (split, wasSplit) => {
+    if (split && !wasSplit) {
+      aiVisibleBeforeSplit = deps.aiSidebarVisible.value
+      deps.aiSidebarVisible.value = false
+      return
+    }
+    if (!split && wasSplit && aiVisibleBeforeSplit !== null) {
+      deps.aiSidebarVisible.value = aiVisibleBeforeSplit
+      aiVisibleBeforeSplit = null
+    }
+  }, { flush: 'sync' })
   watch(isCrossHostSplit, (crossHost, wasCrossHost) => {
     if (crossHost) {
       if (!wasCrossHost) sftpVisibleBeforeCrossHostSplit = deps.sidebarVisible.value

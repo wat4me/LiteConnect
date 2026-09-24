@@ -13,6 +13,11 @@ describe('looksLikeFailedShellOutput', () => {
     expect(looksLikeFailedShellOutput('-bash: xyz: command not found')).toBe(true)
   })
 
+  it('detects localized bash command-not-found output', () => {
+    expect(looksLikeFailedShellOutput('bash: odkcer: 未找到命令...')).toBe(true)
+    expect(looksLikeFailedShellOutput('-bash: odkcer: 找不到命令')).toBe(true)
+  })
+
   it('detects with ansi codes', () => {
     const raw = "\x1b[31mdocker: 'p' is not a docker command.\x1b[0m"
     expect(stripAnsiForHistory(raw)).toContain('is not a docker command')
@@ -23,5 +28,6 @@ describe('looksLikeFailedShellOutput', () => {
     expect(looksLikeFailedShellOutput('CONTAINER ID   IMAGE\nabc123         nginx')).toBe(false)
     expect(looksLikeFailedShellOutput('[root@localhost ~]# ')).toBe(false)
     expect(looksLikeFailedShellOutput('total 12\ndrwxr-xr-x 2 root root')).toBe(false)
+    expect(looksLikeFailedShellOutput('这是说明文字：未找到命令时请检查拼写')).toBe(false)
   })
 })

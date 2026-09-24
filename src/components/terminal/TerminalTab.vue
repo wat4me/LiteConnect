@@ -7,6 +7,8 @@ import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
 import { useCommandBuffer } from '../../composables/terminal/useCommandBuffer'
 import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
+import { useTerminalLocalEcho } from '../../composables/terminal/useTerminalLocalEcho'
+import { createDelayedTerminalOutput, createTypingResponseTracker } from '../../composables/terminal/terminalTypingLatency'
 import { useWriteQueue } from '../../composables/terminal/useWriteQueue'
 import { useTerminalPwdQuery } from '../../composables/terminal/useTerminalPwdQuery'
 import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
@@ -41,8 +43,10 @@ const props = withDefaults(
     active?: boolean
     workspaceVisible?: boolean
     startDisconnected?: boolean
+    /** Split screen closes AI; hide the selection actions that would reopen it. */
+    aiDisabled?: boolean
   }>(),
-  { active: true, workspaceVisible: true, startDisconnected: false },
+  { active: true, workspaceVisible: true, startDisconnected: false, aiDisabled: false },
 )
 
 const emit = defineEmits<{
@@ -143,6 +147,7 @@ const {
 
 const {
   flushRenderBatch,
+  flushInteractiveResponse,
   scheduleRenderFlush,
   appendRenderBatch,
   resetRenderBatch,
@@ -151,6 +156,7 @@ const {
 } = useRenderBatch(getTerminal, (paused) => {
   window.LiteConnect.sshSetOutputPaused(props.sessionId, paused)
 })
+const localEcho = useTerminalLocalEcho(getTerminal, terminalRef)
 
 flushRenderBatchFn = flushRenderBatch
 
@@ -265,6 +271,9 @@ const {
 } = useTerminalSearch({ getTerminal, getSearchAddon })
 
 let cursorPulseTimer: ReturnType<typeof setTimeout> | null = null
+const typingResponse = createTypingResponseTracker()
+let delayedOutput: ReturnType<typeof createDelayedTerminalOutput> | null = null
+let typingDiagnosticsEnabled = false
 
 function pulseCursor() {
   if (!props.active || !terminalRef.value) return
@@ -341,6 +350,7 @@ function handleKey(event: KeyboardEvent): boolean {
 
 function applyActiveState(isActive: boolean) {
   setRenderFrozen(!isActive)
+  if (!isActive) localEcho.clear()
   const terminal = getTerminal()
   if (terminal) {
     terminal.options.cursorBlink = isActive
@@ -353,6 +363,11 @@ function applyActiveState(isActive: boolean) {
     detachResizeObserver()
     selection.hideSelectionMenu()
   }
+}
+
+function onTerminalLocalEchoSettingChange(event: Event) {
+  const enabled = (event as CustomEvent).detail?.localEchoEnabled
+  if (typeof enabled === 'boolean') localEcho.setEnabled(enabled)
 }
 
 function clearScrollback() {
@@ -402,12 +417,23 @@ function appendIncomingTerminalData(data: string) {
   if (!getTerminal()) return
   const visibleData = processPwdQueryData(data)
   if (visibleData.length > 0) {
+    const now = performance.now()
+    const typingSample = typingResponse.takeResponse()
     suggest.feedHistorySniff(visibleData)
     appendRenderBatch(visibleData)
     if (hasPendingTabCompletion()) {
       flushRenderBatch(syncPendingTabCompletion)
     } else {
-      scheduleRenderFlush()
+      const flushed = !!typingSample && flushInteractiveResponse(
+        typingDiagnosticsEnabled
+          ? () => console.debug('[TerminalTyping]', {
+              inputHandlerMs: Math.round(typingSample.inputHandlerMs),
+              responseMs: Math.round(typingSample.responseMs),
+              xtermQueueMs: Math.round(performance.now() - now),
+            })
+          : undefined,
+      )
+      if (!flushed) scheduleRenderFlush()
     }
   }
 }
@@ -424,14 +450,30 @@ async function flushStartupNotices() {
 onMounted(async () => {
   if (!terminalRef.value) return
 
+  try {
+    typingDiagnosticsEnabled = sessionStorage.getItem('liteconnect:terminal-typing-diagnostics') === '1'
+    if (import.meta.env.DEV) {
+      const configuredDelay = Number(sessionStorage.getItem('liteconnect:terminal-simulated-latency-ms'))
+      if (Number.isFinite(configuredDelay) && configuredDelay > 0) {
+        delayedOutput = createDelayedTerminalOutput(appendIncomingTerminalData, Math.min(configuredDelay, 5000))
+      }
+    }
+  } catch {
+    typingDiagnosticsEnabled = false
+  }
+
   await loadTerminalSettings()
   attachSettingsListeners()
   await suggest.loadCommandSuggestSetting()
   window.addEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
+  window.addEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)
   window.addEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
 
   const terminal = createTerminal(props.connectionName)
   if (!terminal) return
+  void window.LiteConnect.getAllSettings().then((settings) => {
+    localEcho.setEnabled(settings.terminalLocalEchoEnabled === true)
+  }).catch(() => localEcho.setEnabled(false))
   registerTerminalResource(props.sessionId, () => {
     const current = getTerminal()
     if (!current) return null
@@ -445,25 +487,34 @@ onMounted(async () => {
   terminal.attachCustomKeyEventHandler(handleKey)
 
   terminal.onData((data) => {
+    typingResponse.noteInput(data, !readOnly.value && !isPasting())
+    localEcho.onInput(data, !readOnly.value && !isPasting() && isEffectiveActive() && !reconnect.disconnected.value)
     handleTerminalUserInput(data)
+    typingResponse.finishInputHandler()
   })
+  terminal.onWriteParsed(() => localEcho.reconcile())
+  terminal.onResize(() => localEcho.clear())
 
   unsubData = window.LiteConnect.onSshData(props.sessionId, (data) => {
-    appendIncomingTerminalData(data)
+    if (delayedOutput) delayedOutput.push(data)
+    else appendIncomingTerminalData(data)
   })
   void flushStartupNotices()
 
   unsubClosed = window.LiteConnect.onSshClosed(props.sessionId, () => {
+    localEcho.clear()
     reconnect.noteDisconnectedAndMaybeReconnect({ message: 'Connection closed' })
   })
 
   unsubReconnected = window.LiteConnect.onSshReconnected?.(props.sessionId, () => {
+    localEcho.clear()
     reconnect.markReconnectedInPlace()
     if (isOutputPaused()) window.LiteConnect.sshSetOutputPaused(props.sessionId, true)
     void flushStartupNotices()
   }) ?? null
 
   unsubError = window.LiteConnect.onSshError(props.sessionId, (error) => {
+    localEcho.clear()
     if (isNonRetryableSshError(error)) {
       reconnect.applyNonRetryableError(error)
       return
@@ -493,6 +544,7 @@ watch([theme, customColors, terminalPalette], () => {
 onBeforeUnmount(() => {
   unregisterTerminalResource(props.sessionId)
   window.removeEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
+  window.removeEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)
   window.removeEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
   window.removeEventListener('request-terminal-pwd', onRequestTerminalPwd)
   window.removeEventListener('ssh-reconnect-failed', reconnect.onReconnectFailed)
@@ -510,6 +562,8 @@ onBeforeUnmount(() => {
     cursorPulseTimer = null
   }
   suggest.dispose()
+  localEcho.clear()
+  delayedOutput?.dispose()
   unsubData?.()
   unsubClosed?.()
   unsubReconnected?.()
@@ -554,7 +608,30 @@ defineExpose({
       @re-run="reRunSearch"
       @close="toggleSearch"
     />
-    <div ref="terminalRef" class="xterm-container"></div>
+    <div ref="terminalRef" class="xterm-container" :class="{ 'local-echo-active': !!localEcho.text.value }">
+      <span
+        v-if="localEcho.text.value"
+        class="terminal-local-echo"
+        :style="{
+          left: `${localEcho.left.value}px`,
+          top: `${localEcho.top.value}px`,
+          lineHeight: `${localEcho.cellHeight.value}px`,
+          fontSize: `${localEcho.fontSize.value}px`,
+          fontFamily: localEcho.fontFamily.value,
+          color: localEcho.color.value,
+        }"
+      >{{ localEcho.text.value }}</span>
+      <span
+        v-if="localEcho.text.value"
+        class="terminal-local-echo-caret"
+        :style="{
+          left: `${localEcho.left.value + localEcho.text.value.length * localEcho.cellWidth.value}px`,
+          top: `${localEcho.top.value}px`,
+          height: `${localEcho.cellHeight.value}px`,
+          backgroundColor: localEcho.color.value,
+        }"
+      ></span>
+    </div>
     <TerminalCommandSuggest
       :visible="suggestVisible"
       :items="suggestItems"
@@ -571,6 +648,7 @@ defineExpose({
       :y="selectionMenuY"
       :selected-text="selectedText"
       :read-only="readOnly"
+      :ai-disabled="aiDisabled"
       @set-ref="(el) => (selection.selectionMenuRef.value = el)"
       @copy="selection.copySelection"
       @paste="selection.pasteToTerminal"
@@ -616,10 +694,32 @@ defineExpose({
 }
 
 .xterm-container {
+  position: relative;
   width: 100%;
   height: 100%;
   flex: 1;
   min-height: 0;
+}
+
+.terminal-local-echo {
+  position: absolute;
+  z-index: 3;
+  opacity: 0.48;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+}
+
+.terminal-local-echo-caret {
+  position: absolute;
+  z-index: 3;
+  width: 2px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.xterm-container.local-echo-active :deep(.xterm-cursor-layer .xterm-cursor) {
+  opacity: 0;
 }
 
 .read-only-badge {

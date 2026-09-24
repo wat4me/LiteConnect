@@ -166,8 +166,10 @@ export interface AiConversationContextFile {
 
 export interface AiConversationThread {
   id: string
-  /** First user message, verbatim. Always re-derived; never model-generated. */
+  /** Display title, derived from the first user message unless customTitle is set. */
   title: string
+  customTitle?: string
+  pinned?: boolean
   createdAt: number
   updatedAt: number
   messages: AiHistoryRecord[]
@@ -187,6 +189,8 @@ export interface AiSessionStore {
 export interface AiThreadSummary {
   id: string
   title: string
+  customTitle?: string
+  pinned?: boolean
   createdAt: number
   updatedAt: number
   messageCount: number

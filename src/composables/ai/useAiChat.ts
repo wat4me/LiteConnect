@@ -406,13 +406,15 @@ export function useAiChat() {
       .map((thread) => ({
         id: thread.id,
         title: thread.title || t('ai.newConversationTitle'),
+        customTitle: thread.customTitle,
+        pinned: thread.pinned === true,
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
         messageCount: thread.messages.length,
         contextFilePath: thread.contextFiles?.[0]?.path,
         active: thread.id === store.activeThreadId,
       }))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
 
     state.threads.splice(0, state.threads.length, ...summaries)
     state.activeThreadId = store.activeThreadId
@@ -485,9 +487,9 @@ export function useAiChat() {
       .map(toHistoryRecord)
     if (invalidateContextCheckpoint) delete active.contextCheckpoint
     const localSummary = state.threads.find((t) => t.id === active!.id)
-    active.title = active.messages.length
+    active.title = active.customTitle || (active.messages.length
       ? resolveThreadTitle(active.messages, { title: active.title || localSummary?.title })
-      : ''
+      : '')
     active.updatedAt = Date.now()
     pruneEmptyThreadsLocal(store)
     return store
@@ -530,7 +532,7 @@ export function useAiChat() {
       // Keep local thread title/meta roughly in sync without full reload
       const current = state.threads.find((t) => t.id === state.activeThreadId)
       if (current) {
-        current.title = threadTitleFromMessages(state.messages) || current.title
+        current.title = current.customTitle || threadTitleFromMessages(state.messages) || current.title
         current.updatedAt = Date.now()
         current.messageCount = state.messages.filter((m) => !m.streaming).length
         current.active = true
@@ -917,17 +919,34 @@ export function useAiChat() {
     }
   }
 
-  async function removeConversationContextFile(sessionId: string, file: AiConversationContextFile): Promise<boolean> {
+  async function removeConversationContextFile(sessionId: string, file: AiConversationContextFile, removeFromFuture: boolean): Promise<boolean> {
     const state = getAiSessionState(sessionId)
     if (state.loading || !state.activeThreadId) return false
     try {
-      const store = await window.LiteConnect.aiRemoveContextFile(sessionId, state.activeThreadId, file.source, file.path)
+      const store = await window.LiteConnect.aiRemoveContextFile(sessionId, state.activeThreadId, file.source, file.path, removeFromFuture)
       const active = store.threads.find(thread => thread.id === store.activeThreadId)
       state.contextFiles = active?.contextFiles || []
+      state.defaultContextFiles = store.defaultContextFiles
       syncThreadSummaries(state, store)
       return true
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.contextFileFailed'))
+      return false
+    }
+  }
+
+  async function updateConversation(
+    sessionId: string,
+    threadId: string,
+    patch: { customTitle?: string | null; pinned?: boolean },
+  ): Promise<boolean> {
+    const state = getAiSessionState(sessionId)
+    try {
+      const store = await window.LiteConnect.aiUpdateConversation(sessionId, threadId, patch)
+      syncThreadSummaries(state, store)
+      return true
+    } catch (err: any) {
+      ElMessage.warning(err?.message || t('ai.historySaveFailed'))
       return false
     }
   }
@@ -1161,6 +1180,7 @@ export function useAiChat() {
     startNewConversation,
     setConversationContextFile,
     removeConversationContextFile,
+    updateConversation,
     switchConversation,
     deleteConversation,
     clearAllConversations,

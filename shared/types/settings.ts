@@ -37,6 +37,7 @@ export type AppSettingsAll = {
   terminalPasteConfirmEnabled: boolean
   terminalPasteConfirmMaxChars: number
   terminalCommandSuggestEnabled: boolean
+  terminalLocalEchoEnabled: boolean
   /** Case-insensitive shell globs; matching commands never enter local history. */
   terminalCommandHistoryExcludePatterns: string[]
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'

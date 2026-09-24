@@ -204,9 +204,11 @@ export interface LiteConnectApi {
   getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
   aiSelectLocalContextFile: () => Promise<AiConversationContextFile | null>
+  aiReadLocalContextFile: (sessionId: string, threadId: string, path: string) => Promise<AiConversationContextFile>
   aiCheckLocalContextFile: (path: string) => Promise<'available' | 'missing' | 'unavailable'>
   aiSetContextFile: (sessionId: string, threadId: string, file: AiConversationContextFile) => Promise<AiSessionStore>
-  aiRemoveContextFile: (sessionId: string, threadId: string, source: 'local' | 'ssh', path: string) => Promise<AiSessionStore>
+  aiRemoveContextFile: (sessionId: string, threadId: string, source: 'local' | 'ssh', path: string, removeFromFuture: boolean) => Promise<AiSessionStore>
+  aiUpdateConversation: (sessionId: string, threadId: string, patch: { customTitle?: string | null; pinned?: boolean }) => Promise<AiSessionStore>
   setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
   aiCreateConversation: (
     sessionId: string,

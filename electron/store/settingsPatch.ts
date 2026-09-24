@@ -49,6 +49,9 @@ export function applySettingsPatch(
   if (patch.terminalCommandSuggestEnabled !== undefined) {
     settings.terminalCommandSuggestEnabled = !!patch.terminalCommandSuggestEnabled
   }
+  if (patch.terminalLocalEchoEnabled !== undefined) {
+    settings.terminalLocalEchoEnabled = !!patch.terminalLocalEchoEnabled
+  }
   if (patch.terminalCommandHistoryExcludePatterns !== undefined) {
     settings.terminalCommandHistoryExcludePatterns = normalizeShellHistoryExcludePatterns(
       patch.terminalCommandHistoryExcludePatterns,

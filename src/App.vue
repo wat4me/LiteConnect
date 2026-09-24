@@ -233,6 +233,7 @@ const {
   primarySessionId: splitPrimarySessionId,
   secondarySessionId,
   sidebarVisible,
+  aiSidebarVisible,
   getGroupBySessionId,
   createSession,
   closeSession: async (sessionId) => {
@@ -435,11 +436,16 @@ function guardedToggleSidebar() {
   toggleSidebar()
 }
 function guardedToggleAiSidebar() {
-  if (isDockerMode.value) return
+  if (isDockerMode.value || isSplit.value) return
   toggleAiSidebar()
+}
+function guardedAiSelection(text: string, mode: 'send' | 'insert') {
+  if (isDockerMode.value || isSplit.value) return
+  handleAiSelection(text, mode)
 }
 
 function jumpToAiApproval(sessionId: string) {
+  if (isSplit.value) suspendSplit()
   const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
   if (group) {
     if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
@@ -889,6 +895,7 @@ onBeforeUnmount(() => {
           :ai-sidebar-visible="aiSidebarVisible"
           :sidebar-visible="sidebarVisible"
           :sftp-disabled="isCrossHostSplit"
+          :ai-disabled="isSplit"
           :sidebar-width="sidebarWidth"
           :sidebar-session-id="sidebarSessionId"
           :ai-selection-request="aiSelectionRequest"
@@ -942,7 +949,7 @@ onBeforeUnmount(() => {
           @reconnect="handleReconnect"
           @cd-command="onCdCommand"
           @pwd-output="onPwdOutput"
-          @ai-selection="(text, mode) => handleAiSelection(text, mode)"
+          @ai-selection="guardedAiSelection"
           @split-preview="setSplitPreview"
           @split-commit="onDragSplitCommit"
           @swap-split-panes="onSwapSplitPanes"

@@ -58,6 +58,8 @@ const props = defineProps<{
   sidebarVisible: boolean
   /** Cross-host split owns the full SSH canvas; SFTP returns after leaving it. */
   sftpDisabled?: boolean
+  /** Visible split closes AI; the previous choice returns when the split ends. */
+  aiDisabled?: boolean
   sidebarWidth: number
   sidebarSessionId: string | null
   aiSelectionRequest: {
@@ -319,6 +321,7 @@ watch(
       :docker-active="!!dockerMode"
       :docker-disabled="!dockerButtonEnabled && !dockerTabOpen"
       :files-disabled="sftpDisabled"
+      :ai-disabled="aiDisabled"
       :side-panels-disabled="!!dockerMode"
       @toggle-ai="emit('toggle-ai')"
       @toggle-files="emit('toggle-files')"

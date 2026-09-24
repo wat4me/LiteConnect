@@ -15,6 +15,8 @@ const props = defineProps<{
   activeTransfers?: number
   /** SFTP is hidden while a cross-host split uses the full SSH canvas. */
   filesDisabled?: boolean
+  /** AI is hidden for every visible split and restored when the split ends. */
+  aiDisabled?: boolean
   /** Docker workspace mode button (not a side panel). */
   dockerActive?: boolean
   dockerDisabled?: boolean
@@ -39,6 +41,11 @@ const dockerTooltip = computed(() => {
   return t('toolbar.dockerShortcut')
 })
 
+const aiTooltip = computed(() => {
+  if (props.aiDisabled) return t('toolbar.aiSplitDisabled')
+  return t('toolbar.aiShortcut')
+})
+
 const sftpTooltip = computed(() => {
   if (props.filesDisabled) return t('toolbar.sftpCrossHostSplitDisabled')
   if (props.activeTransfers) return t('toolbar.sftpActive', { count: props.activeTransfers })
@@ -48,14 +55,14 @@ const sftpTooltip = computed(() => {
 
 <template>
   <div class="left-toolbar" role="toolbar" :aria-label="t('toolbar.aria')">
-    <el-tooltip :content="t('toolbar.aiShortcut')" placement="right" :show-after="300">
+    <el-tooltip :content="aiTooltip" placement="right" :show-after="300">
       <button
         class="toolbar-icon-btn"
         type="button"
         :class="{ active: aiActive }"
         :aria-label="t('toolbar.ai')"
         :aria-pressed="aiActive"
-        :disabled="sidePanelsDisabled"
+        :disabled="sidePanelsDisabled || aiDisabled"
         @click="emit('toggle-ai')"
       >
         <AppIcon name="ai-chat" size="lg" />
