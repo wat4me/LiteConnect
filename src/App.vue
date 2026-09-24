@@ -659,6 +659,7 @@ provide('pwdTracker', pwdTracker)
 
 let unsubReplyComplete: (() => void) | null = null
 let unsubAiApprovalNotification: (() => void) | null = null
+let unsubMonitorAlertClick: (() => void) | null = null
 let unsubMcpConnect: (() => void) | null = null
 let unsubMcpClose: (() => void) | null = null
 let unsubMcpConnections: (() => void) | null = null
@@ -682,6 +683,13 @@ const {
 } = useAppWindowRouting({ appMode, enterDatabase, enterSsh })
 
 onMounted(async () => {
+  unsubMonitorAlertClick = window.LiteConnect.onMonitorAlertClick((connectionId) => {
+    if (!groups.value.some(group => group.connectionId === connectionId)) return
+    enterSsh()
+    ensureSshWorkspaceMounted()
+    selectConnectionGroup(connectionId)
+    monitorVisible.value = true
+  })
   unsubAiApprovalNotification = window.LiteConnect.onAiApprovalNotificationClick((sessionId) => {
     enterSsh()
     ensureSshWorkspaceMounted()
@@ -792,6 +800,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  unsubMonitorAlertClick?.()
+  unsubMonitorAlertClick = null
   unsubAiApprovalNotification?.()
   unsubAiApprovalNotification = null
   unsubReplyComplete?.()

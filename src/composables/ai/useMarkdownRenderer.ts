@@ -25,8 +25,13 @@ function sanitizeExternalUrl(value: string): string | null {
 
 function renderInlineMarkdown(value: string): string {
   let rendered = escapeHtml(value)
-  // Protect inline code first
-  rendered = rendered.replace(/`([^`\n]+)`/g, '\x00code\x01$1\x00/code\x01')
+  // Keep protected HTML out of later URL detection, including URLs inside code labels.
+  const codeFragments: string[] = []
+  const linkFragments: string[] = []
+  rendered = rendered.replace(/`([^`\n]+)`/g, (_, content: string) => {
+    const index = codeFragments.push(`<code>${content}</code>`) - 1
+    return `\x00C${index}\x01`
+  })
   // Bold: ** or __
   rendered = rendered.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
   rendered = rendered.replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
@@ -40,13 +45,15 @@ function renderInlineMarkdown(value: string): string {
     const safeUrl = sanitizeExternalUrl(url)
     if (!safeUrl) return match
     const label = escapeHtml(alt.trim() || safeUrl)
-    return `<a class="md-image-link" href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`
+    const index = linkFragments.push(`<a class="md-image-link" href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`) - 1
+    return `\x00L${index}\x01`
   })
   // Links
   rendered = rendered.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label: string, url: string) => {
     const safeUrl = sanitizeExternalUrl(url)
     if (!safeUrl) return match
-    return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`
+    const index = linkFragments.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`) - 1
+    return `\x00L${index}\x01`
   })
   // Stop before ASCII `)` and CJK punctuation so `（… https://x.com）` keeps the closing `）`.
   rendered = rendered.replace(
@@ -58,7 +65,8 @@ function renderInlineMarkdown(value: string): string {
       return `<a href="${escapedUrl}" target="_blank" rel="noreferrer noopener">${escapedUrl}</a>`
     },
   )
-  rendered = rendered.replace(/\x00/g, '<').replace(/\x01/g, '>')
+  rendered = rendered.replace(/\x00L(\d+)\x01/g, (_, index: string) => linkFragments[Number(index)])
+  rendered = rendered.replace(/\x00C(\d+)\x01/g, (_, index: string) => codeFragments[Number(index)])
   return rendered
 }
 

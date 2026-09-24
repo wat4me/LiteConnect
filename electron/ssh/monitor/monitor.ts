@@ -286,10 +286,10 @@ export class MonitorCollector {
   /** connectionId → session used for remote exec */
   private execSession = new Map<string, string>()
   private sessionToConnection = new Map<string, string>()
-  private onData: (connectionId: string, data: MonitorData) => void
+  private onData: (connectionId: string, data: MonitorData, updated: (keyof MonitorData)[]) => void
   private sshManager: SSHManager
 
-  constructor(sshManager: SSHManager, onData: (connectionId: string, data: MonitorData) => void) {
+  constructor(sshManager: SSHManager, onData: (connectionId: string, data: MonitorData, updated: (keyof MonitorData)[]) => void) {
     this.sshManager = sshManager
     this.onData = onData
   }
@@ -334,16 +334,19 @@ export class MonitorCollector {
         return
       }
       try {
+        const updated: (keyof MonitorData)[] = []
         for (const collector of COLLECTORS) {
           if (!keysToCollect.includes(collector.key)) continue
           try {
             const partial = await collector.fn(execId, this.sshManager, connectionId)
-            if (!this.data.has(connectionId)) return
+            if (this.data.get(connectionId) !== current) return
             Object.assign(current, partial)
+            updated.push(collector.key)
           } catch {}
         }
+        if (this.data.get(connectionId) !== current) return
         current.timestamp = Date.now()
-        this.onData(connectionId, { ...current })
+        this.onData(connectionId, { ...current }, updated)
       } finally {
         for (const key of keysToCollect) running.delete(key)
         if (running.size === 0) this.collecting.delete(connectionId)
@@ -361,10 +364,10 @@ export class MonitorCollector {
     if (!this.systemInfoDone.has(connectionId)) {
       this.systemInfoDone.add(connectionId)
       collectSystemInfo(sessionId, this.sshManager).then(info => {
-        if (!this.data.has(connectionId)) return
+        if (this.data.get(connectionId) !== initData) return
         const current = this.data.get(connectionId)!
         Object.assign(current, info)
-        this.onData(connectionId, { ...current })
+        this.onData(connectionId, { ...current }, [])
       })
     }
   }

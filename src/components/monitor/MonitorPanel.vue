@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useSharedMonitor } from '@/composables/monitor/useMonitorData'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import FeatureTipBanner from '@/components/app/FeatureTipBanner.vue'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { DEFAULT_MONITOR_ALERT_RULE, type MonitorAlertRule } from '../../../shared/monitorAlerts'
 import { TIP_MONITOR_KEY } from '@/utils/shared/featureTips'
 
 const props = withDefaults(
@@ -30,6 +32,49 @@ const { t } = useI18n()
 const sessionIdRef = toRef(props, 'sessionId')
 const connectionIdRef = toRef(props, 'connectionId')
 const { data, error: monitorError, starting, retry: retryMonitor } = useSharedMonitor(connectionIdRef, sessionIdRef)
+const alertRule = ref<MonitorAlertRule>({ ...DEFAULT_MONITOR_ALERT_RULE })
+const alertDraft = ref<MonitorAlertRule>({ ...DEFAULT_MONITOR_ALERT_RULE })
+const alertDialogOpen = ref(false)
+const alertSaving = ref(false)
+const isMacOs = ref(false)
+
+watch(() => props.connectionId, async (connectionId) => {
+  alertDialogOpen.value = false
+  alertRule.value = { ...DEFAULT_MONITOR_ALERT_RULE }
+  try {
+    const next = await window.LiteConnect.monitorGetAlertRule(connectionId)
+    if (props.connectionId === connectionId) alertRule.value = next
+  } catch { /* Monitoring remains usable if alert settings cannot load. */ }
+}, { immediate: true })
+
+function openAlertSettings() {
+  alertDraft.value = { ...alertRule.value }
+  alertDialogOpen.value = true
+}
+
+async function saveAlertSettings() {
+  const rule = alertDraft.value
+  if (![rule.cpuThreshold, rule.memoryThreshold, rule.maxNotificationsPer24h].every(Number.isInteger)
+    || rule.cpuThreshold < 50 || rule.cpuThreshold > 99
+    || rule.memoryThreshold < 50 || rule.memoryThreshold > 99
+    || rule.maxNotificationsPer24h < 1 || rule.maxNotificationsPer24h > 10) {
+    ElMessage.warning(t('monitor.alertInvalid'))
+    return
+  }
+  const connectionId = props.connectionId
+  alertSaving.value = true
+  try {
+    const saved = await window.LiteConnect.monitorSetAlertRule(connectionId, rule)
+    if (props.connectionId !== connectionId) return
+    alertRule.value = saved
+    alertDialogOpen.value = false
+    ElMessage.success(t('monitor.alertSaved'))
+  } catch (err: any) {
+    ElMessage.error(err?.message || t('monitor.alertSaveFailed'))
+  } finally {
+    alertSaving.value = false
+  }
+}
 
 const isBottom = computed(() => props.layout === 'bottom')
 
@@ -142,6 +187,9 @@ watch(isBottom, async (bottom) => {
 })
 
 onMounted(async () => {
+  void window.LiteConnect.getAppInfo()
+    .then((appInfo) => { isMacOs.value = appInfo.platform.startsWith('darwin-') })
+    .catch(() => { /* The alert settings remain usable if app information is unavailable. */ })
   if (isBottom.value) {
     await nextTick()
     bindDockObserver()
@@ -251,6 +299,9 @@ watch(
       </div>
 
       <div class="dock-actions">
+        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :title="t('monitor.alertSettings')" @click="openAlertSettings">
+          {{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span>
+        </button>
         <button
           type="button"
           class="ui-btn ui-btn-xs ui-btn-ghost dock-details-btn"
@@ -274,6 +325,7 @@ watch(
         <span class="monitor-title">{{ t('monitor.title') }}</span>
         <span class="monitor-name">{{ connectionName }}</span>
         <div class="monitor-header-actions">
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="openAlertSettings">{{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span></button>
           <button
             type="button"
             class="ui-btn ui-btn-xs ui-btn-ghost"
@@ -454,6 +506,53 @@ watch(
         </div>
       </template>
     </template>
+    <Teleport to="body">
+      <div v-if="alertDialogOpen" class="monitor-alert-overlay" @click.self="alertDialogOpen = false">
+        <form class="monitor-alert-dialog" role="dialog" aria-modal="true" :aria-label="t('monitor.alertSettings')" @submit.prevent="saveAlertSettings">
+          <div class="monitor-alert-header">
+            <div class="monitor-alert-heading">
+              <h2>{{ t('monitor.alertSettings') }}</h2>
+              <span :title="connectionName">{{ connectionName }}</span>
+            </div>
+            <button type="button" class="monitor-alert-close" :aria-label="t('common.close')" @click="alertDialogOpen = false"><AppIcon name="close" size="sm" /></button>
+          </div>
+
+          <label class="monitor-alert-toggle">
+            <span>{{ t('monitor.alertEnabled') }}</span>
+            <input v-model="alertDraft.enabled" type="checkbox" />
+          </label>
+
+          <div class="monitor-alert-fields">
+            <label class="monitor-alert-field">
+              <span>{{ t('monitor.alertCpuThreshold') }}</span>
+              <span class="monitor-alert-input-wrap"><input v-model.number="alertDraft.cpuThreshold" type="number" min="50" max="99" step="1" /><span>%</span></span>
+            </label>
+            <label class="monitor-alert-field">
+              <span>{{ t('monitor.alertMemoryThreshold') }}</span>
+              <span class="monitor-alert-input-wrap"><input v-model.number="alertDraft.memoryThreshold" type="number" min="50" max="99" step="1" /><span>%</span></span>
+            </label>
+            <label class="monitor-alert-field monitor-alert-count">
+              <span>{{ t('monitor.alertMaxCount') }}</span>
+              <span class="monitor-alert-input-wrap"><input v-model.number="alertDraft.maxNotificationsPer24h" type="number" min="1" max="10" step="1" /><span>{{ t('monitor.alertCountUnit') }}</span></span>
+            </label>
+          </div>
+
+          <div class="monitor-alert-explainer">
+            <div class="monitor-alert-explainer-title">{{ t('monitor.alertHowItWorks') }}</div>
+            <ul>
+              <li>{{ t('monitor.alertTriggerHint') }}</li>
+              <li>{{ t('monitor.alertRepeatHint') }}</li>
+              <li>{{ t('monitor.alertLifetimeHint') }}</li>
+            </ul>
+          </div>
+          <p v-if="isMacOs" class="monitor-alert-macos-note">{{ t('monitor.alertMacOsNote') }}</p>
+          <div class="monitor-alert-actions">
+            <button type="button" class="ui-btn ui-btn-ghost" @click="alertDialogOpen = false">{{ t('common.cancel') }}</button>
+            <button type="submit" class="ui-btn ui-btn-primary" :disabled="alertSaving">{{ t('monitor.alertSave') }}</button>
+          </div>
+        </form>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -871,5 +970,91 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.monitor-alert-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 48%);
+}
+
+.monitor-alert-dialog {
+  box-sizing: border-box;
+  width: min(460px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+}
+
+.monitor-alert-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.monitor-alert-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.monitor-alert-heading h2 { margin: 0; font-size: 17px; line-height: 1.4; }
+.monitor-alert-heading > span { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.monitor-alert-close { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.monitor-alert-close:hover { color: var(--text-primary); }
+.monitor-alert-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  font-weight: 600;
+  cursor: pointer;
+}
+.monitor-alert-toggle input { width: 16px; height: 16px; margin: 0; cursor: pointer; }
+.monitor-alert-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.monitor-alert-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.monitor-alert-field > span:first-child { font-weight: 500; }
+.monitor-alert-count { grid-column: 1 / -1; }
+.monitor-alert-input-wrap { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.monitor-alert-input-wrap input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+}
+.monitor-alert-count .monitor-alert-input-wrap input { width: 92px; }
+.monitor-alert-input-wrap input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.monitor-alert-explainer {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.monitor-alert-explainer-title { margin-bottom: 6px; color: var(--text-primary); font-weight: 600; }
+.monitor-alert-explainer ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
+.monitor-alert-dialog .monitor-alert-macos-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warning);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-primary));
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.monitor-alert-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+@media (max-width: 480px) {
+  .monitor-alert-dialog { padding: 18px; }
+  .monitor-alert-fields { grid-template-columns: 1fr; }
+  .monitor-alert-count { grid-column: auto; }
 }
 </style>

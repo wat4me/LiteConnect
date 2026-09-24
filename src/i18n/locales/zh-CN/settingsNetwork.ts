@@ -10,7 +10,8 @@ export default {
     usageStats: '连接使用统计',
     usageStatsHint:
       '记录每次成功连接的使用次数与最近连接时间，并在连接列表显示；支持按「最近使用 / 最常使用」排序。关闭后不再累加，列表隐藏统计（历史数据保留）。「最近连接」快捷列表不受影响。',
-    monitor: '服务器监控',
+    monitor: '服务器监控面板',
+    monitorHint: '此开关控制监控面板入口。已为服务器开启的资源告警仍会在该服务器保持 SSH 连接时运行；可重新打开面板修改或关闭告警。',
     autoReconnect: '断线自动重连',
     maxRetries: '最大重试次数',
     autoReconnectHint:

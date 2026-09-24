@@ -396,6 +396,9 @@ export interface LiteConnectApi {
   setMonitorIntervalMs: (intervalMs: number) => Promise<void>
   monitorStart: (connectionId: string, sessionId: string) => Promise<void>
   monitorStop: (connectionId: string) => Promise<void>
+  monitorGetAlertRule: (connectionId: string) => Promise<import('../../shared/monitorAlerts').MonitorAlertRule>
+  monitorSetAlertRule: (connectionId: string, rule: import('../../shared/monitorAlerts').MonitorAlertRule) => Promise<import('../../shared/monitorAlerts').MonitorAlertRule>
+  onMonitorAlertClick: (callback: (connectionId: string) => void) => () => void
 
   sftpInit: (sessionId: string) => Promise<void>
   sftpReaddir: (sessionId: string, remotePath: string) => Promise<FileEntry[]>

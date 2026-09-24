@@ -71,6 +71,8 @@ export default {
     splitTip: '提示：同一 SSH 拖拽终端标签分屏；跨 SSH 拖拽顶部主机标签分屏',
     gotIt: '知道了',
     connectFailed: '连接失败',
+    connectFailedWithTarget: '连接「{name}」（{host}）失败：{reason}',
+    connectFailureHint: '请检查服务器地址、网络或认证配置',
     readOnlyTitle: '只读模式：拦截本终端的键盘与粘贴输入',
     readOnlyOnMenu: '开启只读模式',
     readOnlyOffMenu: '关闭只读模式',

@@ -49,7 +49,8 @@ function validateRendererStateValue(value: unknown): string | null {
 export function registerStoreHandlers(
   getMainWindow: MainWindowGetter,
   credentialStore: CredentialStore,
-  settingsStore: SettingsStore
+  settingsStore: SettingsStore,
+  onConnectionDeleted?: (connectionId: string) => void,
 ): void {
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
@@ -147,6 +148,11 @@ export function registerStoreHandlers(
     }
     const deleted = await credentialStore.deleteConnection(id)
     if (!deleted) return deleted
+    try {
+      onConnectionDeleted?.(id)
+    } catch (err) {
+      console.warn('[Monitor Alert] failed to remove deleted connection rule:', err)
+    }
     const database = getAppDatabase()
     const storageKey = rendererStateKey('sftp-path-bookmarks')
     const raw = database.getSingleton<string>(storageKey) ?? null

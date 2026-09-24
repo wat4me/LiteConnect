@@ -95,6 +95,25 @@ describe('parseMarkdown code fences', () => {
     expect(content).not.toContain('<img')
   })
 
+  it('keeps a code-formatted URL label inside its markdown link', () => {
+    const url = 'https://example.test/guide.html'
+    const content = parseMarkdown(`外网地址：[\`${url}\`](${url})。`)[0].content
+    expect(content).toContain(`<a href="${url}" target="_blank" rel="noreferrer noopener"><code>${url}</code></a>。`)
+    expect(content).not.toContain('%00')
+    expect(content.match(/<a /g)).toHaveLength(1)
+  })
+
+  it('does not autolink inline code or create nested links from URL labels', () => {
+    const url = 'https://example.test/guide.html'
+    const code = parseMarkdown(`地址：\`${url}\``)[0].content
+    expect(code).toContain(`<code>${url}</code>`)
+    expect(code).not.toContain('<a ')
+
+    const linked = parseMarkdown(`[${url}](${url})`)[0].content
+    expect(linked.match(/<a /g)).toHaveLength(1)
+    expect(linked).toContain(`>${url}</a>`)
+  })
+
   it('does not turn a bash # comment into a heading when fences are nested', () => {
     const src = [
       '```markdown',

@@ -323,7 +323,12 @@ export function useSessionManager(deps: {
       console.error('SSH connection failed:', err)
       const raw = err?.message || ''
       const detailKey = sshDisconnectDetailKey(raw)
-      ElMessage.error(detailKey ? t(detailKey) : (raw || t('terminal.connectFailed')))
+      const reason = detailKey ? t(detailKey) : (raw || t('terminal.connectFailureHint'))
+      const connection = connections.value.find((item) => item.id === connectionId)
+        || recentConnections.value.find((item) => item.id === connectionId)
+      ElMessage.error(connection
+        ? t('terminal.connectFailedWithTarget', { name: connection.name, host: connection.host, reason })
+        : (raw ? reason : t('terminal.connectFailed')))
       return null
     } finally {
       release()

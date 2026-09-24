@@ -27,6 +27,7 @@ import { ShellCommandHistoryStore } from './store/shellCommandHistoryStore'
 import { DatabaseManager } from './db/manager'
 import { SSHManager } from './ssh/manager'
 import { MonitorCollector } from './ssh/monitor/monitor'
+import { MonitorAlerts } from './ssh/monitor/monitorAlerts'
 import { KnownHostsStore } from './ssh/trust/knownHosts'
 import { SessionLogManager } from './ssh/sessionLog'
 import { closeAppDatabase, initializeAppDatabase } from './store/appDatabase'
@@ -68,9 +69,18 @@ const dbQueryHistoryStore = new DbQueryHistoryStore()
 const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
-const monitorCollector = new MonitorCollector(sshManager, (sessionId: string, data: any) => {
-  broadcast(`monitor:data:${sessionId}`, data)
+let monitorAlerts: MonitorAlerts
+const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, updated) => {
+  broadcast(`monitor:data:${connectionId}`, data)
+  try {
+    monitorAlerts?.onData(connectionId, data, updated)
+  } catch (err) {
+    console.warn('[Monitor Alert] evaluation failed:', err)
+  }
 })
+monitorAlerts = new MonitorAlerts(monitorCollector, () => settingsStore.getMonitorIntervalMs(),
+  (connectionId) => credentialStore.getConnection(connectionId)?.name || '服务器', getMainWindow)
+sshManager.registerSessionTeardownHook((sessionId) => monitorAlerts.detach(sessionId))
 
 let dockerCloser: { closeAll: () => void } | null = null
 let mcpHttpGateway: McpHttpGateway | null = null
@@ -205,7 +215,7 @@ app.whenReady().then(async () => {
   }
   installAppBackgroundProtocol(() => settingsStore.getAppBackgroundDir())
   // First-window IPC so the renderer can call as soon as the window loads.
-  registerStoreHandlers(getMainWindow, credentialStore, settingsStore)
+  registerStoreHandlers(getMainWindow, credentialStore, settingsStore, (connectionId) => monitorAlerts.deleteConnection(connectionId))
   registerWindowHandlers(credentialStore, settingsStore, {
     // DB sessions can only be created from the dedicated DB window; drop them
     // when that window closes so they do not leak in the main process.
@@ -219,7 +229,7 @@ app.whenReady().then(async () => {
     reopenMainWindow: () => openMainWindow(),
   })
   registerShellCommandHistoryHandlers(shellCommandHistoryStore, settingsStore)
-  registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog)
+  registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog, monitorAlerts)
   dbManager.setTunnelDeps(credentialStore, knownHosts)
   registerDbHandlers(
     dbConnectionStore,

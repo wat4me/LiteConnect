@@ -3,6 +3,7 @@ import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import type { SessionLogManager } from '../ssh/sessionLog'
 import { SSHManager } from '../ssh/manager'
 import { MonitorCollector } from '../ssh/monitor/monitor'
+import type { MonitorAlerts } from '../ssh/monitor/monitorAlerts'
 import { SettingsStore } from '../store/settingsStore'
 import { CredentialStore } from '../store/credentialStore'
 import { registerSshConnectHandlers, clearLatencyTimers } from './registerSshConnectHandlers'
@@ -23,10 +24,18 @@ export function registerSshHandlers(
   credentialStore: CredentialStore,
   knownHosts: KnownHostsStore,
   sessionLog?: SessionLogManager,
+  monitorAlerts?: MonitorAlerts,
 ): void {
-  registerSshConnectHandlers(getMainWindow, sshManager, settingsStore, credentialStore, knownHosts, sessionLog)
+  registerSshConnectHandlers(getMainWindow, sshManager, settingsStore, credentialStore, knownHosts, sessionLog,
+    (connectionId, sessionId) => {
+      try {
+        monitorAlerts?.attach(connectionId, sessionId)
+      } catch (err) {
+        console.warn('[Monitor Alert] failed to attach SSH session:', err)
+      }
+    })
   registerSftpHandlers(sshManager)
   registerSftpTransferHandlers(getMainWindow, sshManager, settingsStore)
-  registerMonitorHandlers(settingsStore, monitorCollector)
+  registerMonitorHandlers(settingsStore, monitorCollector, monitorAlerts)
   registerExecHandlers(sshManager)
 }

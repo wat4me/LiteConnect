@@ -118,6 +118,7 @@ export function registerSshConnectHandlers(
   credentialStore: CredentialStore,
   knownHosts: KnownHostsStore,
   sessionLog?: SessionLogManager,
+  onConnected?: (connectionId: string, sessionId: string) => void,
 ): void {
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
@@ -372,6 +373,7 @@ export function registerSshConnectHandlers(
         onKeyboardInteractive: createKeyboardHandler(event.sender),
       })
       setSessionOwner(sessionId, event.sender.id)
+      onConnected?.(connectionId, sessionId)
       return sessionId
     } catch (err: any) {
       const pending = sshManager.getPendingHostKey(connectionId)
@@ -400,6 +402,7 @@ export function registerSshConnectHandlers(
     // resumeSessionId as in-place when the renderer already owns that tab.
     const sessionId = await sshManager.confirmHostKey(connectionId)
     if (sessionId) setSessionOwner(sessionId, event.sender.id)
+    if (sessionId) onConnected?.(connectionId, sessionId)
     // Notify TerminalTab when this was a reconnect-style resume (session id reused)
     if (resumeSessionId && resumeSessionId === sessionId) {
       // Always emit reconnected so an existing tab can clear disconnected state.
@@ -490,6 +493,7 @@ export function registerSshConnectHandlers(
         onKeyboardInteractive: createKeyboardHandler(event.sender),
       })
       setSessionOwner(id, event.sender.id)
+      onConnected?.(connectionId, id)
       broadcast(`ssh:reconnected:${id}`)
       return id
     } catch (err: any) {

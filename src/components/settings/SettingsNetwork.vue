@@ -231,6 +231,7 @@ watch(
           <span class="toggle-knob"></span>
         </button>
       </div>
+      <p class="settings-hint">{{ t('settingsNetwork.monitorHint') }}</p>
       <div v-if="draft.monitorEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.interval') }}</span>
         <button type="button" class="font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.monitorIntervalSec = Math.max(2, draft.monitorIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>

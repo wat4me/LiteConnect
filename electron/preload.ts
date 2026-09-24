@@ -478,6 +478,13 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   monitorStart: (connectionId: string, sessionId: string) =>
     ipcRenderer.invoke('monitor:start', connectionId, sessionId),
   monitorStop: (connectionId: string) => ipcRenderer.invoke('monitor:stop', connectionId),
+  monitorGetAlertRule: (connectionId: string) => ipcRenderer.invoke('monitor:getAlertRule', connectionId),
+  monitorSetAlertRule: (connectionId: string, rule: unknown) => ipcRenderer.invoke('monitor:setAlertRule', connectionId, rule),
+  onMonitorAlertClick: (callback: (connectionId: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, connectionId: string) => callback(connectionId)
+    ipcRenderer.on('monitor:alertClick', listener)
+    return () => ipcRenderer.removeListener('monitor:alertClick', listener)
+  },
 
   sftpInit: (sessionId: string) => ipcRenderer.invoke('sftp:init', sessionId),
   sftpReaddir: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:readdir', sessionId, remotePath),
