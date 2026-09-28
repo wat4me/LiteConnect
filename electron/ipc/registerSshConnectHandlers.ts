@@ -452,6 +452,18 @@ export function registerSshConnectHandlers(
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
 
+    // A previous reconnect may have completed even if its IPC reply was lost.
+    // Do not tear down that healthy session when the renderer retries.
+    const liveSession = sshManager.getSessionSnapshot(sessionId)
+    if (liveSession && liveSession.connectionId !== connectionId) {
+      throw new Error('Session belongs to a different connection')
+    }
+    if (liveSession) {
+      setSessionOwner(sessionId, event.sender.id)
+      broadcast(`ssh:reconnected:${sessionId}`)
+      return sessionId
+    }
+
     let connection
     try {
       connection = credentialStore.getConnectionForAuth(connectionId)

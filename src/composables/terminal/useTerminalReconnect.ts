@@ -103,7 +103,7 @@ export function useTerminalReconnect(deps: {
       message?: string
       nonRetryable?: boolean
     }>).detail
-    if (!detail || detail.sessionId !== deps.sessionId()) return
+    if (!detail || detail.sessionId !== deps.sessionId() || !disconnected.value) return
     const msg = detail.message
       ? `Reconnect failed: ${detail.message}`
       : 'Reconnect failed'

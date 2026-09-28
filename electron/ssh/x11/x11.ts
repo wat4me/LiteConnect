@@ -57,6 +57,12 @@ export function attachX11Forwarding(
   callbacks: SSHCallbacks,
   x11Sockets: Set<net.Socket>,
 ) {
+  const reportX11Error = (message: string) => {
+    // A display/channel failure affects one X11 window, not the SSH shell.
+    // ssh:error would make the renderer reconnect and tear down a healthy session.
+    callbacks.onData(sessionId, `\r\n\x1b[33m[LiteConnect] ${message}\x1b[0m\r\n`)
+  }
+
   client.on('x11', (_details, accept, rejectX11) => {
     if (connection.x11Forwarding !== true) {
       try {
@@ -72,16 +78,16 @@ export function attachX11Forwarding(
       try {
         rejectX11()
       } catch {}
-      callbacks.onError(
-        sessionId,
-        t('x11.channelFailed', { error: err?.message || 'failed to accept channel' }),
-      )
+      reportX11Error(t('x11.channelFailed', { error: err?.message || 'failed to accept channel' }))
       return
     }
 
     const host = getX11Host(connection)
     const port = 6000 + getX11Display(connection)
     const localSocket = net.connect(port, host)
+    // X11 exchanges many small request/reply messages; avoid Nagle delaying
+    // writes to the local display server while the SSH transport uses noDelay.
+    localSocket.setNoDelay(true)
     let closed = false
     let connected = false
 
@@ -106,10 +112,7 @@ export function attachX11Forwarding(
     })
     localSocket.once('error', (err) => {
       if (!connected) {
-        callbacks.onError(
-          sessionId,
-          t('x11.connectLocalFailed', { host, port, error: err.message }),
-        )
+        reportX11Error(t('x11.connectLocalFailed', { host, port, error: err.message }))
       }
       closeBoth()
     })

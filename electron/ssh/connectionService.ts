@@ -35,6 +35,8 @@ export type ConnectionServiceDeps = {
 }
 
 export class ConnectionService {
+  private readonly pendingReconnects = new Map<string, { connectionId: string; promise: Promise<string> }>()
+
   constructor(private deps: ConnectionServiceDeps) {}
 
   async connect(connection: Connection, callbacks: SSHCallbacks): Promise<string> {
@@ -52,7 +54,25 @@ export class ConnectionService {
     if (!sessionId || typeof sessionId !== 'string') {
       throw new Error('Invalid session id')
     }
-    // Invalidate the previous client/stream so late close/error never notifies
+    const pending = this.pendingReconnects.get(sessionId)
+    if (pending) {
+      if (pending.connectionId !== connection.id) throw new Error('Session belongs to a different connection')
+      return pending.promise
+    }
+
+    const attempt = this.startReconnect(sessionId, connection, callbacks)
+    this.pendingReconnects.set(sessionId, { connectionId: connection.id, promise: attempt })
+    try {
+      return await attempt
+    } finally {
+      if (this.pendingReconnects.get(sessionId)?.promise === attempt) {
+        this.pendingReconnects.delete(sessionId)
+      }
+    }
+  }
+
+  private startReconnect(sessionId: string, connection: Connection, callbacks: SSHCallbacks): Promise<string> {
+    // Invalidate the previous client/stream so late close/error never notifies.
     const epoch = this.deps.bumpSessionEpoch(sessionId)
     try {
       const existing = this.deps.sessions.get(sessionId)
@@ -66,7 +86,6 @@ export class ConnectionService {
     } catch {
       this.deps.cleanupSession(sessionId)
     }
-
     return this.connectWithSessionId(sessionId, connection, callbacks, epoch)
   }
 
@@ -139,6 +158,7 @@ export class ConnectionService {
         } catch {}
         reject(err)
       }
+      const rejectStale = () => safeReject(new Error('SSH session generation changed'))
 
       let hostKeyError: string | null = null
 
@@ -174,6 +194,7 @@ export class ConnectionService {
           try {
             client.end()
           } catch {}
+          rejectStale()
           return
         }
         try {
@@ -198,6 +219,7 @@ export class ConnectionService {
             try {
               client.destroy()
             } catch {}
+            rejectStale()
             return
           }
           // closeLocalForwardServers destroys accepted sockets (not bare server.close)
@@ -265,6 +287,7 @@ export class ConnectionService {
             try {
               client.end()
             } catch {}
+            rejectStale()
             return
           }
           if (err) {
@@ -292,6 +315,7 @@ export class ConnectionService {
                   try {
                     client.destroy()
                   } catch {}
+                  rejectStale()
                   return
                 }
                 const message =
@@ -397,11 +421,13 @@ export class ConnectionService {
       client.on('error', (err) => {
         if (!this.isLiveEpoch(sessionId, epoch)) {
           abortPendingResources()
+          rejectStale()
           return
         }
         const current = sessions.get(sessionId)
         if (current && current.client !== client) {
           abortPendingResources()
+          rejectStale()
           return
         }
         // Session registered → cleanupSession owns local forwards / jump / x11 / sftp
@@ -418,11 +444,13 @@ export class ConnectionService {
       client.on('close', () => {
         if (!this.isLiveEpoch(sessionId, epoch)) {
           abortPendingResources()
+          rejectStale()
           return
         }
         const current = sessions.get(sessionId)
         if (current && current.client !== client) {
           abortPendingResources()
+          rejectStale()
           return
         }
         const outcome = clientCloseOutcome({
@@ -455,6 +483,7 @@ export class ConnectionService {
             try {
               jumpClient?.end()
             } catch {}
+            rejectStale()
             return
           }
           try {
@@ -502,6 +531,7 @@ export class ConnectionService {
                 try {
                   jumpClient?.end()
                 } catch {}
+                rejectStale()
                 return
               }
               client.connect(targetConfig(stream))
@@ -509,7 +539,10 @@ export class ConnectionService {
           )
         })
         .on('error', (err) => {
-          if (!this.isLiveEpoch(sessionId, epoch)) return
+          if (!this.isLiveEpoch(sessionId, epoch)) {
+            rejectStale()
+            return
+          }
           try {
             client.end()
           } catch {}
@@ -518,7 +551,10 @@ export class ConnectionService {
           safeReject(new Error(`Jump host error: ${errorMsg}`))
         })
         .on('close', () => {
-          if (!this.isLiveEpoch(sessionId, epoch)) return
+          if (!this.isLiveEpoch(sessionId, epoch)) {
+            rejectStale()
+            return
+          }
           if (!settled) {
             try {
               client.end()
