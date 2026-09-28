@@ -38,6 +38,7 @@ export type McpRuntimeHost = {
     classification: { class: CommandClass },
     timeoutMs: number,
     stdin?: string,
+    signal?: AbortSignal,
   ): Promise<unknown>
 }
 

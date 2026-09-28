@@ -12,7 +12,9 @@ export async function execCommand(
   host: McpRuntimeHost,
   input: Record<string, unknown>,
   approvalMode: ApprovalMode,
+  signal?: AbortSignal,
 ): Promise<SshMcpToolResult> {
+  if (signal?.aborted) return host.error('TOOL_FAILED', 'Exec cancelled')
   const validated = validateMcpCommand(input.command)
   if (!validated.ok) {
     return host.error('INVALID_COMMAND', validated.reason)
@@ -32,6 +34,7 @@ export async function execCommand(
     ? clampJobTimeout(input.jobTimeoutMs)
     : clampTimeout(input.timeoutMs)
   const targets = await resolveExecTargets(host, input)
+  if (signal?.aborted) return host.error('TOOL_FAILED', 'Exec cancelled')
   if ('isError' in targets) return targets
   if (targets.length === 0) {
     return host.error('SESSION_NOT_FOUND', 'No open sessions matched. Connect first, or pass connectMissing=true.')
@@ -44,6 +47,7 @@ export async function execCommand(
     effectiveMode,
   )
   if (allowed) return allowed
+  if (signal?.aborted) return host.error('TOOL_FAILED', 'Exec cancelled')
 
   if (background) {
     const jobs = []
@@ -57,7 +61,7 @@ export async function execCommand(
   const concurrency = clampConcurrency(input.concurrency)
   const results = await mapPool(targets, concurrency, async (target) => {
     try {
-      return await host.runForegroundExec(target, validated.command, classification, timeoutMs, stdin || undefined)
+      return await host.runForegroundExec(target, validated.command, classification, timeoutMs, stdin || undefined, signal)
     } catch (err) {
       const mapped = mapThrown(err)
       return {
@@ -129,15 +133,38 @@ export async function runForegroundExec(
   classification: { class: CommandClass },
   timeoutMs: number,
   stdin?: string,
+  signal?: AbortSignal,
 ) {
+  if (signal?.aborted) throw new DOMException('Exec cancelled', 'AbortError')
   host.assertGeneration(target.sessionId, target.generation)
-  const raw = await host.ssh.executeSessionExec(
-    target.sessionId,
-    command,
-    target.generation,
-    timeoutMs,
-    stdin ? { stdin } : undefined,
-  )
+  let raw
+  if (signal) {
+    const started = await host.ssh.beginSessionExec(
+      target.sessionId, command, target.generation, timeoutMs, stdin ? { stdin } : undefined,
+    )
+    const cancel = () => { try { started.cancel() } catch {} }
+    if (signal.aborted) {
+      cancel()
+      throw new DOMException('Exec cancelled', 'AbortError')
+    }
+    let onAbort: () => void = () => {}
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => {
+        cancel()
+        reject(new DOMException('Exec cancelled', 'AbortError'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+    try {
+      raw = await Promise.race([started.promise, aborted])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
+  } else {
+    raw = await host.ssh.executeSessionExec(
+      target.sessionId, command, target.generation, timeoutMs, stdin ? { stdin } : undefined,
+    )
+  }
   host.assertGeneration(target.sessionId, target.generation)
   host.touch(target.sessionId)
   const capped = capExecOutput(raw.stdout, raw.stderr)

@@ -215,7 +215,7 @@ export type AiChatStreamPayload =
   | {
       type: 'tool'
       value: {
-        phase: 'start' | 'ask' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify'
+        phase: 'start' | 'ask' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify' | 'aborted'
         id: string
         name: string
         args?: string

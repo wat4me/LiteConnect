@@ -109,6 +109,36 @@ it('persists tool arguments before executing and saves the final result with no 
   expect(records.at(-1)?.toolRuns?.[0].status).toBe('done')
 })
 
+it('stops the AI turn while an SSH tool call is still running', async () => {
+  const requestId = 'abort-running-exec'
+  const records: AiHistoryRecord[] = []
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [{
+    index: 0, id: 'long-exec', function: { name: 'exec', arguments: JSON.stringify({
+      command: 'ls', risk: 'read', explanation: '查看目录内容。',
+    }) },
+  }] })))
+  const call = vi.fn((name: string, _args: unknown, opts?: { signal?: AbortSignal }) => {
+    if (name === 'list_sessions') return Promise.resolve({ isError: false, content: '{}', structuredContent: { sessions: [] } })
+    expect(name).toBe('exec')
+    expect(opts?.signal).toBeInstanceOf(AbortSignal)
+    queueMicrotask(() => { expect(abortAiChatStream(requestId)).toBe(true) })
+    return new Promise<{ isError: boolean; content: string }>((resolve) => {
+      opts!.signal!.addEventListener('abort', () => resolve({ isError: true, content: 'cancelled' }), { once: true })
+    })
+  })
+  const result = await runPersistedAiReply({
+    target: { sessionId: 's', threadId: 't', assistantMessageId: 'a', createdAt: 1 },
+    save: async record => { records.push(record) }, publish: () => {},
+    run: (emit, checkpoint) => runAiChatStream({
+      emit, checkpoint, requestId, settings, messages: [{ role: 'user', content: 'inspect' }],
+      sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7', sshMcpRuntime: { call } as unknown as SshMcpRuntime,
+    }),
+  })
+  expect(result.aborted).toBe(true)
+  expect(records.at(-1)?.toolRuns?.[0].status).toBe('aborted')
+  expect(abortAiChatStream(requestId)).toBe(false)
+})
+
 it('keeps partial output when an abort interrupts the SSE body', async () => {
   const records: AiHistoryRecord[] = []
   vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({

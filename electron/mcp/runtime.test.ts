@@ -189,6 +189,31 @@ describe('SshMcpRuntime', () => {
     expect(ssh.executeSessionExec).toHaveBeenCalled()
   })
 
+  it('stops an in-flight foreground exec when the AI request is aborted', async () => {
+    const cancel = vi.fn()
+    const beginSessionExec = vi.fn(async () => ({
+      promise: new Promise<SessionExecResult>(() => {}),
+      cancel,
+    }))
+    const { runtime, ssh } = makeRuntime({ beginSessionExec })
+    const controller = new AbortController()
+    const resultPromise = runtime.call('exec', {
+      sessionId: SESSION_ID,
+      command: 'sleep 100',
+    }, { approvalMode: 'auto', signal: controller.signal })
+
+    await vi.waitFor(() => expect(beginSessionExec).toHaveBeenCalledOnce())
+    controller.abort()
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error('Abort did not settle the tool')), 2000)
+    })
+    const result = await Promise.race([resultPromise, timeoutPromise]).finally(() => clearTimeout(timeout))
+    expect(result.isError).toBe(true)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(ssh.executeSessionExec).not.toHaveBeenCalled()
+  })
+
   it('does not treat a non-zero exit as a tool error', async () => {
     const { runtime } = makeRuntime({
       executeSessionExec: vi.fn(async () => ({

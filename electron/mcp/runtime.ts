@@ -74,7 +74,7 @@ export class SshMcpRuntime {
   async call(
     name: unknown,
     args: unknown,
-    opts?: { approvalMode?: ApprovalMode },
+    opts?: { approvalMode?: ApprovalMode; signal?: AbortSignal },
   ): Promise<SshMcpToolResult> {
     if (!isSshMcpToolName(name)) {
       return this.error('UNKNOWN_TOOL', `Unknown tool: ${String(name)}`)
@@ -98,7 +98,7 @@ export class SshMcpRuntime {
           return disconnectSessions(host, input)
         case 'exec':
           await readyCommandClassifier()
-          return await execCommand(host, input, approvalMode)
+          return await execCommand(host, input, approvalMode, opts?.signal)
         case 'list_jobs':
           return this.ok({ jobs: this.jobs.list().map((j) => this.jobs.summary(j)) })
         case 'get_job':
@@ -171,8 +171,8 @@ export class SshMcpRuntime {
       withSftp: (sessionId, generation, fn) => this.withSftp(sessionId, generation, fn),
       ensureCommandAllowed: (classification, sessionId, command, approvalMode) =>
         this.ensureCommandAllowed(classification, sessionId, command, approvalMode),
-      runForegroundExec: (target, command, classification, timeoutMs, stdin) =>
-        runForegroundExec(host, target, command, classification, timeoutMs, stdin),
+      runForegroundExec: (target, command, classification, timeoutMs, stdin, signal) =>
+        runForegroundExec(host, target, command, classification, timeoutMs, stdin, signal),
     }
     return host
   }

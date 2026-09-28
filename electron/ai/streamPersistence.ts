@@ -100,6 +100,11 @@ export async function runPersistedAiReply(opts: {
           content: 'REQUEST_ENDED: The request ended before this tool was approved; it was not executed.',
           isError: true,
         } })
+      } else if (aborted && run.status === 'running') {
+        emit({ type: 'tool', value: {
+          id: run.id, name: run.name, phase: 'aborted', status: 'aborted',
+          content: t('ai.stopped'),
+        } })
       }
     }
     record.completedAt = Date.now()

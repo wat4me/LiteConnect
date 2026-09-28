@@ -453,13 +453,13 @@ export async function runAiChatStream(opts: {
             })
             await opts.checkpoint?.()
             if (abortController.signal.aborted) break
-            result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto' })
+            result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
           }
         } else {
-          result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto' })
+          result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
         }
 
-        if (abortController.signal.aborted && status === 'done' && !result.content) break
+        if (abortController.signal.aborted) break
 
         result = clampToolResultForModel(result)
 
