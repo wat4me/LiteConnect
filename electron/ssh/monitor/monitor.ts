@@ -279,7 +279,8 @@ const COLLECTORS: { key: keyof MonitorData; fn: CollectorFn }[] = [
 ]
 
 export class MonitorCollector {
-  private timers: Map<string, { fast: ReturnType<typeof setInterval>; normal: ReturnType<typeof setInterval>; slow: ReturnType<typeof setInterval> }> = new Map()
+  private timers: Map<string, { fast: ReturnType<typeof setInterval>; normal: ReturnType<typeof setInterval>; slow?: ReturnType<typeof setInterval> }> = new Map()
+  private alertOnly = new Set<string>()
   private data: Map<string, MonitorData> = new Map()
   private systemInfoDone: Set<string> = new Set()
   private collecting: Map<string, Set<keyof MonitorData>> = new Map()
@@ -294,7 +295,8 @@ export class MonitorCollector {
     this.onData = onData
   }
 
-  start(connectionId: string, sessionId: string, intervalMs: number) {
+  start(connectionId: string, sessionId: string, intervalMs: number, alertsOnly = false) {
+    if (this.timers.has(connectionId) && this.alertOnly.has(connectionId) !== alertsOnly) this.stop(connectionId)
     const previousExec = this.execSession.get(connectionId)
     if (previousExec && previousExec !== sessionId) {
       this.sessionToConnection.delete(previousExec)
@@ -355,13 +357,15 @@ export class MonitorCollector {
 
     const timers = {
       fast: setInterval(() => collect(['cpu']), fast),
-      normal: setInterval(() => collect(['memory', 'processes']), normal),
-      slow: setInterval(() => collect(['disk']), slow),
+      normal: setInterval(() => collect(alertsOnly ? ['memory'] : ['memory', 'processes']), normal),
+      slow: alertsOnly ? undefined : setInterval(() => collect(['disk']), slow),
     }
     this.timers.set(connectionId, timers)
+    if (alertsOnly) this.alertOnly.add(connectionId)
+    else this.alertOnly.delete(connectionId)
 
-    collect(['cpu', 'memory', 'disk', 'processes'])
-    if (!this.systemInfoDone.has(connectionId)) {
+    collect(alertsOnly ? ['cpu', 'memory'] : ['cpu', 'memory', 'disk', 'processes'])
+    if (!alertsOnly && !this.systemInfoDone.has(connectionId)) {
       this.systemInfoDone.add(connectionId)
       collectSystemInfo(sessionId, this.sshManager).then(info => {
         if (this.data.get(connectionId) !== initData) return
@@ -377,9 +381,10 @@ export class MonitorCollector {
     if (timers) {
       clearInterval(timers.fast)
       clearInterval(timers.normal)
-      clearInterval(timers.slow)
+      if (timers.slow) clearInterval(timers.slow)
       this.timers.delete(connectionId)
     }
+    this.alertOnly.delete(connectionId)
     const execId = this.execSession.get(connectionId)
     if (execId) this.sessionToConnection.delete(execId)
     this.execSession.delete(connectionId)

@@ -4,6 +4,7 @@ import { join } from 'path'
 import type { SettingsStore } from '../store/settingsStore'
 import { DEFAULT_GLOBAL_HOTKEY } from '../../shared/globalHotkey'
 import { t } from '../i18n'
+import { getPrimaryWindow } from './windowRegistry'
 
 /** Default accelerator; the user can override it in settings → app. */
 export const TOGGLE_WINDOW_ACCELERATOR = DEFAULT_GLOBAL_HOTKEY
@@ -25,8 +26,8 @@ function trayIconPath(): string | null {
   return null
 }
 
-function showMainWindow() {
-  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null
+export function showMainWindow() {
+  const win = getPrimaryWindow() ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null
   if (!win) {
     openMainWindowFallback()
     return

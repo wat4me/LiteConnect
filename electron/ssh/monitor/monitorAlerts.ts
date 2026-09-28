@@ -10,6 +10,7 @@ export class MonitorAlerts {
   private readonly store = new MonitorAlertStore()
   private readonly evaluator = new MonitorAlertEvaluator()
   private readonly sessions = new Map<string, string[]>()
+  private readonly backgroundSessions = new Set<string>()
   private readonly panels = new Set<string>()
   private readonly recentSends = new Map<string, number[]>()
 
@@ -24,26 +25,45 @@ export class MonitorAlerts {
     return this.store.getRule(connectionId)
   }
 
+  getBackgroundConnectionIds(): string[] {
+    return this.store.getBackgroundConnectionIds()
+  }
+
+  isPanelOpen(connectionId: string): boolean {
+    return this.panels.has(connectionId)
+  }
+
+  hasSession(connectionId: string, exceptSessionId?: string): boolean {
+    return (this.sessions.get(connectionId) || []).some(id => id !== exceptSessionId)
+  }
+
   setRule(connectionId: string, value: unknown): MonitorAlertRule {
     const rule = this.store.setRule(connectionId, value)
     this.evaluator.reset(connectionId)
     const sessionId = this.sessions.get(connectionId)?.at(-1)
-    if (rule.enabled && sessionId) this.collector.start(connectionId, sessionId, this.getIntervalMs())
+    if (rule.enabled && sessionId) {
+      this.collector.start(connectionId, sessionId, this.getIntervalMs(),
+        this.backgroundSessions.has(sessionId) && !this.panels.has(connectionId))
+    }
     else if (!rule.enabled && !this.panels.has(connectionId)) this.collector.stop(connectionId)
     return rule
   }
 
-  attach(connectionId: string, sessionId: string): void {
+  attach(connectionId: string, sessionId: string, background = false): void {
+    if (background) this.backgroundSessions.add(sessionId)
+    else this.backgroundSessions.delete(sessionId)
     const previous = this.sessions.get(connectionId) || []
     this.sessions.set(connectionId, [...previous.filter(id => id !== sessionId), sessionId])
     if (this.getRule(connectionId).enabled || this.panels.has(connectionId)) {
-      this.collector.start(connectionId, sessionId, this.getIntervalMs())
+      if (background && !this.panels.has(connectionId)) this.collector.start(connectionId, sessionId, this.getIntervalMs(), true)
+      else this.collector.start(connectionId, sessionId, this.getIntervalMs())
     }
   }
 
   detach(sessionId: string): void {
     for (const [connectionId, ids] of this.sessions) {
       if (!ids.includes(sessionId)) continue
+      this.backgroundSessions.delete(sessionId)
       const remaining = ids.filter(id => id !== sessionId)
       if (remaining.length) this.sessions.set(connectionId, remaining)
       else this.sessions.delete(connectionId)
@@ -65,10 +85,15 @@ export class MonitorAlerts {
   stopPanel(connectionId: string): void {
     this.panels.delete(connectionId)
     this.recentSends.delete(connectionId)
+    const sessionId = this.sessions.get(connectionId)?.at(-1)
+    if (sessionId && this.backgroundSessions.has(sessionId) && this.getRule(connectionId).enabled) {
+      this.collector.start(connectionId, sessionId, this.getIntervalMs(), true)
+    }
     if (!this.getRule(connectionId).enabled) this.collector.stop(connectionId)
   }
 
   deleteConnection(connectionId: string): void {
+    for (const sessionId of this.sessions.get(connectionId) || []) this.backgroundSessions.delete(sessionId)
     this.store.delete(connectionId)
     this.evaluator.reset(connectionId)
     this.sessions.delete(connectionId)

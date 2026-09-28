@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
 class FakeWindow {
   handlers = new Map<string, (...args: any[]) => any>()
   hide = vi.fn()
+  show = vi.fn()
+  focus = vi.fn()
+  restore = vi.fn()
+  isMinimized = vi.fn(() => false)
   isDestroyed = vi.fn(() => false)
 
   on(name: string, handler: (...args: any[]) => any) {
@@ -95,4 +99,20 @@ it('allows the window to close during a real app quit', async () => {
 
   expect(preventDefault).not.toHaveBeenCalled()
   expect(window.hide).not.toHaveBeenCalled()
+})
+
+it('shows and focuses a hidden window instead of creating another one', async () => {
+  const window = new FakeWindow()
+  window.isMinimized.mockReturnValue(true)
+  mocks.windows = [window]
+  const reopen = vi.fn()
+  const { installCloseToTray, showMainWindow } = await import('./tray')
+  installCloseToTray({ getCloseToTrayEnabled: () => true } as any, reopen)
+
+  showMainWindow()
+
+  expect(window.restore).toHaveBeenCalledOnce()
+  expect(window.show).toHaveBeenCalledOnce()
+  expect(window.focus).toHaveBeenCalledOnce()
+  expect(reopen).not.toHaveBeenCalled()
 })

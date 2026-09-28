@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 import AppIcon from '../icons/AppIcon.vue'
+import BackgroundMonitorSettings from '../monitor/BackgroundMonitorSettings.vue'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -261,6 +262,10 @@ watch(
         {{ t('settingsNetwork.autoReconnectHint') }}
       </div>
 
+    </div>
+
+    <div class="settings-card narrow">
+      <BackgroundMonitorSettings />
     </div>
 
     <div class="settings-card narrow">

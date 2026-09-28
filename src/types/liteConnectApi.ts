@@ -398,6 +398,8 @@ export interface LiteConnectApi {
   monitorStop: (connectionId: string) => Promise<void>
   monitorGetAlertRule: (connectionId: string) => Promise<import('../../shared/monitorAlerts').MonitorAlertRule>
   monitorSetAlertRule: (connectionId: string, rule: import('../../shared/monitorAlerts').MonitorAlertRule) => Promise<import('../../shared/monitorAlerts').MonitorAlertRule>
+  monitorGetBackgroundStatus: (connectionId: string) => Promise<import('../../shared/monitorAlerts').BackgroundMonitorStatus>
+  monitorRetryBackground: (connectionId: string) => Promise<void>
   onMonitorAlertClick: (callback: (connectionId: string) => void) => () => void
 
   sftpInit: (sessionId: string) => Promise<void>

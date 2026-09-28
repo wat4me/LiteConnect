@@ -342,7 +342,7 @@ function onMenuAction(action: MenuAction) {
         <span class="conn-name">
           <AppIcon
             v-if="connection.pinned"
-            name="star-fill"
+            name="pin-fill"
             size="xs"
             class="pin-icon"
             :title="t('connections.pinned')"
@@ -465,7 +465,7 @@ function onMenuAction(action: MenuAction) {
               {{ connecting ? t('connections.connecting') : t('connections.connect') }}
             </button>
             <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('window')">
-              <AppIcon name="terminal" size="sm" class="more-item-icon" />
+              <AppIcon name="external-link" size="sm" class="more-item-icon" />
               {{ t('connections.openInNewWindow') }}
             </button>
             <button
@@ -475,7 +475,7 @@ function onMenuAction(action: MenuAction) {
               :disabled="testStatus.state === 'testing'"
               @click="onMenuAction('test')"
             >
-              <AppIcon name="crosshair" size="sm" class="more-item-icon" />
+              <AppIcon name="circle-check" size="sm" class="more-item-icon" />
               {{ t('connections.testConnection') }}
             </button>
             <div v-if="menuMode === 'context'" class="ui-menu-sep" role="separator"></div>
@@ -488,7 +488,7 @@ function onMenuAction(action: MenuAction) {
               {{ t('connections.edit') }}
             </button>
             <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('pin')">
-              <AppIcon :name="connection.pinned ? 'star-fill' : 'star'" size="sm" class="more-item-icon" />
+              <AppIcon :name="connection.pinned ? 'pin-fill' : 'pin'" size="sm" class="more-item-icon" />
               {{ connection.pinned ? t('connections.unpin') : t('connections.pin') }}
             </button>
             <div class="ui-menu-sep" role="separator"></div>

@@ -17,8 +17,11 @@ describe('MonitorAlertStore', () => {
     const store = new MonitorAlertStore()
     expect(store.getRule('host').enabled).toBe(false)
     expect(store.setRule('host', { enabled: true, cpuThreshold: 120, memoryThreshold: 10, maxNotificationsPer24h: 999 }))
-      .toEqual({ enabled: true, cpuThreshold: 99, memoryThreshold: 50, maxNotificationsPer24h: 10 })
+      .toEqual({ enabled: true, backgroundEnabled: false, cpuThreshold: 99, memoryThreshold: 50, maxNotificationsPer24h: 10 })
     expect(new MonitorAlertStore().getRule('host').enabled).toBe(true)
+    expect(store.getBackgroundConnectionIds()).toEqual([])
+    store.setRule('host', { enabled: true, backgroundEnabled: true })
+    expect(new MonitorAlertStore().getBackgroundConnectionIds()).toEqual(['host'])
   })
 
   it('persists a rolling 24-hour count and removes it with the connection', () => {

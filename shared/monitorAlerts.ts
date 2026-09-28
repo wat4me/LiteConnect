@@ -1,12 +1,21 @@
 export interface MonitorAlertRule {
   enabled: boolean
+  /** Keep monitoring through a dedicated SSH connection when no terminal is open. */
+  backgroundEnabled: boolean
   cpuThreshold: number
   memoryThreshold: number
   maxNotificationsPer24h: number
 }
 
+export type BackgroundMonitorStatus = {
+  state: 'off' | 'terminal-only' | 'using-terminal' | 'connecting' | 'sampling' | 'monitoring' | 'retrying' | 'needs-attention' | 'unavailable'
+  detail?: string
+  nextRetryAt?: number
+}
+
 export const DEFAULT_MONITOR_ALERT_RULE: MonitorAlertRule = {
   enabled: false,
+  backgroundEnabled: false,
   cpuThreshold: 90,
   memoryThreshold: 90,
   maxNotificationsPer24h: 3,
@@ -24,6 +33,7 @@ export function normalizeMonitorAlertRule(value: unknown): MonitorAlertRule {
       ? Math.max(50, Math.min(99, Math.round(input))) : fallback
   return {
     enabled: raw.enabled === true,
+    backgroundEnabled: raw.backgroundEnabled === true,
     cpuThreshold: threshold(raw.cpuThreshold, DEFAULT_MONITOR_ALERT_RULE.cpuThreshold),
     memoryThreshold: threshold(raw.memoryThreshold, DEFAULT_MONITOR_ALERT_RULE.memoryThreshold),
     maxNotificationsPer24h: typeof raw.maxNotificationsPer24h === 'number' && Number.isFinite(raw.maxNotificationsPer24h)

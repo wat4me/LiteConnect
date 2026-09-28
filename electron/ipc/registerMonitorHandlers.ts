@@ -3,11 +3,13 @@ import { isValidUUID } from '../utils/validation'
 import { MonitorCollector } from '../ssh/monitor/monitor'
 import { SettingsStore } from '../store/settingsStore'
 import type { MonitorAlerts } from '../ssh/monitor/monitorAlerts'
+import type { BackgroundMonitor } from '../ssh/monitor/backgroundMonitor'
 
 export function registerMonitorHandlers(
   settingsStore: SettingsStore,
   monitorCollector: MonitorCollector,
   monitorAlerts?: MonitorAlerts,
+  backgroundMonitor?: BackgroundMonitor,
 ): void {
   const ensureSettingsStoreReady = () => settingsStore.init()
 
@@ -39,7 +41,18 @@ export function registerMonitorHandlers(
     ipcMain.handle('monitor:setAlertRule', async (_event, connectionId: string, rule: unknown) => {
       if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
       await ensureSettingsStoreReady()
-      return monitorAlerts.setRule(connectionId, rule)
+      const saved = monitorAlerts.setRule(connectionId, rule)
+      backgroundMonitor?.refresh(connectionId)
+      return saved
+    })
+    ipcMain.handle('monitor:getBackgroundStatus', async (_event, connectionId: string) => {
+      if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
+      await ensureSettingsStoreReady()
+      return backgroundMonitor?.getStatus(connectionId) || { state: 'off' }
+    })
+    ipcMain.handle('monitor:retryBackground', async (_event, connectionId: string) => {
+      if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
+      backgroundMonitor?.connectionChanged(connectionId)
     })
   }
 }

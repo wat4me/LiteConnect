@@ -684,11 +684,16 @@ const {
 
 onMounted(async () => {
   unsubMonitorAlertClick = window.LiteConnect.onMonitorAlertClick((connectionId) => {
-    if (!groups.value.some(group => group.connectionId === connectionId)) return
     enterSsh()
     ensureSshWorkspaceMounted()
-    selectConnectionGroup(connectionId)
-    monitorVisible.value = true
+    if (groups.value.some(group => group.connectionId === connectionId)) {
+      selectConnectionGroup(connectionId)
+      monitorVisible.value = true
+      return
+    }
+    void createSession(connectionId).then((sessionId) => {
+      if (sessionId) monitorVisible.value = true
+    })
   })
   unsubAiApprovalNotification = window.LiteConnect.onAiApprovalNotificationClick((sessionId) => {
     enterSsh()

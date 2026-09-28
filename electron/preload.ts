@@ -480,6 +480,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   monitorStop: (connectionId: string) => ipcRenderer.invoke('monitor:stop', connectionId),
   monitorGetAlertRule: (connectionId: string) => ipcRenderer.invoke('monitor:getAlertRule', connectionId),
   monitorSetAlertRule: (connectionId: string, rule: unknown) => ipcRenderer.invoke('monitor:setAlertRule', connectionId, rule),
+  monitorGetBackgroundStatus: (connectionId: string) => ipcRenderer.invoke('monitor:getBackgroundStatus', connectionId),
+  monitorRetryBackground: (connectionId: string) => ipcRenderer.invoke('monitor:retryBackground', connectionId),
   onMonitorAlertClick: (callback: (connectionId: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, connectionId: string) => callback(connectionId)
     ipcRenderer.on('monitor:alertClick', listener)

@@ -47,7 +47,13 @@ watch(() => props.connectionId, async (connectionId) => {
   } catch { /* Monitoring remains usable if alert settings cannot load. */ }
 }, { immediate: true })
 
-function openAlertSettings() {
+async function openAlertSettings() {
+  const connectionId = props.connectionId
+  try {
+    const current = await window.LiteConnect.monitorGetAlertRule(connectionId)
+    if (props.connectionId !== connectionId) return
+    alertRule.value = current
+  } catch { /* Use the last loaded rule if the refresh fails. */ }
   alertDraft.value = { ...alertRule.value }
   alertDialogOpen.value = true
 }
@@ -64,7 +70,10 @@ async function saveAlertSettings() {
   const connectionId = props.connectionId
   alertSaving.value = true
   try {
-    const saved = await window.LiteConnect.monitorSetAlertRule(connectionId, rule)
+    const saved = await window.LiteConnect.monitorSetAlertRule(connectionId, {
+      ...rule,
+      backgroundEnabled: rule.enabled && rule.backgroundEnabled,
+    })
     if (props.connectionId !== connectionId) return
     alertRule.value = saved
     alertDialogOpen.value = false
@@ -521,6 +530,11 @@ watch(
             <span>{{ t('monitor.alertEnabled') }}</span>
             <input v-model="alertDraft.enabled" type="checkbox" />
           </label>
+          <label class="monitor-alert-toggle monitor-alert-background-toggle">
+            <span>{{ t('monitor.backgroundOption') }}</span>
+            <input v-model="alertDraft.backgroundEnabled" type="checkbox" :disabled="!alertDraft.enabled" />
+          </label>
+          <p class="monitor-alert-background-hint">{{ t('monitor.backgroundOptionHint') }}</p>
 
           <div class="monitor-alert-fields">
             <label class="monitor-alert-field">
@@ -1014,6 +1028,8 @@ watch(
   cursor: pointer;
 }
 .monitor-alert-toggle input { width: 16px; height: 16px; margin: 0; cursor: pointer; }
+.monitor-alert-background-toggle { margin-top: 10px; font-weight: 500; }
+.monitor-alert-background-hint { margin: 6px 0 0; color: var(--text-secondary); line-height: 1.5; }
 .monitor-alert-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
 .monitor-alert-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .monitor-alert-field > span:first-child { font-weight: 500; }

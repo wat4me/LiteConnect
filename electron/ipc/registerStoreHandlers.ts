@@ -51,6 +51,7 @@ export function registerStoreHandlers(
   credentialStore: CredentialStore,
   settingsStore: SettingsStore,
   onConnectionDeleted?: (connectionId: string) => void,
+  onConnectionSaved?: (connectionId: string) => void,
 ): void {
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
@@ -138,7 +139,9 @@ export function registerStoreHandlers(
     if (connection.x11Display !== undefined && !isValidX11Display(connection.x11Display)) {
       throw new Error('Invalid graphical display number')
     }
-    return await credentialStore.saveConnection(connection)
+    const saved = await credentialStore.saveConnection(connection)
+    onConnectionSaved?.(saved.id)
+    return saved
   })
 
   ipcMain.handle('store:deleteConnection', async (_event, id: string) => {

@@ -5,6 +5,16 @@ const RULES_KEY = 'monitor-alert-rules'
 const SENT_KEY = 'monitor-alert-sent-times'
 
 export class MonitorAlertStore {
+  getBackgroundConnectionIds(): string[] {
+    const rules = getAppDatabase().getSingleton<Record<string, unknown>>(RULES_KEY) || {}
+    return Object.entries(rules)
+      .filter(([, value]) => {
+        const rule = normalizeMonitorAlertRule(value)
+        return rule.enabled && rule.backgroundEnabled
+      })
+      .map(([connectionId]) => connectionId)
+  }
+
   getRule(connectionId: string): MonitorAlertRule {
     const rules = getAppDatabase().getSingleton<Record<string, unknown>>(RULES_KEY) || {}
     return rules[connectionId] === undefined

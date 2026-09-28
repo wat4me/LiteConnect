@@ -90,12 +90,15 @@ function onGuarded(action: () => void) {
     </div>
     <button
       type="button"
-      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm follow-action"
       :class="{ active: followTerminalPath }"
       :title="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
+      :aria-label="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
+      :aria-pressed="followTerminalPath"
       @click="onGuarded(() => emit('toggle-follow'))"
     >
-      <AppIcon :name="followTerminalPath ? 'pin-fill' : 'pin'" size="md" />
+      <AppIcon name="folder-sync" size="md" />
+      <span>{{ t('sftp.followLabel') }}</span>
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSidebar')" @click="emit('close')">
       <AppIcon name="close" size="sm" />
@@ -137,6 +140,14 @@ function onGuarded(action: () => void) {
 .sftp-binding span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.follow-action {
+  width: auto;
+  gap: 4px;
+  padding-inline: 6px;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 .transfer-action {

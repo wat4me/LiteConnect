@@ -27,6 +27,7 @@ export type AppIconName =
   | 'star'
   | 'star-fill'
   | 'check'
+  | 'circle-check'
   | 'refresh'
   | 'chevron-right'
   | 'chevron-down'
@@ -34,6 +35,7 @@ export type AppIconName =
   | 'chevron-left'
   | 'home-grid'
   | 'folder'
+  | 'folder-sync'
   | 'folder-up'
   | 'list-collapse'
   | 'locate'
@@ -42,6 +44,7 @@ export type AppIconName =
   | 'monitor'
   | 'activity'
   | 'terminal'
+  | 'external-link'
   | 'crosshair'
   | 'file-text'
   | 'ai-chat'
@@ -260,6 +263,11 @@ const iconStyle = computed(() => {
     <template v-else-if="name === 'check'">
       <polyline points="20 6 9 17 4 12" />
     </template>
+    <!-- verify / test -->
+    <template v-else-if="name === 'circle-check'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12 2.5 2.5L16 9" />
+    </template>
     <!-- refresh -->
     <template v-else-if="name === 'refresh'">
       <polyline points="23 4 23 10 17 10" />
@@ -288,6 +296,13 @@ const iconStyle = computed(() => {
     <!-- folder -->
     <template v-else-if="name === 'folder'">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </template>
+    <!-- folder-sync (Lucide): directory updates with the terminal path -->
+    <template v-else-if="name === 'folder-sync'">
+      <path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5" />
+      <path d="M12 10v4h4" />
+      <path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5M22 22v-4h-4" />
+      <path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5" />
     </template>
     <!-- folder upload -->
     <template v-else-if="name === 'folder-up'">
@@ -330,6 +345,12 @@ const iconStyle = computed(() => {
     <template v-else-if="name === 'terminal'">
       <polyline points="4 17 10 11 4 5" />
       <line x1="12" y1="19" x2="20" y2="19" />
+    </template>
+    <!-- open in a new window -->
+    <template v-else-if="name === 'external-link'">
+      <path d="M13 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+      <path d="M15 3h6v6" />
+      <path d="m10 14 11-11" />
     </template>
     <!-- crosshair / FPS reticle — one-shot locate -->
     <template v-else-if="name === 'crosshair'">

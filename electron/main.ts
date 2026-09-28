@@ -28,13 +28,15 @@ import { DatabaseManager } from './db/manager'
 import { SSHManager } from './ssh/manager'
 import { MonitorCollector } from './ssh/monitor/monitor'
 import { MonitorAlerts } from './ssh/monitor/monitorAlerts'
+import { BackgroundMonitor } from './ssh/monitor/backgroundMonitor'
 import { KnownHostsStore } from './ssh/trust/knownHosts'
 import { SessionLogManager } from './ssh/sessionLog'
 import { closeAppDatabase, initializeAppDatabase } from './store/appDatabase'
 import { configureDevelopmentUserDataPath } from './store/developmentUserData'
 import { createWindow } from './window/createWindow'
 import { aiHistoryIdForHost } from './ai/historyScope'
-import { installCloseToTray, markQuitting, syncTrayFromSettings } from './window/tray'
+import { installCloseToTray, markQuitting, showMainWindow, syncTrayFromSettings } from './window/tray'
+import { installSingleInstance } from './window/singleInstance'
 import { installUpdateGuard } from './window/updateGuard'
 import { registerStoreHandlers } from './ipc/registerStoreHandlers'
 import { registerShellCommandHistoryHandlers } from './ipc/registerShellCommandHistoryHandlers'
@@ -52,6 +54,7 @@ import {
 import type { McpHttpGateway } from './mcp/httpGateway'
 
 configureDevelopmentUserDataPath()
+const isPrimaryInstance = installSingleInstance(showMainWindow)
 
 // Keep development windows grouped under LiteConnect instead of electron.exe;
 // Windows also uses this identity when resolving the taskbar icon.
@@ -70,8 +73,10 @@ const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
 let monitorAlerts: MonitorAlerts
+let backgroundMonitor: BackgroundMonitor
 const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, updated) => {
-  broadcast(`monitor:data:${connectionId}`, data)
+  if (monitorAlerts?.isPanelOpen(connectionId)) broadcast(`monitor:data:${connectionId}`, data)
+  backgroundMonitor?.onSample(connectionId, data, updated)
   try {
     monitorAlerts?.onData(connectionId, data, updated)
   } catch (err) {
@@ -80,7 +85,11 @@ const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, u
 })
 monitorAlerts = new MonitorAlerts(monitorCollector, () => settingsStore.getMonitorIntervalMs(),
   (connectionId) => credentialStore.getConnection(connectionId)?.name || '服务器', getMainWindow)
-sshManager.registerSessionTeardownHook((sessionId) => monitorAlerts.detach(sessionId))
+backgroundMonitor = new BackgroundMonitor(sshManager, credentialStore, monitorAlerts)
+sshManager.registerSessionTeardownHook((sessionId) => {
+  monitorAlerts.detach(sessionId)
+  backgroundMonitor.sessionTeardown(sessionId)
+})
 
 let dockerCloser: { closeAll: () => void } | null = null
 let mcpHttpGateway: McpHttpGateway | null = null
@@ -88,7 +97,7 @@ let deferredMain: Promise<void> | null = null
 
 // Register this before the general before-quit cleanup below. When an update
 // download is active, the guard must get the first chance to cancel quitting.
-installUpdateGuard()
+if (isPrimaryInstance) installUpdateGuard()
 
 function openMainWindow(theme?: string, customColors?: { fontColor: string; bgColor: string } | null) {
   const resolvedTheme = theme ?? settingsStore.getTheme()
@@ -199,6 +208,7 @@ async function loadDeferredMain(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  if (!isPrimaryInstance) return
   // This is deliberately the first data operation. Existing JSON/JSONL files are
   // migrated transactionally before any store can read or write the new database.
   try {
@@ -215,7 +225,12 @@ app.whenReady().then(async () => {
   }
   installAppBackgroundProtocol(() => settingsStore.getAppBackgroundDir())
   // First-window IPC so the renderer can call as soon as the window loads.
-  registerStoreHandlers(getMainWindow, credentialStore, settingsStore, (connectionId) => monitorAlerts.deleteConnection(connectionId))
+  registerStoreHandlers(getMainWindow, credentialStore, settingsStore,
+    (connectionId) => {
+      monitorAlerts.deleteConnection(connectionId)
+      backgroundMonitor.refresh(connectionId)
+    },
+    (connectionId) => backgroundMonitor.connectionChanged(connectionId))
   registerWindowHandlers(credentialStore, settingsStore, {
     // DB sessions can only be created from the dedicated DB window; drop them
     // when that window closes so they do not leak in the main process.
@@ -229,7 +244,7 @@ app.whenReady().then(async () => {
     reopenMainWindow: () => openMainWindow(),
   })
   registerShellCommandHistoryHandlers(shellCommandHistoryStore, settingsStore)
-  registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog, monitorAlerts)
+  registerSshHandlers(getMainWindow, sshManager, settingsStore, monitorCollector, credentialStore, knownHosts, sessionLog, monitorAlerts, backgroundMonitor)
   dbManager.setTunnelDeps(credentialStore, knownHosts)
   registerDbHandlers(
     dbConnectionStore,
@@ -272,6 +287,9 @@ app.whenReady().then(async () => {
   void storesReady.catch((err) => {
     console.error('[Main Store Init]', err)
   })
+  void storesReady.then(() => backgroundMonitor.start()).catch((err) => {
+    console.error('[Background Monitor Init]', err)
+  })
   void startDeferredMain()
 
   // Tray / close-to-tray / global hotkey (reacts to settings via syncTrayFromSettings)
@@ -285,11 +303,15 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       openMainWindow()
+      void storesReady.then(() => backgroundMonitor.start())
+    } else {
+      showMainWindow()
     }
   })
 })
 
 app.on('window-all-closed', () => {
+  backgroundMonitor.stop()
   clearLatencyTimers()
   monitorCollector.stopAll()
   dockerCloser?.closeAll()
@@ -299,6 +321,10 @@ app.on('window-all-closed', () => {
   void mcpHttpGateway?.stop()
   if (process.platform !== 'darwin') {
     app.quit()
+  } else {
+    void storesReady.then(() => backgroundMonitor.start()).catch((err) => {
+      console.error('[Background Monitor Restart]', err)
+    })
   }
 })
 
@@ -311,6 +337,7 @@ app.on('before-quit', (event) => {
   // Do not make `quitting` sticky or tear down live sessions in that case.
   if (event.defaultPrevented) return
   markQuitting()
+  backgroundMonitor.dispose()
   clearLatencyTimers()
   monitorCollector.stopAll()
   dockerCloser?.closeAll()
