@@ -4,6 +4,9 @@ import { safeSend } from '../utils/validation'
 /** All live app windows (main + detached session windows). */
 const windows = new Set<BrowserWindow>()
 
+/** Actual main shell window; unlike primaryWindow, never falls back to a detached window. */
+let mainShellWindow: BrowserWindow | null = null
+
 /** Primary window (first created / main shell). May be null after close. */
 let primaryWindow: BrowserWindow | null = null
 
@@ -18,12 +21,14 @@ const detachedByConnection = new Map<string, BrowserWindow>()
 
 export function registerWindow(win: BrowserWindow, opts?: { primary?: boolean; db?: boolean }): void {
   windows.add(win)
+  if (opts?.primary) mainShellWindow = win
   if (opts?.db) dbWindow = win
   if (!opts?.db && (opts?.primary || !primaryWindow || primaryWindow.isDestroyed())) {
     primaryWindow = win
   }
   win.on('closed', () => {
     windows.delete(win)
+    if (mainShellWindow === win) mainShellWindow = null
     if (dbWindow === win) dbWindow = null
     if (primaryWindow === win) {
       primaryWindow = [...windows].find((w) => !w.isDestroyed() && w !== dbWindow) || null
@@ -32,6 +37,12 @@ export function registerWindow(win: BrowserWindow, opts?: { primary?: boolean; d
       if (w === win) detachedByConnection.delete(connId)
     }
   })
+}
+
+export function getMainShellWindow(): BrowserWindow | null {
+  if (mainShellWindow && !mainShellWindow.isDestroyed()) return mainShellWindow
+  mainShellWindow = null
+  return null
 }
 
 export function getPrimaryWindow(): BrowserWindow | null {

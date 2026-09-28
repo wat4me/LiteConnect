@@ -1,7 +1,9 @@
 export default {
   settingsFiles: {
     title: '文件传输',
-    intro: '管理 SFTP 下载位置、同名文件处理和目录批量传输。',
+    intro: '管理 SFTP 文件显示、下载位置和目录批量传输。',
+    sftpFontSize: 'SFTP 文件字号',
+    sftpFontSizeHint: '调整文件树和文件列表中的名称字号（10–24px，默认 12px）。',
     downloadPath: '默认下载路径',
     browse: '浏览',
     systemDefault: '系统默认',

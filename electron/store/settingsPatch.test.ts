@@ -44,4 +44,14 @@ describe('applySettingsPatch', () => {
     applySettingsPatch(settings, { terminalLocalEchoEnabled: false }, current(settings))
     expect(settings.terminalLocalEchoEnabled).toBe(false)
   })
+
+  it('keeps the SFTP font size within the supported range', () => {
+    const settings: Record<string, any> = {}
+    applySettingsPatch(settings, { sftpFontSize: 18.6 }, current(settings))
+    expect(settings.sftpFontSize).toBe(19)
+    applySettingsPatch(settings, { sftpFontSize: 99 }, current(settings))
+    expect(settings.sftpFontSize).toBe(24)
+    applySettingsPatch(settings, { sftpFontSize: 1 }, current(settings))
+    expect(settings.sftpFontSize).toBe(10)
+  })
 })

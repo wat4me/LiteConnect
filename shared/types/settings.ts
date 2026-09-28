@@ -43,6 +43,7 @@ export type AppSettingsAll = {
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
   dirTransferConcurrency: number
   dirTransferFailPolicy: 'continue' | 'stop'
+  sftpFontSize: number
   dbFontFamily: string
   dbFontSize: number
   dbPageSize: number

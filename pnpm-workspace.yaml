@@ -1,0 +1,7 @@
+allowBuilds:
+  cpu-features: true
+  electron: true
+  esbuild: true
+  oracledb: true
+  ssh2: true
+  unrs-resolver: true

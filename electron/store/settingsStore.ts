@@ -21,6 +21,7 @@ import { normalizeConnectionSortMode, type ConnectionSortMode } from '../../shar
 import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
+import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -272,6 +273,10 @@ export class SettingsStore {
     const n = this.settings.dbFontSize
     if (typeof n !== 'number' || Number.isNaN(n)) return 13
     return Math.max(10, Math.min(24, Math.round(n)))
+  }
+
+  getSftpFontSize(): number {
+    return sanitizeSftpFontSize(this.settings.sftpFontSize)
   }
 
   async setDbFontSize(size: number): Promise<void> {
@@ -989,6 +994,7 @@ export class SettingsStore {
       downloadConflictStrategy: this.getDownloadConflictStrategy(),
       dirTransferConcurrency: this.getDirTransferConcurrency(),
       dirTransferFailPolicy: this.getDirTransferFailPolicy(),
+      sftpFontSize: this.getSftpFontSize(),
       dbFontFamily: this.getDbFontFamily(),
       dbFontSize: this.getDbFontSize(),
       dbPageSize: this.getDbPageSize(),

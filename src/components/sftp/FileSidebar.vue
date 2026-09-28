@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FileEntry } from '../../env.d.ts'
 import type { SftpPathBookmark } from '@shared/types/sftp'
+import { DEFAULT_SFTP_FONT_SIZE, sanitizeSftpFontSize } from '@shared/sftpFontSize'
 import { useSftpNavigation } from '../../composables/sftp/useSftpNavigation'
 import { useSftpBookmarkActions } from '../../composables/sftp/useSftpBookmarkActions'
 import { useSftpDirTree } from '../../composables/sftp/useSftpDirTree'
@@ -33,6 +34,21 @@ import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 const fileListRef = ref<InstanceType<typeof SftpDirTree> | null>(null)
+const sftpFontSize = ref(DEFAULT_SFTP_FONT_SIZE)
+
+async function loadSftpFontSize() {
+  try {
+    const settings = await window.LiteConnect.getAllSettings()
+    sftpFontSize.value = sanitizeSftpFontSize(settings.sftpFontSize)
+  } catch {
+    // Keep the current font size when settings are temporarily unavailable.
+  }
+}
+
+function onSftpFontSettingsChange(event: Event) {
+  const fontSize = (event as CustomEvent<{ fontSize: number }>).detail?.fontSize
+  sftpFontSize.value = sanitizeSftpFontSize(fontSize)
+}
 
 const props = defineProps<{
   sessionId: string
@@ -714,6 +730,9 @@ function sftpEntryCount(): number {
 }
 
 onMounted(async () => {
+  window.addEventListener('sftp-font-settings-change', onSftpFontSettingsChange)
+  window.addEventListener('focus', loadSftpFontSize)
+  void loadSftpFontSize()
   void pathBookmarks.ensureLoaded().catch(bookmarkError)
   registerSftpResource(props.sessionId, () => ({ entryCount: sftpEntryCount() }))
   bindSessionClosedListener(props.sessionId)
@@ -737,6 +756,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('sftp-font-settings-change', onSftpFontSettingsChange)
+  window.removeEventListener('focus', loadSftpFontSize)
   unregisterSftpResource(props.sessionId)
   saveCurrentState()
   unsubClosed?.()
@@ -754,6 +775,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
 <template>
   <div
     class="file-sidebar"
+    :style="{ '--sftp-row-font': `${sftpFontSize}px` }"
     :class="{ 'is-file-drag': isDragOver }"
     @click="hideContextMenu"
     @dragenter="onDragEnter"

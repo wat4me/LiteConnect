@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
+import { MAX_SFTP_FONT_SIZE, MIN_SFTP_FONT_SIZE } from '@shared/sftpFontSize'
+import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -9,6 +11,12 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+
+function updateSftpFontSize(delta: number) {
+  const next = props.draft.sftpFontSize + delta
+  if (next < MIN_SFTP_FONT_SIZE || next > MAX_SFTP_FONT_SIZE) return
+  props.draft.sftpFontSize = next
+}
 
 async function selectDownloadDirectory() {
   const dir = await window.LiteConnect.selectDirectory()
@@ -46,7 +54,15 @@ async function addRecentPath() {
     </header>
 
     <div class="settings-card narrow">
-      <div class="settings-label" data-setting="files.downloadPath">{{ t('settingsFiles.downloadPath') }}</div>
+      <div class="settings-label" data-setting="files.sftpFontSize">{{ t('settingsFiles.sftpFontSize') }}</div>
+      <div class="font-size-row">
+        <button type="button" class="font-size-btn" :disabled="draft.sftpFontSize <= MIN_SFTP_FONT_SIZE" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateSftpFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
+        <span class="font-size-value">{{ draft.sftpFontSize }}px</span>
+        <button type="button" class="font-size-btn" :disabled="draft.sftpFontSize >= MAX_SFTP_FONT_SIZE" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateSftpFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+      </div>
+      <div class="settings-hint">{{ t('settingsFiles.sftpFontSizeHint') }}</div>
+
+      <div class="settings-label" style="margin-top: 16px" data-setting="files.downloadPath">{{ t('settingsFiles.downloadPath') }}</div>
       <div class="download-path-row">
         <div class="ui-field download-path-field" :title="draft.downloadPath || systemDefaultDownloadPath || ''">
           <span class="ui-field-text">

@@ -5,7 +5,7 @@ import { createWindow } from '../window/createWindow'
 import {
   findDetachedWindow,
   getDbWindow,
-  getPrimaryWindow,
+  getMainShellWindow,
   rememberDetachedWindow,
 } from '../window/windowRegistry'
 import { isValidUUID } from '../utils/validation'
@@ -48,7 +48,7 @@ export function registerWindowHandlers(
   })
 
   ipcMain.handle('window:focusMain', async () => {
-    const win = getPrimaryWindow()
+    const win = getMainShellWindow()
     if (win) {
       if (win.isMinimized()) win.restore()
       if (!win.isVisible()) win.show()

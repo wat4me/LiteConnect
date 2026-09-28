@@ -7,10 +7,7 @@ const props = defineProps<{
   followTerminalPath: boolean
   terminalLabel: string
   terminalTarget: string
-  /**
-   * Ignore re-clicks while an SFTP action is in flight.
-   * Must not toggle opacity/disabled styling — that made the whole toolbar flash.
-   */
+  /** Parent serializes actions; expose its busy state without flashing button styles. */
   locked?: boolean
 }>()
 
@@ -26,10 +23,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-
-function onGuarded(action: () => void) {
-  action()
-}
 </script>
 
 <template>
@@ -38,7 +31,7 @@ function onGuarded(action: () => void) {
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :title="t('sftp.locateTerminalCwd')"
-      @click="onGuarded(() => emit('sync-cwd'))"
+      @click="emit('sync-cwd')"
     >
       <AppIcon name="locate" size="md" />
     </button>
@@ -46,7 +39,7 @@ function onGuarded(action: () => void) {
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :title="t('sftp.refresh')"
-      @click="onGuarded(() => emit('refresh'))"
+      @click="emit('refresh')"
     >
       <AppIcon name="refresh" size="md" />
     </button>
@@ -54,7 +47,7 @@ function onGuarded(action: () => void) {
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :title="t('sftp.collapseToCurrent')"
-      @click="onGuarded(() => emit('collapse-tree'))"
+      @click="emit('collapse-tree')"
     >
       <AppIcon name="list-collapse" size="md" />
     </button>
@@ -75,7 +68,7 @@ function onGuarded(action: () => void) {
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :title="t('sftp.uploadFolder')"
-      @click="onGuarded(() => emit('upload-folder'))"
+      @click="emit('upload-folder')"
     >
       <AppIcon name="folder-up" size="md" />
     </button>
@@ -90,15 +83,14 @@ function onGuarded(action: () => void) {
     </div>
     <button
       type="button"
-      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm follow-action"
+      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :class="{ active: followTerminalPath }"
       :title="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
       :aria-label="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
       :aria-pressed="followTerminalPath"
-      @click="onGuarded(() => emit('toggle-follow'))"
+      @click="emit('toggle-follow')"
     >
       <AppIcon name="folder-sync" size="md" />
-      <span>{{ t('sftp.followLabel') }}</span>
     </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSidebar')" @click="emit('close')">
       <AppIcon name="close" size="sm" />
@@ -140,14 +132,6 @@ function onGuarded(action: () => void) {
 .sftp-binding span {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.follow-action {
-  width: auto;
-  gap: 4px;
-  padding-inline: 6px;
-  white-space: nowrap;
-  font-size: 11px;
 }
 
 .transfer-action {

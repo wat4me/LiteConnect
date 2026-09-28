@@ -51,6 +51,7 @@ import {
   DEFAULT_GLOBAL_HOTKEY,
   normalizeGlobalHotkey,
 } from '@shared/globalHotkey'
+import { DEFAULT_SFTP_FONT_SIZE, sanitizeSftpFontSize } from '@shared/sftpFontSize'
 
 export interface SettingsDraft {
   theme: Theme
@@ -75,6 +76,7 @@ export interface SettingsDraft {
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
   dirTransferConcurrency: number
   dirTransferFailPolicy: 'continue' | 'stop'
+  sftpFontSize: number
   dbFontFamily: string
   dbFontSize: number
   dbPageSize: DbPageSize
@@ -134,6 +136,7 @@ export function createEmptyDraft(): SettingsDraft {
     downloadConflictStrategy: 'rename',
     dirTransferConcurrency: 3,
     dirTransferFailPolicy: 'stop',
+    sftpFontSize: DEFAULT_SFTP_FONT_SIZE,
     dbFontFamily: DEFAULT_DB_FONT_FAMILY,
     dbFontSize: DEFAULT_DB_FONT_SIZE,
     dbPageSize: DEFAULT_DB_PAGE_SIZE,
@@ -188,6 +191,7 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.downloadConflictStrategy === b.downloadConflictStrategy
     && a.dirTransferConcurrency === b.dirTransferConcurrency
     && a.dirTransferFailPolicy === b.dirTransferFailPolicy
+    && a.sftpFontSize === b.sftpFontSize
     && a.dbFontFamily === b.dbFontFamily
     && a.dbFontSize === b.dbFontSize
     && a.dbPageSize === b.dbPageSize
@@ -268,6 +272,7 @@ export function useSettingsDraft(): {
       downloadConflictStrategy: 'rename',
       dirTransferConcurrency: 3,
       dirTransferFailPolicy: 'stop',
+      sftpFontSize: DEFAULT_SFTP_FONT_SIZE,
       dbFontFamily: DEFAULT_DB_FONT_FAMILY,
       dbFontSize: DEFAULT_DB_FONT_SIZE,
       dbPageSize: DEFAULT_DB_PAGE_SIZE,
@@ -330,6 +335,7 @@ export function useSettingsDraft(): {
             : 'rename',
         dirTransferConcurrency: Math.max(1, Math.min(8, Math.round(Number(all.dirTransferConcurrency)) || 3)),
         dirTransferFailPolicy: all.dirTransferFailPolicy === 'continue' ? 'continue' : 'stop',
+        sftpFontSize: sanitizeSftpFontSize(all.sftpFontSize),
         dbFontFamily: pickInstalledFontFamily(all.dbFontFamily?.trim() || DEFAULT_DB_FONT_FAMILY),
         dbFontSize: Math.max(10, Math.min(24, Math.round(all.dbFontSize) || DEFAULT_DB_FONT_SIZE)),
         dbPageSize: allowedPage,
@@ -438,6 +444,7 @@ export function useSettingsDraft(): {
         downloadConflictStrategy: d.downloadConflictStrategy,
         dirTransferConcurrency: d.dirTransferConcurrency,
         dirTransferFailPolicy: d.dirTransferFailPolicy,
+        sftpFontSize: d.sftpFontSize,
         dbFontFamily: d.dbFontFamily,
         dbFontSize: d.dbFontSize,
         dbPageSize: d.dbPageSize,
@@ -514,6 +521,9 @@ export function useSettingsDraft(): {
           concurrency: d.dirTransferConcurrency,
           failPolicy: d.dirTransferFailPolicy,
         },
+      }))
+      window.dispatchEvent(new CustomEvent('sftp-font-settings-change', {
+        detail: { fontSize: savedAll.sftpFontSize },
       }))
       window.dispatchEvent(new CustomEvent('terminal-font-settings-change', {
         detail: { fontSize: d.terminalFontSize, fontFamily: d.terminalFontFamily },

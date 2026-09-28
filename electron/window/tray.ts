@@ -4,7 +4,7 @@ import { join } from 'path'
 import type { SettingsStore } from '../store/settingsStore'
 import { DEFAULT_GLOBAL_HOTKEY } from '../../shared/globalHotkey'
 import { t } from '../i18n'
-import { getPrimaryWindow } from './windowRegistry'
+import { getMainShellWindow } from './windowRegistry'
 
 /** Default accelerator; the user can override it in settings → app. */
 export const TOGGLE_WINDOW_ACCELERATOR = DEFAULT_GLOBAL_HOTKEY
@@ -27,7 +27,7 @@ function trayIconPath(): string | null {
 }
 
 export function showMainWindow() {
-  const win = getPrimaryWindow() ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null
+  const win = getMainShellWindow()
   if (!win) {
     openMainWindowFallback()
     return
@@ -52,7 +52,7 @@ function destroyTray(): void {
 }
 
 function toggleWindowVisibility(): void {
-  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  const win = getMainShellWindow()
   if (win && win.isVisible() && win.isFocused()) {
     win.hide()
   } else {
@@ -115,10 +115,7 @@ function rebuildTrayMenu(): void {
       { type: 'separator' },
       {
         label: t('tray.quit'),
-        click: () => {
-          markQuitting()
-          app.quit()
-        },
+        click: () => app.quit(),
       },
     ]),
   )

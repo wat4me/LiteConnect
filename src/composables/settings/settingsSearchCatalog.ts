@@ -135,6 +135,13 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['sftp', '传输'],
   },
   {
+    id: 'files.sftpFontSize',
+    tab: 'files',
+    titleKey: 'settingsFiles.sftpFontSize',
+    hintKey: 'settingsFiles.sftpFontSizeHint',
+    keywords: ['SFTP', '文件', '目录', '字体', '字号'],
+  },
+  {
     id: 'files.downloadPath',
     tab: 'files',
     titleKey: 'settingsFiles.downloadPath',

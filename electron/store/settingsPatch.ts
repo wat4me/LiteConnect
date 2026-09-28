@@ -4,6 +4,7 @@ import { sanitizeDbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
 import { sanitizeTerminalPasteConfirmMaxChars } from './pasteConfirmMaxChars'
+import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
 import {
   sanitizeDbDefaultMaxRows,
   sanitizeDbDefaultQueryTimeoutSec,
@@ -68,6 +69,9 @@ export function applySettingsPatch(
     if (patch.dirTransferFailPolicy === 'continue' || patch.dirTransferFailPolicy === 'stop') {
       settings.dirTransferFailPolicy = patch.dirTransferFailPolicy
     }
+  }
+  if (patch.sftpFontSize !== undefined) {
+    settings.sftpFontSize = sanitizeSftpFontSize(patch.sftpFontSize)
   }
   if (patch.dbFontFamily !== undefined) {
     settings.dbFontFamily =
