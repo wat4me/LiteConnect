@@ -46,12 +46,12 @@ export const AI_DECLARED_RISK_PROMPT_ZH = [
   '- write（修改）：会创建、改写、删除、移动，或改变进程/服务/配置',
   '- privileged（提权）：需要提升权限才能执行',
   'explanation 必须是 1–500 字符的一句简洁中文，直接说明本次操作的目的、目标及具体影响。不要添加“操作说明”“只读排查”等前缀，不要重复 risk 中的权限标签；涉及修改时说明影响，不包含密码或密钥。',
-  '应用按你申报的 risk 和用户的权限设置决定是否执行；同时对 exec / service_control 的目标命令做一次独立判级。实际风险高于申报时会强制要求用户审批（只升不降），所以低报不会省掉审批，只会让这次调用被拦下来。你必须根据实际行为如实申报。',
+  '应用按你申报的 risk 和用户的权限设置决定是否执行；同时对 exec / service_control 的目标命令独立判级。执行需确认模式下，实际风险高于申报时会要求用户审批；自动执行模式下会按应用判级提高显示风险并继续执行，但明确高危的命令仍需审批。你必须根据实际行为如实申报。',
   '需要审批时等待用户允许；被拒绝后不要换命令或改标签重复尝试。缺失或无效的 JSON 字段会导致本次不执行，请补全申请。',
 ].join('\n')
 
 export const AI_DECLARED_RISK_PARAM_DESCRIPTION =
-  'Required on every call. Declare read (inspect only, no state change), write (create/change/delete/move or change services/processes/config), or privileged (requires elevated privileges). The user permission mode is applied to this declaration, and exec/service_control targets are classified independently: an understated declaration is escalated to approval, never waived.'
+  'Required on every call. Declare read (inspect only, no state change), write (create/change/delete/move or change services/processes/config), or privileged (requires elevated privileges). exec/service_control targets are classified independently. Understated commands require approval in ask mode; auto mode promotes the displayed risk and continues, except for forbidden commands, which still require approval.'
 export const AI_TOOL_EXPLANATION_DESCRIPTION =
   'Required, 1–500 characters. Write one concise Chinese sentence describing the action, purpose, target and concrete impact. Start directly with the action; omit headings such as “操作说明” or “只读排查” and do not repeat the risk label. State the impact of changes. Do not include passwords or secrets.'
 

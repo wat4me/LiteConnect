@@ -70,6 +70,30 @@ it.each([true, false])('honors declared write approval (%s) and retains the expl
   expect(closeApprovalNotification).toHaveBeenCalledOnce()
 })
 
+it('uses the current auto permission in an existing conversation', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [{
+    index: 0, id: 'write-after-switch', function: { name: 'exec', arguments: JSON.stringify({
+      command: 'mkdir /tmp/permission-switch', risk: 'read', explanation: '创建测试目录。',
+    }) },
+  }] })).mockResolvedValueOnce(sse({ content: 'complete' })))
+  const events: string[] = []
+  const call = vi.fn(async (name: string) => name === 'list_sessions'
+    ? { isError: false, content: '{}', structuredContent: { sessions: [] } }
+    : { isError: false, content: 'created' })
+  const result = await runAiChatStream({
+    emit: payload => { if (payload.type === 'tool') events.push(payload.value.phase) },
+    requestId: 'permission-switch',
+    settings: { ...settings, toolPermission: 'ask' },
+    getToolPermission: () => 'auto',
+    messages: [{ role: 'user', content: 'continue the earlier conversation' }],
+    sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7',
+    sshMcpRuntime: { call } as unknown as SshMcpRuntime,
+  })
+  expect(events).not.toContain('ask')
+  expect(result.toolRuns?.[0]).toMatchObject({ status: 'done', risk: 'write' })
+  expect(call).toHaveBeenCalledTimes(2)
+})
+
 it('does not execute a tool when the required explanation is missing', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [{
     index: 0, id: 't', function: { name: 'exec', arguments: '{"command":"df -h","risk":"read"}' },

@@ -5,10 +5,9 @@
  * used to sail straight through in `auto` mode, and the classifier that could
  * have caught it was never consulted.
  *
- * This module composes the two: the declaration still decides *whether* to ask,
- * and the independent command classification is applied as an escalate-only
- * floor. A gate is never lowered, so an honest declaration behaves exactly as
- * it did before.
+ * This module composes the two. Ask mode escalates understated commands to
+ * approval. Auto mode executes them at the application's higher risk level;
+ * only commands classified as forbidden still require approval.
  *
  * The floor also has to stay *credible*. A classifier that says "this command
  * is more dangerous than you claimed" when it merely failed to recognise
@@ -107,9 +106,9 @@ function denialDetail(content: CommandClassification): string {
 }
 
 /**
- * Escalate only. A command the classifier rates above the model's declaration
- * always needs a click, in every permission mode, and a `forbidden` command is
- * never auto-approved even when the declaration is honest.
+ * Ask mode requires approval when the application's rating exceeds the model's.
+ * Auto mode promotes the displayed risk and continues, except for forbidden
+ * commands, which always require approval.
  */
 export function applyCommandFloor(
   gate: AiToolGate,
@@ -129,6 +128,20 @@ export function applyCommandFloor(
   }
 
   const understated = RISK_RANK[gate.risk] < RISK_RANK[MINIMUM_DECLARATION[content.class]]
+  if (mode === 'auto' && gate.action === 'allow') {
+    if (content.class === 'forbidden') {
+      return {
+        action: 'ask', risk: gate.risk,
+        reason: `${gate.reason}｜命令含高危特征（应用判级为「${CLASS_LABEL[content.class]}」）`,
+      }
+    }
+    if (!understated) return gate
+    return {
+      action: 'allow',
+      risk: MINIMUM_DECLARATION[content.class],
+      reason: `${gate.reason}｜${denialDetail(content)}，已按自动执行设置继续`,
+    }
+  }
   const catastrophic = content.class === 'forbidden' && gate.action === 'allow'
   if (!understated && !catastrophic) return gate
 

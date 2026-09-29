@@ -523,7 +523,7 @@ watch(
               <h2>{{ t('monitor.alertSettings') }}</h2>
               <span :title="connectionName">{{ connectionName }}</span>
             </div>
-            <button type="button" class="monitor-alert-close" :aria-label="t('common.close')" @click="alertDialogOpen = false"><AppIcon name="close" size="sm" /></button>
+            <button type="button" class="monitor-alert-close" :aria-label="t('common.close')" @click.stop="alertDialogOpen = false"><AppIcon name="close" size="sm" /></button>
           </div>
 
           <label class="monitor-alert-toggle">
@@ -1013,8 +1013,9 @@ watch(
 .monitor-alert-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .monitor-alert-heading h2 { margin: 0; font-size: 17px; line-height: 1.4; }
 .monitor-alert-heading > span { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
-.monitor-alert-close { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.monitor-alert-close { position: relative; z-index: 1; display: grid; flex: 0 0 32px; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .monitor-alert-close:hover { color: var(--text-primary); }
+.monitor-alert-close :deep(.app-icon) { pointer-events: none; }
 .monitor-alert-toggle {
   display: flex;
   align-items: center;
