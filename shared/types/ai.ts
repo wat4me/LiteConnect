@@ -199,6 +199,7 @@ export interface AiThreadSummary {
 }
 
 export type AiChatStreamPayload =
+  | { type: 'model-status'; value: 'requesting' | 'waiting' | 'tool-input' | 'tool-prepare' }
   | { type: 'content'; value: string }
   | { type: 'reasoning'; value: string }
   | { type: 'usage'; value: AiUsage }

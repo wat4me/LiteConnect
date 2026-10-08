@@ -241,6 +241,7 @@ export async function runAiChatStream(opts: {
     })
 
   const openStream = async (msgs: any[], withTools: boolean) => {
+    send({ type: 'model-status', value: 'requesting' })
     let response = await requestStream(true, msgs, withTools)
     if (!response.ok && (response.status === 400 || response.status === 422)) {
       const detail = await readHttpErrorMessage(response.clone(), '')
@@ -294,6 +295,7 @@ export async function runAiChatStream(opts: {
         }
       }
       streamAccepted = true
+      send({ type: 'model-status', value: 'waiting' })
 
       let roundContent = ''
       let roundReasoning = ''
@@ -308,6 +310,9 @@ export async function runAiChatStream(opts: {
         const reasoningDelta = extractAiReasoningFromChoice(choice)
         const chunkUsage = extractAiUsage(chunk?.usage)
         accumulateToolCallDeltas(toolAcc, delta.tool_calls || choice?.message?.tool_calls)
+        if (delta.tool_calls?.length || choice?.message?.tool_calls?.length) {
+          send({ type: 'model-status', value: 'tool-input' })
+        }
 
         if (reasoningDelta) {
           reasoningContent += reasoningDelta
@@ -364,10 +369,12 @@ export async function runAiChatStream(opts: {
         const callArgs = call.function.arguments || '{}'
         // Approval should not be blind: diff the file we are about to rewrite.
         // edit_file yields a small focused diff; write_file a whole-file one.
-        const diffPreview =
-          gate.action === 'ask' && (call.function.name === 'write_file' || call.function.name === 'edit_file')
-            ? await buildFileChangeDiffPreview(sshMcpRuntime, call.function.name, mcpArgs)
-            : undefined
+        const needsDiffPreview = gate.action === 'ask' &&
+          (call.function.name === 'write_file' || call.function.name === 'edit_file')
+        if (needsDiffPreview) send({ type: 'model-status', value: 'tool-prepare' })
+        const diffPreview = needsDiffPreview
+          ? await buildFileChangeDiffPreview(sshMcpRuntime, call.function.name, mcpArgs)
+          : undefined
         send({
           type: 'tool',
           value: {

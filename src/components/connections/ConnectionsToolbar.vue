@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
+import ToolbarDropdown from '../common/ToolbarDropdown.vue'
 
 const props = defineProps<{
   activeGroupName: string
   searchQuery: string
+  searchScope: 'group' | 'all'
   batchTesting: boolean
   filteredCount: number
   importing: boolean
@@ -13,6 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:searchQuery', value: string): void
+  (e: 'update:searchScope', value: 'group' | 'all'): void
   (e: 'batch-test'): void
   (e: 'import'): void
   (e: 'export'): void
@@ -22,6 +25,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const searchInputRef = ref<HTMLInputElement | null>(null)
+const scopeItems = computed(() => [
+  { id: 'group', label: t('connections.searchCurrentGroup') },
+  { id: 'all', label: t('connections.allConnections') },
+])
+const actionItems = computed(() => [
+  { id: 'batch-test', label: t(props.batchTesting ? 'connections.batchTesting' : 'connections.batchTest'), title: t('connections.batchTestTooltip'), disabled: props.batchTesting || props.filteredCount === 0 },
+  { id: 'import', label: t('connections.import'), title: t('connections.importTooltip'), disabled: props.importing },
+  { id: 'export', label: t('connections.export'), title: t('connections.exportTooltip') },
+])
+function onAction(id: string) {
+  if (id === 'batch-test') emit('batch-test')
+  else if (id === 'import') emit('import')
+  else if (id === 'export') emit('export')
+}
 
 defineExpose({ searchInputRef })
 </script>
@@ -30,9 +47,15 @@ defineExpose({ searchInputRef })
   <header class="page-header">
     <div class="page-title-row">
       <h2 class="page-title">{{ t('connections.title') }}</h2>
-      <span class="page-group-pill">{{ props.activeGroupName }}</span>
+      <span v-if="props.searchScope === 'group'" class="page-group-pill" :title="props.activeGroupName">{{ props.activeGroupName }}</span>
     </div>
     <div class="page-toolbar">
+      <ToolbarDropdown
+        class="search-scope" :model-value="props.searchScope" :items="scopeItems"
+        :label="t(props.searchScope === 'group' ? 'connections.searchCurrentGroup' : 'connections.allConnections')"
+        :aria-label="t('connections.searchScope')" menu-class="scope-menu"
+        @select="emit('update:searchScope', $event as 'group' | 'all')"
+      />
       <div class="search-box">
         <AppIcon name="search" size="sm" class="search-icon" />
         <input
@@ -41,6 +64,7 @@ defineExpose({ searchInputRef })
           :placeholder="t('connections.searchPlaceholder')"
           class="ui-input search-input"
           :aria-label="t('connections.searchAria')"
+          :title="t('connections.searchKeyboardHint')"
           @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
         />
         <button
@@ -54,37 +78,11 @@ defineExpose({ searchInputRef })
         </button>
       </div>
       <div class="toolbar-actions">
-        <el-tooltip :content="t('connections.batchTestTooltip')" placement="bottom">
-          <button
-            class="ui-btn"
-            type="button"
-            :disabled="props.batchTesting || props.filteredCount === 0"
-            @click="emit('batch-test')"
-          >
-            {{ props.batchTesting ? t('connections.batchTesting') : t('connections.batchTest') }}
-          </button>
-        </el-tooltip>
-        <el-tooltip :content="t('connections.importTooltip')" placement="bottom">
-          <button
-            class="ui-btn"
-            type="button"
-            :disabled="props.importing"
-            :aria-label="t('connections.import')"
-            @click="emit('import')"
-          >
-            {{ t('connections.import') }}
-          </button>
-        </el-tooltip>
-        <el-tooltip :content="t('connections.exportTooltip')" placement="bottom">
-          <button
-            class="ui-btn"
-            type="button"
-            :aria-label="t('connections.export')"
-            @click="emit('export')"
-          >
-            {{ t('connections.export') }}
-          </button>
-        </el-tooltip>
+        <ToolbarDropdown
+          class="toolbar-more" :label="t('connections.more')" :aria-label="t('connections.moreAria')"
+          :items="actionItems" align="right" trigger-class="toolbar-more-button" menu-class="toolbar-menu"
+          @select="onAction"
+        />
         <button
           class="ui-btn"
           type="button"
@@ -120,7 +118,7 @@ defineExpose({ searchInputRef })
 
 .page-title-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   flex-shrink: 0;
 }
@@ -129,18 +127,23 @@ defineExpose({ searchInputRef })
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+  line-height: 1.4;
   color: var(--text-primary);
 }
 
 .page-group-pill {
-  display: inline-flex;
-  align-items: center;
+  display: block;
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-secondary);
   font-size: 12px;
+  line-height: 20px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .page-toolbar {
@@ -153,11 +156,17 @@ defineExpose({ searchInputRef })
   flex-wrap: wrap;
 }
 
+.search-scope {
+  width: auto;
+  max-width: 150px;
+  flex-shrink: 0;
+}
+
 .search-box {
   position: relative;
   flex: 1;
   min-width: 200px;
-  max-width: 420px;
+  max-width: 560px;
 }
 
 .search-icon {
@@ -195,6 +204,7 @@ defineExpose({ searchInputRef })
   align-items: center;
   gap: 6px;
 }
+
 
 @media (max-width: 900px) {
   .page-header {

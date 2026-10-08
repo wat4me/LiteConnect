@@ -570,6 +570,14 @@ export class SSHManager {
     return this.sftp.sftpReadFileRange(sessionId, remotePath, offset, length)
   }
 
+  sftpReadEditorSnapshot(sessionId: string, remotePath: string, maxBytes: number) {
+    return this.sftp.sftpReadEditorSnapshot(sessionId, remotePath, maxBytes)
+  }
+
+  sftpSaveEditor(sessionId: string, remotePath: string, content: string, options: import('../../shared/types/sftp').SftpEditorSaveOptions, maxBytes: number) {
+    return this.sftp.sftpSaveEditor(sessionId, remotePath, content, options, maxBytes)
+  }
+
   async sftpWriteFile(
     sessionId: string,
     remotePath: string,

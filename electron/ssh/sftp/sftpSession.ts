@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto'
+import type { SftpEditorSnapshot, SftpEditorSaveOptions, SftpEditorSaveResult } from '../../../shared/types/sftp'
 import type { ClientChannel, SFTPWrapper } from 'ssh2'
 import type { FileEntry, Session } from '../types'
 import { shellQuote } from '../shellQuote'
@@ -30,6 +32,7 @@ function decodeUtf8Text(buffer: Buffer): string | null {
 }
 
 export class SftpSession {
+  private editorSaves = new Map<string, Promise<SftpEditorSaveResult>>()
   private sftpInitPromises = new Map<string, Promise<void>>()
 
   constructor(private getSession: (sessionId: string) => Session | undefined) {}
@@ -376,6 +379,47 @@ export class SftpSession {
       stream.on('end', () => finish())
       stream.on('error', (err: Error) => finish(err))
     })
+  }
+
+  async sftpReadEditorSnapshot(sessionId: string, remotePath: string, maxBytes: number): Promise<SftpEditorSnapshot> {
+    const content = await this.sftpReadFile(sessionId, remotePath, maxBytes)
+    return { content, revision: createHash('sha256').update(content, 'utf8').digest('hex') }
+  }
+
+  async sftpSaveEditor(sessionId: string, remotePath: string, content: string, options: SftpEditorSaveOptions, maxBytes: number): Promise<SftpEditorSaveResult> {
+    const key = JSON.stringify([sessionId, remotePath])
+    const previous = this.editorSaves.get(key)
+    const pending = (async () => {
+      if (previous) await previous.catch(() => undefined)
+      return this.saveEditorUnlocked(sessionId, remotePath, content, options, maxBytes)
+    })()
+    this.editorSaves.set(key, pending)
+    try { return await pending } finally {
+      if (this.editorSaves.get(key) === pending) this.editorSaves.delete(key)
+    }
+  }
+
+  private async saveEditorUnlocked(sessionId: string, remotePath: string, content: string, options: SftpEditorSaveOptions, maxBytes: number): Promise<SftpEditorSaveResult> {
+    if (Buffer.byteLength(content, 'utf8') > maxBytes) throw new Error(t('sftp.contentTooLarge', { size: Buffer.byteLength(content, 'utf8'), maxBytes }))
+    const snapshot = await this.sftpReadEditorSnapshot(sessionId, remotePath, maxBytes)
+    if (snapshot.revision !== options.revision) return { status: 'conflict', revision: snapshot.revision }
+    let backupPath: string | undefined
+    if (options.backup) {
+      backupPath = `${remotePath}.liteconnect-backup-${Date.now()}-${randomUUID()}`
+      const session = this.getSession(sessionId)
+      if (!session?.sftp) throw new Error(t('sftp.notInitialized'))
+      const buffer = Buffer.from(snapshot.content, 'utf8')
+      await new Promise<void>((resolve, reject) => {
+        const stream = session.sftp!.createWriteStream(backupPath!, { flags: 'wx', mode: 0o600 })
+        stream.on('error', reject)
+        stream.on('close', resolve)
+        stream.end(buffer)
+      })
+      const latest = await this.sftpReadEditorSnapshot(sessionId, remotePath, maxBytes)
+      if (latest.revision !== options.revision) return { status: 'conflict', revision: latest.revision }
+    }
+    await this.sftpWriteFile(sessionId, remotePath, content, maxBytes)
+    return { status: 'saved', revision: createHash('sha256').update(content, 'utf8').digest('hex'), backupPath }
   }
 
   async sftpWriteFile(

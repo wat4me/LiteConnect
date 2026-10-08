@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '@/components/icons/AppIcon.vue'
+import InlineLabel from '@/components/common/InlineLabel.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -251,8 +252,9 @@ onMounted(loadSnippets)
               :disabled="isRunning"
               @change="toggleGroup(group)"
             />
-            <span class="session-group-label">{{ group.label }}</span>
-            <span class="session-group-count">{{ group.sessions.length }}</span>
+            <InlineLabel :text="group.label">
+              <span class="session-group-count">{{ group.sessions.length }}</span>
+            </InlineLabel>
           </label>
           <label
             v-for="session in group.sessions"
@@ -520,19 +522,9 @@ onMounted(loadSnippets)
   padding: 2px 4px;
 }
 
-.session-group-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  align-self: baseline;
-}
-
 .session-group-count {
   font-weight: 500;
   opacity: 0.7;
-  align-self: baseline;
 }
 
 .session-checkbox {

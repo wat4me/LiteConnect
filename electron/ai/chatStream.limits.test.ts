@@ -22,6 +22,9 @@ it.each([1, 2, 9])('pauses visibly after exactly %s rounds and retains tool resu
     emit: event => events.push(event),
   })
   expect(fetcher).toHaveBeenCalledTimes(limit)
+  expect(events.filter(e => e.type === 'model-status').map(e => e.value)).toEqual(
+    Array.from({ length: limit }, () => ['requesting', 'waiting', 'tool-input']).flat(),
+  )
   expect(result.toolRuns).toHaveLength(limit)
   expect(result.content).toContain('调查已暂停')
   expect(events.some(e => e.type === 'content' && e.value.includes('调查已暂停'))).toBe(true)

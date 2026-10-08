@@ -28,6 +28,7 @@ export function useConnectionList(options: {
   const groups = ref<Group[]>([])
   const activeGroupId = ref<string | null>(null)
   const searchQuery = ref('')
+  const searchScope = ref<'group' | 'all'>('group')
   /** Filter by color tag id; empty = all */
   const colorTagFilter = ref('')
   /** List sort: manual (order field), recent (lastConnectedAt), frequent (useCount) */
@@ -58,6 +59,7 @@ export function useConnectionList(options: {
   })
 
   const activeGroupName = computed(() => {
+    if (searchScope.value === 'all') return t('connections.allConnections')
     const g = groups.value.find((item) => item.id === activeGroupId.value)
     return g?.name || t('connections.allConnections')
   })
@@ -65,12 +67,12 @@ export function useConnectionList(options: {
   const filteredConnections = computed(() => {
     let list = connections.value
 
-    if (activeGroupId.value) {
+    if (searchScope.value === 'group' && activeGroupId.value) {
       list = list.filter((c) => c.group === activeGroupId.value)
     }
 
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase()
+    if (searchQuery.value.trim()) {
+      const q = searchQuery.value.trim().toLowerCase()
       list = list.filter((c) => {
         const tag = c.colorTag || ''
         const tagLabel = CONNECTION_COLOR_TAGS.find((t) => t.id === tag)?.label || ''
@@ -116,6 +118,15 @@ export function useConnectionList(options: {
   const isSearching = computed(
     () => searchQuery.value.trim().length > 0 || sortMode.value !== 'manual',
   )
+
+  const reorderDisabled = computed(
+    () => isSearching.value || !!colorTagFilter.value || searchScope.value === 'all' || !activeGroupId.value,
+  )
+
+  function getConnectionGroupName(connection: Connection): string {
+    const groupId = resolveTargetGroupId(connection.group)
+    return groups.value.find((g) => g.id === groupId)?.name || t('connections.ungrouped')
+  }
 
   async function togglePin(connectionId: string) {
     const conn = connections.value.find((c) => c.id === connectionId)
@@ -174,6 +185,7 @@ export function useConnectionList(options: {
 
   function onSelectGroup(groupId: string) {
     activeGroupId.value = groupId
+    searchScope.value = 'group'
   }
 
   async function onAddGroup() {
@@ -187,7 +199,7 @@ export function useConnectionList(options: {
       })
       const saved = await window.LiteConnect.saveGroup({ name: value })
       await loadData()
-      activeGroupId.value = saved.id
+      onSelectGroup(saved.id)
     } catch {}
   }
 
@@ -282,6 +294,7 @@ export function useConnectionList(options: {
 
   function onConnRowDragOver(e: DragEvent, index: number) {
     // dragConnId: main-list drag; dataTransfer types: cross-panel (getData empty in dragover)
+    if (reorderDisabled.value) return
     if (!dragConnId.value && !dataTransferHasConn(e.dataTransfer)) return
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
@@ -314,7 +327,7 @@ export function useConnectionList(options: {
     if (!connId || insertAt === null) return
 
     // Filtered views would only reshuffle the subset — keep order edits scoped & clear
-    if (isSearching.value || colorTagFilter.value) {
+    if (reorderDisabled.value) {
       ElMessage.info(t('connections.reorderDisabled'))
       return
     }
@@ -439,7 +452,7 @@ export function useConnectionList(options: {
 
   function scrollKeyboardRowIntoView(index: number) {
     void nextTick(() => {
-      const el = document.querySelector(`[data-conn-index="${index}"]`) as HTMLElement | null
+      const el = options.pageRootRef.value?.querySelector(`[data-conn-index="${index}"]`) as HTMLElement | null
       el?.scrollIntoView({ block: 'nearest' })
     })
   }
@@ -465,7 +478,12 @@ export function useConnectionList(options: {
 
   function onListKeydown(e: KeyboardEvent) {
     if (!isPageVisible()) return
-    if (options.isModalOpen()) return
+    if (options.isModalOpen() || e.defaultPrevented || e.isComposing || e.keyCode === 229) return
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+    const hasVisibleOverlay = Array.from(document.querySelectorAll<HTMLElement>(
+      '[role="dialog"], [role="menu"]',
+    )).some((element) => element.getClientRects().length > 0)
+    if (hasVisibleOverlay) return
 
     const searchInput = options.getSearchInput()
 
@@ -478,6 +496,9 @@ export function useConnectionList(options: {
     }
 
     const inSearch = e.target === searchInput
+    const target = e.target as HTMLElement | null
+    if (!inSearch && target !== document.body && (!target || !options.pageRootRef.value?.contains(target))) return
+    if (!inSearch && target?.closest('button, a, [role="button"]')) return
     if (!inSearch && isTypingTarget(e.target)) return
 
     if (e.key === 'ArrowDown') {
@@ -491,8 +512,12 @@ export function useConnectionList(options: {
       return
     }
     if (e.key === 'Enter') {
-      if (listKeyboardIndex.value < 0) return
-      const conn = filteredConnections.value[listKeyboardIndex.value]
+      if (e.repeat) return
+      const index = listKeyboardIndex.value < 0 && inSearch && searchQuery.value.trim()
+        ? 0
+        : listKeyboardIndex.value
+      if (index < 0) return
+      const conn = filteredConnections.value[index]
       if (!conn) return
       e.preventDefault()
       options.onConnect(conn.id)
@@ -514,7 +539,7 @@ export function useConnectionList(options: {
     }
   })
 
-  watch(activeGroupId, () => {
+  watch([activeGroupId, searchQuery, searchScope, colorTagFilter, sortMode], () => {
     listKeyboardIndex.value = -1
   })
 
@@ -539,6 +564,9 @@ export function useConnectionList(options: {
     groups,
     activeGroupId,
     searchQuery,
+    searchScope,
+    reorderDisabled,
+    getConnectionGroupName,
     colorTagFilter,
     sortMode,
     importing,

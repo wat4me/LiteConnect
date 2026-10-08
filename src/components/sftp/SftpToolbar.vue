@@ -18,6 +18,7 @@ const emit = defineEmits<{
   (e: 'search'): void
   (e: 'open-transfers'): void
   (e: 'upload-folder'): void
+  (e: 'directory-sync'): void
   (e: 'toggle-follow'): void
   (e: 'close'): void
 }>()
@@ -71,6 +72,9 @@ const { t } = useI18n()
       @click="emit('upload-folder')"
     >
       <AppIcon name="folder-up" size="md" />
+    </button>
+    <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.directorySync')" :disabled="locked" @click="emit('directory-sync')">
+      <AppIcon name="folder-sync" size="md" />
     </button>
     <div class="navigation-actions-spacer"></div>
     <div

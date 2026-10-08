@@ -119,6 +119,11 @@ html:not([data-theme]),
   box-sizing: border-box;
 }
 
+/* Native form controls otherwise use the browser's font, unlike adjacent labels. */
+button, input, textarea, select {
+  font-family: inherit;
+}
+
 /*
  * Electron + Windows DPI: prefer % height over 100vh.
  * 100vh can exceed the BrowserWindow client area by a few px (titleBarOverlay /

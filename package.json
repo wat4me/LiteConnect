@@ -1,6 +1,6 @@
 {
   "name": "lite-connect",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Lightweight multi-protocol connection manager (SSH, database) with embedded terminal",
   "author": "LiteConnect",
   "license": "GPL-3.0-only",
@@ -14,6 +14,7 @@
     "sync:models-dev": "node scripts/sync-models-dev-context.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ui": "node scripts/check-ui-regressions.mjs",
     "clean:electron": "node scripts/clean-electron-out.mjs",
     "build": "npm run typecheck && npm run clean:electron && vite build && node scripts/copy-bash-wasm.mjs",
     "preview": "vite preview",

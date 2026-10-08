@@ -521,6 +521,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('sftp:extractArchive', sessionId, remotePath),
   sftpExists: (sessionId: string, remotePath: string) =>
     ipcRenderer.invoke('sftp:exists', sessionId, remotePath),
+  sftpEditorSnapshot: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:editorSnapshot', sessionId, remotePath),
+  sftpEditorSave: (sessionId: string, remotePath: string, content: string, options: import('../shared/types/sftp').SftpEditorSaveOptions) => ipcRenderer.invoke('sftp:editorSave', sessionId, remotePath, content, options),
+  sftpDirectoryPreview: (sessionId: string, localPath: string, remotePath: string) => ipcRenderer.invoke('sftp:directoryPreview', sessionId, localPath, remotePath),
   sftpReadFile: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:readFile', sessionId, remotePath),
   sftpWriteFile: (sessionId: string, remotePath: string, content: string) => ipcRenderer.invoke('sftp:writeFile', sessionId, remotePath, content),
   sftpChmod: (sessionId: string, remotePath: string, mode: string, recursive?: boolean) => ipcRenderer.invoke('sftp:chmod', sessionId, remotePath, mode, recursive),

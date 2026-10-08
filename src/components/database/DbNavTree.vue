@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
+import InlineLabel from '../common/InlineLabel.vue'
 import type { DbConnection, DbTableInfo } from '../../env.d'
 import { formatRows } from '@/domain/database/dbFormat'
 
@@ -201,8 +202,8 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
             :title="`${conn.host}:${conn.port}${conn.sshConnectionId ? t('database.nav.sshTunnelSuffix') : ''}`"
           >
             {{ conn.name }}
-            <span v-if="conn.sshConnectionId" class="nav-tunnel-badge" :title="t('database.nav.sshTunnel')">SSH</span>
           </span>
+          <span v-if="conn.sshConnectionId" class="nav-tunnel-badge" :title="t('database.nav.sshTunnel')">SSH</span>
           <span class="nav-status-slot" aria-hidden="true">
             <span v-if="isConnActive(conn.id)" class="nav-live-dot" :title="t('database.nav.connected')"></span>
             <span
@@ -242,7 +243,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
                 size="xs"
               />
               <AppIcon name="database" size="sm" class="bk-ico db" />
-              <span class="bk-name">{{ db }}</span>
+              <InlineLabel :text="db" />
               <span
                 v-if="isTreeLoading(treeDbKey(conn.id, db))"
                 class="bk-spinner"
@@ -273,8 +274,9 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
                   size="sm"
                   class="bk-ico table"
                 />
-                <span class="bk-name">{{ t.name }}</span>
-                <span v-if="t.rows != null" class="bk-rowcount">{{ formatRows(t.rows) }}</span>
+                <InlineLabel :text="t.name" :title="t.comment || t.name">
+                  <span v-if="t.rows != null" class="bk-rowcount">{{ formatRows(t.rows) }}</span>
+                </InlineLabel>
               </button>
               <div
                 v-if="visibleTables(conn.id, db).length === 0 && !isTreeLoading(treeDbKey(conn.id, db))"
@@ -324,6 +326,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 }
 
 .nav-tunnel-badge {
+  flex-shrink: 0;
   margin-left: 4px;
   font-size: 9px;
   font-weight: 700;
@@ -332,6 +335,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
   vertical-align: middle;
+  white-space: nowrap;
 }
 
 .bk-sidebar-head {
@@ -562,19 +566,9 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   color: #f6ad55;
 }
 
-.bk-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  align-self: baseline;
-}
-
 .bk-rowcount {
   font-size: 10px;
   color: var(--text-secondary);
-  align-self: baseline;
 }
 
 .bk-table-list {

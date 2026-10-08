@@ -29,10 +29,12 @@ import SftpContextMenu from './SftpContextMenu.vue'
 import TransferList from './TransferList.vue'
 import UploadConfirmModal from './UploadConfirmModal.vue'
 import FileEditorModal from './FileEditorModal.vue'
+import DirectorySyncModal from './DirectorySyncModal.vue'
 import FilePropertiesModal from './FilePropertiesModal.vue'
 import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
+const showDirectorySync = ref(false)
 const fileListRef = ref<InstanceType<typeof SftpDirTree> | null>(null)
 const sftpFontSize = ref(DEFAULT_SFTP_FONT_SIZE)
 
@@ -794,6 +796,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
           :terminal-target="connectionName ? `${connectionName} / ${terminalLabel}` : terminalLabel"
           :locked="actionLocked"
           @sync-cwd="handleSyncCwd"
+          @directory-sync="showDirectorySync = true"
           @refresh="handleRefresh"
           @collapse-tree="handleCollapseTree"
           @search="toggleFileSearch"
@@ -941,6 +944,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
       @cancel="cancelUpload"
     />
 
+    <DirectorySyncModal :visible="showDirectorySync" :session-id="sessionId" :remote-path="currentPath" @close="showDirectorySync = false" @queued="activeTab = 'transfers'" />
     <FileEditorModal
       :visible="showEditor"
       :session-id="sessionId"

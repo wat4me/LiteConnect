@@ -45,3 +45,16 @@ export interface TransferItem {
   totalDirs?: number
   batchId?: string
 }
+
+export interface SftpEditorSnapshot { content: string; revision: string }
+export interface SftpEditorSaveOptions { revision: string; backup?: boolean }
+export type SftpEditorSaveResult =
+  | { status: 'conflict'; revision: string }
+  | { status: 'saved'; revision: string; backupPath?: string }
+export interface SftpDirectoryDiffEntry {
+  name: string; localPath: string; size: number
+  status: 'new' | 'changed' | 'same' | 'blocked'
+}
+export interface SftpDirectoryPreview {
+  localPath: string; remotePath: string; entries: SftpDirectoryDiffEntry[]; skipped: number
+}

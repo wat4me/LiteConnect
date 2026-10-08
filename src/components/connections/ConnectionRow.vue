@@ -29,6 +29,7 @@ const props = withDefaults(defineProps<{
   /** Show useCount / lastConnected on the meta line (settings). Default on. */
   showUsageStats?: boolean
   connecting?: boolean
+  groupName?: string
 }>(), {
   reorderDisabled: false,
   keyboardActive: false,
@@ -74,7 +75,7 @@ const statsInline = computed(() => {
 
 const metaTitle = computed(() => {
   const base = `${props.connection.username}@${props.connection.host}:${props.connection.port}`
-  return statsInline.value ? `${base} · ${statsInline.value}` : base
+  return [base, props.groupName ? t('connections.resultGroup', { name: props.groupName }) : '', statsInline.value, props.connection.note].filter(Boolean).join(' · ')
 })
 
 const menuOpen = ref(false)
@@ -355,16 +356,23 @@ function onMenuAction(action: MenuAction) {
             class="pin-icon"
             :title="t('connections.pinned')"
           />
-          {{ connection.name }}
+          <span class="conn-name-text" :title="connection.name">{{ connection.name }}</span>
         </span>
         <span class="conn-meta" :title="metaTitle">
           <span class="conn-addr">{{ connection.username }}@{{ connection.host }}:{{ connection.port }}</span>
+          <template v-if="groupName">
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span class="conn-group" :title="groupName">{{ t('connections.resultGroup', { name: groupName }) }}</span>
+          </template>
           <template v-if="statsInline">
             <span class="meta-sep" aria-hidden="true">·</span>
             <span class="conn-stats">{{ statsInline }}</span>
           </template>
+          <template v-if="connection.note">
+            <span class="meta-sep" aria-hidden="true">·</span>
+            <span class="conn-note" :title="connection.note">{{ connection.note }}</span>
+          </template>
         </span>
-        <span v-if="connection.note" class="conn-note" :title="connection.note">{{ connection.note }}</span>
       </div>
     </div>
 
@@ -416,7 +424,7 @@ function onMenuAction(action: MenuAction) {
 
       <el-tooltip :content="t('connections.copyConnection')" placement="bottom">
         <button
-          class="action-btn"
+          class="action-btn secondary-action"
           type="button"
           :aria-label="t('connections.copyConnection')"
           @click.stop="emit('copy', connection)"
@@ -427,7 +435,7 @@ function onMenuAction(action: MenuAction) {
 
       <el-tooltip :content="t('connections.edit')" placement="bottom">
         <button
-          class="action-btn"
+          class="action-btn secondary-action"
           type="button"
           :aria-label="t('connections.edit')"
           @click.stop="emit('edit', connection)"
@@ -436,7 +444,7 @@ function onMenuAction(action: MenuAction) {
         </button>
       </el-tooltip>
 
-      <div class="more-wrap">
+      <div class="more-wrap secondary-action">
         <el-tooltip :content="t('connections.more')" placement="bottom" :disabled="menuOpen">
           <button
             ref="moreBtnRef"
@@ -513,12 +521,12 @@ function onMenuAction(action: MenuAction) {
 
 <style scoped>
 .connection-row {
-  --tag-color: #8b949e;
+  --tag-color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 11px 12px 11px 8px;
+  padding: 9px 12px 9px 8px;
   border-radius: 8px;
   cursor: grab;
   transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
@@ -565,19 +573,21 @@ function onMenuAction(action: MenuAction) {
 }
 
 .connection-row.menu-open,
-.connection-row:focus-within,
-.connection-row.keyboard-active {
+.connection-row:focus-within {
   background: color-mix(in srgb, var(--hover-bg) 80%, var(--bg-secondary));
 }
 
-.connection-row.keyboard-active {
-  /* Keep left tag strip; accent the other three edges */
-  border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  border-right-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+/* Selection is a quiet fill; keyboard focus has its own crisp boundary. */
+.connection-row.keyboard-active,
+.connection-row.keyboard-active:hover {
+  background: var(--accent-bg);
+}
+
+.connection-row:has(:focus-visible) {
+  /* Keep the left edge reserved for the connection's color tag. */
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 /* Source row becomes a placeholder slot while the full-row ghost follows the cursor */
@@ -628,6 +638,7 @@ function onMenuAction(action: MenuAction) {
 }
 
 .row-info {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -648,6 +659,12 @@ function onMenuAction(action: MenuAction) {
   text-overflow: ellipsis;
 }
 
+.conn-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .conn-meta {
   display: flex;
   align-items: baseline;
@@ -662,6 +679,7 @@ function onMenuAction(action: MenuAction) {
 }
 
 .conn-addr {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -674,7 +692,8 @@ function onMenuAction(action: MenuAction) {
 }
 
 .conn-stats {
-  flex-shrink: 1;
+  flex: 0 2 auto;
+  max-width: 32%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -708,7 +727,11 @@ function onMenuAction(action: MenuAction) {
   box-shadow: 0 0 0 1px var(--tag-color);
 }
 
+.conn-group,
 .conn-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 28%;
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 0.85;

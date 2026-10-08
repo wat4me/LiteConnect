@@ -433,6 +433,9 @@ export interface LiteConnectApi {
   sftpCancelTransfer: (transferId: string) => void
   sftpExtractArchive: (sessionId: string, remotePath: string) => Promise<{ ok: boolean; output?: string }>
   sftpExists: (sessionId: string, remotePath: string) => Promise<boolean>
+  sftpEditorSnapshot: (sessionId: string, remotePath: string) => Promise<import('@shared/types/sftp').SftpEditorSnapshot>
+  sftpEditorSave: (sessionId: string, remotePath: string, content: string, options: import('@shared/types/sftp').SftpEditorSaveOptions) => Promise<import('@shared/types/sftp').SftpEditorSaveResult>
+  sftpDirectoryPreview: (sessionId: string, localPath: string, remotePath: string) => Promise<import('@shared/types/sftp').SftpDirectoryPreview>
   sftpReadFile: (sessionId: string, remotePath: string) => Promise<string>
   sftpWriteFile: (sessionId: string, remotePath: string, content: string) => Promise<void>
   sftpChmod: (sessionId: string, remotePath: string, mode: string, recursive?: boolean) => Promise<void>

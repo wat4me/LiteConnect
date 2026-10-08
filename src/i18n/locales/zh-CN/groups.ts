@@ -1,6 +1,8 @@
 export default {
   groups: {
     title: '分组',
+    resizePanel: '调整分组栏宽度',
+    resizePanelHint: '拖动调整宽度；左右方向键微调，Home / End 设置最小 / 最大宽度',
     searchPlaceholder: '搜索分组或连接...',
     dragSort: '拖拽排序分组',
     defaultGroup: '默认分组',

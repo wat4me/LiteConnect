@@ -1,3 +1,6 @@
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import type { SftpEditorSaveOptions, SftpDirectoryDiffEntry } from '../../shared/types/sftp'
 import { ipcMain } from 'electron'
 import {
   isValidUUID,
@@ -62,6 +65,40 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     return await sshManager.sftpReadFile(sessionId, remotePath, SFTP_EDITOR_MAX_BYTES)
+  })
+
+  ipcMain.handle('sftp:editorSnapshot', async (_event, sessionId: string, remotePath: string) => {
+    if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
+    if (!isStrictPath(remotePath)) throw new Error('Invalid path')
+    return sshManager.sftpReadEditorSnapshot(sessionId, remotePath, SFTP_EDITOR_MAX_BYTES)
+  })
+
+  ipcMain.handle('sftp:editorSave', async (_event, sessionId: string, remotePath: string, content: string, options: SftpEditorSaveOptions) => {
+    if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
+    if (!isStrictPath(remotePath)) throw new Error('Invalid path')
+    if (typeof content !== 'string' || !options || typeof options.revision !== 'string' || !/^[a-f0-9]{64}$/.test(options.revision)) throw new Error('Invalid editor save')
+    if (options.backup !== undefined && typeof options.backup !== 'boolean') throw new Error('Invalid backup option')
+    return sshManager.sftpSaveEditor(sessionId, remotePath, content, options, SFTP_EDITOR_MAX_BYTES)
+  })
+
+  ipcMain.handle('sftp:directoryPreview', async (_event, sessionId: string, localPath: string, remotePath: string) => {
+    if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
+    if (!isStrictPath(remotePath) || !isValidPath(localPath) || !path.isAbsolute(localPath)) throw new Error('Invalid path')
+    const local = await fs.readdir(localPath, { withFileTypes: true })
+    if (local.length > 2000) throw new Error('Directory preview supports at most 2000 entries')
+    const remote = new Map((await sshManager.sftpReaddir(sessionId, remotePath)).map(entry => [entry.name, entry]))
+    const entries: SftpDirectoryDiffEntry[] = []
+    let skipped = 0
+    for (const item of local) {
+      if (!item.isFile() || item.isSymbolicLink()) { skipped++; continue }
+      const localFile = path.join(localPath, item.name)
+      const stat = await fs.lstat(localFile)
+      if (!stat.isFile() || stat.isSymbolicLink()) { skipped++; continue }
+      const target = remote.get(item.name)
+      const status = !target ? 'new' : target.isDirectory || target.isSymlink ? 'blocked' : target.size !== stat.size || Math.abs(target.modifyTime - stat.mtimeMs) >= 2000 ? 'changed' : 'same'
+      entries.push({ name: item.name, localPath: localFile, size: stat.size, status })
+    }
+    return { localPath, remotePath, entries, skipped }
   })
 
   ipcMain.handle('sftp:writeFile', async (_event, sessionId: string, remotePath: string, content: string) => {

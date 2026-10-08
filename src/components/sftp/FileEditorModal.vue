@@ -22,6 +22,10 @@ const content = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
+const revision = ref('')
+const conflictRevision = ref('')
+const backupBeforeSave = ref(false)
+const backupPath = ref('')
 const editorRef = ref<HTMLTextAreaElement | null>(null)
 const gutterRef = ref<HTMLDivElement | null>(null)
 const dirty = ref(false)
@@ -53,13 +57,17 @@ function handleScroll() {
   }
 }
 
-watch(() => props.visible, async (val) => {
+watch(() => [props.visible, props.sessionId, props.remotePath] as const, async ([val]) => {
+  ++loadSeq
   if (val) {
+    revision.value = ''
+    conflictRevision.value = ''
+    backupPath.value = ''
     dirty.value = false
     error.value = ''
     await loadFile()
   }
-})
+}, { immediate: true })
 
 async function loadFile() {
   const seq = ++loadSeq
@@ -67,16 +75,20 @@ async function loadFile() {
   loadFailed.value = false
   error.value = ''
   try {
-    const raw = await window.LiteConnect.sftpReadFile(props.sessionId, props.remotePath)
+    const snapshot = await window.LiteConnect.sftpEditorSnapshot(props.sessionId, props.remotePath)
+    const raw = snapshot.content
     if (seq !== loadSeq) return
+    revision.value = snapshot.revision
+    conflictRevision.value = ''
+    backupPath.value = ''
     lineEnding = raw.includes('\r\n') ? '\r\n' : '\n'
     content.value = raw.replace(/\r\n/g, '\n')
     dirty.value = false
   } catch (err: any) {
     if (seq !== loadSeq) return
     error.value = err.message || t('sftp.readFileFailed')
-    content.value = ''
-    loadFailed.value = true
+    if (!dirty.value) content.value = ''
+    loadFailed.value = !dirty.value
   } finally {
     if (seq === loadSeq) {
       loading.value = false
@@ -86,20 +98,44 @@ async function loadFile() {
   }
 }
 
-async function saveFile() {
-  if (saving.value || loadFailed.value) return
+async function saveFile(expectedRevision = revision.value) {
+  if (saving.value || loading.value || loadFailed.value || !dirty.value) return
   saving.value = true
   error.value = ''
   try {
     const text = lineEnding === '\r\n' ? content.value.replace(/\r?\n/g, '\r\n') : content.value
-    await window.LiteConnect.sftpWriteFile(props.sessionId, props.remotePath, text)
-    dirty.value = false
+    const sid = props.sessionId
+    const path = props.remotePath
+    const result = await window.LiteConnect.sftpEditorSave(sid, path, text, { revision: expectedRevision, backup: backupBeforeSave.value })
+    if (sid !== props.sessionId || path !== props.remotePath) return
+    if (result.status === 'conflict') {
+      conflictRevision.value = result.revision
+      return
+    }
+    revision.value = result.revision
+    conflictRevision.value = ''
+    backupPath.value = result.backupPath || ''
+    dirty.value = (lineEnding === '\r\n' ? content.value.replace(/\r?\n/g, '\r\n') : content.value) !== text
     emit('saved')
   } catch (err: any) {
     error.value = err.message || t('sftp.saveFailed')
   } finally {
     saving.value = false
   }
+}
+
+async function overwriteConflict() {
+  try {
+    await appConfirm({ title: t('sftp.editorConflictTitle'), message: t('sftp.editorOverwriteMessage'), confirmText: t('sftp.editorOverwrite'), danger: true, tone: 'warning' })
+  } catch { return }
+  await saveFile(conflictRevision.value)
+}
+
+async function reloadConflict() {
+  try {
+    await appConfirm({ title: t('sftp.discardTitle'), message: t('sftp.discardMessage', { name: props.fileName }), confirmText: t('sftp.editorReload'), danger: true, tone: 'warning' })
+  } catch { return }
+  await loadFile()
 }
 
 /** Close only after the user agrees to drop unsaved edits. */
@@ -124,7 +160,7 @@ async function requestClose() {
 function handleKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
-    if (dirty.value && !saving.value && !loadFailed.value) {
+    if (dirty.value && !saving.value && !loadFailed.value && !conflictRevision.value) {
       saveFile()
     }
   }
@@ -160,8 +196,8 @@ onBeforeUnmount(() => {
           <span v-if="dirty" class="editor-dirty-dot" :title="t('sftp.dirtyTitle')"></span>
           <button
             class="editor-save-btn"
-            :disabled="saving || !dirty || loadFailed"
-            @click="saveFile"
+            :disabled="saving || loading || !dirty || loadFailed || !!conflictRevision"
+            @click="saveFile()"
           >
             {{ saving ? t('sftp.saving') : t('common.save') }}
           </button>
@@ -171,6 +207,14 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-if="conflictRevision" class="editor-error" role="alert">
+        <p>{{ t('sftp.editorConflictMessage') }}</p>
+        <div class="editor-conflict-actions">
+          <button class="editor-save-btn" :disabled="saving" @click="overwriteConflict">{{ t('sftp.editorOverwrite') }}</button>
+          <button class="editor-save-btn" :disabled="saving" @click="reloadConflict">{{ t('sftp.editorReload') }}</button>
+        </div>
+      </div>
+      <div v-if="backupPath" class="editor-error">{{ t('sftp.editorBackupSaved', { path: backupPath }) }}</div>
       <div v-if="error" class="editor-error">{{ error }}</div>
 
       <div v-if="loading" class="editor-loading">{{ t('sftp.loadingEllipsis') }}</div>
@@ -184,13 +228,14 @@ onBeforeUnmount(() => {
           v-model="content"
           class="editor-textarea"
           spellcheck="false"
-          :readonly="loadFailed"
+          :readonly="loadFailed || saving"
           @input="dirty = true"
           @scroll="handleScroll"
         ></textarea>
       </div>
 
       <div class="editor-footer">
+        <label class="editor-hint"><input v-model="backupBeforeSave" type="checkbox" :disabled="saving" /> {{ t('sftp.editorBackup') }}</label>
         <span class="editor-hint">{{ t('sftp.editorHint') }}</span>
       </div>
     </div>
@@ -306,6 +351,12 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.editor-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .editor-body {
   flex: 1;
   display: flex;
@@ -353,6 +404,15 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--border-color);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+label.editor-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .editor-hint {

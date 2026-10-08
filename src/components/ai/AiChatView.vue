@@ -12,7 +12,8 @@ import {
   toolRunDefaultOpen,
   type ToolRunSummary,
 } from '@shared/aiToolRunDisplay'
-import { isAwaitingModelReply, isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
+import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
+import { chatActivityDisplay } from '@/utils/ai/chatActivity'
 import { activeTimelineTurnId, collectChatTimelineTurns } from '@/utils/ai/chatTimeline'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { splitToolReason } from '@/utils/ai/toolReason'
@@ -46,6 +47,24 @@ const examplePrompts = computed(() => [
 const { t } = useI18n()
 const { parseMarkdown } = useMarkdownRenderer()
 const toolNameLabel = useAiToolNameLabel()
+const activityNow = ref(Date.now())
+let activityTimer: ReturnType<typeof setInterval> | undefined
+let activityVisible = true
+function syncActivityTimer() {
+  if (activityTimer) clearInterval(activityTimer)
+  activityTimer = undefined
+  activityNow.value = Date.now()
+  if (activityVisible && props.messages.some(message => message.streaming)) {
+    activityTimer = setInterval(() => { activityNow.value = Date.now() }, 1000)
+  }
+}
+watch(() => props.messages.some(message => message.streaming), syncActivityTimer, { immediate: true })
+
+function activityDisplay(message: ChatItem) {
+  return chatActivityDisplay(message.activity || {
+    phase: 'waiting', phaseStartedAt: message.createdAt, lastActivityAt: message.createdAt,
+  }, activityNow.value)
+}
 
 const markdownCache = new Map<string, { content: string; blocks: MarkdownBlock[] }>()
 function parseSegmentMarkdown(message: ChatItem, segIndex: number, text: string): MarkdownBlock[] {
@@ -252,7 +271,7 @@ function onToolRunToggle(message: ChatItem, run: AiToolRun, event: Event) {
 }
 
 function isReasoningLive(message: ChatItem, segIndex: number): boolean {
-  return isLiveReasoningSegment(message, segIndex)
+  return isLiveReasoningSegment(message, segIndex) && activityDisplay(message).phase === 'reasoning'
 }
 
 function reasoningKey(message: ChatItem, segIndex: number): string {
@@ -347,8 +366,18 @@ function toolRunSummaryLabel(summary: ToolRunSummary): string {
   }
 }
 
+// Activity transitions can add lines without new stream text (for example the
+// delayed-response hint). Follow only those layout changes, not every timer tick.
+const activityLayoutSignature = computed(() => props.messages
+  .filter(message => message.streaming)
+  .map(message => {
+    const activity = activityDisplay(message)
+    return `${message.id}:${activity.phase}:${activity.delayed ? 1 : 0}`
+  })
+  .join('|'))
+
 watch(
-  [messagesSignature, () => props.loading, () => props.messages.length],
+  [messagesSignature, activityLayoutSignature, () => props.loading, () => props.messages.length],
   async () => {
     await nextTick()
     updateActiveTurn()
@@ -359,10 +388,14 @@ watch(
 )
 
 onDeactivated(() => {
+  activityVisible = false
+  syncActivityTimer()
   captureScroll()
 })
 
 onActivated(() => {
+  activityVisible = true
+  syncActivityTimer()
   nextTick(() => {
     if (followLatest.value) {
       scheduleScrollToBottom()
@@ -381,6 +414,7 @@ onActivated(() => {
 })
 
 onBeforeUnmount(() => {
+  if (activityTimer) clearInterval(activityTimer)
   if (copiedTimer) clearTimeout(copiedTimer)
   if (scrollRaf) cancelAnimationFrame(scrollRaf)
   if (jumpScrollTimer) clearTimeout(jumpScrollTimer)
@@ -680,17 +714,21 @@ async function copyText(text: string, key: string) {
         </template>
       </div>
       </template>
-      <details
-        v-if="isAwaitingModelReply(message)"
-        class="reasoning-box live reasoning-pending"
+      <div
+        v-if="message.streaming"
+        class="reasoning-box live activity-status"
         role="status"
         aria-busy="true"
       >
-        <summary class="reasoning-summary">
-          <span class="reasoning-title ai-think-shimmer">{{ t('ai.waitingForModel') }}</span>
+        <div class="activity-line">
+          <span>{{ t(`ai.activity.${activityDisplay(message).phase}`) }}</span>
+          <span class="activity-elapsed">{{ t('ai.activityElapsed', { seconds: activityDisplay(message).elapsedSeconds }) }}</span>
           <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-        </summary>
-      </details>
+        </div>
+        <div v-if="activityDisplay(message).delayed" class="activity-delay">
+          {{ t('ai.activityDelayed', { seconds: activityDisplay(message).quietSeconds }) }}
+        </div>
+      </div>
       </template>
       <AiMessageFooter
         v-if="editingMessageId !== message.id && (message.role === 'user' || !message.streaming)"

@@ -60,7 +60,14 @@ it('routes approvals and aborts by session after recreating the sidebar', async 
   for (const session of sessions) original.getSessionState(session).activeThreadId = 'thread'
   const requests = sessions.map(session => original.sendText(session, 'inspect', () => {}))
   await vi.waitFor(() => expect(finish.size).toBe(2))
+  listeners.get(ids.get('approval-a')!)!({ type: 'model-status', value: 'waiting' })
+  expect(original.getSessionState('approval-a').messages.at(-1)?.activity?.phase).toBe('waiting')
+  listeners.get(ids.get('approval-a')!)!({ type: 'reasoning', value: 'actual reasoning' })
+  expect(original.getSessionState('approval-a').messages.at(-1)?.activity?.phase).toBe('reasoning')
   for (const id of ids.values()) listeners.get(id)!({ type: 'tool', value: { id: 'same-call', name: 'exec', phase: 'ask' } })
+  for (const session of sessions) {
+    expect(original.getSessionState(session).messages.at(-1)?.activity?.phase).toBe('approval')
+  }
   const recreated = useAiChat()
   await recreated.resolveToolApproval('approval-a', 'same-call', true)
   await recreated.resolveToolApproval('approval-b', 'same-call', false)

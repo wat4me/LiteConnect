@@ -136,6 +136,9 @@ const {
   groups,
   activeGroupId,
   searchQuery,
+  searchScope,
+  reorderDisabled,
+  getConnectionGroupName,
   colorTagFilter,
   sortMode,
   importing,
@@ -145,7 +148,6 @@ const {
   connectionCounts,
   activeGroupName,
   filteredConnections,
-  isSearching,
   loadData,
   onSelectGroup,
   onAddGroup,
@@ -294,10 +296,12 @@ defineExpose({ loadData, editConnection: onEditConnection })
         ref="toolbarRef"
         :active-group-name="activeGroupName"
         :search-query="searchQuery"
+        :search-scope="searchScope"
         :batch-testing="batchTesting"
         :filtered-count="filteredCount"
         :importing="importing"
         @update:search-query="searchQuery = $event"
+        @update:search-scope="searchScope = $event"
         @batch-test="onBatchTestGroup"
         @import="handleImport"
         @export="handleExport"
@@ -306,6 +310,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       />
 
       <div class="filter-bar">
+        <div class="color-filter">
         <span class="filter-label">{{ t('connections.colorTag') }}</span>
         <div class="filter-chips">
           <button
@@ -321,13 +326,15 @@ defineExpose({ loadData, editConnection: onEditConnection })
             <span>{{ tag.id ? tag.label : t('connections.all') }}</span>
           </button>
         </div>
+        </div>
         <div class="sort-bar">
-          <span class="filter-label">{{ t('connections.sortLabel') }}</span>
-          <div class="filter-chips">
+          <span class="sort-label">{{ t('connections.sortLabel') }}</span>
+          <div class="sort-options" role="group" :aria-label="t('connections.sortLabel')">
             <button
               type="button"
-              class="tag-filter-chip"
+              class="sort-option"
               :class="{ active: sortMode === 'manual' }"
+              :aria-pressed="sortMode === 'manual'"
               @click="selectSortMode('manual')"
             >
               {{ t('connections.sortManual') }}
@@ -335,8 +342,9 @@ defineExpose({ loadData, editConnection: onEditConnection })
             <button
               v-if="usageStatsEnabled"
               type="button"
-              class="tag-filter-chip"
+              class="sort-option"
               :class="{ active: sortMode === 'recent' }"
+              :aria-pressed="sortMode === 'recent'"
               @click="selectSortMode('recent')"
             >
               {{ t('connections.sortRecent') }}
@@ -344,8 +352,9 @@ defineExpose({ loadData, editConnection: onEditConnection })
             <button
               v-if="usageStatsEnabled"
               type="button"
-              class="tag-filter-chip"
+              class="sort-option"
               :class="{ active: sortMode === 'frequent' }"
+              :aria-pressed="sortMode === 'frequent'"
               @click="selectSortMode('frequent')"
             >
               {{ t('connections.sortFrequent') }}
@@ -362,6 +371,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
         </button>
       </div>
 
+      <p class="list-keyboard-hint">{{ t('connections.searchKeyboardHint') }}</p>
+
       <div
         ref="connectionsListRef"
         class="connections-list"
@@ -373,18 +384,19 @@ defineExpose({ loadData, editConnection: onEditConnection })
           class="connection-row-wrap"
           :data-conn-index="index"
           :class="{
-            'drop-before': !isSearching && !colorTagFilter && dropInsertIndex === index && dragConnId && dragConnId !== conn.id,
+            'drop-before': !reorderDisabled && dropInsertIndex === index && dragConnId && dragConnId !== conn.id,
             'is-dragging-source': dragConnId === conn.id,
             'keyboard-active': listKeyboardIndex === index,
           }"
-          @dragover="!isSearching && !colorTagFilter && onConnRowDragOver($event, index)"
+          @dragover="!reorderDisabled && onConnRowDragOver($event, index)"
           @drop="onConnRowDrop"
           @mouseenter="listKeyboardIndex = index"
         >
           <ConnectionRow
             :connection="conn"
             :test-status="getTestStatus(conn.id)"
-            :reorder-disabled="isSearching || !!colorTagFilter"
+            :reorder-disabled="reorderDisabled"
+            :group-name="searchScope === 'all' ? getConnectionGroupName(conn) : undefined"
             :keyboard-active="listKeyboardIndex === index"
             :show-usage-stats="usageStatsEnabled"
             :connecting="connectingConnectionIds.has(conn.id)"
@@ -400,7 +412,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
           />
         </div>
         <div
-          v-if="filteredConnections.length > 0 && dragConnId && !isSearching && !colorTagFilter"
+          v-if="filteredConnections.length > 0 && dragConnId && !reorderDisabled"
           class="connection-row-wrap drop-tail"
           :class="{ 'drop-before': dropInsertIndex === filteredConnections.length }"
           @dragover="onConnRowDragOver($event, filteredConnections.length)"
@@ -477,16 +489,24 @@ defineExpose({ loadData, editConnection: onEditConnection })
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: var(--bg-primary);
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .filter-label {
   font-size: 12px;
   color: var(--text-secondary);
   margin-right: 2px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.color-filter {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 1 420px;
+  min-width: 0;
 }
 
 .filter-chips {
@@ -505,8 +525,50 @@ defineExpose({ loadData, editConnection: onEditConnection })
   margin-left: auto;
 }
 
-.sort-bar .filter-chips {
-  flex: 0 1 auto;
+.sort-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.sort-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.sort-option {
+  padding: 4px 9px;
+  min-height: 26px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sort-option:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.sort-option.active {
+  background: var(--accent-bg);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  color: var(--text-primary);
+}
+
+.sort-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .tag-filter-chip {
@@ -515,8 +577,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
   gap: 5px;
   padding: 3px 8px;
   border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 11px;
   cursor: pointer;
@@ -528,9 +590,14 @@ defineExpose({ loadData, editConnection: onEditConnection })
 }
 
 .tag-filter-chip.active {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
   background: var(--accent-bg);
-  color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tag-filter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .tag-filter-swatch {
@@ -553,6 +620,17 @@ defineExpose({ loadData, editConnection: onEditConnection })
 .clear-filters:hover {
   text-decoration: underline;
 }
+
+.list-keyboard-hint {
+  flex-shrink: 0;
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  display: none;
+}
+
+.connections-main:has(.search-box:focus-within) .list-keyboard-hint { display: block; }
 
 .connections-list {
   flex: 1;

@@ -88,7 +88,8 @@ function applyCustomColors(colors: CustomColors) {
   root.style.setProperty('--text-secondary', mixColors(fontColor, bgColor, isDark ? 0.4 : 0.45))
   root.style.setProperty('--accent', accent)
   root.style.setProperty('--accent-hover', accentHover)
-  root.style.setProperty('--accent-bg', isDark ? 'rgba(88,166,255,0.1)' : 'rgba(9,105,218,0.08)')
+  // Keep derived highlights linked to the active token, including CSS overrides.
+  root.style.setProperty('--accent-bg', `color-mix(in srgb, var(--accent) ${isDark ? 10 : 8}%, transparent)`)
   root.style.setProperty('--danger', isDark ? '#f85149' : '#cf222e')
   root.style.setProperty('--success', isDark ? '#3fb950' : '#1a7f37')
   root.style.setProperty('--warning', isDark ? '#d29922' : '#9a6700')
@@ -96,7 +97,7 @@ function applyCustomColors(colors: CustomColors) {
   root.style.setProperty('--scrollbar-thumb-hover', mixColors(bgColor, fontColor, isDark ? 0.3 : 0.22))
   root.style.setProperty('--overlay-bg', isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)')
   root.style.setProperty('--hover-bg', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
-  root.style.setProperty('--selection-bg', isDark ? 'rgba(88,166,255,0.3)' : 'rgba(9,105,218,0.2)')
+  root.style.setProperty('--selection-bg', `color-mix(in srgb, var(--accent) ${isDark ? 30 : 20}%, transparent)`)
   root.style.setProperty('--titlebar-bg', bgColor)
   root.style.setProperty('--titlebar-symbol', mixColors(fontColor, bgColor, 0.5))
 

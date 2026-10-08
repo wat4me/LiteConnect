@@ -37,6 +37,73 @@ const emit = defineEmits<{
   (e: 'moveConnection', connectionId: string, groupId: string | null): void
 }>()
 
+const GROUP_PANEL_WIDTH_KEY = 'liteconnect-group-panel-width'
+const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth)
+const maxPanelWidth = computed(() => Math.min(400, Math.max(120, Math.floor(viewportWidth.value * 0.4))))
+const minPanelWidth = computed(() => Math.min(180, maxPanelWidth.value))
+const panelWidth = ref(220)
+const resizing = ref(false)
+let resizePointerId: number | null = null
+let resizeStartX = 0
+let resizeStartWidth = 0
+let resizeHandle: HTMLElement | null = null
+
+function clampPanelWidth(width: number) {
+  return Math.round(Math.max(minPanelWidth.value, Math.min(maxPanelWidth.value, width)))
+}
+function persistPanelWidth() {
+  try { globalThis.localStorage?.setItem(GROUP_PANEL_WIDTH_KEY, String(panelWidth.value)) } catch { /* Resizing still works without storage. */ }
+}
+function updateViewportWidth() {
+  viewportWidth.value = window.innerWidth
+  panelWidth.value = clampPanelWidth(panelWidth.value)
+}
+function movePanelResize(event: PointerEvent) {
+  if (!resizing.value || event.pointerId !== resizePointerId) return
+  panelWidth.value = clampPanelWidth(resizeStartWidth + event.clientX - resizeStartX)
+}
+function stopPanelResize(event?: PointerEvent) {
+  if (event && event.pointerId !== resizePointerId) return
+  const wasResizing = resizing.value
+  resizing.value = false
+  if (resizeHandle && resizePointerId !== null && resizeHandle.hasPointerCapture?.(resizePointerId)) resizeHandle.releasePointerCapture(resizePointerId)
+  resizeHandle = null
+  resizePointerId = null
+  window.removeEventListener('pointermove', movePanelResize)
+  window.removeEventListener('pointerup', stopPanelResize)
+  window.removeEventListener('pointercancel', stopPanelResize)
+  window.removeEventListener('blur', cancelPanelResize)
+  if (wasResizing && event?.type === 'pointerup') persistPanelWidth()
+}
+function cancelPanelResize() { stopPanelResize() }
+function startPanelResize(event: PointerEvent) {
+  if (event.button !== 0 || resizing.value) return
+  event.preventDefault()
+  clearDragUiState()
+  resizing.value = true
+  resizePointerId = event.pointerId
+  resizeStartX = event.clientX
+  resizeStartWidth = panelWidth.value
+  resizeHandle = event.currentTarget as HTMLElement
+  resizeHandle.focus()
+  resizeHandle.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', movePanelResize)
+  window.addEventListener('pointerup', stopPanelResize)
+  window.addEventListener('pointercancel', stopPanelResize)
+  window.addEventListener('blur', cancelPanelResize)
+}
+function resizePanelWithKeyboard(event: KeyboardEvent) {
+  let width = panelWidth.value
+  if (event.key === 'ArrowLeft') width -= event.shiftKey ? 40 : 10
+  else if (event.key === 'ArrowRight') width += event.shiftKey ? 40 : 10
+  else if (event.key === 'Home') width = minPanelWidth.value
+  else if (event.key === 'End') width = maxPanelWidth.value
+  else return
+  event.preventDefault()
+  panelWidth.value = clampPanelWidth(width)
+  persistPanelWidth()
+}
+
 const editingId = ref<string | null>(null)
 const editingName = ref('')
 const dragIndex = ref<number | null>(null)
@@ -156,10 +223,18 @@ useOutsideDismiss(
 
 /** Single cleanup path for local + main-list-originated drags */
 onMounted(() => {
+  try {
+    const stored = Number(globalThis.localStorage?.getItem(GROUP_PANEL_WIDTH_KEY))
+    if (Number.isFinite(stored) && stored > 0) panelWidth.value = stored
+  } catch { /* Use the default width when storage is unavailable. */ }
+  updateViewportWidth()
+  window.addEventListener('resize', updateViewportWidth)
   document.addEventListener('dragend', clearDragUiState, true)
 })
 
 onBeforeUnmount(() => {
+  cancelPanelResize()
+  window.removeEventListener('resize', updateViewportWidth)
   document.removeEventListener('dragend', clearDragUiState, true)
   clearDragUiState()
   closeCtxMenu()
@@ -324,7 +399,23 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 </script>
 
 <template>
-  <div class="group-panel" @contextmenu="onPanelContextMenu">
+  <div class="group-panel" :class="{ resizing }" :style="{ width: `${panelWidth}px` }" @contextmenu="onPanelContextMenu">
+    <div
+      class="group-panel-resizer"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      :aria-label="t('groups.resizePanel')"
+      :title="t('groups.resizePanelHint')"
+      :aria-valuemin="minPanelWidth"
+      :aria-valuemax="maxPanelWidth"
+      :aria-valuenow="panelWidth"
+      @pointerdown.stop="startPanelResize"
+      @lostpointercapture="stopPanelResize"
+      @keydown="resizePanelWithKeyboard"
+      @click.stop
+      @contextmenu.stop.prevent
+    ></div>
     <div class="group-panel-title">{{ t('groups.title') }}</div>
     <div class="group-search">
       <input
@@ -345,6 +436,9 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         >
           <div
             class="group-item"
+            tabindex="0"
+            @keydown.enter.self="emit('select', group.id)"
+            @keydown.space.self.prevent="emit('select', group.id)"
             :class="{
               active: group.id === activeGroupId,
               dragging: dragIndex === getGroupIndex(group.id),
@@ -391,7 +485,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
                 />
               </template>
               <template v-else>
-                <span class="group-name">{{ group.name }}</span>
+                <span class="group-name" :title="group.name">{{ group.name }}</span>
                 <span class="group-count">{{ connectionCounts[group.id] || 0 }}</span>
               </template>
             </div>
@@ -590,8 +684,9 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 <style scoped>
 .group-panel {
-  width: 220px;
-  min-width: 220px;
+  position: relative;
+  min-width: 0;
+  flex-shrink: 0;
   height: 100%;
   min-height: 0;
   display: flex;
@@ -600,6 +695,29 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   border-right: 1px solid var(--border-color);
   user-select: none;
 }
+
+.group-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 7px;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.group-panel-resizer::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+}
+.group-panel-resizer:hover::after,
+.group-panel-resizer:focus-visible::after,
+.group-panel.resizing .group-panel-resizer::after { background: var(--accent); }
+.group-panel-resizer:focus-visible { box-shadow: 0 0 0 2px var(--accent-bg); }
+.group-panel.resizing { cursor: col-resize; }
 
 .group-panel-title {
   padding: 16px 16px 8px;
@@ -748,6 +866,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .default-star {
+  flex-shrink: 0;
   color: var(--warning);
   display: flex;
   align-items: center;
@@ -778,16 +897,26 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .group-actions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  flex-shrink: 0;
-  margin-left: 4px;
-  gap: 1px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 4px;
+  background: linear-gradient(var(--hover-bg), var(--hover-bg)), var(--bg-secondary);
   opacity: 0;
-  transition: opacity 0.15s;
+  pointer-events: none;
+  transition: opacity 0.12s;
 }
 
-.group-item:hover .group-actions {
-  opacity: 1;
+.group-item:hover .group-actions,
+.group-item:focus-within .group-actions { opacity: 1; pointer-events: auto; }
+.group-item.active .group-actions { background: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--bg-secondary); }
+.group-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (hover: none) {
+  .group-item:focus-within .group-actions { opacity: 1; }
 }
 
 .icon-btn-tiny {

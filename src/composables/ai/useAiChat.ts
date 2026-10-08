@@ -25,6 +25,7 @@ import { threadTitleFromMessages } from '@/utils/ai/threadTitle'
 import { getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 import { AI_SESSION_OVERHEAD_BYTES, estimateAiTextBytes } from '@shared/appResourceStats'
 import { registerAiResourceProbe } from '@/composables/app/rendererResourceRegistry'
+import { advanceChatActivity, type AiChatActivity } from '@/utils/ai/chatActivity'
 
 export type ChatItem = {
   id: string
@@ -37,6 +38,7 @@ export type ChatItem = {
   reasoningContent?: string
   usage?: AiUsage
   streaming?: boolean
+  activity?: AiChatActivity
   toolRuns?: AiToolRun[]
   /** True streaming order of reasoning / tool calls / content for display. */
   segments?: AiChatSegment[]
@@ -585,6 +587,7 @@ export function useAiChat() {
 
     const assistantMessage = createMessage('assistant', '', false, { streaming: true })
     assistantMessage.status = 'running'
+    assistantMessage.activity = { phase: 'requesting', phaseStartedAt: Date.now(), lastActivityAt: Date.now() }
     assistantMessage.segments = []
     assistantMessage.toolRuns = []
     state.messages.push(assistantMessage)
@@ -666,6 +669,9 @@ export function useAiChat() {
           if (!current.segments) current.segments = []
           ensureToolSegments(current.segments, runs)
           refreshApprovalPending(sessionId)
+        }
+        if (current.activity) {
+          current.activity = advanceChatActivity(current.activity, payload, Date.now(), current.toolRuns)
         }
       })
 

@@ -865,6 +865,29 @@
   pointer-events: none;
 }
 
+.activity-status {
+  padding: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 20px;
+}
+
+.activity-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-delay {
+  color: var(--warning, var(--text-secondary));
+  overflow-wrap: anywhere;
+}
+
 .reasoning-box > summary::-webkit-details-marker,
 .reasoning-summary::-webkit-details-marker,
 .reasoning-summary::marker {
