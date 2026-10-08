@@ -238,6 +238,7 @@ export default {
     roleAi: 'AI',
     reasoning: '深度思考',
     reasoningLive: '深度思考中',
+    waitingForModel: '等待模型继续回复…',
     thinking: '思考中…',
     sentAt: '发送时间：{time}',
     replyCompletedAt: '回复完成时间：{time}',

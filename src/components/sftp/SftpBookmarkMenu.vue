@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
             >
               <AppIcon name="grip" size="xs" />
             </span>
-            <button type="button" class="bookmark-open" :title="item.path" @click="openBookmark(item)">
+            <button type="button" class="bookmark-open" :title="`${item.name}\n${item.path}`" @click="openBookmark(item)">
               <span class="bookmark-name-line">
                 <span class="bookmark-name">{{ item.name }}</span>
                 <span v-if="section.global" class="bookmark-tag">{{ t('sftp.globalBookmarkTag') }}</span>
@@ -493,12 +493,13 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   padding: 5px 4px 5px 2px;
   border: none;
   background: transparent;
   color: var(--text-primary);
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -506,7 +507,7 @@ onBeforeUnmount(() => {
 .bookmark-name-line {
   display: flex;
   flex: 0 1 auto;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   max-width: 46%;
   min-width: 0;
@@ -514,12 +515,15 @@ onBeforeUnmount(() => {
 
 .bookmark-name,
 .bookmark-path {
+  display: block;
+  line-height: 18px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .bookmark-name {
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
   font-weight: 600;
@@ -533,6 +537,7 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   font-size: 9px;
   font-weight: 700;
+  white-space: nowrap;
   line-height: 16px;
 }
 

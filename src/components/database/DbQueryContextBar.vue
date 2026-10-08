@@ -696,6 +696,7 @@ defineExpose({
 }
 
 .saved-badge-count {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -703,6 +704,8 @@ defineExpose({
   color: #fff;
   border-radius: 10px;
   font-size: 9px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   padding: 0 4px;
   height: 14px;
   min-width: 14px;
@@ -774,10 +777,12 @@ defineExpose({
   justify-content: space-between;
   gap: 8px;
   width: 100%;
+  min-width: 0;
 }
 
 .saved-picker-title-text {
   font-size: 11px;
+  line-height: 18px;
   font-weight: 600;
   color: var(--text-primary);
   flex: 1;
@@ -788,6 +793,7 @@ defineExpose({
 }
 
 .saved-picker-actions {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 2px;

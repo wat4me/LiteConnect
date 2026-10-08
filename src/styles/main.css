@@ -800,7 +800,9 @@ select.ui-input.ui-input-sm,
   border-radius: 4px;
   background: transparent;
   color: var(--text-primary);
+  font-family: inherit;
   font-size: var(--font-ui-sm);
+  line-height: 1.4;
   font-weight: 500;
   text-align: left;
   cursor: pointer;

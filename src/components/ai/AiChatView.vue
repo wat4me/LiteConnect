@@ -12,7 +12,7 @@ import {
   toolRunDefaultOpen,
   type ToolRunSummary,
 } from '@shared/aiToolRunDisplay'
-import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
+import { isAwaitingModelReply, isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { activeTimelineTurnId, collectChatTimelineTurns } from '@/utils/ai/chatTimeline'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { splitToolReason } from '@/utils/ai/toolReason'
@@ -681,13 +681,13 @@ async function copyText(text: string, key: string) {
       </div>
       </template>
       <details
-        v-if="message.streaming && !message.content && !message.reasoningContent"
+        v-if="isAwaitingModelReply(message)"
         class="reasoning-box live reasoning-pending"
         role="status"
         aria-busy="true"
       >
         <summary class="reasoning-summary">
-          <span class="reasoning-title ai-think-shimmer">{{ t('ai.reasoningLive') }}</span>
+          <span class="reasoning-title ai-think-shimmer">{{ t('ai.waitingForModel') }}</span>
           <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
         </summary>
       </details>

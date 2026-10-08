@@ -44,7 +44,7 @@ const dropIndex = ref<number | null>(null)
 const dragConnId = ref<string | null>(null)
 const dropTargetGroupId = ref<string | null>(null)
 const groupSearchQuery = ref('')
-const collapsedGroupIds = ref<Set<string>>(new Set())
+const expandedGroupIds = ref<Set<string>>(new Set())
 const groupListRef = ref<HTMLElement | null>(null)
 const groupDragAutoScroll = createDragAutoScroll()
 
@@ -200,17 +200,17 @@ function matchesConnection(conn: Connection, query: string): boolean {
 }
 
 function isGroupCollapsed(groupId: string): boolean {
-  return !normalizedGroupSearchQuery.value && collapsedGroupIds.value.has(groupId)
+  return !normalizedGroupSearchQuery.value && !expandedGroupIds.value.has(groupId)
 }
 
 function toggleGroupCollapsed(groupId: string) {
-  const next = new Set(collapsedGroupIds.value)
+  const next = new Set(expandedGroupIds.value)
   if (next.has(groupId)) {
     next.delete(groupId)
   } else {
     next.add(groupId)
   }
-  collapsedGroupIds.value = next
+  expandedGroupIds.value = next
 }
 
 function startRename(group: Group) {
@@ -369,7 +369,12 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               >
                 <AppIcon name="grip" size="xs" />
               </span>
-              <button class="collapse-btn" @click.stop="toggleGroupCollapsed(group.id)">
+              <button
+                class="collapse-btn"
+                :aria-expanded="!isGroupCollapsed(group.id)"
+                :aria-label="t(isGroupCollapsed(group.id) ? 'groups.expand' : 'groups.collapse')"
+                @click.stop="toggleGroupCollapsed(group.id)"
+              >
                 <AppIcon :name="isGroupCollapsed(group.id) ? 'chevron-right' : 'chevron-down'" size="xs" />
               </button>
               <span v-if="group.isDefault" class="default-star" :title="t('groups.defaultGroup')">
@@ -715,7 +720,10 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .group-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
+  line-height: 20px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -723,6 +731,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .group-count {
+  flex-shrink: 0;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
@@ -730,6 +739,8 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   background: var(--accent-bg);
   color: var(--accent);
   font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -768,6 +779,8 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-actions {
   display: flex;
+  flex-shrink: 0;
+  margin-left: 4px;
   gap: 1px;
   opacity: 0;
   transition: opacity 0.15s;

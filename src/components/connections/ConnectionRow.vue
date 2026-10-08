@@ -22,7 +22,7 @@ interface TestStatus {
 const props = withDefaults(defineProps<{
   connection: Connection
   testStatus: TestStatus
-  /** When true, hide/disable the drag handle (e.g. while searching) */
+  /** Only group moves are available; the parent list disables reorder drops. */
   reorderDisabled?: boolean
   /** Keyboard focus highlight from parent list */
   keyboardActive?: boolean
@@ -84,6 +84,7 @@ const menuRef = ref<HTMLElement | null>(null)
 const moreBtnRef = ref<HTMLElement | null>(null)
 const rowRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+let dragStartedFromAction = false
 /** Temporary full-row clone used as HTML5 drag image; removed on dragend. */
 let dragGhostEl: HTMLElement | null = null
 /** Cursor point when opened via contextmenu */
@@ -166,8 +167,15 @@ function setRowDragImage(e: DragEvent) {
   })
 }
 
+function onRowPointerDown(e: PointerEvent) {
+  const target = e.target as Element | null
+  dragStartedFromAction = !!target?.closest(
+    '.row-actions, .ui-menu, button, a, input, textarea, select, [contenteditable="true"]',
+  )
+}
+
 function onDragStart(e: DragEvent) {
-  if (props.reorderDisabled) {
+  if (dragStartedFromAction) {
     e.preventDefault()
     return
   }
@@ -304,6 +312,7 @@ function onMenuAction(action: MenuAction) {
   <div
     ref="rowRef"
     class="connection-row"
+    draggable="true"
     :class="{
       dragging: isDragging,
       'menu-open': menuOpen,
@@ -313,17 +322,16 @@ function onMenuAction(action: MenuAction) {
       connecting,
     }"
     :style="{ '--tag-color': tagColor }"
+    @pointerdown="onRowPointerDown"
+    @dragstart="onDragStart"
+    @dragend="onDragEnd"
     @dblclick="onDoubleClick"
     @contextmenu="onContextMenu"
   >
     <div
       class="drag-handle"
-      :class="{ disabled: reorderDisabled }"
-      :draggable="!reorderDisabled"
       :title="reorderDisabled ? t('connections.dragDisabledTitle') : t('connections.dragTitle')"
       :aria-label="reorderDisabled ? t('connections.dragDisabledAria') : t('connections.dragAria')"
-      @dragstart="onDragStart"
-      @dragend="onDragEnd"
       @click.stop
       @dblclick.stop
     >
@@ -512,7 +520,7 @@ function onMenuAction(action: MenuAction) {
   gap: 8px;
   padding: 11px 12px 11px 8px;
   border-radius: 8px;
-  cursor: default;
+  cursor: grab;
   transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   /*
    * Each row is its own rounded card.
@@ -609,12 +617,6 @@ function onMenuAction(action: MenuAction) {
 
 .drag-handle:active {
   cursor: grabbing;
-}
-
-.drag-handle.disabled {
-  cursor: not-allowed;
-  opacity: 0.2 !important;
-  pointer-events: none;
 }
 
 .row-main {

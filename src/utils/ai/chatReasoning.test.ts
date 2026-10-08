@@ -1,5 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import { isLiveReasoningSegment, reasoningLiveSnippet } from './chatReasoning'
+import { isAwaitingModelReply, isLiveReasoningSegment, reasoningLiveSnippet } from './chatReasoning'
+
+describe('isAwaitingModelReply', () => {
+  it('shows waiting before the first text arrives', () => {
+    expect(isAwaitingModelReply({ streaming: true, segments: [] })).toBe(true)
+  })
+
+  it('shows waiting after tools finish even when earlier text exists', () => {
+    expect(isAwaitingModelReply({
+      streaming: true,
+      content: '先查看部署脚本',
+      reasoningContent: '检查脚本内容',
+      segments: [{ kind: 'reasoning' }, { kind: 'content' }, { kind: 'tool' }],
+      toolRuns: [{ status: 'done', content: 'script contents' }],
+    })).toBe(true)
+  })
+
+  it('does not replace running tools or pending approvals with model waiting', () => {
+    for (const status of ['running', 'ask']) {
+      expect(isAwaitingModelReply({
+        streaming: true,
+        segments: [{ kind: 'tool' }],
+        toolRuns: [{ status }],
+      })).toBe(false)
+    }
+  })
+
+  it('hides waiting as reasoning or answer text arrives', () => {
+    for (const kind of ['reasoning', 'content']) {
+      expect(isAwaitingModelReply({
+        streaming: true,
+        segments: [{ kind: 'tool' }, { kind }],
+        toolRuns: [{ status: 'done' }],
+      })).toBe(false)
+    }
+  })
+
+  it('hides waiting after completion or cancellation', () => {
+    expect(isAwaitingModelReply({ streaming: false, segments: [{ kind: 'tool' }] })).toBe(false)
+  })
+})
 
 describe('reasoningLiveSnippet', () => {
   it('returns empty for blank input', () => {
