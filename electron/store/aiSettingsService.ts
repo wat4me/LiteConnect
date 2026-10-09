@@ -26,6 +26,7 @@ export type AiSettingsSnapshot = {
 }
 
 export type AiResolvedSettings = {
+  supportsImages?: boolean
   maxToolRounds: number
   baseUrl: string
   model: string
@@ -142,6 +143,7 @@ export class AiSettingsService {
     }
     const model = settings.activeModel || firstAiModelId(provider.models)
     return {
+      supportsImages: parseAiModels(provider.models).find(item => item.id === model)?.supportsImages === true,
       baseUrl: provider.baseUrl,
       model,
       apiKey: provider.apiKey,

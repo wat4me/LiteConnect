@@ -8,13 +8,13 @@
  */
 export const AI_THREAD_TITLE_MAX = 200
 
-type TitleSourceMessage = { role?: string; content?: string } | null | undefined
+type TitleSourceMessage = { role?: string; content?: string; images?: Array<{ name: string }> } | null | undefined
 
 /** First non-empty user message, flattened to one line and capped for storage. */
 export function threadTitleFromMessages(messages: readonly TitleSourceMessage[]): string {
   for (const message of messages) {
     if (!message || message.role !== 'user') continue
-    const text = String(message.content || '').trim()
+    const text = String(message.content || '').trim() || message.images?.map(image => image.name).join('、') || ''
     if (!text) continue
     return text.replace(/\s+/g, ' ').slice(0, AI_THREAD_TITLE_MAX)
   }

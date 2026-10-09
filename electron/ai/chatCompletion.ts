@@ -1,4 +1,5 @@
 import type { AiResolvedConfig } from '../../shared/types/ai'
+import { assertAiImageCapability } from '../../shared/aiImages'
 import { isContextLengthError, resolveContextWindowTokens } from '../../shared/aiContext'
 import { t } from '../i18n'
 import { extractAiUsage, getAiChatCompletionsUrl, getFirstString, normalizeAiContent, packRequestMessages, readHttpErrorMessage, toApiChatMessages, validateAiMessages } from './providerHttp'
@@ -12,6 +13,7 @@ export async function runAiChatCompletion(
   requiredContext?: string,
 ) {
   const chatMessages = validateAiMessages(messages)
+  assertAiImageCapability(chatMessages, settings.supportsImages)
   if (!settings.apiKey.trim()) {
     throw new Error(t('ai.apiKeyRequired'))
   }

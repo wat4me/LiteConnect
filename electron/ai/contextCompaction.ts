@@ -7,6 +7,7 @@ import {
   projectAiHistoryForContext,
   pruneAiToolResultsForContext,
   selectAiCompactionPlan,
+  normalizeAiCompactionCount,
 } from '../../shared/aiCompaction'
 import {
   DEFAULT_OUTPUT_RESERVE_TOKENS,
@@ -54,6 +55,7 @@ const SUMMARY_SYSTEM_PROMPT = [
 ].join(' ')
 
 type ContextCompactionOptions = {
+  compactionCount?: number
   records: AiHistoryRecord[]
   checkpoint?: AiContextCheckpoint
   settings: AiResolvedConfig
@@ -252,6 +254,7 @@ export async function maybeCompactAiContext(opts: ContextCompactionOptions): Pro
     }
 
     const checkpoint: AiContextCheckpoint = {
+      compactionCount: Math.max(normalizeAiCompactionCount(opts.compactionCount), normalizeAiCompactionCount(opts.checkpoint?.compactionCount), opts.checkpoint ? 1 : 0) + 1,
       version: 1,
       summary,
       throughMessageId: plan.throughMessageId,
@@ -271,6 +274,7 @@ export async function maybeCompactAiContext(opts: ContextCompactionOptions): Pro
       value: {
         phase: 'done', beforeTokens, afterTokens,
         budgetTokens: promptBudget, compactedMessages: plan.coveredMessageCount,
+        compactionCount: checkpoint.compactionCount,
       },
     })
     return { messages: next, checkpoint }

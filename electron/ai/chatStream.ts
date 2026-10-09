@@ -1,4 +1,5 @@
 import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
+import { assertAiImageCapability } from '../../shared/aiImages'
 import { formatAiConversationContextFile } from '../../shared/aiFixedContext'
 import { t } from '../i18n'
 import { runAiChatCompletion } from './chatCompletion'
@@ -137,6 +138,7 @@ export async function runAiChatStream(opts: {
     toolName: string
   }) => void | (() => void)
   contextHistory?: {
+    compactionCount?: number
     records: AiHistoryRecord[]
     checkpoint?: AiContextCheckpoint
     saveCheckpoint: (checkpoint: AiContextCheckpoint) => Promise<void>
@@ -157,6 +159,7 @@ export async function runAiChatStream(opts: {
     throw new Error('Invalid AI request id')
   }
   const chatMessages = validateAiMessages(messages)
+  assertAiImageCapability(chatMessages, settings.supportsImages)
 
   let receivedText = false
   const send = (payload: AiChatStreamPayload) => {
@@ -195,6 +198,7 @@ export async function runAiChatStream(opts: {
   if (opts.contextHistory) {
     try {
       const prepared = await maybeCompactAiContext({
+        compactionCount: opts.contextHistory.compactionCount,
         records: opts.contextHistory.records,
         checkpoint: opts.contextHistory.checkpoint,
         settings,
@@ -218,7 +222,8 @@ export async function runAiChatStream(opts: {
     }
     return packed
   }
-  let packedMessages = packMessages(contextMessages)
+  let packedMessages: AiChatMessage[]
+  try { packedMessages = packMessages(contextMessages) } catch (error) { cleanupStream(); throw error }
 
   const createBody = (includeUsage: boolean, msgs: any[], withTools: boolean) => ({
     model: settings.model,

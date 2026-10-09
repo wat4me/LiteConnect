@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeTimelineTurnId, collectChatTimelineTurns, previewChatTurn } from './chatTimeline'
+import { activeTimelineTurnId, collectChatTimelineTurns, previewChatTurn, overviewChatTimelineTurns } from './chatTimeline'
 
 describe('previewChatTurn', () => {
   it('collapses whitespace and truncates with an ellipsis', () => {
@@ -40,5 +40,26 @@ describe('activeTimelineTurnId', () => {
 
   it('returns empty when there are no turns', () => {
     expect(activeTimelineTurnId([], 0)).toBe('')
+  })
+})
+
+describe('overviewChatTimelineTurns', () => {
+  it('bounds thousands of turns and keeps the start, end and active turn in order', () => {
+    const turns = Array.from({ length: 1000 }, (_, index) => ({ id: `u${index}`, index, preview: `${index}` }))
+    for (const capacity of [3, 4, 12, 100]) {
+      const overview = overviewChatTimelineTurns(turns, 'u478', capacity)
+      expect(overview.length).toBeLessThanOrEqual(Math.min(capacity, 12))
+      expect(overview[0].id).toBe('u0')
+      expect(overview.at(-1)?.id).toBe('u999')
+      expect(overview.some(turn => turn.id === 'u478')).toBe(true)
+      expect(overview.map(turn => turn.index)).toEqual(overview.map(turn => turn.index).sort((a, b) => a - b))
+      expect(new Set(overview.map(turn => turn.id)).size).toBe(overview.length)
+    }
+  })
+  it('preserves short histories and works without an active turn', () => {
+    const turns = collectChatTimelineTurns([{ id: 'u', role: 'user', content: '', images: [{ name: '截图.png' }] }])
+    expect(overviewChatTimelineTurns(turns, '')).toEqual(turns)
+    expect(turns[0].preview).toBe('截图.png')
+    expect(overviewChatTimelineTurns([], '')).toEqual([])
   })
 })

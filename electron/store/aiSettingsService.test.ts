@@ -12,6 +12,15 @@ function createService(stored: Record<string, any>) {
 }
 
 describe('AiSettingsService', () => {
+  it('persists explicit image capability per model and resolves it after a model switch', async () => {
+    const stored: Record<string, any> = {}
+    const { service } = createService(stored)
+    await service.setAiSettings({ providers: [{ id: 'p', name: 'Custom', baseUrl: 'https://example.test/v1', apiKey: '', models: [{ id: 'vision', supportsImages: true }, { id: 'text', supportsImages: false }] }], activeProviderId: 'p', activeModel: 'vision' })
+    expect(service.getAiSettings().providers[0].models[0].supportsImages).toBe(true)
+    expect(service.getAiResolvedConfig().supportsImages).toBe(true)
+    await service.switchAiModel('p', 'text')
+    expect(service.getAiResolvedConfig().supportsImages).toBe(false)
+  })
   it('keeps API keys encrypted at rest and exposes plaintext to the AI runtime', async () => {
     const stored: Record<string, any> = {}
     const { service, save } = createService(stored)

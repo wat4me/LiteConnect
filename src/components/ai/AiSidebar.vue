@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiConversationContextFile, AiSettings, AiToolRun } from '../../env.d.ts'
@@ -12,13 +12,17 @@ import {
 import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
+import AiImageStrip from './AiImageStrip.vue'
+import { prepareAiImage } from '@/utils/ai/imageAttachment'
+import { AI_IMAGES_PER_MESSAGE } from '@shared/aiImages'
+import type { AiImageAttachment } from '@shared/types/ai'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiComposerSelector from './AiComposerSelector.vue'
 import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
 import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConversationUsage } from '@shared/aiContext'
 import { flattenConversationForApi } from '@shared/aiMessages'
-import { projectAiHistoryForContext } from '@shared/aiCompaction'
+import { projectAiHistoryForContext, AI_COMPACTION_NEW_THREAD_AT } from '@shared/aiCompaction'
 import { estimateSidebarAiRequest, sidebarContextFilesFit } from '@shared/aiSidebarPrompt'
 import { isAiMarkdownFilePath } from '@shared/aiFixedContext'
 import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
@@ -120,6 +124,63 @@ watch(contextFiles, (files) => {
   }
 })
 const input = ref('')
+const draftImages = computed(() => getSessionState(props.sessionId).draftImages)
+const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)
+const reminderKey = computed(() => `${props.sessionId}:${getSessionState(props.sessionId).activeThreadId}`)
+const dismissedCompactionCounts = reactive<Record<string, number>>({})
+const showLongSessionReminder = computed(() => messages.value.length > 0 && compactionCount.value >= AI_COMPACTION_NEW_THREAD_AT && compactionCount.value > (dismissedCompactionCounts[reminderKey.value] || 0))
+function continueLongSession() { dismissedCompactionCounts[reminderKey.value] = compactionCount.value }
+const supportsImages = computed(() => activeProvider.value?.models.find(model => model.id === displayModelName.value)?.supportsImages === true)
+const imageInputRef = ref<HTMLInputElement | null>(null)
+const imageBusy = ref(false)
+const imageDragOver = ref(false)
+
+async function addImages(files: File[]) {
+  if (loading.value || imageBusy.value || !files.length) return
+  if (!supportsImages.value) { ElMessage.warning(t('ai.imagesNotEnabled')); return }
+  const sessionId = props.sessionId
+  imageBusy.value = true
+  try {
+    await ensureInitialLoad(false)
+    if (sessionId !== props.sessionId) return
+    const state = getSessionState(sessionId)
+    const threadId = state.activeThreadId
+    if (state.draftImages.length + files.length > AI_IMAGES_PER_MESSAGE) { ElMessage.warning(t('ai.imageCountLimit')); return }
+    const prepared: AiImageAttachment[] = []
+    for (const file of files) prepared.push(await prepareAiImage(file))
+    if (state !== getSessionState(props.sessionId) || state.activeThreadId !== threadId) return
+    for (const image of prepared) if (!state.draftImages.some(existing => existing.id === image.id)) state.draftImages.push(image)
+  } catch (error: any) { ElMessage.warning(error?.message || t('ai.imageReadFailed')) }
+  finally { imageBusy.value = false }
+}
+function onImageSelection(event: Event) {
+  const element = event.target as HTMLInputElement
+  void addImages(Array.from(element.files || []))
+  element.value = ''
+}
+function onImagePaste(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => !!file)
+  if (!files.length) return
+  event.preventDefault()
+  void addImages(files)
+}
+function onImageDragOver(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes('Files')) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = supportsImages.value && !loading.value && !imageBusy.value && !showSettings.value && !showHistory.value ? 'copy' : 'none'
+  imageDragOver.value = !showSettings.value && !showHistory.value
+}
+function onImageDrop(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes('Files')) return
+  event.preventDefault()
+  imageDragOver.value = false
+  if (showSettings.value || showHistory.value) return
+  void addImages(Array.from(event.dataTransfer.files))
+}
+function onImageDragLeave(event: DragEvent) {
+  if (event.relatedTarget instanceof Node && sidebarRef.value?.contains(event.relatedTarget)) return
+  imageDragOver.value = false
+}
 const loading = ref(false)
 watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
 const showSettings = ref(false)
@@ -168,7 +229,9 @@ function resizeComposer() {
   const toolbarHeight = form.querySelector('.composer-actions')?.getBoundingClientRect().height || 30
   const statusHeight = panel.querySelector('.composer-context-warning')?.getBoundingClientRect().height || 0
   const filesHeight = form.querySelector('.composer-context-files')?.getBoundingClientRect().height || 0
-  const chromeHeight = statusHeight + filesHeight + 4 + toolbarHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) + 2
+  const imagesHeight = form.querySelector('.composer-images')?.getBoundingClientRect().height || 0
+  const reminderHeight = form.querySelector('.composer-long-session')?.getBoundingClientRect().height || 0
+  const chromeHeight = statusHeight + filesHeight + imagesHeight + reminderHeight + 4 + toolbarHeight + parseFloat(formStyle.paddingTop) + parseFloat(formStyle.paddingBottom) + parseFloat(formStyle.rowGap) + 2
   const maxHeight = Math.max(lineHeight * 2, Math.min(lineHeight * 8, panel.clientHeight * 0.3 - chromeHeight))
   el.style.height = '0px'
   el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`
@@ -234,7 +297,7 @@ const {
   closeModelSwitcher: () => { showModelSwitcher.value = false },
   closeSettings: () => { showSettings.value = false },
 })
-watch([input, showSettings, showHistory, contextFiles], () => { void nextTick(resizeComposer) })
+watch([input, showSettings, showHistory, contextFiles, showLongSessionReminder, () => draftImages.value.length], () => { void nextTick(resizeComposer) })
 
 const hasApiConfigured = computed(() => {
   const list = settings.value.providers || []
@@ -252,7 +315,7 @@ const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
   contextWindowTokens: activeContextWindowTokens.value,
   contextFiles: contextFiles.value,
 }))
-const canSend = computed(() => input.value.trim().length > 0 && !loading.value && !savingComposer.value && !contextFileBusy.value && !contextFilesTooLong.value)
+const canSend = computed(() => (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !contextFileBusy.value && !contextFilesTooLong.value)
 watch(contextFilesTooLong, () => { void nextTick(resizeComposer) })
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
@@ -481,6 +544,7 @@ watch(
 )
 
 async function ensureInitialLoad(syncUi = true) {
+  const sessionId = props.sessionId
   if (!initialLoadPromise) {
     initialLoadPromise = (async () => {
       try {
@@ -489,20 +553,23 @@ async function ensureInitialLoad(syncUi = true) {
       } catch (err: any) {
         ElMessage.warning(err?.message || t('ai.loadSettingsFailed'))
       }
-      const history = await loadHistory(props.sessionId)
-      const state = getSessionState(props.sessionId)
+      const state = getSessionState(sessionId)
+      // Cached SSH panes may remount. Do not replace their current thread with
+      // the persisted host's active thread (which another SSH pane can change).
+      if (state.loaded) return
+      const history = await loadHistory(sessionId)
       if (state.messages.length === 0 && history.length > 0) {
         state.messages.push(...history)
       }
     })()
   }
   await initialLoadPromise
-  if (syncUi) syncMessages(getSessionState(props.sessionId).messages)
+  if (syncUi && props.sessionId === sessionId) syncFromState()
 }
 
 /**
- * Reopening a closed AI panel starts from an empty draft while keeping prior
- * conversations in History. A running response is never moved mid-stream.
+ * Opening, remounting or switching an SSH pane resumes its current conversation.
+ * Only the explicit New conversation action creates an empty draft.
  */
 async function ensureOpenPrepared() {
   if (openPreparationPromise) {
@@ -511,22 +578,19 @@ async function ensureOpenPrepared() {
   }
 
   const generation = props.openGeneration
-  openPreparationPromise = (async () => {
+  const sessionId = props.sessionId
+  const preparation = (async () => {
     await ensureInitialLoad(false)
-    const state = getSessionState(props.sessionId)
-    if (generation > handledOpenGeneration) {
-      handledOpenGeneration = generation
-      if (!state.loading && state.messages.length > 0) {
-        await startNewConversation(props.sessionId, syncMessages)
-      }
-    }
-    syncMessages(state.messages)
+    if (props.sessionId !== sessionId) return
+    handledOpenGeneration = Math.max(handledOpenGeneration, generation)
+    syncFromState()
   })()
+  openPreparationPromise = preparation
 
   try {
-    await openPreparationPromise
+    await preparation
   } finally {
-    openPreparationPromise = null
+    if (openPreparationPromise === preparation) openPreparationPromise = null
   }
 }
 
@@ -732,12 +796,12 @@ watch(showModelSwitcher, (open) => {
   if (open) void positionModelSwitcher()
 })
 
-async function handleSendText(text: string): Promise<boolean> {
+async function handleSendText(text: string, images?: AiImageAttachment[]): Promise<boolean> {
   const content = text.trim()
-  if (!content || savingComposer.value || contextFilesTooLong.value) return false
+  if ((!content && !images?.length) || savingComposer.value || contextFilesTooLong.value) return false
   loading.value = true
   try {
-    return await sendText(props.sessionId, content, syncMessages)
+    return await sendText(props.sessionId, content, syncMessages, images)
   } finally {
     loading.value = getSessionState(props.sessionId).loading
   }
@@ -746,12 +810,16 @@ async function handleSendText(text: string): Promise<boolean> {
 async function sendMessage() {
   if (!canSend.value) return
   const content = input.value.trim()
+  const state = getSessionState(props.sessionId)
+  const images = state.draftImages.splice(0)
   input.value = ''
   try {
-    const sent = await handleSendText(content)
+    const sent = await handleSendText(content, images)
     if (!sent && !input.value) input.value = content
+    if (!sent) state.draftImages.unshift(...images)
   } catch (err: any) {
     if (!input.value) input.value = content
+    state.draftImages.unshift(...images)
     ElMessage.warning(err?.message || t('ai.requestFailed'))
   }
 }
@@ -881,7 +949,7 @@ async function runCodeToTerminal(code: string) {
 </script>
 
 <template>
-  <div ref="sidebarRef" class="ai-sidebar">
+  <div ref="sidebarRef" class="ai-sidebar" @dragover="onImageDragOver" @dragleave="onImageDragLeave" @drop="onImageDrop">
     <div v-show="!showSettings && !showHistory" class="ai-header">
       <div class="ai-header-title-area">
         <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
@@ -976,7 +1044,15 @@ async function runCodeToTerminal(code: string) {
     </div>
 
     <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area">
-    <form class="composer" @submit.prevent="sendMessage">
+    <form class="composer" :class="{ 'image-drag-over': imageDragOver }" @submit.prevent="sendMessage">
+      <div v-if="showLongSessionReminder" class="composer-long-session" role="status">
+        <p>{{ t('ai.longSessionReminder', { n: compactionCount }) }}</p>
+        <div class="long-session-actions">
+          <button type="button" class="ui-btn ui-btn-xs" :disabled="loading || contextFileBusy || imageBusy" @click="handleNewConversation">{{ t('ai.newConversationTitle') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="continueLongSession">{{ t('ai.continueCurrentConversation') }}</button>
+        </div>
+      </div>
+      <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="onImageSelection" />
       <div class="composer-context-files">
         <div class="composer-context-strip">
           <details ref="contextFileMenuRef" class="composer-context-menu" @toggle="onContextFileMenuToggle">
@@ -996,6 +1072,7 @@ async function runCodeToTerminal(code: string) {
               </div>
             </div>
           </details>
+          <button type="button" class="ui-icon-btn composer-add-image" :disabled="loading || imageBusy || !supportsImages || draftImages.length >= 4" :title="supportsImages ? t('ai.addImageHint') : t('ai.imagesNotEnabled')" :aria-label="t('ai.addImage')" @click="imageInputRef?.click()"><AppIcon name="image" size="sm" /></button>
           <div v-if="contextFiles.length" class="composer-context-chips" role="list" :aria-label="t('ai.contextFileCount', { count: contextFiles.length })">
             <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-context-chip" role="listitem" :class="{ missing: contextFileSourceStatus[contextFileKey(file)] === 'missing', previewing: contextFilePreviewKey === contextFileKey(file) }">
               <button type="button" class="composer-context-chip-main" :aria-expanded="contextFilePreviewKey === contextFileKey(file)" :aria-label="contextFileChipLabel(file)" :title="contextFileTitle(file)" @click="toggleContextFilePreview(file)">
@@ -1017,6 +1094,9 @@ async function runCodeToTerminal(code: string) {
           <pre>{{ previewContextFile.content }}</pre>
         </div>
       </div>
+      <AiImageStrip v-if="draftImages.length" class="composer-images" :images="draftImages" removable :disabled="loading || imageBusy" @remove="draftImages.splice($event, 1)" />
+      <span v-if="imageBusy" class="composer-context-warning" role="status">{{ t('ai.imageProcessing') }}</span>
+      <span v-if="draftImages.length && !supportsImages" class="composer-context-warning danger" role="alert">{{ t('ai.imagesNotEnabled') }}</span>
       <textarea
         ref="composerInputRef"
         v-model="input"
@@ -1026,6 +1106,7 @@ async function runCodeToTerminal(code: string) {
         :placeholder="t('ai.inputPlaceholder')"
         :title="t('ai.inputHint')"
         @keydown="onComposerKeydown"
+        @paste="onImagePaste"
       />
       <div class="composer-actions">
         <div class="composer-actions-right">

@@ -9,7 +9,6 @@ import {
   AI_CONTEXT_FILE_MAX_BYTES,
   getActiveThread,
   normalizeAiContextFile,
-  normalizeSessionStore,
   pruneAllAiHistoryStores,
   readAiSessionStore,
   readAiSessionStoreAndGc,
@@ -29,6 +28,7 @@ import { createStreamPublisher } from '../ai/streamPublisher'
 import { flattenConversationForApi } from '../../shared/aiMessages'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { showAiApprovalNotification } from '../ai/approvalNotification'
+import { hydrateAiImages } from '../ai/imageStore'
 
 export function registerAiHandlers(
   settingsStore: SettingsStore,
@@ -104,7 +104,7 @@ export function registerAiHandlers(
     }
     await ensureSettingsReady()
     const limits = getHistoryLimits()
-    await writeAiSessionStore(historyIdForSession(sessionId), normalizeSessionStore(store, limits), limits)
+    await writeAiSessionStore(historyIdForSession(sessionId), store, limits)
   })
 
   ipcMain.handle('ai:createConversation', async (_event, sessionId: string, payload: any) => {
@@ -248,6 +248,7 @@ export function registerAiHandlers(
           if (!settings.apiKey.trim()) throw new Error(t('ai.apiKeyRequired'))
           const limits = getHistoryLimits()
           const store = await readAiSessionStore(historyId, limits)
+          if (store.activeThreadId !== target.threadId) await hydrateAiImages(historyId, store, target.threadId)
           const thread = store.threads.find(item => item.id === target.threadId)
           const historyMessages = thread
             ? flattenConversationForApi(thread.messages)
@@ -265,6 +266,7 @@ export function registerAiHandlers(
             },
             ...(thread ? {
               contextHistory: {
+                compactionCount: thread.compactionCount,
                 records: thread.messages,
                 checkpoint: thread.contextCheckpoint,
                 saveCheckpoint: (next: AiContextCheckpoint) =>

@@ -14,11 +14,12 @@ import {
 } from '@shared/aiToolRunDisplay'
 import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { chatActivityDisplay } from '@/utils/ai/chatActivity'
-import { activeTimelineTurnId, collectChatTimelineTurns } from '@/utils/ai/chatTimeline'
+import { activeTimelineTurnId, collectChatTimelineTurns, overviewChatTimelineTurns } from '@/utils/ai/chatTimeline'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
+import AiImageStrip from './AiImageStrip.vue'
 
 const props = defineProps<{
   messages: ChatItem[]
@@ -123,6 +124,42 @@ const NEAR_BOTTOM_PX = 48
 const timelineTurns = computed(() => collectChatTimelineTurns(props.messages))
 const showTimeline = computed(() => timelineTurns.value.length > 0 && props.messages.length > 1)
 const activeTurnId = ref('')
+const timelineRef = ref<HTMLElement | null>(null)
+const timelineHovered = ref(false)
+const timelineKeyboardFocus = ref(false)
+const timelineExpanded = computed(() => timelineHovered.value || timelineKeyboardFocus.value)
+const timelineCapacity = ref(12)
+const visibleTimelineTurns = computed(() => timelineExpanded.value ? timelineTurns.value : overviewChatTimelineTurns(timelineTurns.value, activeTurnId.value, timelineCapacity.value))
+let expandedTimelineScroll = 0
+watch(timelineRef, (element, _previous, onCleanup) => {
+  if (!element || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(() => {
+    const style = getComputedStyle(element)
+    const configuredInset = parseFloat(style.getPropertyValue('--ai-composer-overlay-inset'))
+    const inset = Number.isFinite(configuredInset) ? configuredInset : 150
+    const maxHeight = Math.max(48, (element.parentElement?.clientHeight || 0) - 2 * inset + 8)
+    if (Number.isFinite(maxHeight)) timelineCapacity.value = Math.max(3, Math.min(12, Math.floor((maxHeight - 6) / 10)))
+  })
+  observer.observe(element)
+  if (element.parentElement) observer.observe(element.parentElement)
+  onCleanup(() => observer.disconnect())
+})
+function setTimelineHovered(hovered: boolean) {
+  if (!hovered && timelineRef.value) expandedTimelineScroll = timelineRef.value.scrollTop
+  timelineHovered.value = hovered
+}
+function onTimelineFocus(event: FocusEvent) {
+  timelineKeyboardFocus.value = event.target instanceof HTMLElement && event.target.matches(':focus-visible')
+}
+function onTimelineBlur(event: FocusEvent) {
+  if (event.relatedTarget instanceof Node && timelineRef.value?.contains(event.relatedTarget)) return
+  if (timelineRef.value) expandedTimelineScroll = timelineRef.value.scrollTop
+  timelineKeyboardFocus.value = false
+}
+watch(timelineExpanded, async expanded => {
+  await nextTick()
+  if (expanded && timelineRef.value) timelineRef.value.scrollTop = expandedTimelineScroll
+})
 let jumpScrollTimer: ReturnType<typeof setTimeout> | null = null
 
 function captureScroll() {
@@ -172,8 +209,9 @@ function updateActiveTurn() {
     activeTurnId.value = turns[turns.length - 1]?.id || ''
     return
   }
+  const rows = new Map(Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).map(row => [row.dataset.messageId, row]))
   const measured = turns.map((turn) => {
-    const row = el.querySelector(`[data-message-id="${CSS.escape(turn.id)}"]`) as HTMLElement | null
+    const row = rows.get(turn.id)
     return { id: turn.id, top: row ? row.offsetTop : 0 }
   })
   activeTurnId.value = activeTimelineTurnId(measured, el.scrollTop)
@@ -475,7 +513,7 @@ function cancelEdit() {
 
 function confirmEdit(message: ChatItem) {
   const text = editingText.value.trim()
-  if (!text || editSubmitting.value) return
+  if ((!text && !message.images?.length) || editSubmitting.value) return
   editSubmitting.value = true
   emit('edit-resend', message.id, text, (success) => {
     editSubmitting.value = false
@@ -566,6 +604,7 @@ async function copyText(text: string, key: string) {
         :data-role="message.role"
       >
       <div class="message-stack">
+      <AiImageStrip v-if="message.images?.length" :images="message.images" />
       <div v-if="editingMessageId === message.id" class="message-edit-box">
         <textarea
           :ref="setEditInput"
@@ -584,7 +623,7 @@ async function copyText(text: string, key: string) {
           <button
             type="button"
             class="message-edit-btn primary"
-            :disabled="!editingText.trim() || editSubmitting"
+            :disabled="(!editingText.trim() && !message.images?.length) || editSubmitting"
             @click="confirmEdit(message)"
           >
             {{ editSubmitting ? t('common.saving') : t('ai.editResend') }}
@@ -748,17 +787,24 @@ async function copyText(text: string, key: string) {
     </div>
     <nav
       v-if="showTimeline"
+      ref="timelineRef"
       class="chat-timeline"
+      :class="{ expanded: timelineExpanded }"
       :aria-label="t('ai.timelineAria')"
+      @mouseenter="setTimelineHovered(true)"
+      @mouseleave="setTimelineHovered(false)"
+      @focusin="onTimelineFocus"
+      @focusout="onTimelineBlur"
     >
       <button
-        v-for="turn in timelineTurns"
+        v-for="turn in visibleTimelineTurns"
         :key="turn.id"
         type="button"
         class="chat-timeline-item"
         :class="{ active: turn.id === activeTurnId }"
         :aria-current="turn.id === activeTurnId ? 'true' : undefined"
-        :title="t('ai.timelineJump')"
+        :title="t('ai.timelineTurn', { n: turn.index + 1, text: turn.preview })"
+        :aria-label="t('ai.timelineTurn', { n: turn.index + 1, text: turn.preview })"
         @click="jumpToTurn(turn.id)"
       >
         <span class="chat-timeline-dash" aria-hidden="true" />

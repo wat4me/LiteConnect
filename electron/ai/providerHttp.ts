@@ -14,7 +14,7 @@ import {
   normalizeAiHistoryMaxMessages,
   normalizeAiHistoryMaxThreads,
 } from '../../shared/aiHistoryLimits'
-import type { AiChatMessage, AiUsage } from '../../shared/types/ai'
+import type { AiChatMessage, AiUsage, AiDiscoveredModel } from '../../shared/types/ai'
 import { t } from '../i18n'
 
 export type { AiChatMessage }
@@ -49,7 +49,7 @@ export function getAiModelsUrl(baseUrl: string): string {
   return `${normalizeAiBaseUrl(baseUrl).replace(/\/chat\/completions$/, '')}/models`
 }
 
-export async function listAiProviderModels(provider: { baseUrl: string; apiKey: string }): Promise<string[]> {
+export async function listAiProviderModels(provider: { baseUrl: string; apiKey: string }): Promise<AiDiscoveredModel[]> {
   const url = getAiModelsUrl(provider.baseUrl)
   const apiKey = provider.apiKey?.trim()
   if (!apiKey) throw new Error('AI API key is required')
@@ -62,9 +62,16 @@ export async function listAiProviderModels(provider: { baseUrl: string; apiKey: 
     if (!response.ok) throw new Error(`获取模型失败 (HTTP ${response.status})，请检查 API 地址和密钥，或手动添加模型`)
     const body = await response.json()
     if (!Array.isArray(body?.data)) throw new Error('服务未返回兼容的模型列表，请手动添加模型')
-    return [...new Set<string>(body.data.flatMap((item: { id?: unknown }) =>
-      typeof item?.id === 'string' && item.id.trim() ? [item.id.trim()] : [],
-    ))].sort()
+    const models = new Map<string, AiDiscoveredModel>()
+    for (const item of body.data) {
+      if (typeof item?.id !== 'string' || !item.id.trim()) continue
+      const id = item.id.trim()
+      // Only full context fields: max_tokens often denotes output, not context.
+      const raw = [item.context_length, item.context_window, item.max_model_len].find(value => typeof value === 'number' && Number.isFinite(value) && value >= 4096)
+      const contextWindowTokens = clampContextWindowTokens(raw)
+      if (!models.has(id) || contextWindowTokens) models.set(id, contextWindowTokens ? { id, contextWindowTokens } : { id })
+    }
+    return [...models.values()].sort((a, b) => a.id.localeCompare(b.id))
   } catch (error: any) {
     if (error?.name === 'AbortError') throw new Error('获取模型超时，请重试或手动添加模型')
     throw error
@@ -167,14 +174,18 @@ export function packRequestMessages(
   systemMaxTokens?: number,
 ): AiContextMessage[] {
   const systemPrompt = [settings.systemPrompt, extraSystem].filter((s) => s && s.trim()).join('\n\n')
-  return packAiMessages({
+  const packed = packAiMessages({
     systemPrompt,
     systemMaxTokens,
     messages: incoming.filter((m) => m.role !== 'system'),
     model: settings.model,
     budgetTokens,
     contextWindowTokens: settings.contextWindowTokens,
-  }).messages
+  })
+  if (packed.promptTokens > packed.budgetTokens && packed.messages.some(message => message.images?.length)) {
+    throw new Error('图片超出当前模型的上下文预算，请减少图片或调整模型上下文窗口')
+  }
+  return packed.messages
 }
 
 export async function readHttpErrorMessage(response: Response, fallback: string): Promise<string> {

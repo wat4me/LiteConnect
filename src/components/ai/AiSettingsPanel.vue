@@ -5,7 +5,8 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../../env.d.ts'
 import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
 import { DEFAULT_AI_TOOL_PERMISSION, sanitizeAiToolPermission } from '@shared/aiToolPolicy'
-import { firstAiModelId, inferContextWindowTokens, parseAiModels } from '@shared/aiContext'
+import { firstAiModelId, modelContextSource, parseAiModels } from '@shared/aiContext'
+import type { AiDiscoveredModel } from '@shared/types/ai'
 import { normalizeAiToolRounds, MAX_AI_TOOL_ROUNDS } from '@shared/aiToolLimits'
 import {
   MAX_AI_HISTORY_MAX_MESSAGES,
@@ -64,6 +65,7 @@ const saving = ref(false)
 const showApiKey = ref(false)
 const fetchingModels = ref(false)
 const fetchedModels = ref<string[] | null>(null)
+const discoveredModels = ref<AiDiscoveredModel[]>([])
 const modelQuery = ref('')
 const selectedModels = ref<string[]>([])
 const fetchError = ref('')
@@ -81,7 +83,14 @@ async function fetchModels() {
   const apiKey = provider.apiKey
   try {
     const models = await window.LiteConnect.listAiModels({ baseUrl, apiKey })
-    if (editingProvider.value === provider && provider.baseUrl === baseUrl && provider.apiKey === apiKey) fetchedModels.value = models
+    if (editingProvider.value === provider && provider.baseUrl === baseUrl && provider.apiKey === apiKey) {
+      discoveredModels.value = models
+      fetchedModels.value = models.map(model => model.id)
+      for (const model of provider.models) {
+        const match = models.find(item => item.id === model.id.trim())
+        model.contextMetadata = match?.contextWindowTokens ? { modelId: match.id, tokens: match.contextWindowTokens } : undefined
+      }
+    }
   } catch (error: any) {
     if (editingProvider.value === provider) fetchError.value = error?.message || t('ai.fetchModelsFailed')
   } finally { fetchingModels.value = false }
@@ -89,7 +98,10 @@ async function fetchModels() {
 function addSelectedModels() {
   const provider = editingProvider.value
   if (!provider) return
-  for (const id of selectedModels.value) if (!isModelAdded(id)) provider.models.push({ id })
+  for (const id of selectedModels.value) if (!isModelAdded(id)) {
+    const found = discoveredModels.value.find(model => model.id === id)
+    provider.models.push({ id, ...(found?.contextWindowTokens ? { contextMetadata: { modelId: id, tokens: found.contextWindowTokens } } : {}) })
+  }
   selectedModels.value = []
   fetchedModels.value = null
 }
@@ -127,6 +139,12 @@ watch(() => [editingProvider.value?.baseUrl, editingProvider.value?.apiKey], () 
   selectedModels.value = []
   fetchError.value = ''
 })
+
+watch(() => [editingProvider.value?.id, editingProvider.value?.baseUrl], (value, previous) => {
+  if (value[0] === previous[0] && value[1] !== previous[1] && editingProvider.value) {
+    for (const model of editingProvider.value.models) model.contextMetadata = undefined
+  }
+}, { flush: 'sync' })
 
 function generateProviderId(): string {
   return `prov-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -168,7 +186,12 @@ function modelWindowValue(model: AiModel): string {
 }
 
 function modelWindowPlaceholder(model: AiModel): string {
-  return String(inferContextWindowTokens(model.id))
+  return String(modelContextSource({ ...model, contextWindowTokens: undefined }).tokens)
+}
+
+function modelWindowSourceLabel(model: AiModel): string {
+  const context = modelContextSource(model)
+  return t(`ai.contextSource${context.source[0].toUpperCase()}${context.source.slice(1)}`, { tokens: context.tokens })
 }
 
 function setModelWindowValue(model: AiModel, raw: string) {
@@ -309,13 +332,8 @@ defineExpose({ applyExternal })
         </button>
         <div class="provider-item-actions">
           <button v-if="provider.id !== draftSettings.activeProviderId && provider.models.length" type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="setActiveProvider(provider)">{{ t('ai.setActiveProvider') }}</button>
-          <details class="provider-more">
-            <summary :aria-label="t('ai.moreActions')" :title="t('ai.moreActions')"><AppIcon name="more" size="sm" /></summary>
-            <div class="provider-more-menu">
-              <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="editingProviderId = provider.id">{{ t('ai.editProvider') }}</button>
-              <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="deleteProvider(provider.id)">{{ t('common.delete') }}</button>
-            </div>
-          </details>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('ai.editProvider')" :title="t('ai.editProvider')" @click="editingProviderId = provider.id"><AppIcon name="edit" size="sm" /></button>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('common.delete')" :title="t('common.delete')" @click="deleteProvider(provider.id)"><AppIcon name="trash" size="sm" /></button>
         </div>
       </div>
 
@@ -403,15 +421,22 @@ defineExpose({ applyExternal })
       <p class="permission-hint">{{ t('ai.modelContextNote') }}</p>
       <div v-if="!editingProvider.models.length" class="provider-empty">{{ t('ai.noModels') }}</div>
       <details v-for="(model, index) in editingProvider.models" :key="index" class="model-editor" :open="!model.id">
-        <summary><AppIcon name="chevron-right" size="xs" class="details-chevron" /><span>{{ model.displayName || model.id || t('ai.addModel') }}</span><small v-if="index === 0">{{ t('ai.defaultModel') }}</small></summary>
+        <summary>
+          <AppIcon name="chevron-right" size="xs" class="details-chevron" />
+          <span class="model-summary-name" :title="model.displayName || model.id">{{ model.displayName || model.id || t('ai.addModel') }}</span>
+          <small v-if="index === 0">{{ t('ai.defaultModel') }}</small>
+          <span class="model-summary-actions">
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm" :disabled="!model.id.trim() || index === 0" :aria-label="t('ai.setDefaultModel')" :aria-pressed="index === 0" :title="t(index === 0 ? 'ai.defaultModel' : 'ai.setDefaultModel')" @click.stop.prevent="makeDefaultModel(model)"><AppIcon :name="index === 0 ? 'star-fill' : 'star'" size="sm" /></button>
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('ai.deleteModel')" :title="t('ai.deleteModel')" @click.stop.prevent="removeModelFromProvider(editingProvider, index)"><AppIcon name="trash" size="sm" /></button>
+          </span>
+        </summary>
         <div class="model-fields">
           <label class="field-label">{{ t('ai.modelName') }}<input v-model="model.id" class="ui-input ui-input-sm" placeholder="gpt-4o-mini" /></label>
           <label class="field-label">{{ t('ai.modelDisplayName') }}<input v-model="model.displayName" class="ui-input ui-input-sm" :placeholder="model.id" /></label>
+          <label class="model-image-capability"><input v-model="model.supportsImages" type="checkbox" /><span>{{ t('ai.modelSupportsImages') }}</span></label>
+          <p class="permission-hint">{{ t('ai.modelSupportsImagesHint') }}</p>
           <label class="field-label">{{ t('ai.contextWindow') }}<input class="ui-input ui-input-sm" type="number" min="4096" max="4000000" step="1000" :value="modelWindowValue(model)" :placeholder="modelWindowPlaceholder(model)" :title="t('ai.contextWindowHint')" @input="setModelWindowValue(model, ($event.target as HTMLInputElement).value)" /></label>
-          <div class="provider-item-actions">
-            <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :disabled="!model.id.trim() || index === 0" @click="makeDefaultModel(model)">{{ t('ai.setDefaultModel') }}</button>
-            <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="removeModelFromProvider(editingProvider, index)">{{ t('ai.deleteModel') }}</button>
-          </div>
+          <p class="permission-hint context-source">{{ modelWindowSourceLabel(model) }}</p>
         </div>
       </details>
 
@@ -425,6 +450,9 @@ defineExpose({ applyExternal })
 </template>
 
 <style scoped>
+.model-image-capability { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); }
+.model-image-capability input { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+.model-image-capability span { min-width: 0; line-height: 1.4; }
 .settings-box {
   display: flex;
   flex-direction: column;
@@ -495,6 +523,17 @@ defineExpose({ applyExternal })
 
 .provider-models-header {
   margin-top: 16px;
+  gap: 8px;
+}
+
+.provider-models-header > .field-label,
+.provider-models-header .ui-btn {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.provider-models-header > .field-label {
+  white-space: nowrap;
 }
 
 .provider-empty {
@@ -698,11 +737,18 @@ defineExpose({ applyExternal })
 .model-editor summary::-webkit-details-marker, .details-with-icon summary::-webkit-details-marker { display: none; }
 .details-chevron { flex-shrink: 0; transition: transform 0.12s ease; }
 .model-editor[open] > summary .details-chevron, .details-with-icon[open] > summary .details-chevron { transform: rotate(90deg); }
-.model-editor summary small { margin-left: 8px; }
+.model-editor > summary { line-height: 1.4; }
+.model-editor > summary > span { min-width: 0; }
+.model-summary-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-summary-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.model-editor summary small {
+  margin-left: 8px;
+  flex-shrink: 0;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: nowrap;
+}
 .model-fields { display: grid; gap: 10px; padding-top: 12px; }
-.model-fields label { display: grid; gap: 5px; }
+.model-fields > .field-label { display: grid; gap: 5px; }
 .model-fetch-error { font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
-.provider-more { position: relative; }
-.provider-more summary { list-style: none; cursor: pointer; padding: 4px 8px; color: var(--text-secondary); }
-.provider-more-menu { position: absolute; right: 0; top: 100%; z-index: 5; display: grid; padding: 6px; white-space: nowrap; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 16px #0002; }
 </style>

@@ -385,6 +385,13 @@
   font-family: inherit;
 }
 
+.composer.image-drag-over { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.composer-long-session { padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--accent-bg); color: var(--text-secondary); flex-shrink: 0; }
+.composer-long-session p { margin: 0 0 6px; font-size: 12px; line-height: 1.5; }
+.long-session-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.composer-add-image { flex-shrink: 0; }
+.composer-add-image:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .composer-input::placeholder {
   color: var(--text-secondary);
 }

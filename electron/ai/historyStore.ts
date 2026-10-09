@@ -1,4 +1,7 @@
 import { AI_TOOL_DIFF_MAX_CHARS } from '../../shared/aiToolDiff'
+import { normalizeAiImages } from '../../shared/aiImages'
+import { normalizeAiCompactionCount } from '../../shared/aiCompaction'
+import { externalizeAiImages, hydrateAiImages, pruneAiImageFiles } from './imageStore'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { t } from '../i18n'
 import { limitAiMessagesPreservingToolProtocol } from '../../shared/aiMessages'
@@ -34,9 +37,9 @@ export function createThreadId(): string {
 const TITLE_MAX = 200
 
 export function titleFromMessages(messages: AiHistoryRecord[]): string {
-  const firstUser = messages.find((m) => m.role === 'user' && m.content.trim())
+  const firstUser = messages.find((m) => m.role === 'user' && (m.content.trim() || m.images?.length))
   if (!firstUser) return ''
-  return firstUser.content.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
+  return (firstUser.content.trim() || firstUser.images?.map(image => image.name).join('、') || '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
 }
 
 export function createEmptyThread(now = Date.now()): AiConversationThread {
@@ -202,6 +205,7 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     id: typeof record.id === 'string' && record.id ? record.id : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role: record.role,
     content: record.content.slice(0, 200000),
+    ...(record.role === 'user' && record.images?.length ? { images: normalizeAiImages(record.images) } : {}),
     reasoningContent: typeof record.reasoningContent === 'string' ? record.reasoningContent.slice(0, 200000) : undefined,
     usage: extractAiUsage({
       prompt_tokens: record.usage?.promptTokens,
@@ -253,6 +257,7 @@ function normalizeContextCheckpoint(
   return {
     version: 1,
     summary: item.summary.slice(0, 100_000),
+    compactionCount: normalizeAiCompactionCount(item.compactionCount) || 1,
     throughMessageId: item.throughMessageId.slice(0, 256),
     createdAt: typeof item.createdAt === 'number' && Number.isFinite(item.createdAt)
       ? item.createdAt
@@ -291,6 +296,7 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
   const title = customTitle || titleFromMessages(messages) ||
     (typeof raw.title === 'string' ? raw.title.trim().slice(0, TITLE_MAX) : '')
   const contextCheckpoint = normalizeContextCheckpoint(raw.contextCheckpoint, messages)
+  const compactionCount = Math.max(normalizeAiCompactionCount(raw.compactionCount), normalizeAiCompactionCount((raw.contextCheckpoint as AiContextCheckpoint | undefined)?.compactionCount), contextCheckpoint ? 1 : 0)
   const contextFiles = normalizeAiContextFiles(raw.contextFiles)
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : createThreadId(),
@@ -302,6 +308,7 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
     messages,
     ...(contextCheckpoint ? { contextCheckpoint } : {}),
     contextFiles,
+    ...(compactionCount ? { compactionCount } : {}),
   }
 }
 
@@ -540,7 +547,7 @@ export async function readAiSessionStore(
   limits?: Partial<AiHistoryLimits>,
 ): Promise<AiSessionStore> {
   const { store } = await readAiSessionStoreFromDatabase(sessionId, limits)
-  return store
+  return hydrateAiImages(sessionId, store)
 }
 
 const aiStoreWriteChains = new Map<string, Promise<unknown>>()
@@ -564,7 +571,9 @@ async function writeAiSessionStoreUnlocked(
   limits?: Partial<AiHistoryLimits>,
 ): Promise<void> {
   const normalized = normalizeSessionStore(store, limits)
-  getAppDatabase().setSingleton(aiSessionKey(sessionId), normalized)
+  const snapshot = await externalizeAiImages(sessionId, normalized)
+  getAppDatabase().setSingleton(aiSessionKey(sessionId), snapshot)
+  try { await pruneAiImageFiles(sessionId, snapshot) } catch (error) { console.warn('Failed to prune AI image attachments:', error) }
 }
 
 export async function readAiSessionStoreAndGc(
@@ -580,7 +589,7 @@ export async function readAiSessionStoreAndGc(
       (rawMessageCount != null && messageCount < rawMessageCount)) {
       await writeAiSessionStoreUnlocked(sessionId, store, limits)
     }
-    return store
+    return hydrateAiImages(sessionId, store)
   })
 }
 
@@ -589,6 +598,9 @@ export async function writeAiSessionStore(
   store: AiSessionStore,
   limits?: Partial<AiHistoryLimits>,
 ): Promise<void> {
+  for (const thread of store?.threads || []) {
+    for (const message of thread.messages || []) if (message.images !== undefined) normalizeAiImages(message.images)
+  }
   let snapshot: AiSessionStore
   try {
     snapshot = JSON.parse(JSON.stringify(store))
@@ -604,10 +616,10 @@ export async function mutateAiSessionStore(
   limits?: Partial<AiHistoryLimits>,
 ): Promise<AiSessionStore> {
   return runAiStoreTask(sessionId, async () => {
-    const store = await readAiSessionStore(sessionId, limits)
+    const { store } = await readAiSessionStoreFromDatabase(sessionId, limits)
     await mutator(store)
     await writeAiSessionStoreUnlocked(sessionId, store, limits)
-    return store
+    return hydrateAiImages(sessionId, store)
   })
 }
 
@@ -671,6 +683,10 @@ export async function writeAiContextCheckpoint(
     if (!thread) throw new Error('AI conversation no longer exists')
     const normalized = normalizeContextCheckpoint(checkpoint, thread.messages)
     if (!normalized) throw new Error('Invalid or stale AI context checkpoint')
+    const previousCount = normalizeAiCompactionCount(thread.compactionCount)
+    const unchanged = thread.contextCheckpoint?.throughMessageId === normalized.throughMessageId && thread.contextCheckpoint?.summary === normalized.summary
+    normalized.compactionCount = Math.max(normalizeAiCompactionCount(normalized.compactionCount), previousCount + (unchanged ? 0 : 1))
+    thread.compactionCount = normalized.compactionCount
     thread.contextCheckpoint = normalized
     thread.updatedAt = Date.now()
   }, limits)

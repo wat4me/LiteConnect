@@ -57,6 +57,7 @@ describe('maybeCompactAiContext', () => {
     })
     expect(saved).toHaveBeenCalledOnce()
     expect(result.checkpoint?.throughMessageId).toBe('a1')
+    expect(result.checkpoint?.compactionCount).toBe(1)
     expect(result.messages[0].content).toContain('<compacted-summary>')
     expect(events.map(event => event.type === 'compaction' && event.value.phase))
       .toEqual(['start', 'done'])
@@ -84,5 +85,38 @@ describe('maybeCompactAiContext', () => {
     expect(result.checkpoint).toBeUndefined()
     expect(events.at(-1)).toMatchObject({ type: 'compaction', value: { phase: 'failed' } })
     warning.mockRestore()
+  })
+
+  it('counts one successful checkpoint, even when summary generation takes multiple chunks', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '## 关键约定\n- 保留操作结论' } }] })))
+    vi.stubGlobal('fetch', fetcher)
+    const saved = vi.fn(async () => {})
+    const events: AiChatStreamPayload[] = []
+    const history: AiHistoryRecord[] = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(12000), createdAt: i }))
+    const result = await maybeCompactAiContext({ records: history, compactionCount: 2, settings, signal: new AbortController().signal, emit: event => events.push(event), saveCheckpoint: saved })
+    expect(fetcher.mock.calls.length).toBeGreaterThan(1)
+    expect(saved).toHaveBeenCalledOnce()
+    expect(result.checkpoint?.compactionCount).toBe(3)
+    expect(events.at(-1)).toMatchObject({ type: 'compaction', value: { phase: 'done', compactionCount: 3 } })
+  })
+
+  it('does not count tool-output pruning as another conversation summary', async () => {
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    const saved = vi.fn()
+    const events: AiChatStreamPayload[] = []
+    const history: AiHistoryRecord[] = [
+      { id: 'u', role: 'user', content: '查看日志', createdAt: 1 },
+      { id: 'a', role: 'assistant', content: '结果', createdAt: 2, apiMessages: [
+        { role: 'assistant', content: '', toolCalls: [{ id: 't', type: 'function', function: { name: 'exec', arguments: '{}' } }] },
+        { role: 'tool', toolCallId: 't', content: 'x'.repeat(24000) },
+        { role: 'assistant', content: '结果' },
+      ] },
+    ]
+    await maybeCompactAiContext({ records: history, compactionCount: 2, settings, signal: new AbortController().signal, emit: event => events.push(event), saveCheckpoint: saved })
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(saved).not.toHaveBeenCalled()
+    expect(events.at(-1)).toMatchObject({ type: 'compaction', value: { phase: 'done', compactedMessages: 0 } })
+    expect(events.at(-1)).not.toHaveProperty('value.compactionCount')
   })
 })

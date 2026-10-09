@@ -1,4 +1,6 @@
 import type { AiChatMessage, AiFunctionToolCall } from './types/ai'
+import type { AiImageAttachment } from './types/ai'
+import { normalizeAiImages, AI_IMAGES_REQUEST_MAX_BYTES } from './aiImages'
 import { MAX_AI_TOOL_CALLS_PER_ROUND, MAX_AI_TURN_API_MESSAGES } from './aiToolLimits'
 
 export const AI_MESSAGE_CONTENT_MAX = 200_000
@@ -50,8 +52,9 @@ export function normalizeAiChatMessage(raw: unknown): AiChatMessage | null {
   }
 
   if (role === 'user' || role === 'system') {
-    if (!content.trim()) return null
-    return { role, content }
+    const images = role === 'user' ? normalizeAiImages(m.images) : undefined
+    if (!content.trim() && !images?.length) return null
+    return { role, content, ...(images ? { images } : {}) }
   }
 
   const toolCalls = normalizeToolCalls(m.toolCalls ?? m.tool_calls)
@@ -153,6 +156,7 @@ export function limitAiMessagesPreservingToolProtocol(
 export function toApiChatMessages(messages: unknown[], withTools: boolean): unknown[] {
   if (!Array.isArray(messages)) return []
   const out: unknown[] = []
+  let imageBytes = 0
   const validMessages = withTools
     ? sanitizeAiToolProtocol(messages)
     : messages.map(normalizeAiChatMessage).filter((message): message is AiChatMessage => message !== null)
@@ -163,7 +167,16 @@ export function toApiChatMessages(messages: unknown[], withTools: boolean): unkn
       continue
     }
     if (m.role === 'system' || m.role === 'user') {
-      out.push({ role: m.role, content: m.content })
+      if (m.role === 'user' && m.images?.length) {
+        const parts: unknown[] = m.content ? [{ type: 'text', text: m.content }] : []
+        for (const image of m.images) {
+          if (!image.dataUrl || image.missing) throw new Error(`图片 ${image.name} 已丢失，请重新添加图片或开始新会话`)
+          imageBytes += Math.ceil((image.dataUrl.length - image.dataUrl.indexOf(',') - 1) * 3 / 4)
+          if (imageBytes > AI_IMAGES_REQUEST_MAX_BYTES) throw new Error('会话图片总量超过 20 MB，请开始新会话或移除旧图片消息')
+          parts.push({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } })
+        }
+        out.push({ role: m.role, content: parts })
+      } else out.push({ role: m.role, content: m.content })
       continue
     }
     const hadToolCalls = Boolean(m.toolCalls?.length)
@@ -186,6 +199,7 @@ export function flattenConversationForApi(
   items: Array<{
     role: string
     content?: string | null
+    images?: AiImageAttachment[]
     error?: boolean
     status?: 'running' | 'completed' | 'aborted' | 'error'
     streaming?: boolean
@@ -198,8 +212,9 @@ export function flattenConversationForApi(
     if (item.error || item.streaming) continue
     if (item.role === 'user') {
       const content = typeof item.content === 'string' ? item.content : ''
-      if (!content.trim()) continue
-      out.push({ role: 'user', content })
+      const images = normalizeAiImages(item.images)
+      if (!content.trim() && !images?.length) continue
+      out.push({ role: 'user', content, ...(images ? { images } : {}) })
       continue
     }
     if (item.role !== 'assistant') continue

@@ -1,6 +1,7 @@
 import { lookupModelsDevContext } from './modelsDevContext'
 import { sanitizeAiToolProtocol } from './aiMessages'
-import type { AiChatMessage, AiUsage } from './types/ai'
+import { aiImageTokens } from './aiImages'
+import type { AiChatMessage, AiUsage, AiModel } from './types/ai'
 
 export type AiContextRole = AiChatMessage['role']
 export type AiContextMessage = AiChatMessage
@@ -50,6 +51,7 @@ function isCjkCodePoint(code: number): boolean {
 
 export function messageTokens(message: AiContextMessage): number {
   let n = estimateTokens(message.content || '') + estimateTokens(message.reasoningContent || '') + 6
+  n += aiImageTokens(message.images)
   if (message.role === 'tool' && message.toolCallId) n += 4
   for (const call of message.toolCalls || []) {
     n += estimateTokens(call.function?.name || '') + estimateTokens(call.function?.arguments || '') + 8
@@ -59,6 +61,7 @@ export function messageTokens(message: AiContextMessage): number {
 
 function clonePackedMessage(message: AiContextMessage): AiContextMessage {
   const out: AiContextMessage = { role: message.role, content: message.content || '' }
+  if (message.role === 'user' && message.images?.length) out.images = message.images
   if (message.role === 'assistant' && message.reasoningContent?.trim()) {
     out.reasoningContent = message.reasoningContent
   }
@@ -72,7 +75,7 @@ function clonePackedMessage(message: AiContextMessage): AiContextMessage {
 }
 
 function keepableMessage(message: AiContextMessage): boolean {
-  if (message.role === 'user') return Boolean(message.content?.trim())
+  if (message.role === 'user') return Boolean(message.content?.trim() || message.images?.length)
   if (message.role === 'tool') return Boolean(message.toolCallId)
   if (message.role === 'assistant') {
     return Boolean(
@@ -121,13 +124,15 @@ function fitLatestGroup(
       continue
     }
     if (fitted.length === 0 && message.role === 'user') {
-      const cap = Math.min(maxMessageTokens, Math.max(32, room - 6))
+      const imageTokens = aiImageTokens(message.images)
+      const cap = Math.min(maxMessageTokens, Math.max(32, room - 6 - imageTokens))
       let content = message.content || ''
       if (estimateTokens(content) > cap) {
         content = truncateToTokenBudget(content, cap)
         truncatedCount += 1
       }
       const next: AiContextMessage = { role: 'user', content }
+      if (message.images?.length) next.images = message.images
       fitted.push(next)
       used += messageTokens(next)
     }
@@ -211,9 +216,11 @@ export function resolveContextWindowTokens(model?: string, override?: number | n
 }
 
 export type AiModelSpec = {
+  supportsImages?: boolean
   displayName?: string
   id: string
   contextWindowTokens?: number
+  contextMetadata?: AiModel['contextMetadata']
 }
 
 export function parseAiModel(raw: unknown): AiModelSpec | null {
@@ -222,7 +229,7 @@ export function parseAiModel(raw: unknown): AiModelSpec | null {
     return id ? { id } : null
   }
   if (!raw || typeof raw !== 'object') return null
-  const rec = raw as { id?: unknown; displayName?: unknown; name?: unknown; contextWindowTokens?: unknown }
+  const rec = raw as { id?: unknown; displayName?: unknown; name?: unknown; contextWindowTokens?: unknown; supportsImages?: unknown; contextMetadata?: AiModel['contextMetadata'] }
   const id =
     typeof rec.id === 'string' && rec.id.trim()
       ? rec.id.trim()
@@ -233,6 +240,9 @@ export function parseAiModel(raw: unknown): AiModelSpec | null {
   const contextWindowTokens = clampContextWindowTokens(rec.contextWindowTokens)
   const model: AiModelSpec = contextWindowTokens ? { id, contextWindowTokens } : { id }
   if (typeof rec.displayName === 'string' && rec.displayName.trim()) model.displayName = rec.displayName.trim()
+  if (typeof rec.supportsImages === 'boolean') model.supportsImages = rec.supportsImages
+  const metadataTokens = clampContextWindowTokens(rec.contextMetadata?.tokens)
+  if (rec.contextMetadata?.modelId === id && metadataTokens) model.contextMetadata = { modelId: id, tokens: metadataTokens }
   return model
 }
 
@@ -257,7 +267,7 @@ export function aiModelId(raw: unknown): string {
   return parseAiModel(raw)?.id || ''
 }
 
-/** Per-model override, then leftover global fallback, then infer from the name. */
+/** Manual overrides, then provider metadata, catalog, name hint and default budget. */
 export function resolveModelContextWindow(opts: {
   model?: string
   models?: unknown
@@ -265,7 +275,19 @@ export function resolveModelContextWindow(opts: {
 }): number {
   const model = (opts.model || '').trim()
   const found = parseAiModels(opts.models).find((m) => m.id === model)
-  return resolveContextWindowTokens(model, found?.contextWindowTokens ?? opts.fallback)
+  return resolveContextWindowTokens(model, found?.contextWindowTokens ?? opts.fallback ?? found?.contextMetadata?.tokens)
+}
+
+export function modelContextSource(model: AiModel): { tokens: number; source: 'manual' | 'provider' | 'catalog' | 'name' | 'fallback' } {
+  const manual = clampContextWindowTokens(model.contextWindowTokens)
+  if (manual) return { tokens: manual, source: 'manual' }
+  const metadata = model.contextMetadata?.modelId === model.id.trim() ? clampContextWindowTokens(model.contextMetadata.tokens) : undefined
+  if (metadata) return { tokens: metadata, source: 'provider' }
+  const catalog = lookupModelsDevContext(model.id)
+  if (catalog) return { tokens: clampWindow(catalog), source: 'catalog' }
+  const named = inferContextWindowFromName(model.id)
+  if (named) return { tokens: clampWindow(named), source: 'name' }
+  return { tokens: DEFAULT_CONTEXT_WINDOW_TOKENS, source: 'fallback' }
 }
 
 export function isContextLengthError(message?: string | null): boolean {

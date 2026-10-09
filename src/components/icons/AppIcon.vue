@@ -47,6 +47,7 @@ export type AppIconName =
   | 'external-link'
   | 'crosshair'
   | 'file-text'
+  | 'image'
   | 'file-diff'
   | 'ai-chat'
   | 'sync'
@@ -366,6 +367,11 @@ const iconStyle = computed(() => {
       <line x1="12" y1="18" x2="12" y2="22" />
       <line x1="2" y1="12" x2="6" y2="12" />
       <line x1="18" y1="12" x2="22" y2="12" />
+    </template>
+    <template v-else-if="name === 'image'">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
     </template>
     <!-- file-text / snippets -->
     <template v-else-if="name === 'file-text'">

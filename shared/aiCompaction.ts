@@ -13,6 +13,11 @@ import type {
 
 export const AI_COMPACTION_THRESHOLD_RATIO = 0.8
 export const AI_COMPACTION_RETAIN_RATIO = 0.2
+export const AI_COMPACTION_NEW_THREAD_AT = 3
+
+export function normalizeAiCompactionCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1_000_000, Math.floor(value))) : 0
+}
 export const AI_COMPACTION_TOOL_THRESHOLD_CHARS = 8_192
 export const AI_COMPACTION_TOOL_HEAD_CHARS = 4_096
 export const AI_COMPACTION_TOOL_TAIL_CHARS = 1_024
@@ -151,8 +156,10 @@ export function aiHistoryRecordForSummary(
 ): AiChatMessage | null {
   if (record.error || record.status === 'running' || record.status === 'aborted') return null
   if (record.role === 'user') {
-    const content = truncateToTokenBudget(record.content || '', maxTokens)
-    return content.trim() ? { role: 'user', content } : null
+    const imageNote = record.images?.length ? `\n[用户附带图片：${record.images.map(image => image.name).join('、')}；图片将随本条消息提供，请保留识别结论和关键细节。]` : ''
+    const content = truncateToTokenBudget((record.content || '') + imageNote, maxTokens)
+    return content.trim() || record.images?.length
+      ? { role: 'user', content, ...(record.images?.length ? { images: record.images } : {}) } : null
   }
 
   const parts: string[] = []

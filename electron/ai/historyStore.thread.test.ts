@@ -313,4 +313,20 @@ it('persists a valid context checkpoint and invalidates it when covered history 
     'thread',
   )
   expect((await readAiSessionStore('checkpoint-session')).threads[0].contextCheckpoint).toBeUndefined()
+  expect((await readAiSessionStore('checkpoint-session')).threads[0].compactionCount).toBe(1)
+})
+
+it('retains successful compaction count across reload, history pruning and checkpoint invalidation', async () => {
+  await writeAiSessionStore('count-session', { version: 1, activeThreadId: 't', defaultContextFiles: [], threads: [{
+    id: 't', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, role: i % 2 ? 'assistant' as const : 'user' as const, content: `turn ${i}`, createdAt: i })),
+  }] })
+  const checkpoint = { version: 1 as const, summary: 'summary', throughMessageId: 'm1', createdAt: 1, sourceTokens: 100, summaryTokens: 10 }
+  await writeAiContextCheckpoint('count-session', 't', checkpoint)
+  await writeAiContextCheckpoint('count-session', 't', checkpoint)
+  expect((await readAiSessionStore('count-session')).threads[0].compactionCount).toBe(1)
+  for (let i = 2; i <= 3; i++) await writeAiContextCheckpoint('count-session', 't', { ...checkpoint, summary: `summary ${i}`, throughMessageId: `m${i * 2 - 1}`, compactionCount: i })
+  const pruned = await readAiSessionStoreAndGc('count-session', { maxMessages: 20 })
+  expect(pruned.threads[0].contextCheckpoint).toBeUndefined()
+  expect(pruned.threads[0].compactionCount).toBe(3)
+  expect((await readAiSessionStore('count-session')).threads[0].compactionCount).toBe(3)
 })

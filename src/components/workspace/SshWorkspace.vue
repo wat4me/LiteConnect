@@ -192,8 +192,8 @@ watch(
   ([visible, sessionId], [wasVisible]) => {
     if (!visible || !sessionId) return
     rememberWorkspace('ai', sessionId as string)
-    // A closed AI panel starts with a fresh draft the next time it is opened.
-    // Do not increment on SSH tab switches while the panel remains visible.
+    // Track explicit panel opens for context-file status refresh. Opening the
+    // panel resumes the session's current conversation, including after tab switches.
     if (!wasVisible) {
       aiFreshOpenTokens[sessionId as string] = ++aiFreshOpenCounter
     }

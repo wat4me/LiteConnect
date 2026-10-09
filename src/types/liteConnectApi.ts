@@ -7,6 +7,7 @@ import type {
   AiHistoryRecord,
   AiSessionStore,
   AiSettings,
+  AiDiscoveredModel,
 } from '@shared/types/ai'
 import type { AppResourceStats } from '@shared/appResourceStats'
 import type { UpdateStatus } from '@shared/types/app'
@@ -191,7 +192,7 @@ export interface LiteConnectApi {
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
   switchAiModel: (providerId: string, model: string) => Promise<AiSettings>
-  listAiModels: (provider: { baseUrl: string; apiKey: string }) => Promise<string[]>
+  listAiModels: (provider: { baseUrl: string; apiKey: string }) => Promise<AiDiscoveredModel[]>
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string }) => Promise<{ ok: boolean }>
   aiChat: (messages: AiChatMessage[]) => Promise<AiChatResult>
   aiChatStream: (

@@ -26,8 +26,12 @@ import { getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 import { AI_SESSION_OVERHEAD_BYTES, estimateAiTextBytes } from '@shared/appResourceStats'
 import { registerAiResourceProbe } from '@/composables/app/rendererResourceRegistry'
 import { advanceChatActivity, type AiChatActivity } from '@/utils/ai/chatActivity'
+import type { AiImageAttachment } from '@shared/types/ai'
+import { assertAiImageCapability, normalizeAiImages } from '@shared/aiImages'
+import { normalizeAiCompactionCount } from '@shared/aiCompaction'
 
 export type ChatItem = {
+  images?: AiImageAttachment[]
   id: string
   createdAt: number
   completedAt?: number
@@ -47,6 +51,8 @@ export type ChatItem = {
 }
 
 type AiSessionState = {
+  compactionCount: number
+  draftImages: AiImageAttachment[]
   messages: ChatItem[]
   input: string
   loading: boolean
@@ -78,6 +84,8 @@ function getAiSessionState(sessionId: string): AiSessionState {
   let state = aiSessionStates.get(sessionId)
   if (!state) {
     state = reactive({
+      draftImages: [],
+      compactionCount: 0,
       messages: reactive([]) as ChatItem[],
       input: '',
       loading: false,
@@ -101,8 +109,10 @@ export function listAiResourceUsage(): { sessionCount: number; estimatedBytes: n
   for (const state of aiSessionStates.values()) {
     estimatedBytes += AI_SESSION_OVERHEAD_BYTES
     estimatedBytes += estimateAiTextBytes(state.input?.length || 0)
+    estimatedBytes += state.draftImages.reduce((sum, image) => sum + estimateAiTextBytes(image.dataUrl?.length || 0), 0)
     estimatedBytes += estimateAiTextBytes(state.contextFiles.reduce((total, file) => total + file.content.length, 0))
     for (const message of state.messages) {
+      estimatedBytes += (message.images || []).reduce((sum, image) => sum + estimateAiTextBytes(image.dataUrl?.length || 0), 0)
       estimatedBytes += estimateAiTextBytes(
         (message.content?.length || 0) + (message.reasoningContent?.length || 0),
       )
@@ -120,6 +130,7 @@ export function disposeAiSessionState(sessionId: string): void {
   syncAiApprovalPending(sessionId, false)
   closeContextCompressionNotice(sessionId)
   state.input = ''
+  state.draftImages = []
   if (state.loading) {
     state.disposeAfterReply = true
     if (state.activeRequestId) {
@@ -276,6 +287,7 @@ export function useAiChat() {
     if (typeof message.completedAt === 'number' && Number.isFinite(message.completedAt)) {
       record.completedAt = message.completedAt
     }
+    if (message.role === 'user' && message.images?.length) record.images = JSON.parse(JSON.stringify(message.images))
     if (message.reasoningContent != null && message.reasoningContent !== '') {
       record.reasoningContent = String(message.reasoningContent)
     }
@@ -296,6 +308,7 @@ export function useAiChat() {
       id: record.id,
       role: record.role,
       content: record.content || (record.role === 'assistant' && record.status === 'aborted' ? t('ai.stopped') : ''),
+      images: record.images,
       reasoningContent: record.reasoningContent,
       usage: record.usage,
       error: record.error,
@@ -338,7 +351,7 @@ export function useAiChat() {
         return { role: 'tool' as const, content: String(m.content ?? ''), toolCallId: String(m.toolCallId || '') }
       }
       if (m.role === 'user' || m.role === 'system') {
-        return { role: m.role, content: String(m.content ?? '') }
+        return { role: m.role, content: String(m.content ?? ''), ...(m.images?.length ? { images: JSON.parse(JSON.stringify(m.images)) } : {}) }
       }
       const row: AiChatMessage = { role: 'assistant', content: String(m.content ?? '') }
       if (m.reasoningContent) row.reasoningContent = String(m.reasoningContent)
@@ -437,7 +450,14 @@ export function useAiChat() {
     const messages = (thread?.messages || []).map(fromHistoryRecord)
     state.messages.splice(0, state.messages.length, ...messages)
     state.contextCheckpoint = thread?.contextCheckpoint
+    state.compactionCount = normalizeAiCompactionCount(thread?.compactionCount) || normalizeAiCompactionCount(thread?.contextCheckpoint?.compactionCount)
     state.contextFiles = thread?.contextFiles || []
+  }
+
+  async function loadThreadImages(sessionId: string, thread: AiConversationThread): Promise<AiConversationThread> {
+    if (!thread.messages.some(message => message.images?.some(image => !image.dataUrl && !image.missing))) return thread
+    const refreshed = await window.LiteConnect.getAiSessionStore(sessionId)
+    return refreshed.threads.find(item => item.id === thread.id) || thread
   }
 
   async function buildStoreFromState(
@@ -487,6 +507,7 @@ export function useAiChat() {
     active.messages = state.messages
       .filter((m) => !m.streaming)
       .map(toHistoryRecord)
+    if (state.compactionCount) active.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(active.compactionCount))
     if (invalidateContextCheckpoint) delete active.contextCheckpoint
     const localSummary = state.threads.find((t) => t.id === active!.id)
     active.title = active.customTitle || (active.messages.length
@@ -556,12 +577,12 @@ export function useAiChat() {
       state.activeThreadId = active?.id || ''
       const messages = (active?.messages || []).map(fromHistoryRecord)
       state.contextCheckpoint = active?.contextCheckpoint
+      state.compactionCount = normalizeAiCompactionCount(active?.compactionCount) || normalizeAiCompactionCount(active?.contextCheckpoint?.compactionCount)
       state.contextFiles = active?.contextFiles || []
       state.loaded = true
       return messages
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.loadHistoryFailed'))
-      state.loaded = true
       return []
     }
   }
@@ -627,12 +648,14 @@ export function useAiChat() {
               showClose: true,
             }))
           } else if (payload.value.phase === 'done') {
+            if (payload.value.compactionCount) state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(payload.value.compactionCount))
             closeContextCompressionNotice(sessionId)
             const after = Math.max(0, Math.round(((payload.value.afterTokens || 0) / payload.value.budgetTokens) * 100))
             ElMessage.success(t('ai.contextCompressionDone', { before, after }))
             void window.LiteConnect.getAiSessionStore(sessionId).then((store) => {
               const thread = store.threads.find(item => item.id === state.activeThreadId)
               state.contextCheckpoint = thread?.contextCheckpoint
+              state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(thread?.compactionCount))
             }).catch(() => {})
           } else {
             closeContextCompressionNotice(sessionId)
@@ -688,6 +711,7 @@ export function useAiChat() {
         const finalToolRuns = plainToolRuns(reply.toolRuns || current.toolRuns)
         const finalApiMessages = plainApiMessages(reply.apiMessages || current.apiMessages)
         state.contextCheckpoint = reply.contextCheckpoint
+        state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(reply.contextCheckpoint?.compactionCount))
         updateAssistantMessage({
           content: reply.content || current.content || (aborted ? t('ai.stopped') : ''),
           completedAt: reply.completedAt || Date.now(),
@@ -745,11 +769,16 @@ export function useAiChat() {
   async function sendText(
     sessionId: string,
     text: string,
-    onUpdate: (messages: ChatItem[]) => void
+    onUpdate: (messages: ChatItem[]) => void,
+    attachments?: AiImageAttachment[],
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
     const content = text.trim()
-    if (!content) return false
+    const images = normalizeAiImages(attachments)
+    if (!content && !images?.length) return false
+    if (images?.length) {
+      assertAiImageCapability([{ role: 'user', content, images }], activeProvider.value?.models.find(model => model.id === displayModelName.value)?.supportsImages)
+    }
     if (state.loading) {
       ElMessage.warning(t('ai.busy'))
       return false
@@ -771,6 +800,7 @@ export function useAiChat() {
     }
 
     const userMessage = createMessage('user', content)
+    if (images) userMessage.images = JSON.parse(JSON.stringify(images))
     state.messages.push(userMessage)
     onUpdate(state.messages)
     try {
@@ -861,7 +891,7 @@ export function useAiChat() {
     if (index !== lastUserIndex) return false
 
     const content = newText.trim()
-    if (!content) return false
+    if (!content && !state.messages[index].images?.length) return false
 
     const removed = state.messages.slice(index)
     const edited: ChatItem = { ...state.messages[index], content, createdAt: Date.now() }
@@ -996,8 +1026,10 @@ export function useAiChat() {
 
       const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
       state.activeThreadId = active?.id || ''
+      state.draftImages = []
       state.messages.splice(0, state.messages.length)
       state.contextCheckpoint = active?.contextCheckpoint
+      state.compactionCount = normalizeAiCompactionCount(active?.compactionCount)
       state.contextFiles = active?.contextFiles || []
       syncThreadSummaries(state, store)
       onUpdate(state.messages)
@@ -1038,7 +1070,8 @@ export function useAiChat() {
     }
 
     state.activeThreadId = threadId
-    applyThreadMessages(state, target)
+    state.draftImages = []
+    applyThreadMessages(state, await loadThreadImages(sessionId, target))
     syncThreadSummaries(state, store)
     onUpdate(state.messages)
     return true
@@ -1083,8 +1116,9 @@ export function useAiChat() {
     }
 
     const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
+    if (state.activeThreadId !== active.id) state.draftImages = []
     state.activeThreadId = active.id
-    applyThreadMessages(state, active)
+    applyThreadMessages(state, await loadThreadImages(sessionId, active))
     syncThreadSummaries(state, store)
     onUpdate(state.messages)
     return true
@@ -1132,8 +1166,10 @@ export function useAiChat() {
     }
 
     state.activeThreadId = empty.id
+    state.draftImages = []
     state.messages.splice(0, state.messages.length)
     state.contextCheckpoint = undefined
+    state.compactionCount = 0
     state.contextFiles = [...defaultContextFiles]
     syncThreadSummaries(state, store)
     onUpdate(state.messages)

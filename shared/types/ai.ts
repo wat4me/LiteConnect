@@ -4,8 +4,17 @@ export type { AiToolPermissionMode, AiToolRisk, AiToolRunStatus }
 
 export interface AiModel {
   id: string
+  /** Explicit capability override for custom models / compatible gateways. */
+  supportsImages?: boolean
   displayName?: string
-  /** Full context window in tokens. Unset / 0 = models.dev default, else 300000. */
+  /** Manual full context window override. Unset / 0 = automatic discovery. */
+  contextWindowTokens?: number
+  /** Cached provider metadata, kept separate from the user's override. */
+  contextMetadata?: { modelId: string; tokens: number }
+}
+
+export interface AiDiscoveredModel {
+  id: string
   contextWindowTokens?: number
 }
 
@@ -39,6 +48,7 @@ export interface AiSettings {
 }
 
 export interface AiResolvedConfig {
+  supportsImages?: boolean
   maxToolRounds?: number
   baseUrl: string
   model: string
@@ -63,6 +73,7 @@ export interface AiFunctionToolCall {
 export interface AiChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
+  images?: AiImageAttachment[]
   /** Assistant CoT. Sent as `reasoning_content` when the request includes tools. */
   reasoningContent?: string
   toolCalls?: AiFunctionToolCall[]
@@ -129,6 +140,7 @@ export interface AiHistoryRecord {
   id: string
   role: 'user' | 'assistant'
   content: string
+  images?: AiImageAttachment[]
   reasoningContent?: string
   usage?: AiUsage
   error?: boolean
@@ -143,8 +155,20 @@ export interface AiHistoryRecord {
   apiMessages?: AiChatMessage[]
 }
 
+/** Local content-addressed attachment; dataUrl exists only in memory / IPC. */
+export interface AiImageAttachment {
+  id: string
+  name: string
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
+  width: number
+  height: number
+  dataUrl?: string
+  missing?: boolean
+}
+
 /** Model-facing replacement for an older, still-retained span of one thread. */
 export interface AiContextCheckpoint {
+  compactionCount?: number
   version: 1
   /** Structured rolling summary. It is never rendered as a chat message. */
   summary: string
@@ -165,6 +189,8 @@ export interface AiConversationContextFile {
 }
 
 export interface AiConversationThread {
+  /** Lifetime successful summary count, retained even if a checkpoint is invalidated. */
+  compactionCount?: number
   id: string
   /** Display title, derived from the first user message unless customTitle is set. */
   title: string
@@ -211,6 +237,7 @@ export type AiChatStreamPayload =
         afterTokens?: number
         budgetTokens: number
         compactedMessages?: number
+        compactionCount?: number
       }
     }
   | {
