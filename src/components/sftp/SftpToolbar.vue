@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
+import ToolbarDropdown from '../common/ToolbarDropdown.vue'
 
 const props = defineProps<{
   activeTransfers: number
@@ -24,6 +26,16 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const moreItems = computed(() => [
+  { id: 'collapse-tree', label: t('sftp.collapseOtherDirectories'), title: t('sftp.collapseToCurrent'), icon: 'list-collapse' as const },
+  { id: 'upload-folder', label: t('sftp.uploadFolderAction'), title: t('sftp.uploadFolder'), icon: 'folder-up' as const },
+  { id: 'directory-sync', label: t('sftp.directorySync'), disabled: props.locked, icon: 'file-diff' as const },
+])
+function onMoreAction(id: string) {
+  if (id === 'collapse-tree') emit('collapse-tree')
+  else if (id === 'upload-folder') emit('upload-folder')
+  else if (id === 'directory-sync') emit('directory-sync')
+}
 </script>
 
 <template>
@@ -44,14 +56,6 @@ const { t } = useI18n()
     >
       <AppIcon name="refresh" size="md" />
     </button>
-    <button
-      type="button"
-      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
-      :title="t('sftp.collapseToCurrent')"
-      @click="emit('collapse-tree')"
-    >
-      <AppIcon name="list-collapse" size="md" />
-    </button>
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.searchFiles')" @click="emit('search')">
       <AppIcon name="search" size="md" />
     </button>
@@ -64,17 +68,6 @@ const { t } = useI18n()
     >
       <AppIcon name="transfer" size="md" />
       <span v-if="activeTransfers > 0" class="transfer-action-badge">{{ activeTransfers > 99 ? '99+' : activeTransfers }}</span>
-    </button>
-    <button
-      type="button"
-      class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
-      :title="t('sftp.uploadFolder')"
-      @click="emit('upload-folder')"
-    >
-      <AppIcon name="folder-up" size="md" />
-    </button>
-    <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.directorySync')" :disabled="locked" @click="emit('directory-sync')">
-      <AppIcon name="folder-sync" size="md" />
     </button>
     <div class="navigation-actions-spacer"></div>
     <div
@@ -89,13 +82,17 @@ const { t } = useI18n()
       type="button"
       class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
       :class="{ active: followTerminalPath }"
-      :title="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
+      :title="(followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')) + (terminalLabel ? '\n' + t('sftp.boundTerminalDetail', { terminal: terminalTarget }) : '')"
       :aria-label="followTerminalPath ? t('sftp.followOn') : t('sftp.followOff')"
       :aria-pressed="followTerminalPath"
       @click="emit('toggle-follow')"
     >
       <AppIcon name="folder-sync" size="md" />
     </button>
+    <ToolbarDropdown
+      class="sftp-toolbar-more" :label="t('sftp.moreActions')" :items="moreItems"
+      icon-only align="right" menu-class="sftp-toolbar-menu" @select="onMoreAction"
+    />
     <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('sftp.closeSidebar')" @click="emit('close')">
       <AppIcon name="close" size="sm" />
     </button>
@@ -136,6 +133,14 @@ const { t } = useI18n()
 .sftp-binding span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@container (max-width: 339px) {
+  .sftp-binding { display: none; }
+}
+
+.sftp-toolbar-more :deep(.sftp-toolbar-menu) {
+  width: 240px;
 }
 
 .transfer-action {

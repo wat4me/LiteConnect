@@ -6,6 +6,7 @@ import InlineLabel from '../../src/components/common/InlineLabel.vue'
 import AiChatView from '../../src/components/ai/AiChatView.vue'
 import FileEditorModal from '../../src/components/sftp/FileEditorModal.vue'
 import DirectorySyncModal from '../../src/components/sftp/DirectorySyncModal.vue'
+import SftpToolbar from '../../src/components/sftp/SftpToolbar.vue'
 import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
 import type { ChatItem } from '../../src/composables/ai/useAiChat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
@@ -21,7 +22,7 @@ let connections: Connection[] = [
   { id: 'two', name: '服务器二 Server two', group: 'prod', host: 'prod.example.test', port: 22, username: 'tester', password: '', createdAt: 2, updatedAt: 2 },
 ]
 const initialData = { groups, connections }
-const calls = { connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[] }
+const calls = { connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[] }
 let remoteContent = 'original content'
 let remoteRevision = 'a'.repeat(64)
 let previewFails = false
@@ -99,6 +100,13 @@ onMounted(() => {
       await nextTick()
     },
     async finishAi() { aiMessages.value = aiMessages.value.map(message => ({ ...message, streaming: false })); await nextTick() },
+    async aiTimeline() {
+      aiMessages.value = Array.from({ length: 35 }, (_, i) => [
+        { id: `timeline-user-${i}`, role: 'user' as const, content: `第 ${i + 1} 次部署问题`, createdAt: i * 2 },
+        { id: `timeline-reply-${i}`, role: 'assistant' as const, content: '这里是部署检查结果。', createdAt: i * 2 + 1 },
+      ]).flat()
+      await nextTick()
+    },
     async longAiReply() {
       const now = Date.now()
       aiMessages.value = [{
@@ -142,6 +150,10 @@ onMounted(() => {
         @close="bookmarksOpen = false" @rename-bookmark="renameBookmark"
       />
     </section>
+    <section class="sftp-toolbar-fixture">
+      <SftpToolbar :active-transfers="3" :follow-terminal-path="true" terminal-label="很长的终端名称 Terminal one" terminal-target="Server / Terminal one"
+        @collapse-tree="calls.sftpActions.push('collapse-tree')" @upload-folder="calls.sftpActions.push('upload-folder')" @directory-sync="calls.sftpActions.push('directory-sync')" />
+    </section>
     <section class="label-fixture">
       <InlineLabel text="很长的中文与英文数据库名称 Production database"><span class="fixture-count">123456</span></InlineLabel>
     </section>
@@ -158,6 +170,7 @@ onMounted(() => {
 .regression-root { padding: 12px; height: 100%; overflow: auto; }
 .connection-fixture { display: flex; width: min(1050px, 100%); height: 520px; }
 .file-sidebar { position: relative; width: 320px; height: 240px; margin-top: 16px; }
+.sftp-toolbar-fixture { container-type: inline-size; width: 320px; padding: 6px; margin-top: 12px; height: 160px; background: var(--bg-secondary); }
 .label-fixture { display: flex; width: 220px; font-size: 12px; }
 .fixture-count { font-size: 10px; }
 .ai-fixture { display: flex; width: 440px; height: 280px; margin-top: 12px; }

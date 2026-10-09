@@ -114,18 +114,28 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: 4px 2px;
+  scrollbar-width: none;
   border-radius: 10px;
   transform: translateY(-50%);
   user-select: none;
 }
 
-.chat-timeline:hover {
+.chat-timeline::-webkit-scrollbar {
+  width: 0;
+}
+
+.chat-timeline:is(:hover, :has(:focus-visible)) {
   width: 168px;
   max-width: calc(100% - 12px);
   padding: 4px;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  scrollbar-width: thin;
+}
+
+.chat-timeline:is(:hover, :has(:focus-visible))::-webkit-scrollbar {
+  width: 6px;
 }
 
 .chat-timeline-item {
@@ -174,7 +184,7 @@
   color: var(--text-primary);
 }
 
-.chat-timeline:hover .chat-timeline-item-preview {
+.chat-timeline:is(:hover, :has(:focus-visible)) .chat-timeline-item-preview {
   display: block;
 }
 

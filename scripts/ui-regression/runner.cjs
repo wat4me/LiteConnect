@@ -201,6 +201,32 @@ app.whenReady().then(async () => {
   await run('document.querySelector(".group-item").click()')
   await waitFor('document.querySelector(".search-scope").dataset.value === "group"')
 
+  for (const width of [280, 320, 360, 600]) {
+    await run(`(() => {const fixture=document.querySelector('.sftp-toolbar-fixture');fixture.style.width='${width}px';fixture.scrollIntoView({block:'center'})})()`)
+    const bounds = await run(`(() => {
+      const toolbar=document.querySelector('.sftp-toolbar-fixture .navigation-actions');const box=toolbar.getBoundingClientRect();
+      const controls=Array.from(toolbar.querySelectorAll('button')).filter(button=>getComputedStyle(button).display!=='none');
+      return {count:controls.length,inside:controls.every(button=>{const r=button.getBoundingClientRect();return r.left>=box.left-1 && r.right<=box.right+1}),
+        binding:getComputedStyle(toolbar.querySelector('.sftp-binding')).display};
+    })()`)
+    assert.ok(bounds.inside && bounds.count === 7, `SFTP toolbar fits at ${width}: ${JSON.stringify(bounds)}`)
+    assert.equal(bounds.binding === 'none', width < 340, 'Binding badge yields space on narrow panes')
+    await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
+    await waitFor('document.querySelector(".sftp-toolbar-menu")')
+    assert.equal(await run('document.querySelectorAll(".sftp-toolbar-menu button").length'), 3, 'Secondary SFTP actions remain available')
+    assert.equal(await run(`(() => {const menu=document.querySelector('.sftp-toolbar-menu').getBoundingClientRect();const pane=document.querySelector('.sftp-toolbar-fixture').getBoundingClientRect();return menu.left>=pane.left-1 && menu.right<=pane.right+1})()`), true, 'Overflow menu fits within the pane')
+    if (width === 280) await saveScreenshot('sftp-toolbar-narrow.png')
+    await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
+  }
+  for (const action of ['collapse-tree', 'upload-folder', 'directory-sync']) {
+    await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
+    await waitFor('document.querySelector(".sftp-toolbar-menu")')
+    await run(`document.querySelector('.sftp-toolbar-menu [data-value="${action}"]').click()`)
+    await waitFor('!document.querySelector(".sftp-toolbar-menu")')
+  }
+  assert.deepEqual(await run('window.__uiRegression.calls.sftpActions'), ['collapse-tree', 'upload-folder', 'directory-sync'], 'Overflow actions dispatch their original events')
+  await run('document.querySelector(".regression-root").scrollTop=0')
+
   await run('window.__uiRegression.openBookmarks()')
   await waitFor('document.querySelector(".bookmark-menu.ready")')
   await run('document.querySelector(".bookmark-more").click()')
@@ -265,6 +291,25 @@ app.whenReady().then(async () => {
   await waitFor('document.querySelector(".activity-line")?.textContent.includes("正在请求模型")')
   assert.equal(await run('document.querySelector(".ai-fixture .chat-list").scrollTop'), 0, 'Activity changes respect manual scrollback')
   await run('window.__uiRegression.finishAi()')
+
+  await run('window.__uiRegression.aiTimeline()')
+  await waitFor('document.querySelectorAll(".chat-timeline-item").length === 35')
+  await run('document.querySelector(".ai-fixture").scrollIntoView({block:"center"})')
+  window.webContents.debugger.attach('1.3')
+  await window.webContents.debugger.sendCommand('DOM.enable')
+  await window.webContents.debugger.sendCommand('CSS.enable')
+  const documentNode = await window.webContents.debugger.sendCommand('DOM.getDocument')
+  const timelineNode = await window.webContents.debugger.sendCommand('DOM.querySelector', {nodeId:documentNode.root.nodeId, selector:'.chat-timeline'})
+  await window.webContents.debugger.sendCommand('CSS.forcePseudoState', {nodeId:timelineNode.nodeId, forcedPseudoClasses:['hover']})
+  const expandedTimeline = await run(`(() => {const rail=document.querySelector('.chat-timeline');rail.scrollTop=80;return {width:rail.getBoundingClientRect().width,scroll:getComputedStyle(rail).scrollbarWidth,overflow:rail.scrollHeight>rail.clientHeight}})()`)
+  assert.ok(expandedTimeline.width > 100 && expandedTimeline.scroll === 'thin' && expandedTimeline.overflow, 'Expanded timeline can scroll through many turns')
+  await saveScreenshot('ai-timeline-expanded.png')
+  await window.webContents.debugger.sendCommand('CSS.forcePseudoState', {nodeId:timelineNode.nodeId, forcedPseudoClasses:[]})
+  const collapsedTimeline = await run(`(() => {const rail=document.querySelector('.chat-timeline');return {width:rail.getBoundingClientRect().width,scroll:getComputedStyle(rail).scrollbarWidth,webkit:getComputedStyle(rail,'::-webkit-scrollbar').width,position:rail.scrollTop}})()`)
+  assert.ok(collapsedTimeline.width <= 17 && collapsedTimeline.scroll === 'none' && collapsedTimeline.webkit === '0px' && Math.abs(collapsedTimeline.position - 80) < 1, `Collapsed timeline hides its scrollbar while preserving position: ${JSON.stringify(collapsedTimeline)}`)
+  await saveScreenshot('ai-timeline-collapsed.png')
+  window.webContents.debugger.detach()
+  await run('document.querySelector(".regression-root").scrollTop=0')
 
   await run('window.__uiRegression.openEditor()')
   await waitFor('document.querySelector(".editor-textarea")?.value === "original content"')

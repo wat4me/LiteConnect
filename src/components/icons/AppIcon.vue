@@ -47,6 +47,7 @@ export type AppIconName =
   | 'external-link'
   | 'crosshair'
   | 'file-text'
+  | 'file-diff'
   | 'ai-chat'
   | 'sync'
   | 'transfer'
@@ -292,6 +293,12 @@ const iconStyle = computed(() => {
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
       <rect x="14" y="14" width="7" height="7" rx="1" />
+    </template>
+    <!-- File differences: a document with added and removed lines. -->
+    <template v-else-if="name === 'file-diff'">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <path d="M9 13h6m-3-3v6m-3 3h6" />
     </template>
     <!-- folder -->
     <template v-else-if="name === 'folder'">

@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { nextTick, ref, useId } from 'vue'
-import AppIcon from '../icons/AppIcon.vue'
+import AppIcon, { type AppIconName } from '../icons/AppIcon.vue'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const props = withDefaults(defineProps<{
   label: string
   ariaLabel?: string
   modelValue?: string
-  items: { id: string; label: string; title?: string; disabled?: boolean }[]
+  items: { id: string; label: string; title?: string; disabled?: boolean; icon?: AppIconName }[]
   align?: 'left' | 'right'
   triggerClass?: string
   menuClass?: string
+  iconOnly?: boolean
 }>(), { align: 'left' })
 const emit = defineEmits<{ (e: 'select', id: string): void }>()
 const menuId = useId()
@@ -73,12 +74,16 @@ useOutsideDismiss(open, async () => {
 <template>
   <div ref="rootRef" class="toolbar-dropdown" :data-value="modelValue">
     <button
-      ref="triggerRef" type="button" class="ui-btn dropdown-trigger" :class="triggerClass"
+      ref="triggerRef" type="button" class="dropdown-trigger" :class="[triggerClass, iconOnly ? 'ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm icon-only' : 'ui-btn']"
+      :title="ariaLabel ?? label"
       :aria-label="ariaLabel ?? label" aria-haspopup="menu" :aria-expanded="open" :aria-controls="open ? menuId : undefined"
       @click="toggle" @keydown.down.stop.prevent="show()" @keydown.up.stop.prevent="show(true)"
     >
-      <span class="dropdown-label">{{ label }}</span>
-      <AppIcon name="chevron-down" size="xs" />
+      <AppIcon v-if="iconOnly" name="more" size="md" />
+      <template v-else>
+        <span class="dropdown-label">{{ label }}</span>
+        <AppIcon name="chevron-down" size="xs" />
+      </template>
     </button>
     <div
       v-if="open" :id="menuId" ref="menuRef" class="ui-menu ui-menu-anchored dropdown-menu"
@@ -88,11 +93,14 @@ useOutsideDismiss(open, async () => {
       <button
         v-for="item in items" :key="item.id" type="button" class="ui-menu-item dropdown-item"
         :class="{ selected: modelValue === item.id }" :data-value="item.id" :disabled="item.disabled"
-        :title="item.title" :role="modelValue === undefined ? 'menuitem' : 'menuitemradio'"
+        :title="item.title ?? item.label" :role="modelValue === undefined ? 'menuitem' : 'menuitemradio'"
         :aria-checked="modelValue === undefined ? undefined : modelValue === item.id" tabindex="-1"
         @click="select(item.id)"
       >
-        <span class="dropdown-label">{{ item.label }}</span>
+        <span class="dropdown-item-label">
+          <AppIcon v-if="item.icon" :name="item.icon" size="sm" />
+          <span class="dropdown-label">{{ item.label }}</span>
+        </span>
         <span v-if="modelValue !== undefined" class="dropdown-check">
           <AppIcon v-if="modelValue === item.id" name="check" size="sm" />
         </span>
@@ -104,10 +112,12 @@ useOutsideDismiss(open, async () => {
 <style scoped>
 .toolbar-dropdown { position: relative; flex-shrink: 0; min-width: 0; }
 .dropdown-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; font-weight: 500; }
+.dropdown-trigger.icon-only { width: var(--icon-btn-sm); padding: 0; justify-content: center; }
 .dropdown-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropdown-menu { top: calc(100% + 6px); left: 0; min-width: max(170px, 100%); max-width: calc(100vw - 32px); }
 .dropdown-menu.align-right { left: auto; right: 0; }
 .dropdown-item { justify-content: space-between; }
+.dropdown-item-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .dropdown-item.selected { background: var(--accent-bg); color: var(--text-primary); }
 .dropdown-check { display: inline-flex; width: var(--icon-sm); flex-shrink: 0; color: var(--accent); }
 .dropdown-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
