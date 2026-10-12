@@ -628,6 +628,7 @@ watch(
 }
 
 .sidebar-panel {
+  min-width: 0;
   flex-shrink: 0;
   overflow: hidden;
   transition: opacity 0.15s ease;

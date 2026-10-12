@@ -550,6 +550,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 <style scoped>
 .sftp-explorer {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -560,6 +561,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 
 .sftp-dir-tree {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 4px 0 8px;
@@ -577,8 +579,9 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   cursor: pointer;
   user-select: none;
   position: relative;
-  width: max-content;
-  min-width: 100%;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
 }
 
 .tree-row:hover {
@@ -686,14 +689,17 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .tree-name {
+  flex: 1;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: inherit;
 }
 
 .tree-spin {
+  flex-shrink: 0;
   margin-left: auto;
   width: 12px;
   height: 12px;
@@ -716,6 +722,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .tree-quick-actions {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 2px;

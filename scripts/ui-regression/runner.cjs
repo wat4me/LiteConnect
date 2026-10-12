@@ -207,6 +207,22 @@ app.whenReady().then(async () => {
   await waitFor('document.querySelector(".search-scope").dataset.value === "group"')
 
   for (const width of [280, 320, 360, 600]) {
+    for (const name of ['config.log', '协同管理软件_安装日志_Production_'.repeat(12) + '.log']) {
+      await run(`window.__uiRegression.setTreeName(${JSON.stringify(name)})`)
+      const treeBounds = await run(`(() => {
+        const pane=document.querySelector('.sftp-tree-fixture');pane.style.width='${width}px';
+        const tree=pane.querySelector('.sftp-dir-tree'),row=tree.querySelector('.tree-row');
+        const label=row.querySelector('.tree-name'),actions=row.querySelector('.tree-quick-actions');
+        const box=tree.getBoundingClientRect();
+        return {width:pane.getBoundingClientRect().width,overflow:tree.scrollWidth>tree.clientWidth,
+          actionsInside:actions.getBoundingClientRect().right<=box.right+1,
+          truncated:label.scrollWidth>label.clientWidth,ellipsis:getComputedStyle(label).textOverflow,title:row.title};
+      })()`)
+      assert.equal(treeBounds.width, width, 'File names do not change the requested SFTP width')
+      assert.ok(!treeBounds.overflow && treeBounds.actionsInside, `SFTP tree fits at ${width}: ${JSON.stringify(treeBounds)}`)
+      assert.equal(treeBounds.title, '/' + name, 'The full path remains available on hover')
+      if (name.length > 100) assert.ok(treeBounds.truncated && treeBounds.ellipsis === 'ellipsis', 'Long file names truncate within the row')
+    }
     await run(`(() => {const fixture=document.querySelector('.sftp-toolbar-fixture');fixture.style.width='${width}px';fixture.scrollIntoView({block:'center'})})()`)
     const bounds = await run(`(() => {
       const toolbar=document.querySelector('.sftp-toolbar-fixture .navigation-actions');const box=toolbar.getBoundingClientRect();

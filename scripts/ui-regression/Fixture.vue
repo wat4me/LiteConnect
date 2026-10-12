@@ -13,11 +13,12 @@ import type { AiSessionStore, AiSettings } from '../../shared/types/ai'
 import FileEditorModal from '../../src/components/sftp/FileEditorModal.vue'
 import DirectorySyncModal from '../../src/components/sftp/DirectorySyncModal.vue'
 import SftpToolbar from '../../src/components/sftp/SftpToolbar.vue'
+import SftpDirTree from '../../src/components/sftp/SftpDirTree.vue'
 import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
 import type { ChatItem } from '../../src/composables/ai/useAiChat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
-import type { SftpPathBookmark } from '../../shared/types/sftp'
+import type { FileEntry, SftpPathBookmark } from '../../shared/types/sftp'
 
 const groups: Group[] = [
   { id: 'dev', name: '默认分组', order: 0, isDefault: true },
@@ -100,6 +101,9 @@ const renameText = ref('重命名后的服务器日志 Production logs ' + '很�
 const bookmarks = ref<SftpPathBookmark[]>([
   { id: 'bookmark-one', name: 'logs', path: '/var/log/application', scope: 'connection', connectionId: 'one', order: 0, createdAt: 1, updatedAt: 1 },
   { id: 'bookmark-two', name: '服务器日志', path: '/var/log/global', scope: 'global', order: 0, createdAt: 1, updatedAt: 1 },
+])
+const treeEntries = ref<FileEntry[]>([
+  { name: 'config.log', path: '/config.log', isDirectory: false, isSymlink: false, size: 5500, modifyTime: 1, permissions: 'rw-r--r--' },
 ])
 function renameBookmark(item: SftpPathBookmark) {
   bookmarks.value = bookmarks.value.map(bookmark => bookmark.id === item.id ? { ...bookmark, name: renameText.value } : bookmark)
@@ -188,6 +192,10 @@ onMounted(() => {
       document.querySelector<HTMLElement>('.file-sidebar')!.style.width = `${width}px`
       await nextTick()
     },
+    async setTreeName(name: string) {
+      treeEntries.value = [{ ...treeEntries.value[0], name, path: '/' + name }]
+      await nextTick()
+    },
   }
 })
 </script>
@@ -210,6 +218,9 @@ onMounted(() => {
       <SftpToolbar :active-transfers="3" :follow-terminal-path="true" terminal-label="很长的终端名称 Terminal one" terminal-target="Server / Terminal one"
         @collapse-tree="calls.sftpActions.push('collapse-tree')" @upload-folder="calls.sftpActions.push('upload-folder')" @directory-sync="calls.sftpActions.push('directory-sync')" />
     </section>
+    <section class="sftp-tree-fixture">
+      <SftpDirTree current-path="/" :entries-of="path => path === '/' ? treeEntries : []" :is-expanded="() => false" :is-loading="() => false" :can-edit="() => true" />
+    </section>
     <section class="label-fixture">
       <InlineLabel text="很长的中文与英文数据库名称 Production database"><span class="fixture-count">123456</span></InlineLabel>
     </section>
@@ -229,6 +240,7 @@ onMounted(() => {
 .connection-fixture { display: flex; width: min(1050px, 100%); height: 520px; }
 .file-sidebar { position: relative; width: 320px; height: 240px; margin-top: 16px; }
 .sftp-toolbar-fixture { container-type: inline-size; width: 320px; padding: 6px; margin-top: 12px; height: 160px; background: var(--bg-secondary); }
+.sftp-tree-fixture { display: flex; width: 360px; height: 160px; margin-top: 12px; }
 .label-fixture { display: flex; width: 220px; font-size: 12px; }
 .fixture-count { font-size: 10px; }
 .ai-fixture { display: flex; width: 440px; height: 280px; margin-top: 12px; }
