@@ -66,7 +66,7 @@ export function useSftpFileActions(deps: {
     const sessionId = deps.sessionId()
     const batchId = `dl-batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     const transferIds: string[] = []
-    for (const entry of files) {
+    for (let i = 0; i < files.length; i++) {
       transferIds.push(`dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
     }
     beginTransferBatch({

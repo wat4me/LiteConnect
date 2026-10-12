@@ -100,7 +100,6 @@ const {
   togglePathInput,
   refresh,
   recoverAfterReconnect,
-  resolvePath,
   cleanRemotePath,
 } = useSftpNavigation(() => props.sessionId, pwdTracker)
 
@@ -168,7 +167,6 @@ async function runExclusive(fn: () => Promise<void>): Promise<void> {
 const dirTree = useSftpDirTree(() => props.sessionId)
 
 const {
-  transfers,
   activeTransfers,
   downloadTransfers,
   uploadTransfers,
@@ -177,7 +175,6 @@ const {
   clearFinishedTransfers,
   resumeTransfer,
   getSpeed,
-  formatSize,
 } = useTransfers(() => props.sessionId)
 
 const visibleTransfers = computed(() => {
@@ -683,7 +680,7 @@ async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
   return false
 }
 
-async function handleTerminalCd(command: string): Promise<void> {
+async function handleTerminalCd(_command: string): Promise<void> {
     if (!sftpReady.value) return
     const trackedPwd = pwdTracker.getPwd(props.sessionId)
     if (!trackedPwd) return

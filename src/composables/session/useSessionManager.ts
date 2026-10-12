@@ -1,4 +1,4 @@
-import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Connection } from '../../env.d'
 import { t } from '../../i18n'

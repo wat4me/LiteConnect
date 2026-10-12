@@ -49,6 +49,6 @@ export function appendDockerLogEntries(
   return { entries, totalChars, droppedCount }
 }
 
-export function clearDockerLogRingBuffer(buf: DockerLogRingBuffer): DockerLogRingBuffer {
+export function clearDockerLogRingBuffer(_buf: DockerLogRingBuffer): DockerLogRingBuffer {
   return { entries: [], totalChars: 0, droppedCount: 0 }
 }

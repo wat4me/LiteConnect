@@ -39,7 +39,6 @@ export function getSessionPaneStyle(sessionId: string, state: SplitPaneLayoutSta
   const primaryIsLeft = isVertical && side === 'right'
   const primaryIsRight = isVertical && side === 'left'
   const primaryIsTop = !isVertical && side === 'bottom'
-  const primaryIsBottom = !isVertical && side === 'top'
 
   if (sessionId === state.primarySessionId) {
     if (primaryIsLeft) {

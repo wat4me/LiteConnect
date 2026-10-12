@@ -74,7 +74,7 @@ LiteConnect/
 
 ## 开发
 
-建议使用 Node.js 18 或更高版本及 npm 9 或更高版本。
+建议使用 Node.js 22（与 CI 保持一致）及 npm 9 或更高版本。主进程的数据存储使用 `node:sqlite`，不支持 Node.js 18。
 
 安装依赖：
 

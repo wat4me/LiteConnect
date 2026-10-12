@@ -113,8 +113,6 @@ function getPermissionBits(mode: string): { r: boolean; w: boolean; x: boolean }
 function toggleBit(pos: number, bit: 'r' | 'w' | 'x') {
   const padded = chmodMode.value.padStart(3, '0')
   const chars = padded.split('')
-  const bitMap = { r: 0, w: 1, x: 2 }
-  const idx = pos * 3 + bitMap[bit]
   const current = chars[pos] || '0'
   let n = parseInt(current, 10)
   const mask = bit === 'r' ? 4 : bit === 'w' ? 2 : 1

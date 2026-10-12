@@ -135,13 +135,6 @@ function onDbPickerKeydown(e: KeyboardEvent) {
   }
 }
 
-function toggleReadOnly() {
-  if (props.inTransaction && !props.readOnly) {
-    // turning on RO while in tx blocked by parent; still emit attempt
-  }
-  emit('update:readOnly', !props.readOnly)
-}
-
 const renamingQueryId = ref<string | null>(null)
 const renameDraft = ref('')
 

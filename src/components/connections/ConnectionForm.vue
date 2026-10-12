@@ -579,18 +579,6 @@ async function applySavedCredential() {
   ElMessage.success(t('connectionForm.credentialFilled'))
 }
 
-async function saveCurrentCredential() {
-  if (!form.value.username.trim()) {
-    ElMessage.warning(t('connectionForm.needUsername'))
-    return
-  }
-  if (!form.value.password) {
-    ElMessage.warning(t('connectionForm.needPassword'))
-    return
-  }
-  await createSavedCredential(form.value.username.trim(), form.value.password)
-}
-
 async function createSavedCredential(defaultUsername = '', defaultPassword = '') {
   try {
     const nameValue = await appPrompt({
@@ -628,18 +616,6 @@ async function createSavedCredential(defaultUsername = '', defaultPassword = '')
     emit('credential-saved')
     ElMessage.success(t('connectionForm.credentialSaved'))
   } catch {}
-}
-
-async function deleteSelectedCredential() {
-  if (!selectedCredentialId.value) return
-  await window.LiteConnect.deleteSavedCredential(selectedCredentialId.value)
-  selectedCredentialId.value = ''
-  await refreshSavedCredentials()
-  ElMessage.success(t('connectionForm.credentialDeleted'))
-}
-
-async function toggleCredentialAutoFill() {
-  await window.LiteConnect.setCredentialAutoFillEnabled(credentialAutoFillEnabled.value)
 }
 </script>
 

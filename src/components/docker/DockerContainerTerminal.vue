@@ -53,7 +53,6 @@ const {
   execErrorCode,
   shell,
   exitCode,
-  live,
   activate,
   deactivate,
   retry,

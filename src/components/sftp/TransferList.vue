@@ -7,7 +7,7 @@ import AppIcon from '../icons/AppIcon.vue'
 
 const { t } = useI18n()
 
-const props = defineProps<{
+defineProps<{
   transfers: [string, TransferItem][]
   direction: 'download' | 'upload'
   emptyText: string

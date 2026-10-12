@@ -12,8 +12,6 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)
-
 /** Capture mode: the next keydown with a modifier becomes the new accelerator. */
 const capturing = ref(false)
 /** Briefly flag a combo that Electron cannot register (no modifier). */

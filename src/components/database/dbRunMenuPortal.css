@@ -1,7 +1,7 @@
 /**
  * Teleported run-scope menu styles (body portal).
  * Owned by the active action rail (DbQueryActionRail); import from that
- * component so styles load even when legacy DbQueryActionBar is unmounted.
+ * component so the portal receives its styles outside the component tree.
  * Do not duplicate these rules in component SFCs.
  */
 

@@ -18,7 +18,7 @@ import type {
 
 export type DockerDetailTab = 'overview' | 'logs' | 'terminal' | 'inspect'
 
-const props = defineProps<{
+defineProps<{
   container: DockerContainerSummary
   sessionId: string
   sshDisconnected: boolean

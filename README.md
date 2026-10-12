@@ -8,7 +8,7 @@
 
 LiteConnect 是一个面向开发者和运维人员的多协议连接管理客户端。集成 SSH 终端、SFTP、服务器监控、Docker 管理、MySQL / PostgreSQL / Oracle 数据库工具、带 SSH 工具调用的 AI 助手，以及可选的本机 MCP 服务，适合日常运维与开发联调。
 
-当前版本：**1.0.0** · [GPL-3.0 License](LICENSE) · 完整开源
+当前版本：**1.0.6** · [GPL-3.0 License](LICENSE) · 完整开源
 
 - [AI 助手](#ai-助手)：围绕当前 SSH 主机提问、调用工具、审批操作并保存对话。
 - [MCP 接入](#mcp让外部-ai-客户端使用-ssh-工具)：把 SSH 工具提供给本机外部 AI 客户端。
@@ -266,6 +266,11 @@ MCP 操作现有 SSH 管理器中的会话，不提供 Docker socket 或数据�
 | `*.pre-sqlite-v1.bak` | 从旧版本升级后保留的只读 JSON/JSONL 迁移备份 |
 
 连接密码、私钥和数据库密码在系统加密服务可用时加密保存；加密能力取决于操作系统环境。
+
+## 功能指南
+
+- [AI 会话：图片输入、上下文压缩与后台任务](docs/AI.md)
+- [SSH：连接、重连与同步输入](docs/SSH.md)
 
 ## 开发与贡献
 

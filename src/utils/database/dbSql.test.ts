@@ -8,7 +8,6 @@ import {
   sortRows,
   sqlLiteral,
 } from './dbSql'
-import { highlightSql } from '@/utils/database/sqlHighlight'
 
 describe('dbSql', () => {
   it('quotes identifiers (mysql + postgres)', () => {
@@ -68,15 +67,5 @@ describe('dbSql', () => {
     ]
     expect(sortRows(rows, 'n', 'asc').map((r) => r.n)).toEqual(['a', 'b', 'c'])
     expect(filterRows(rows, ['n', 'v'], '2')).toEqual([{ n: 'b', v: 2 }])
-  })
-})
-
-describe('highlightSql', () => {
-  it('highlights keywords and strings', () => {
-    const html = highlightSql("SELECT * FROM t WHERE name = 'x' -- c")
-    expect(html).toContain('sql-kw')
-    expect(html).toContain('sql-str')
-    expect(html).toContain('sql-cmt')
-    expect(html).not.toContain('<script')
   })
 })

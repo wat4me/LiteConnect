@@ -1,7 +1,7 @@
 import type { BashFlatCommand, BashParseResult } from './bashParse'
 import { stripQuotes } from './bashParse'
 import { MCP_MAX_COMMAND_CHARS } from './limits'
-import type { CommandClass, CommandClassification, CommandUncertainty } from './types'
+import type { CommandClass, CommandClassification } from './types'
 
 const CLASS_RANK: Record<CommandClass, number> = {
   'read-only': 0,

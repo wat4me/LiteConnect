@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { formatCreated, formatInspectTime, formatPortChip } from './dockerUiHelpers'
 import type { DockerContainerInspectResult, DockerContainerSummary } from '../../env.d'
 
-const props = defineProps<{
+defineProps<{
   container: DockerContainerSummary
   inspectResult: DockerContainerInspectResult | null
   inspectLoading: boolean

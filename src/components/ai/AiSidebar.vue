@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
 
 watch(
   () => props.sessionId,
-  async (newId, oldId) => {
+  async (_newId, oldId) => {
     if (oldId) saveSessionInput(oldId, input.value)
     syncFromState()
     initialLoadPromise = null
