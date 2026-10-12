@@ -20,6 +20,7 @@ const { t } = useI18n()
 
 const emit = defineEmits<{
   (e: 'connect', connectionId: string): void
+  (e: 'cancel-connect', connectionId: string): void
   (e: 'connection-saved', connection: Connection): void
   (e: 'open-settings', tab?: 'network'): void
 }>()
@@ -31,6 +32,7 @@ const props = withDefaults(defineProps<{
   } | null
   initialDataPending?: boolean
   connectingConnectionIds?: Set<string>
+  connectionStages?: Record<string, import('@shared/sshConnectionProgress').SshConnectionStage>
 }>(), {
   initialData: null,
   initialDataPending: false,
@@ -281,6 +283,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       :connection-counts="connectionCounts"
       :connections="connections"
       :connecting-connection-ids="connectingConnectionIds"
+      @cancel-connect="emit('cancel-connect', $event)"
       @select="onSelectGroup"
       @add="onAddGroup"
       @rename="onRenameGroup"
@@ -400,6 +403,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
             :keyboard-active="listKeyboardIndex === index"
             :show-usage-stats="usageStatsEnabled"
             :connecting="connectingConnectionIds.has(conn.id)"
+            :connection-stage="connectionStages?.[conn.id]"
+            @cancel-connect="emit('cancel-connect', $event)"
             @connect="onConnectFromRow"
             @test="onTestConnection"
             @edit="onEditConnection"

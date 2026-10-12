@@ -7,6 +7,7 @@ import type { KnownHostsStore } from './trust/knownHosts'
 import type { Connection, SSHCallbacks } from './types'
 import type { resolveSshKeepalive } from './keepalive'
 import { autoAnswerKeyboardPrompts } from './keyboardInteractive'
+import { SSH_AUTH_PROMPT_TIMEOUT_MS, SSH_HANDSHAKE_TIMEOUT_MS } from '../../shared/sshConnectionProgress'
 
 type Keepalive = ReturnType<typeof resolveSshKeepalive>
 type RejectHostKey = (info: HostKeyRejectInfo) => void
@@ -18,6 +19,27 @@ export function attachKeyboardInteractive(
   sessionId: string,
   callbacks: SSHCallbacks,
 ) {
+  let closed = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const clear = () => { clearTimeout(timer); timer = undefined }
+  const expire = (message: string) => {
+    if (closed) return
+    closed = true
+    clear()
+    sshClient.emit('error', new Error(message))
+    sshClient.destroy()
+  }
+  const arm = (ms = SSH_HANDSHAKE_TIMEOUT_MS) => {
+    clear()
+    timer = setTimeout(() => expire(ms === SSH_AUTH_PROMPT_TIMEOUT_MS
+      ? 'Authentication prompt timed out' : 'Timed out while waiting for handshake'), ms)
+  }
+  const done = () => { closed = true; clear(); callbacks.signal?.removeEventListener('abort', done) }
+  callbacks.signal?.addEventListener('abort', done, { once: true })
+  sshClient.once('ready', done)
+  sshClient.once('close', done)
+  sshClient.once('error', done)
+  sshClient.on('handshake', () => { if (!closed) callbacks.onProgress?.('authenticating') })
   sshClient.on('keyboard-interactive', (
     name: string,
     instructions: string,
@@ -38,19 +60,26 @@ export function attachKeyboardInteractive(
       finish(list.map(() => ''))
       return
     }
+    if (closed) return
+    callbacks.onProgress?.('keyboard')
+    arm(SSH_AUTH_PROMPT_TIMEOUT_MS)
     void callbacks.onKeyboardInteractive({
       requestId: uuidv4(), sessionId,
       name: String(name || ''),
       instructions: String(instructions || ''),
       prompts: list, role,
     }).then((answers) => {
+      if (closed) return
       if (!answers || answers.length === 0) {
-        finish(list.map(() => ''))
+        expire('Authentication cancelled')
         return
       }
+      arm()
+      callbacks.onProgress?.('authenticating')
       finish(list.map((_, i) => String(answers[i] ?? '')))
-    }).catch(() => finish(list.map(() => '')))
+    }).catch(() => { if (!closed) expire('Authentication cancelled') })
   })
+  return { start: () => { if (!closed) arm() } }
 }
 
 export function targetConnectConfig(
@@ -68,7 +97,8 @@ export function targetConnectConfig(
       privateKey: connection.privateKey,
       useAgent: connection.useAgent,
     }),
-    readyTimeout: 20000,
+    // The explicit deadline pauses for user input; ssh2's readyTimeout does not.
+    readyTimeout: 0,
     ...keepalive,
     hostVerifier: createHostVerifier(
       knownHosts, connection.host, connection.port || 22, 'target', onHostKeyReject,
@@ -93,7 +123,7 @@ export function jumpConnectConfig(
       privateKey: connection.jumpPrivateKey ?? connection.privateKey,
       useAgent: connection.useAgent,
     }),
-    readyTimeout: 20000,
+    readyTimeout: 0,
     ...keepalive,
     hostVerifier: createHostVerifier(knownHosts, jumpHost, jumpPort, 'jump', onHostKeyReject),
   }

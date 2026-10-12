@@ -5,10 +5,12 @@ import type { Terminal } from '@xterm/xterm'
 import {
   clearAutoReconnectAttempts,
   noteAutoReconnectAttempt,
+  autoReconnectDelayMs,
 } from '@/composables/session/useAutoReconnectBudget'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
+import { isSshConnectionCancelled } from '@shared/sshConnectionProgress'
 
 export function useTerminalReconnect(deps: {
   sessionId: () => string
@@ -78,7 +80,7 @@ export function useTerminalReconnect(deps: {
 
   function markReconnectedInPlace() {
     clearAutoReconnectTimer()
-    clearAutoReconnectAttempts(deps.connectionId())
+    clearAutoReconnectAttempts(deps.connectionId(), deps.sessionId())
     disconnected.value = false
     neverConnected.value = false
     disconnectDetail.value = ''
@@ -105,6 +107,7 @@ export function useTerminalReconnect(deps: {
       nonRetryable?: boolean
     }>).detail
     if (!detail || detail.sessionId !== deps.sessionId() || !disconnected.value) return
+    if (isSshConnectionCancelled(detail.message)) { cancelAutoReconnect(); return }
     if (isSshHostKeyConfirmationRequired(detail.message)) {
       clearAutoReconnectTimer()
       reconnecting.value = false
@@ -133,7 +136,7 @@ export function useTerminalReconnect(deps: {
 
   function handleReconnect() {
     clearAutoReconnectTimer()
-    clearAutoReconnectAttempts(deps.connectionId())
+    clearAutoReconnectAttempts(deps.connectionId(), deps.sessionId())
     userDismissedAutoReconnect = false
     autoReconnectExhausted.value = false
     reconnectAttempt.value = 0
@@ -159,6 +162,7 @@ export function useTerminalReconnect(deps: {
     const { ok, attempt } = noteAutoReconnectAttempt(
       deps.connectionId(),
       autoReconnectMaxRetries.value,
+      deps.sessionId(),
     )
     reconnectAttempt.value = attempt
     if (!ok) {
@@ -170,7 +174,7 @@ export function useTerminalReconnect(deps: {
 
     autoReconnectExhausted.value = false
     reconnecting.value = true
-    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 15000)
+    const delay = autoReconnectDelayMs(attempt)
     clearAutoReconnectTimer()
     autoReconnectTimer = setTimeout(() => {
       autoReconnectTimer = null

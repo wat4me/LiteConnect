@@ -2,6 +2,7 @@ import type { Client, ClientChannel, SFTPWrapper } from 'ssh2'
 import type * as net from 'net'
 import type { SshConnectProfile } from '../../shared/types/connection'
 import type { TransferConflictStrategy } from '../../shared/types/sftp'
+import type { SshConnectionStage } from '../../shared/sshConnectionProgress'
 
 export type Connection = SshConnectProfile
 export type { SshConnectProfile } from '../../shared/types/connection'
@@ -38,6 +39,8 @@ export type KeyboardInteractiveRequest = {
 }
 
 export interface SSHCallbacks {
+  signal?: AbortSignal
+  onProgress?: (stage: SshConnectionStage) => void
   onData: (sessionId: string, data: string) => void
   /** Connection-status notices that must survive initial terminal mount timing. */
   onNotice?: (sessionId: string, message: string) => void

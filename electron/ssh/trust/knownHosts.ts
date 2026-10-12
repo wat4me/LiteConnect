@@ -14,7 +14,10 @@ export class KnownHostsStore {
   async init(): Promise<void> {
     if (this.initialized) return
     if (this.initPromise) return this.initPromise
-    this.initPromise = this.load()
+    this.initPromise = this.load().catch((error) => {
+      this.initPromise = null
+      throw error
+    })
     return this.initPromise
   }
 
@@ -30,8 +33,8 @@ export class KnownHostsStore {
     this.initialized = true
   }
 
-  private async save(): Promise<void> {
-    const rows = Object.entries(this.hosts).map(([key, entry]) => ({ key, entry }))
+  private save(hosts: Record<string, HostKeyEntry>): void {
+    const rows = Object.entries(hosts).map(([key, entry]) => ({ key, entry }))
     getAppDatabase().replaceCollection(COLLECTIONS.knownHosts, rows, (row) => row.key)
   }
 
@@ -93,8 +96,10 @@ export class KnownHostsStore {
   async remove(host: string, port: number): Promise<void> {
     await this.init()
     const key = this.getKey(host, port)
-    delete this.hosts[key]
-    await this.save()
+    const next = { ...this.hosts }
+    delete next[key]
+    this.save(next)
+    this.hosts = next
   }
 
   /** All trusted host keys for the settings manager UI. */
@@ -117,8 +122,9 @@ export class KnownHostsStore {
     await this.init()
     const key = this.getKey(host, port)
     const fingerprint = this.computeFingerprint(keyBuffer)
-    this.hosts[key] = { fingerprint, firstSeen: Date.now() }
-    await this.save()
+    const next = { ...this.hosts, [key]: { fingerprint, firstSeen: Date.now() } }
+    this.save(next)
+    this.hosts = next
     return fingerprint
   }
 

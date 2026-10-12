@@ -1,5 +1,10 @@
 export default {
   connections: {
+    stageJump: '连接跳板机…',
+    stageAuthenticating: '正在认证…',
+    stageKeyboard: '等待验证码…',
+    stageHostKey: '等待指纹确认…',
+    stageShell: '正在打开终端…',
     title: '连接',
     searchPlaceholder: '搜索…  (/ 聚焦)',
     searchAria: '搜索连接',

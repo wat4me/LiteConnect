@@ -22,6 +22,8 @@ import { attachKeyboardInteractive, targetConnectConfig, jumpConnectConfig } fro
 import { disposeSshChannel, disposeSshClient } from './clientCleanup'
 import { t } from '../i18n'
 import type { Connection, PendingHostKey, Session, SSHCallbacks } from './types'
+import { SSH_CONNECTION_CANCELLED } from '../../shared/sshConnectionProgress'
+import { ConnectionLimiter } from './connectionLimiter'
 
 export type ConnectionServiceDeps = {
   sessions: Map<string, Session>
@@ -35,6 +37,7 @@ export type ConnectionServiceDeps = {
 }
 
 export class ConnectionService {
+  private readonly reconnectLimiter = new ConnectionLimiter(2)
   private readonly pendingReconnects = new Map<string, { connectionId: string; promise: Promise<string> }>()
 
   constructor(private deps: ConnectionServiceDeps) {}
@@ -60,7 +63,8 @@ export class ConnectionService {
       return pending.promise
     }
 
-    const attempt = this.startReconnect(sessionId, connection, callbacks)
+    const endpoint = `${connection.jumpHost || ''}:${connection.jumpPort || 22}/${connection.host}:${connection.port || 22}`
+    const attempt = this.reconnectLimiter.run(endpoint, callbacks.signal, () => this.startReconnect(sessionId, connection, callbacks))
     this.pendingReconnects.set(sessionId, { connectionId: connection.id, promise: attempt })
     try {
       return await attempt
@@ -126,15 +130,18 @@ export class ConnectionService {
       const safeResolve = (value: string) => {
         if (settled) return
         settled = true
+        callbacks.signal?.removeEventListener('abort', onAbort)
         resolve(value)
       }
       // Local forwards set up after client ready; cleaned on all abort paths
       let localForwardServers: ReturnType<typeof setupLocalForwards> | undefined
       let remoteForwardHandles: RemoteForwardHandle[] | undefined
       let jumpForwardTimeout: ReturnType<typeof setTimeout> | null = null
+      let shellOpenTimeout: ReturnType<typeof setTimeout> | null = null
       const keepalive = resolveSshKeepalive(connection.keepaliveInterval)
 
       const abortPendingResources = () => {
+        if (shellOpenTimeout) { clearTimeout(shellOpenTimeout); shellOpenTimeout = null }
         if (jumpForwardTimeout) {
           clearTimeout(jumpForwardTimeout)
           jumpForwardTimeout = null
@@ -152,17 +159,26 @@ export class ConnectionService {
       const safeReject = (err: Error) => {
         if (settled) return
         settled = true
+        callbacks.signal?.removeEventListener('abort', onAbort)
         abortPendingResources()
         try {
           client.end()
         } catch {}
         reject(err)
       }
+      const onAbort = () => {
+        safeReject(new Error(SSH_CONNECTION_CANCELLED))
+        disposeSshClient(client)
+        if (jumpClient) disposeSshClient(jumpClient)
+      }
+      callbacks.signal?.addEventListener('abort', onAbort, { once: true })
+      if (callbacks.signal?.aborted) { onAbort(); return }
       const rejectStale = () => safeReject(new Error('SSH session generation changed'))
 
       let hostKeyError: string | null = null
 
       const rememberHostKeyReject = (info: HostKeyRejectInfo) => {
+        if (settled || !this.isLiveEpoch(sessionId, epoch)) return
         hostKeyError = info.error
         pendingHostKeys.set(connection.id, {
           connectionId: connection.id,
@@ -179,7 +195,7 @@ export class ConnectionService {
         })
       }
 
-      attachKeyboardInteractive(client, 'target', connection.password || '', sessionId, callbacks)
+      const targetAuth = attachKeyboardInteractive(client, 'target', connection.password || '', sessionId, callbacks)
       const targetConfig = (sock?: import('stream').Duplex) =>
         targetConnectConfig(connection, knownHosts, keepalive, rememberHostKeyReject, sock)
 
@@ -190,6 +206,8 @@ export class ConnectionService {
       }
 
       client.on('ready', () => {
+        if (settled) return
+        callbacks.onProgress?.('shell')
         if (!this.isLiveEpoch(sessionId, epoch)) {
           try {
             client.end()
@@ -212,7 +230,7 @@ export class ConnectionService {
           cols: 80,
           rows: 24,
         }
-        let shellOpenTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        shellOpenTimeout = setTimeout(() => {
           shellOpenTimeout = null
           if (!this.isLiveEpoch(sessionId, epoch)) {
             abortPendingResources()
@@ -237,6 +255,7 @@ export class ConnectionService {
         let shellOpenStarted = false
 
         const openShell = (withX11: boolean) => {
+          if (settled || !this.isLiveEpoch(sessionId, epoch)) return
           try {
             if (withX11) client.shell(ptyOptions, { x11: true }, handleShell)
             else client.shell(ptyOptions, handleShell)
@@ -279,7 +298,7 @@ export class ConnectionService {
             clearTimeout(shellOpenTimeout)
             shellOpenTimeout = null
           }
-          if (!this.isLiveEpoch(sessionId, epoch)) {
+          if (settled || !this.isLiveEpoch(sessionId, epoch)) {
             try {
               stream?.close()
             } catch {}
@@ -300,6 +319,7 @@ export class ConnectionService {
               const x11Host = getX11Host(connection)
               const x11Port = 6000 + getX11Display(connection)
               const localXReady = await probeX11Port(x11Host, x11Port)
+              if (settled || !this.isLiveEpoch(sessionId, epoch)) return
               const notice = localXReady
                 ? t('x11.shellRejected', { detail: msg })
                 : t('x11.shellRejectedLocalUnavailable', {
@@ -469,16 +489,21 @@ export class ConnectionService {
       })
 
       if (!hasJump) {
+        callbacks.onProgress?.('connecting')
+        targetAuth.start()
         client.connect(targetConfig())
         return
       }
 
       jumpClient = new Client()
-      attachKeyboardInteractive(
+      const jumpAuth = attachKeyboardInteractive(
         jumpClient, 'jump', connection.jumpPassword || connection.password || '', sessionId, callbacks,
       )
+      callbacks.onProgress?.('jump')
+      jumpAuth.start()
       jumpClient
         .on('ready', () => {
+          if (settled) return
           if (!this.isLiveEpoch(sessionId, epoch)) {
             try {
               jumpClient?.end()
@@ -534,6 +559,9 @@ export class ConnectionService {
                 rejectStale()
                 return
               }
+              if (settled) { stream.close(); return }
+              callbacks.onProgress?.('connecting')
+              targetAuth.start()
               client.connect(targetConfig(stream))
             },
           )

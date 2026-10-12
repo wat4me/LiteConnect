@@ -29,6 +29,7 @@ export function useTerminalShellSuggest(deps: {
   /** Current-connection bookmarks, then global. Empty when suggestions are off. */
   cdBookmarks?: () => readonly CdBookmarkHint[]
   ensureCdBookmarks?: () => Promise<void>
+  onInputSent?: (data: string) => void
 }) {
   const { t } = useI18n()
 
@@ -234,7 +235,10 @@ export function useTerminalShellSuggest(deps: {
     deps.commandBuffer.value = `${prefix}${leadingWs}${item.command}`
     deps.commandBufferDirty.value = false
     hideSuggest()
-    if (payload) window.LiteConnect.sshWrite(deps.sessionId(), payload)
+    if (payload) {
+      deps.onInputSent?.(payload)
+      window.LiteConnect.sshWrite(deps.sessionId(), payload)
+    }
   }
 
   function onSuggestPick(item: ShellSuggestItem) {

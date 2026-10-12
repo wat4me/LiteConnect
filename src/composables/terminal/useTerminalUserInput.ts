@@ -24,6 +24,7 @@ export type TerminalUserInputDeps = {
   getWriteQueueLength: () => number
   enqueueWrite: (data: string, sessionId: string) => void
   write: (data: string) => void
+  onUserInput?: (data: string) => void
 }
 
 function isLocallyEchoable(data: string): boolean {
@@ -45,6 +46,7 @@ export function useTerminalUserInput(deps: TerminalUserInputDeps) {
       return
     }
     deps.updatePasteState(data)
+    deps.onUserInput?.(data)
 
     if (data.length === 1 && isLocallyEchoable(data) && !deps.isPasting()) {
       deps.pulseCursor()

@@ -84,6 +84,8 @@ export type KnownHostEntry = {
 }
 
 export interface KeyboardInteractivePrompt {
+  connectionId?: string
+  connectionName?: string
   requestId: string
   sessionId: string
   name: string

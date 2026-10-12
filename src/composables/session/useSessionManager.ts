@@ -9,6 +9,7 @@ import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/utils/
 import type { Session, ConnectionGroup } from '@/domain/session/types'
 import { createConnectionAttemptGate } from '@/utils/connections/connectionAttemptGate'
 import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
+import { isSshConnectionCancelled, type SshConnectionStage } from '@shared/sshConnectionProgress'
 
 export type { Session, ConnectionGroup }
 
@@ -32,7 +33,10 @@ export function useSessionManager(deps: {
   const recentConnections = ref<Connection[]>([])
   const groups = ref<ConnectionGroup[]>([])
   const activeGroupId = ref<string>(HOME_ID)
-  const connectingConnectionIds = ref<Set<string>>(new Set())
+  const pendingConnectionIds = ref<Set<string>>(new Set())
+  const connectionStages = ref<Record<string, SshConnectionStage>>({})
+  const connectingConnectionIds = computed(() => new Set([...pendingConnectionIds.value, ...Object.keys(connectionStages.value)]))
+  let unsubProgress: (() => void) | undefined
 
   let sidebar: SidebarDeps | null = null
 
@@ -217,8 +221,15 @@ export function useSessionManager(deps: {
 
   onMounted(() => {
     window.addEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+    unsubProgress = window.LiteConnect.onSshConnectionProgress?.(({ connectionId, stage }) => {
+      const next = { ...connectionStages.value }
+      if (['failed', 'cancelled', 'connected'].includes(stage)) delete next[connectionId]
+      else next[connectionId] = stage
+      connectionStages.value = next
+    })
   })
   onBeforeUnmount(() => {
+    unsubProgress?.()
     window.removeEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
   })
 
@@ -226,10 +237,10 @@ export function useSessionManager(deps: {
   const entryAttemptGate = createConnectionAttemptGate<string | null>()
 
   function setConnectionPending(connectionId: string, pending: boolean) {
-    const next = new Set(connectingConnectionIds.value)
+    const next = new Set(pendingConnectionIds.value)
     if (pending) next.add(connectionId)
     else next.delete(connectionId)
-    connectingConnectionIds.value = next
+    pendingConnectionIds.value = next
   }
 
   async function createSession(
@@ -256,7 +267,7 @@ export function useSessionManager(deps: {
 
       const sessionId = await window.LiteConnect.sshConnect(connectionId)
       // 真正连上后清零自动重试计数
-      clearAutoReconnectAttempts(connectionId)
+      clearAutoReconnectAttempts(connectionId, sessionId)
       void initSessionPwd(sessionId)
       conn = connections.value.find((c) => c.id === connectionId) || conn
       let group = groups.value.find((g) => g.connectionId === connectionId)
@@ -321,7 +332,7 @@ export function useSessionManager(deps: {
       }
       return sessionId
     } catch (err: any) {
-      if (isSshHostKeyConfirmationRequired(err)) return null
+      if (isSshHostKeyConfirmationRequired(err) || isSshConnectionCancelled(err)) return null
       console.error('SSH connection failed:', err)
       const raw = err?.message || ''
       const detailKey = sshDisconnectDetailKey(raw)
@@ -341,6 +352,7 @@ export function useSessionManager(deps: {
   }
 
   function connectFromEntry(connectionId: string) {
+    if (connectionStages.value[connectionId] === 'host-key') return Promise.resolve(null)
     return entryAttemptGate.run(
       connectionId,
       () => createSession(connectionId),
@@ -350,6 +362,10 @@ export function useSessionManager(deps: {
 
   function onConnect(connectionId: string) {
     return connectFromEntry(connectionId)
+  }
+  async function cancelConnection(connectionId: string) {
+    try { await window.LiteConnect.sshCancelConnect(connectionId) }
+    catch (error) { console.error('Failed to cancel SSH connection:', error); ElMessage.error(t('terminal.connectFailed')) }
   }
 
   function syncConnectionName(connection: Connection) {
@@ -382,6 +398,7 @@ export function useSessionManager(deps: {
   }
 
   async function onCloseGroup(connectionId: string) {
+    clearAutoReconnectAttempts(connectionId)
     const group = getGroupByConnectionId(connectionId)
     if (!group) return
 
@@ -455,7 +472,7 @@ export function useSessionManager(deps: {
 
   async function onCloseSession(sessionId: string) {
     const group = getGroupBySessionId(sessionId)
-    if (group) clearAutoReconnectAttempts(group.connectionId)
+    if (group) clearAutoReconnectAttempts(group.connectionId, sessionId)
     deps.disposeAiSession?.(sessionId)
     await window.LiteConnect.sshDisconnect(sessionId)
     removeSessionFromState(sessionId)
@@ -489,7 +506,7 @@ export function useSessionManager(deps: {
     }
     if (!conn) return
 
-    clearAutoReconnectAttempts(connectionId)
+    clearAutoReconnectAttempts(connectionId, sessionId)
     void initSessionPwd(sessionId)
 
     const session: Session = {
@@ -531,6 +548,8 @@ export function useSessionManager(deps: {
     connections,
     recentConnections,
     connectingConnectionIds,
+    connectionStages,
+    cancelConnection,
     activeGroupId,
     isHomeActive,
     activeGroup,

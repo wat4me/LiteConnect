@@ -1,0 +1,63 @@
+import { describe, expect, it, vi } from 'vitest'
+import { createSynchronizedInput } from './useSynchronizedInput'
+
+describe('synchronized terminal input', () => {
+  it('forwards exact input once to selected peers and does not echo back or recurse', () => {
+    const sync = createSynchronizedInput()
+    const a = vi.fn()
+    const b = vi.fn((data: string) => sync.forward('b', data))
+    const c = vi.fn()
+    sync.register('a', { writable: () => true, receive: a })
+    sync.register('b', { writable: () => true, receive: b })
+    sync.register('c', { writable: () => true, receive: c })
+    sync.select(['a', 'b', 'b'])
+    sync.start()
+    for (const input of ['中', '\x7f', '\r', '\x03', '\t', '\x1b[A', '\x1b[200~echo hello\n\x1b[201~']) sync.forward('a', input)
+    expect(b.mock.calls.map(([data]) => data)).toEqual(['中', '\x7f', '\r', '\x03', '\t', '\x1b[A', '\x1b[200~echo hello\n\x1b[201~'])
+    expect(a).not.toHaveBeenCalled()
+    expect(c).not.toHaveBeenCalled()
+    sync.forward('c', 'unselected source')
+    expect(b).toHaveBeenCalledTimes(7)
+  })
+
+  it('requires opt-in, pauses on recipient changes, and removes closed terminals', () => {
+    const sync = createSynchronizedInput()
+    const receive = vi.fn()
+    const close = sync.register('a', { writable: () => true, receive })
+    sync.register('b', { writable: () => true, receive })
+    sync.select(['a'])
+    expect(sync.start()).toBe(false)
+    sync.select(['a', 'b'])
+    sync.forward('a', 'disabled')
+    expect(receive).not.toHaveBeenCalled()
+    sync.start()
+    sync.select(['a', 'b'])
+    expect(sync.enabled.value).toBe(false)
+    sync.start()
+    close()
+    expect(sync.selected.value).toEqual(['b'])
+    expect(sync.enabled.value).toBe(false)
+  })
+
+  it('skips read-only/disconnected terminals and terminal-generated reports', () => {
+    const sync = createSynchronizedInput()
+    let writable = true
+    const receive = vi.fn()
+    sync.register('a', { writable: () => true, receive })
+    sync.register('b', { writable: () => writable, receive })
+    sync.register('c', { writable: () => true, receive })
+    sync.select(['a', 'b', 'c'])
+    sync.start()
+    for (const report of ['\x1b[0n', '\x1b[12;3R', '\x1b[?1;2c', '\x1b[>0;276;0c', '\x1b[I']) sync.forward('a', report)
+    expect(receive).not.toHaveBeenCalled()
+    writable = false
+    sync.forward('a', 'x')
+    expect(receive).toHaveBeenCalledTimes(1)
+    sync.removeTarget('b')
+    writable = true
+    expect(sync.targets.value).toEqual(['a', 'c'])
+    sync.stop()
+    sync.forward('a', 'stopped')
+    expect(receive).toHaveBeenCalledTimes(1)
+  })
+})

@@ -22,9 +22,13 @@ interface SessionLogState {
   stream: WriteStream | null
   queue: string[]
   failed: boolean
+  ended: boolean
+  queuedBytes: number
+  blocked: boolean
 }
 
 const MAX_BUFFERED_CHUNKS = 2000
+const MAX_BUFFERED_BYTES = 1024 * 1024
 
 /**
  * Appends remote shell output to per-session log files under
@@ -48,16 +52,43 @@ export class SessionLogManager {
     if (!data) return
     let st = this.sessions.get(sessionId)
     if (!st) {
-      st = { stream: null, queue: [], failed: false }
+      st = { stream: null, queue: [], failed: false, ended: false, queuedBytes: 0, blocked: false }
       this.sessions.set(sessionId, st)
       void this.openStream(sessionId, meta, st)
     }
-    if (st.failed) return
-    if (st.stream) {
-      st.stream.write(data)
+    if (st.failed || st.ended) return
+    const bytes = Buffer.byteLength(data)
+    if (st.queue.length >= MAX_BUFFERED_CHUNKS || st.queuedBytes + bytes > MAX_BUFFERED_BYTES) {
+      this.fail(st)
       return
     }
-    if (st.queue.length < MAX_BUFFERED_CHUNKS) st.queue.push(data)
+    st.queue.push(data)
+    st.queuedBytes += bytes
+    this.flush(st)
+  }
+
+  private fail(st: SessionLogState): void {
+    st.failed = true
+    st.queue = []
+    st.queuedBytes = 0
+    st.stream?.destroy()
+  }
+
+  private flush(st: SessionLogState): void {
+    if (!st.stream || st.blocked || st.failed) return
+    try {
+      while (st.queue.length) {
+        const chunk = st.queue.shift()!
+        st.queuedBytes -= Buffer.byteLength(chunk)
+        if (!st.stream.write(chunk)) {
+          st.blocked = true
+          return
+        }
+      }
+      if (st.ended) st.stream.end()
+    } catch {
+      this.fail(st)
+    }
   }
 
   private async openStream(
@@ -69,26 +100,29 @@ export class SessionLogManager {
       const rel = sessionLogRelativePath(sessionId, meta.host, meta.port)
       const abs = join(this.dir, rel)
       await mkdir(dirname(abs), { recursive: true })
+      // A quick disconnect must not create an orphan stream after teardown.
+      if (st.ended || st.failed) { st.queue = []; st.queuedBytes = 0; return }
       const stream = createWriteStream(abs, { flags: 'a', encoding: 'utf8' })
+      stream.on('error', () => this.fail(st))
+      stream.on('drain', () => { st.blocked = false; this.flush(st) })
       st.stream = stream
-      for (const chunk of st.queue) stream.write(chunk)
-      st.queue = []
+      this.flush(st)
     } catch {
       // Logging must never break SSH sessions; give up for this session.
-      st.queue = []
-      st.failed = true
+      this.fail(st)
     }
   }
 
   endSession(sessionId: string): void {
     const st = this.sessions.get(sessionId)
     if (!st) return
-    st.stream?.end()
+    st.ended = true
+    this.flush(st)
     this.sessions.delete(sessionId)
   }
 
   endAll(): void {
-    for (const [, st] of this.sessions) st.stream?.end()
+    for (const id of this.sessions.keys()) this.endSession(id)
     this.sessions.clear()
   }
 }

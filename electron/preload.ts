@@ -197,6 +197,17 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   importSshConfig: () => ipcRenderer.invoke('store:importSshConfig'),
 
   sshConnect: (connectionId: string) => ipcRenderer.invoke('ssh:connect', connectionId),
+  sshCancelConnect: (connectionId: string) => ipcRenderer.invoke('ssh:cancelConnect', connectionId),
+  onSshConnectionProgress: (callback: (data: import('../shared/sshConnectionProgress').SshConnectionProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: import('../shared/sshConnectionProgress').SshConnectionProgress) => callback(data)
+    ipcRenderer.on('ssh:connectionProgress', handler)
+    return () => ipcRenderer.removeListener('ssh:connectionProgress', handler)
+  },
+  onSshKeyboardInteractiveClosed: (callback: (requestId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, requestId: string) => callback(requestId)
+    ipcRenderer.on('ssh:keyboardInteractiveClosed', handler)
+    return () => ipcRenderer.removeListener('ssh:keyboardInteractiveClosed', handler)
+  },
   /** Reuse sessionId: tear down old transport and open a new shell in place */
   sshReconnect: (sessionId: string, connectionId: string) =>
     ipcRenderer.invoke('ssh:reconnect', sessionId, connectionId),

@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
+import SynchronizedInputBar from '@/components/terminal/SynchronizedInputBar.vue'
+import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useI18n } from 'vue-i18n'
 import LeftToolbar from '@/components/workspace/LeftToolbar.vue'
+const synchronizedInput = createSynchronizedInput()
+provide(synchronizedInputKey, synchronizedInput)
+const syncInputOpen = ref(false)
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
 import type { Connection } from '@/env.d'
@@ -32,6 +37,7 @@ onBeforeUnmount(() => {
   cancelPendingTerminalFocus?.()
   cancelPendingTerminalFocus = null
   teardownTransferListeners()
+  synchronizedInput.stop()
 })
 
 const FileSidebar = defineAsyncComponent(() => import('@/components/sftp/FileSidebar.vue'))
@@ -101,6 +107,7 @@ const props = defineProps<{
 }>()
 
 const { runningCount: aiBackgroundTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
+watch(() => props.dockerMode, (active) => { if (active) synchronizedInput.stop() })
 
 const emit = defineEmits<{
   (e: 'jump-ai-approval', sessionId: string): void
@@ -317,6 +324,7 @@ watch(
       :files-active="sidebarVisible && !aiSidebarVisible"
       :monitor-active="monitorVisible"
       :batch-active="batchPanelVisible"
+      :sync-active="synchronizedInput.enabled.value || syncInputOpen"
       :snippets-active="snippetsPanelVisible"
       :show-ai-unread="showAiUnread"
       :show-ai-approval="showAiApproval"
@@ -331,6 +339,7 @@ watch(
       @toggle-files="emit('toggle-files')"
       @toggle-monitor="emit('toggle-monitor')"
       @toggle-batch="emit('toggle-batch')"
+      @toggle-sync="syncInputOpen = !syncInputOpen"
       @toggle-snippets="emit('toggle-snippets')"
       @toggle-docker="emit('toggle-docker')"
     />
@@ -387,6 +396,7 @@ watch(
     ></div>
 
     <div class="workspace-main">
+      <SynchronizedInputBar :sessions="batchSessions" :open="syncInputOpen && !dockerMode" @close="syncInputOpen = false" />
       <div v-if="approvalHint" class="ai-approval-bar">
         <span class="ai-approval-bar-text">
           {{

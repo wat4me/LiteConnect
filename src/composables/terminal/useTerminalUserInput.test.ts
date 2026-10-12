@@ -10,6 +10,7 @@ function setup() {
   const capturedSubmitLine = ref('')
   const readOnly = ref(false)
   const write = vi.fn()
+  const onUserInput = vi.fn()
   const enqueueWrite = vi.fn()
   const emitCdCommand = vi.fn()
   const scheduleSubmit = vi.fn()
@@ -27,9 +28,9 @@ function setup() {
     getVisibleCommandLine: () => 'echo hello', scheduleSubmit,
     cancelPendingSubmit: vi.fn(), resetCommandBuffer: () => { commandBuffer.value = '' },
     commandBuffer, commandBufferDirty, emitCdCommand,
-    getWriteQueueLength: () => 0, enqueueWrite, write,
+    getWriteQueueLength: () => 0, enqueueWrite, write, onUserInput,
   })
-  return { input, commandBuffer, capturedSubmitLine, readOnly, write, enqueueWrite,
+  return { input, commandBuffer, capturedSubmitLine, readOnly, write, enqueueWrite, onUserInput,
     emitCdCommand, scheduleSubmit, showReadOnlyHintOnce, syncAfterTabCompletion }
 }
 
@@ -40,9 +41,11 @@ describe('terminal user input', () => {
     state.input.handleTerminalUserInput('x')
     expect(state.showReadOnlyHintOnce).toHaveBeenCalledOnce()
     expect(state.write).not.toHaveBeenCalled()
+    expect(state.onUserInput).not.toHaveBeenCalled()
     state.readOnly.value = false
     state.input.handleTerminalUserInput('a'.repeat(33))
     expect(state.enqueueWrite).toHaveBeenCalledWith('a'.repeat(33), 'session-1')
+    expect(state.onUserInput).toHaveBeenCalledExactlyOnceWith('a'.repeat(33))
   })
 
   it('tracks tab completion and submits the visible command line', () => {

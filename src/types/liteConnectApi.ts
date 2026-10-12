@@ -265,6 +265,9 @@ export interface LiteConnectApi {
   } | null>
 
   sshConnect: (connectionId: string) => Promise<string>
+  sshCancelConnect: (connectionId: string) => Promise<void>
+  onSshConnectionProgress: (callback: (data: import('../../shared/sshConnectionProgress').SshConnectionProgress) => void) => () => void
+  onSshKeyboardInteractiveClosed: (callback: (requestId: string) => void) => () => void
   sshReconnect: (sessionId: string, connectionId: string) => Promise<string>
   sshTakeStartupNotices: (sessionId: string) => Promise<string[]>
   sshDisconnect: (sessionId: string) => Promise<void>

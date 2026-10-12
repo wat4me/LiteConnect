@@ -48,7 +48,8 @@ function onKeydown(e: KeyboardEvent) {
         <AppIcon name="lock" size="md" />
         <h3>{{ title }}</h3>
       </div>
-      <p v-if="data.name || data.instructions" class="kb-intro">
+      <p v-if="data.connectionName || data.name || data.instructions" class="kb-intro">
+        <template v-if="data.connectionName">{{ data.connectionName }}<br /></template>
         {{ data.name }}
         <template v-if="data.instructions"><br />{{ data.instructions }}</template>
       </p>

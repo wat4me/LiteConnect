@@ -3,7 +3,28 @@ import {
   clearAutoReconnectAttempts,
   getAutoReconnectAttempt,
   noteAutoReconnectAttempt,
+  autoReconnectDelayMs,
 } from './useAutoReconnectBudget'
+
+it('keeps retry budgets separate for terminals of the same host', () => {
+  const id = 'multi-terminal'
+  clearAutoReconnectAttempts(id)
+  expect(noteAutoReconnectAttempt(id, 1, 'a').ok).toBe(true)
+  expect(noteAutoReconnectAttempt(id, 1, 'a').ok).toBe(false)
+  expect(noteAutoReconnectAttempt(id, 1, 'b').ok).toBe(true)
+  clearAutoReconnectAttempts(id, 'b')
+  expect(getAutoReconnectAttempt(id, 'a')).toBe(1)
+  expect(getAutoReconnectAttempt(id, 'b')).toBe(0)
+  clearAutoReconnectAttempts(id)
+  expect(getAutoReconnectAttempt(id, 'a')).toBe(0)
+})
+
+it('adds bounded jitter to exponential backoff', () => {
+  expect(autoReconnectDelayMs(1, 0)).toBe(1000)
+  expect(autoReconnectDelayMs(1, 1)).toBe(1250)
+  expect(autoReconnectDelayMs(3, 0.5)).toBe(4500)
+  expect(autoReconnectDelayMs(20, 1)).toBe(15000)
+})
 
 describe('useAutoReconnectBudget', () => {
   const id = 'conn-budget-test'

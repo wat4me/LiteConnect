@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow, type WebContents } from 'electron'
 import { SSH_HOST_KEY_CONFIRMATION_REQUIRED } from '../../shared/sshHostKeyConfirmation'
+import { SSH_AUTH_PROMPT_TIMEOUT_MS, SSH_CONNECTION_CANCELLED, isSshConnectionCancelled, type SshConnectionStage } from '../../shared/sshConnectionProgress'
 import {
   isValidUUID,
   isValidSshWriteData,
@@ -92,18 +93,28 @@ const latencyTimers = new Map<string, ReturnType<typeof setInterval>>()
 
 const pendingKeyboard = new Map<
   string,
-  { resolve: (answers: string[] | null) => void; timer: ReturnType<typeof setTimeout> }
+  { resolve: (answers: string[] | null) => void; timer: ReturnType<typeof setTimeout>; senderId: number }
 >()
 
-function createKeyboardHandler(sender: import('electron').WebContents) {
+function createKeyboardHandler(sender: WebContents, connectionId: string, signal: AbortSignal, connectionName?: string) {
   return (req: KeyboardInteractiveRequest) =>
     new Promise<string[] | null>((resolve) => {
-      const timer = setTimeout(() => {
+      let settled = false
+      const settle = (answers: string[] | null) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        signal.removeEventListener('abort', cancel)
         pendingKeyboard.delete(req.requestId)
-        resolve(null)
-      }, 120_000)
-      pendingKeyboard.set(req.requestId, { resolve, timer })
-      safeWebContentsSend(sender, 'ssh:keyboardInteractive', req)
+        safeWebContentsSend(sender, 'ssh:keyboardInteractiveClosed', req.requestId)
+        resolve(answers)
+      }
+      const cancel = () => settle(null)
+      const timer = setTimeout(cancel, SSH_AUTH_PROMPT_TIMEOUT_MS)
+      pendingKeyboard.set(req.requestId, { resolve: settle, timer, senderId: sender.id })
+      signal.addEventListener('abort', cancel, { once: true })
+      if (signal.aborted) { cancel(); return }
+      safeWebContentsSend(sender, 'ssh:keyboardInteractive', { ...req, connectionId, connectionName })
     })
 }
 
@@ -124,6 +135,46 @@ export function registerSshConnectHandlers(
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
   const ensureKnownHostsReady = () => knownHosts.init()
+  const attempts = new Map<string, Set<AbortController>>()
+  const sessionAttempts = new Map<string, Set<AbortController>>()
+  function beginAttempt(sender: WebContents, connectionId: string, sessionId?: string) {
+    const key = `${sender.id}:${connectionId}`
+    const controller = new AbortController()
+    const set = attempts.get(key) || new Set<AbortController>()
+    set.add(controller)
+    attempts.set(key, set)
+    const sessionKey = sessionId ? `${sender.id}:${sessionId}` : undefined
+    const sessionSet = sessionKey ? sessionAttempts.get(sessionKey) || new Set<AbortController>() : undefined
+    if (sessionKey && sessionSet) { sessionSet.add(controller); sessionAttempts.set(sessionKey, sessionSet) }
+    const onDestroyed = () => controller.abort()
+    sender.once?.('destroyed', onDestroyed)
+    let finished = false
+    const onProgress = (stage: SshConnectionStage) => safeWebContentsSend(sender, 'ssh:connectionProgress', { connectionId, stage })
+    onProgress('connecting')
+    return {
+      signal: controller.signal,
+      onProgress,
+      finish(stage: SshConnectionStage) {
+        if (finished) return
+        finished = true
+        controller.abort()
+        sender.removeListener?.('destroyed', onDestroyed)
+        if (sessionKey && sessionSet) {
+          sessionSet.delete(controller)
+          if (!sessionSet.size) sessionAttempts.delete(sessionKey)
+        }
+        set.delete(controller)
+        if (!set.size) { attempts.delete(key); onProgress(stage) }
+      },
+    }
+  }
+
+  ipcMain.handle('ssh:cancelConnect', (event, connectionId: string) => {
+    if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
+    for (const controller of attempts.get(`${event.sender.id}:${connectionId}`) || []) controller.abort()
+    sshManager.rejectHostKey(connectionId)
+    safeWebContentsSend(event.sender, 'ssh:connectionProgress', { connectionId, stage: 'cancelled' })
+  })
 
   function throwConnectionError(
     sender: WebContents,
@@ -351,32 +402,35 @@ export function registerSshConnectHandlers(
   })
 
   ipcMain.handle('ssh:connect', async (event, connectionId: string) => {
-    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
     if (!isValidUUID(connectionId)) {
       throw new Error('Invalid connection id')
     }
-
-    let connection
+    const attempt = beginAttempt(event.sender, connectionId)
     try {
-      connection = credentialStore.getConnectionForAuth(connectionId)
-    } catch (err) {
-      if (DecryptionError.is(err)) {
-        safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
-          connectionId,
-          field: err.field || 'password',
-          message: err.message,
-        })
+      await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+      if (attempt.signal.aborted) throw new Error(SSH_CONNECTION_CANCELLED)
+      let connection
+      try {
+        connection = credentialStore.getConnectionForAuth(connectionId)
+      } catch (err) {
+        if (DecryptionError.is(err)) {
+          safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
+            connectionId,
+            field: err.field || 'password',
+            message: err.message,
+          })
+        }
+        throw err
       }
-      throw err
-    }
-    if (!connection) {
-      throw new Error(`Connection ${connectionId} not found`)
-    }
+      if (!connection) {
+        throw new Error(`Connection ${connectionId} not found`)
+      }
 
-    // Always open a fresh SSH session. Renderer serializes multi-tab reconnects;
-    // sharing one in-flight promise would hand the same sessionId to two tabs.
-    try {
+      // Always open a fresh SSH session. Renderer serializes multi-tab reconnects;
+      // sharing one in-flight promise would hand the same sessionId to two tabs.
       const sessionId = await sshManager.connect(connection, {
+        signal: attempt.signal,
+        onProgress: attempt.onProgress,
         onData: (sid, data) => {
           emitSshData(sid, data)
           if (sessionLog && settingsStore.getSessionLogEnabled()) {
@@ -392,12 +446,15 @@ export function registerSshConnectHandlers(
         onError: (sid, err) => {
           broadcast(`ssh:error:${sid}`, err)
         },
-        onKeyboardInteractive: createKeyboardHandler(event.sender),
+        onKeyboardInteractive: createKeyboardHandler(event.sender, connectionId, attempt.signal, connection.name),
       })
+      if (attempt.signal.aborted) { sshManager.disconnect(sessionId); throw new Error(SSH_CONNECTION_CANCELLED) }
       setSessionOwner(sessionId, event.sender.id)
       onConnected?.(connectionId, sessionId)
+      attempt.finish('connected')
       return sessionId
     } catch (err: any) {
+      attempt.finish(isSshConnectionCancelled(err) ? 'cancelled' : sshManager.getPendingHostKey(connectionId) ? 'host-key' : 'failed')
       throwConnectionError(event.sender, connectionId, err)
     }
   })
@@ -413,9 +470,18 @@ export function registerSshConnectHandlers(
     // After host-key failure the live map is usually empty; still treat a known
     // resumeSessionId as in-place when the renderer already owns that tab.
     let sessionId: string
+    const attempt = beginAttempt(event.sender, connectionId, resumeSessionId)
     try {
+      const pending = sshManager.getPendingHostKey(connectionId)
+      if (pending) {
+        pending.callbacks = { ...pending.callbacks, signal: attempt.signal, onProgress: attempt.onProgress,
+          onKeyboardInteractive: createKeyboardHandler(event.sender, connectionId, attempt.signal, pending.connection.name) }
+      }
       sessionId = await sshManager.confirmHostKey(connectionId)
+      if (attempt.signal.aborted) { sshManager.disconnect(sessionId); throw new Error(SSH_CONNECTION_CANCELLED) }
+      attempt.finish('connected')
     } catch (err) {
+      attempt.finish(isSshConnectionCancelled(err) ? 'cancelled' : sshManager.getPendingHostKey(connectionId) !== previousPending && sshManager.getPendingHostKey(connectionId) ? 'host-key' : 'failed')
       // Trusting a jump host can reveal another untrusted key on the target.
       throwConnectionError(event.sender, connectionId, err, previousPending)
     }
@@ -432,16 +498,18 @@ export function registerSshConnectHandlers(
     return sessionId
   })
 
-  ipcMain.handle('ssh:rejectHostKey', async (_event, connectionId: string) => {
+  ipcMain.handle('ssh:rejectHostKey', async (event, connectionId: string) => {
+    if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
     sshManager.rejectHostKey(connectionId)
+    safeWebContentsSend(event.sender, 'ssh:connectionProgress', { connectionId, stage: 'cancelled' })
   })
 
   ipcMain.handle(
     'ssh:replyKeyboardInteractive',
-    (_event, requestId: string, answers: string[] | null) => {
+    (event, requestId: string, answers: string[] | null) => {
       if (typeof requestId !== 'string' || !requestId) return false
       const pending = pendingKeyboard.get(requestId)
-      if (!pending) return false
+      if (!pending || pending.senderId !== event.sender.id) return false
       clearTimeout(pending.timer)
       pendingKeyboard.delete(requestId)
       pending.resolve(Array.isArray(answers) ? answers.map((a) => String(a ?? '')) : null)
@@ -449,10 +517,11 @@ export function registerSshConnectHandlers(
     },
   )
 
-  ipcMain.handle('ssh:disconnect', (_event, sessionId: string) => {
+  ipcMain.handle('ssh:disconnect', (event, sessionId: string) => {
     if (!isValidUUID(sessionId)) {
       throw new Error('Invalid session id')
     }
+    for (const controller of sessionAttempts.get(`${event.sender.id}:${sessionId}`) || []) controller.abort()
     const timer = latencyTimers.get(sessionId)
     if (timer) {
       clearInterval(timer)
@@ -466,45 +535,50 @@ export function registerSshConnectHandlers(
 
   /** In-place reconnect: same sessionId, new SSH+shell (keeps TerminalTab mounted). */
   ipcMain.handle('ssh:reconnect', async (event, sessionId: string, connectionId: string) => {
-    await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
-
-    // A previous reconnect may have completed even if its IPC reply was lost.
-    // Do not tear down that healthy session when the renderer retries.
-    const liveSession = sshManager.getSessionSnapshot(sessionId)
-    if (liveSession && liveSession.connectionId !== connectionId) {
-      throw new Error('Session belongs to a different connection')
-    }
-    if (liveSession) {
-      setSessionOwner(sessionId, event.sender.id)
-      broadcast(`ssh:reconnected:${sessionId}`)
-      return sessionId
-    }
-
-    let connection
+    const attempt = beginAttempt(event.sender, connectionId, sessionId)
     try {
-      connection = credentialStore.getConnectionForAuth(connectionId)
-    } catch (err) {
-      if (DecryptionError.is(err)) {
-        safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
-          connectionId,
-          field: err.field || 'password',
-          message: err.message,
-        })
+      await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
+      if (attempt.signal.aborted) throw new Error(SSH_CONNECTION_CANCELLED)
+
+      // A previous reconnect may have completed even if its IPC reply was lost.
+      // Do not tear down that healthy session when the renderer retries.
+      const liveSession = sshManager.getSessionSnapshot(sessionId)
+      if (liveSession && liveSession.connectionId !== connectionId) {
+        throw new Error('Session belongs to a different connection')
       }
-      throw err
-    }
-    if (!connection) throw new Error(`Connection ${connectionId} not found`)
+      if (liveSession) {
+        setSessionOwner(sessionId, event.sender.id)
+        broadcast(`ssh:reconnected:${sessionId}`)
+        attempt.finish('connected')
+        return sessionId
+      }
 
-    const timer = latencyTimers.get(sessionId)
-    if (timer) {
-      clearInterval(timer)
-      latencyTimers.delete(sessionId)
-    }
+      let connection
+      try {
+        connection = credentialStore.getConnectionForAuth(connectionId)
+      } catch (err) {
+        if (DecryptionError.is(err)) {
+          safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
+            connectionId,
+            field: err.field || 'password',
+            message: err.message,
+          })
+        }
+        throw err
+      }
+      if (!connection) throw new Error(`Connection ${connectionId} not found`)
 
-    try {
+      const timer = latencyTimers.get(sessionId)
+      if (timer) {
+        clearInterval(timer)
+        latencyTimers.delete(sessionId)
+      }
+
       const id = await sshManager.reconnect(sessionId, connection, {
+        signal: attempt.signal,
+        onProgress: attempt.onProgress,
         onData: (sid, data) => {
           emitSshData(sid, data)
           if (sessionLog && settingsStore.getSessionLogEnabled()) {
@@ -520,13 +594,16 @@ export function registerSshConnectHandlers(
         onError: (sid, err) => {
           broadcast(`ssh:error:${sid}`, err)
         },
-        onKeyboardInteractive: createKeyboardHandler(event.sender),
+        onKeyboardInteractive: createKeyboardHandler(event.sender, connectionId, attempt.signal, connection.name),
       })
+      if (attempt.signal.aborted) { sshManager.disconnect(id); throw new Error(SSH_CONNECTION_CANCELLED) }
       setSessionOwner(id, event.sender.id)
       onConnected?.(connectionId, id)
       broadcast(`ssh:reconnected:${id}`)
+      attempt.finish('connected')
       return id
     } catch (err: any) {
+      attempt.finish(isSshConnectionCancelled(err) ? 'cancelled' : sshManager.getPendingHostKey(connectionId) ? 'host-key' : 'failed')
       throwConnectionError(event.sender, connectionId, err)
     }
   })

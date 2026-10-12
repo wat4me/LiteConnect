@@ -10,6 +10,7 @@ import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
 import { useTerminalLocalEcho } from '../../composables/terminal/useTerminalLocalEcho'
 import { createDelayedTerminalOutput, createTypingResponseTracker } from '../../composables/terminal/terminalTypingLatency'
 import { useWriteQueue } from '../../composables/terminal/useWriteQueue'
+import { synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useTerminalPwdQuery } from '../../composables/terminal/useTerminalPwdQuery'
 import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
 import { useTerminalKeyHandler } from '../../composables/terminal/useTerminalKeyHandler'
@@ -184,7 +185,9 @@ const {
 } = reconnect
 
 const pathBookmarks = useSftpPathBookmarks(() => props.connectionId)
+const synchronizedInput = inject(synchronizedInputKey, null)
 const suggest = useTerminalShellSuggest({
+  onInputSent: (data) => { if (!readOnly.value) synchronizedInput?.forward(props.sessionId, data) },
   terminalRef,
   getTerminal,
   connectionId: () => props.connectionId,
@@ -286,6 +289,9 @@ function pulseCursor() {
 }
 
 const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompletion } = useTerminalUserInput({
+  onUserInput: (data) => {
+    if (isEffectiveActive() && !reconnect.disconnected.value) synchronizedInput?.forward(props.sessionId, data)
+  },
   sessionId: () => props.sessionId,
   readOnly,
   showReadOnlyHintOnce,
@@ -306,6 +312,15 @@ const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompleti
   enqueueWrite,
   write: (data) => window.LiteConnect.sshWrite(props.sessionId, data),
 })
+
+const unregisterSynchronizedInput = synchronizedInput?.register(props.sessionId, {
+  writable: () => !readOnly.value && !reconnect.disconnected.value && !reconnect.neverConnected.value,
+  receive: (data) => handleTerminalUserInput(data),
+})
+watch([readOnly, reconnect.disconnected, reconnect.neverConnected], () => {
+  if (readOnly.value || reconnect.disconnected.value || reconnect.neverConnected.value) synchronizedInput?.removeTarget(props.sessionId)
+})
+onBeforeUnmount(() => unregisterSynchronizedInput?.())
 
 const { pasteWithConfirm } = useTerminalPasteConfirm({
   getTerminal,

@@ -1,5 +1,10 @@
 export default {
   terminal: {
+    syncTitle: '同步输入',
+    syncHint: '选择至少两个可写终端；从选中的终端输入，字符、回车、快捷键和粘贴将同步发送。',
+    syncActive: '正在同步到 {count} 个终端',
+    syncStart: '开启同步',
+    syncStop: '停止同步',
     copy: '复制',
     paste: '粘贴',
     selectAll: '全选',

@@ -5,6 +5,7 @@ import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
+import { isSshConnectionCancelled } from '@shared/sshConnectionProgress'
 
 export type { DecryptionFailedData, HostKeyMismatchData }
 
@@ -29,12 +30,27 @@ export function useSecurityDialogs(deps: {
   let unsubHostKeyMismatch: (() => void) | null = null
   let unsubDecryptionFailed: (() => void) | null = null
   let unsubKeyboard: (() => void) | null = null
+  let unsubKeyboardClosed: (() => void) | undefined
+  let unsubProgress: (() => void) | undefined
+  type Prompt = { kind: 'host'; data: HostKeyMismatchData } | { kind: 'keyboard'; data: KeyboardInteractivePrompt }
+  let queue: Prompt[] = []
+  function showNext() {
+    if (hostKeyMismatchData.value || keyboardPrompt.value) return
+    const next = queue.shift()
+    if (next?.kind === 'host') { hostKeyMismatchData.value = next.data; hostKeyMismatchVisible.value = true }
+    else if (next) keyboardPrompt.value = next.data
+  }
+  function enqueue(prompt: Prompt) {
+    queue.push(prompt)
+    showNext()
+  }
 
   async function handleHostKeyAccept() {
     if (!hostKeyMismatchData.value) return
     const connectionId = hostKeyMismatchData.value.connectionId
     hostKeyMismatchVisible.value = false
     hostKeyMismatchData.value = null
+    showNext()
     try {
       const sessionId = await window.LiteConnect.sshConfirmHostKey(connectionId)
       // Reconnect path: TerminalTab already mounted under sessionId (reconnected event clears UI).
@@ -43,7 +59,7 @@ export function useSecurityDialogs(deps: {
         await deps.adoptSession?.(connectionId, sessionId)
       }
     } catch (err: any) {
-      if (isSshHostKeyConfirmationRequired(err)) return
+      if (isSshHostKeyConfirmationRequired(err) || isSshConnectionCancelled(err)) return
       console.error('Failed to confirm host key:', err)
       const raw = err?.message || ''
       const detailKey = sshDisconnectDetailKey(raw)
@@ -60,6 +76,7 @@ export function useSecurityDialogs(deps: {
     const connectionId = hostKeyMismatchData.value.connectionId
     hostKeyMismatchVisible.value = false
     hostKeyMismatchData.value = null
+    showNext()
     window.LiteConnect.sshRejectHostKey(connectionId).catch(() => {})
   }
 
@@ -83,28 +100,44 @@ export function useSecurityDialogs(deps: {
   function handleKeyboardSubmit(answers: string[]) {
     const req = keyboardPrompt.value
     keyboardPrompt.value = null
+    showNext()
     if (!req) return
-    void window.LiteConnect.sshReplyKeyboardInteractive(req.requestId, answers)
+    void window.LiteConnect.sshReplyKeyboardInteractive(req.requestId, answers).catch(() => {})
   }
 
   function handleKeyboardCancel() {
     const req = keyboardPrompt.value
     keyboardPrompt.value = null
+    showNext()
     if (!req) return
-    void window.LiteConnect.sshReplyKeyboardInteractive(req.requestId, null)
+    void window.LiteConnect.sshReplyKeyboardInteractive(req.requestId, null).catch(() => {})
   }
 
   function subscribe() {
     unsubHostKeyMismatch = window.LiteConnect.onSshHostKeyMismatch((data) => {
-      hostKeyMismatchData.value = data
-      hostKeyMismatchVisible.value = true
+      const current = hostKeyMismatchData.value
+      if (current?.connectionId === data.connectionId) { hostKeyMismatchData.value = data; return }
+      queue = queue.filter((item) => item.kind !== 'host' || item.data.connectionId !== data.connectionId)
+      enqueue({ kind: 'host', data })
     })
     unsubDecryptionFailed = window.LiteConnect.onSshDecryptionFailed((data) => {
       decryptionFailedData.value = data
       decryptionFailedVisible.value = true
     })
     unsubKeyboard = window.LiteConnect.onSshKeyboardInteractive((data) => {
-      keyboardPrompt.value = data
+      enqueue({ kind: 'keyboard', data })
+    })
+    unsubKeyboardClosed = window.LiteConnect.onSshKeyboardInteractiveClosed?.((requestId) => {
+      queue = queue.filter((item) => item.kind !== 'keyboard' || item.data.requestId !== requestId)
+      if (keyboardPrompt.value?.requestId === requestId) keyboardPrompt.value = null
+      showNext()
+    })
+    unsubProgress = window.LiteConnect.onSshConnectionProgress?.(({ connectionId, stage }) => {
+      if (!['failed', 'cancelled', 'connected'].includes(stage)) return
+      queue = queue.filter((item) => item.data.connectionId !== connectionId)
+      if (hostKeyMismatchData.value?.connectionId === connectionId) { hostKeyMismatchData.value = null; hostKeyMismatchVisible.value = false }
+      if (keyboardPrompt.value?.connectionId === connectionId) keyboardPrompt.value = null
+      showNext()
     })
   }
 
@@ -115,6 +148,9 @@ export function useSecurityDialogs(deps: {
     unsubDecryptionFailed = null
     unsubKeyboard?.()
     unsubKeyboard = null
+    unsubKeyboardClosed?.()
+    unsubProgress?.()
+    queue = []
   }
 
   onMounted(subscribe)

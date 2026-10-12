@@ -17,13 +17,19 @@ const prompt: HostKeyMismatchData = { connectionId: 'c1', host: 'server.test', p
 
 function setup() {
   let onHostKey!: (data: HostKeyMismatchData) => void
+  let onKeyboard!: (data: any) => void
+  let onKeyboardClosed!: (id: string) => void
+  const progress: Array<(data: any) => void> = []
   const api = {
     sshConnect: vi.fn().mockRejectedValue(new Error(`Error invoking remote method 'ssh:connect': Error: ${SSH_HOST_KEY_CONFIRMATION_REQUIRED}`)),
     sshConfirmHostKey: vi.fn().mockResolvedValue('session-1'),
     sshRejectHostKey: vi.fn().mockResolvedValue(undefined),
     onSshHostKeyMismatch: vi.fn((fn) => { onHostKey = fn; return vi.fn() }),
     onSshDecryptionFailed: vi.fn(() => vi.fn()),
-    onSshKeyboardInteractive: vi.fn(() => vi.fn()),
+    onSshKeyboardInteractive: vi.fn((fn) => { onKeyboard = fn; return vi.fn() }),
+    onSshKeyboardInteractiveClosed: vi.fn((fn) => { onKeyboardClosed = fn; return vi.fn() }),
+    onSshConnectionProgress: vi.fn((fn) => { progress.push(fn); return vi.fn() }),
+    sshReplyKeyboardInteractive: vi.fn().mockResolvedValue(true),
     sftpExecHome: vi.fn().mockResolvedValue('/root'),
     recordRecentConnection: vi.fn().mockResolvedValue(undefined),
     getRecentConnections: vi.fn().mockResolvedValue([connection]),
@@ -33,12 +39,41 @@ function setup() {
   sessions.hydrateConnectionData({ connections: [connection], recentConnections: [] })
   sessions.connectSidebar({ sidebarVisible: ref(false), aiSidebarVisible: ref(false), sidebarGroupId: ref(null), sidebarSessionId: ref(null), fileSidebarRef: ref(null), setSidebarTarget: vi.fn(), syncSidebarState: vi.fn() })
   const dialogs = useSecurityDialogs({ connections: sessions.connections, onSelectHome: sessions.onSelectHome, editConnection: vi.fn(), adoptSession: sessions.adoptSession, hasOpenSession: sessions.hasOpenSession })
-  return { api, sessions, dialogs, showPrompt: (data = prompt) => onHostKey(data) }
+  return { api, sessions, dialogs, showPrompt: (data = prompt) => onHostKey(data),
+    showKeyboard: (id: string, connectionId: string) => onKeyboard({ requestId: id, connectionId, sessionId: id, name: '', instructions: '', prompts: [], role: 'target' }),
+    closeKeyboard: (id: string) => onKeyboardClosed(id),
+    reportProgress: (connectionId: string, stage: string) => progress.forEach((fn) => fn({ connectionId, stage })) }
 }
 
 describe('first SSH connection host-key confirmation', () => {
   beforeEach(() => { vi.clearAllMocks(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('queues host and keyboard prompts without overwriting the active server', () => {
+    const s = setup()
+    s.showPrompt()
+    s.showPrompt({ ...prompt, connectionId: 'c2', host: 'other.test' })
+    s.showKeyboard('otp3', 'c3')
+    expect(s.dialogs.hostKeyMismatchData.value?.connectionId).toBe('c1')
+    expect(s.dialogs.keyboardPrompt.value).toBeNull()
+    s.dialogs.handleHostKeyReject()
+    expect(s.dialogs.hostKeyMismatchData.value?.connectionId).toBe('c2')
+    s.dialogs.handleHostKeyReject()
+    expect(s.dialogs.keyboardPrompt.value?.requestId).toBe('otp3')
+    s.closeKeyboard('otp3')
+    expect(s.dialogs.keyboardPrompt.value).toBeNull()
+  })
+
+  it('removes failed or cancelled requests and keeps the next server visible', () => {
+    const s = setup()
+    s.showKeyboard('otp1', 'c1')
+    s.showPrompt({ ...prompt, connectionId: 'c2' })
+    s.reportProgress('c1', 'cancelled')
+    expect(s.dialogs.keyboardPrompt.value).toBeNull()
+    expect(s.dialogs.hostKeyMismatchData.value?.connectionId).toBe('c2')
+    s.reportProgress('c2', 'failed')
+    expect(s.dialogs.hostKeyMismatchVisible.value).toBe(false)
+  })
 
   it('shows trust confirmation without a failure toast and adopts the confirmed session', async () => {
     const { sessions, dialogs, showPrompt } = setup()

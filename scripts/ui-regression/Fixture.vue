@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onMounted, provide, ref } from 'vue'
+import SynchronizedInputBar from '../../src/components/terminal/SynchronizedInputBar.vue'
+import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import ConnectionsView from '../../src/views/ConnectionsView.vue'
 import SftpBookmarkMenu from '../../src/components/sftp/SftpBookmarkMenu.vue'
 import InlineLabel from '../../src/components/common/InlineLabel.vue'
@@ -18,6 +20,7 @@ import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
 import type { ChatItem } from '../../src/composables/ai/useAiChat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
+import type { SshConnectionStage } from '../../shared/sshConnectionProgress'
 import type { FileEntry, SftpPathBookmark } from '../../shared/types/sftp'
 
 const groups: Group[] = [
@@ -29,6 +32,13 @@ let connections: Connection[] = [
   { id: 'two', name: '服务器二 Server two', group: 'prod', host: 'prod.example.test', port: 22, username: 'tester', password: '', createdAt: 2, updatedAt: 2 },
 ]
 const initialData = { groups, connections }
+const synchronizedInput = createSynchronizedInput()
+provide(synchronizedInputKey, synchronizedInput)
+const synchronizedWrites: string[] = []
+for (const id of ['one', 'two']) synchronizedInput.register(id, { writable: () => true, receive: data => synchronizedWrites.push(`${id}:${data}`) })
+const synchronizedSessions = connections.map(conn => ({ id: conn.id, connectionName: conn.name, sshAddress: conn.host, tabNumber: 1, terminalLabel: '终端 1', displayName: `${conn.name} / 终端 1` }))
+const connectionStages = ref<Record<string, SshConnectionStage>>({})
+const cancelledConnections: string[] = []
 const calls = { connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[], aiRequests: [] as any[], aiCreates: [] as string[] }
 const imageSettings: AiSettings = { providers: [{ id: 'fixture', name: '测试接口', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'vision-fixture', supportsImages: true }] }], activeProviderId: 'fixture', activeModel: 'vision-fixture', systemPrompt: '' }
 let imageHistory: AiSessionStore = { version: 1, activeThreadId: 'image-thread', defaultContextFiles: [], threads: [{ id: 'image-thread', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
@@ -113,6 +123,10 @@ function renameBookmark(item: SftpPathBookmark) {
 onMounted(() => {
   (window as any).__uiRegression = {
     calls,
+    synchronizedWrites,
+    sendSynchronizedInput(data: string) { synchronizedInput.forward('one', data) },
+    cancelledConnections,
+    async setConnectionStage(stage?: SshConnectionStage) { connectionStages.value = stage ? { one: stage } : {}; await nextTick() },
     setBackgroundJobs(jobs: SshMcpJobSummary[]) { backgroundJobs = jobs; jobListeners.forEach(listener => listener(jobs)) },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },
     async closeImageComposer() { imageComposerOpen.value = false; await nextTick() },
@@ -202,8 +216,9 @@ onMounted(() => {
 
 <template>
   <main class="regression-root">
+    <section class="synchronized-input-fixture"><SynchronizedInputBar :sessions="synchronizedSessions" :open="true" /></section>
     <section class="connection-fixture">
-      <ConnectionsView :initial-data="initialData" @connect="calls.connects.push($event)" />
+      <ConnectionsView :initial-data="initialData" :connection-stages="connectionStages" :connecting-connection-ids="new Set(Object.keys(connectionStages))" @connect="calls.connects.push($event)" @cancel-connect="cancelledConnections.push($event)" />
     </section>
     <section class="file-sidebar">
       <button ref="bookmarkAnchor" @click="bookmarksOpen = true">书签布局验证</button>

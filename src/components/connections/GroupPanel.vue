@@ -34,6 +34,7 @@ const emit = defineEmits<{
   (e: 'setDefault', groupId: string | null): void
   (e: 'reorder', orderedIds: string[]): void
   (e: 'connect', connectionId: string): void
+  (e: 'cancel-connect', connectionId: string): void
   (e: 'moveConnection', connectionId: string, groupId: string | null): void
 }>()
 
@@ -553,6 +554,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               ></span>
               <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
               <span v-if="connectingConnectionIds?.has(conn.id)" class="sidebar-conn-spinner" :title="t('connections.connectingTitle')"></span>
+              <button v-if="connectingConnectionIds?.has(conn.id)" type="button" class="ui-icon-btn" :title="t('common.cancel')" @click.stop="emit('cancel-connect', conn.id)"><AppIcon name="close" size="xs" /></button>
             </div>
           </div>
         </div>
