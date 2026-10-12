@@ -8,6 +8,7 @@ import {
 } from '@/composables/session/useAutoReconnectBudget'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
+import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 
 export function useTerminalReconnect(deps: {
   sessionId: () => string
@@ -104,6 +105,12 @@ export function useTerminalReconnect(deps: {
       nonRetryable?: boolean
     }>).detail
     if (!detail || detail.sessionId !== deps.sessionId() || !disconnected.value) return
+    if (isSshHostKeyConfirmationRequired(detail.message)) {
+      clearAutoReconnectTimer()
+      reconnecting.value = false
+      autoReconnectExhausted.value = false
+      return
+    }
     const msg = detail.message
       ? `Reconnect failed: ${detail.message}`
       : 'Reconnect failed'

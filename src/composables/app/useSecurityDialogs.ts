@@ -1,6 +1,10 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import type { Connection, KeyboardInteractivePrompt } from '@/env.d'
 import type { DecryptionFailedData, HostKeyMismatchData } from '@/domain/app/security'
+import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { t } from '../../i18n'
+import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 
 export type { DecryptionFailedData, HostKeyMismatchData }
 
@@ -39,7 +43,15 @@ export function useSecurityDialogs(deps: {
         await deps.adoptSession?.(connectionId, sessionId)
       }
     } catch (err: any) {
+      if (isSshHostKeyConfirmationRequired(err)) return
       console.error('Failed to confirm host key:', err)
+      const raw = err?.message || ''
+      const detailKey = sshDisconnectDetailKey(raw)
+      const reason = detailKey ? t(detailKey) : (raw || t('terminal.connectFailureHint'))
+      const connection = deps.connections.value.find((item) => item.id === connectionId)
+      ElMessage.error(connection
+        ? t('terminal.connectFailedWithTarget', { name: connection.name, host: connection.host, reason })
+        : reason)
     }
   }
 

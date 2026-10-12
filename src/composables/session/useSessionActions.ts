@@ -12,6 +12,7 @@ import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { buildBatchSessionTarget } from '@/utils/session/sessionDisplay'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
+import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 
 /**
  * Session lifecycle + split wiring used by the SSH workspace.
@@ -75,7 +76,7 @@ export function useSessionActions(deps: {
         return
       }
     } catch (err: any) {
-      console.error('In-place reconnect failed:', err)
+      if (!isSshHostKeyConfirmationRequired(err)) console.error('In-place reconnect failed:', err)
       const message = err?.message || String(err)
       window.dispatchEvent(
         new CustomEvent('ssh-reconnect-failed', {

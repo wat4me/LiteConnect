@@ -8,6 +8,7 @@ import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 import type { Session, ConnectionGroup } from '@/domain/session/types'
 import { createConnectionAttemptGate } from '@/utils/connections/connectionAttemptGate'
+import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 
 export type { Session, ConnectionGroup }
 
@@ -320,6 +321,7 @@ export function useSessionManager(deps: {
       }
       return sessionId
     } catch (err: any) {
+      if (isSshHostKeyConfirmationRequired(err)) return null
       console.error('SSH connection failed:', err)
       const raw = err?.message || ''
       const detailKey = sshDisconnectDetailKey(raw)

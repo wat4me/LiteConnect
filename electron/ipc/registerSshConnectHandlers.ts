@@ -1,4 +1,5 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, type WebContents } from 'electron'
+import { SSH_HOST_KEY_CONFIRMATION_REQUIRED } from '../../shared/sshHostKeyConfirmation'
 import {
   isValidUUID,
   isValidSshWriteData,
@@ -123,6 +124,27 @@ export function registerSshConnectHandlers(
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
   const ensureKnownHostsReady = () => knownHosts.init()
+
+  function throwConnectionError(
+    sender: WebContents,
+    connectionId: string,
+    error: unknown,
+    previousPending?: ReturnType<SSHManager['getPendingHostKey']>,
+  ): never {
+    const pending = sshManager.getPendingHostKey(connectionId)
+    if (pending && pending !== previousPending) {
+      safeWebContentsSend(sender, 'ssh:hostKeyMismatch', {
+        connectionId,
+        host: pending.host,
+        port: pending.port,
+        existingFingerprint: pending.existingFingerprint,
+        newFingerprint: pending.fingerprint,
+        role: pending.role,
+      })
+      throw new Error(SSH_HOST_KEY_CONFIRMATION_REQUIRED)
+    }
+    throw error
+  }
 
   ipcMain.handle('ssh:takeStartupNotices', async (_event, sessionId: string) => {
     if (!isValidUUID(sessionId)) return []
@@ -376,18 +398,7 @@ export function registerSshConnectHandlers(
       onConnected?.(connectionId, sessionId)
       return sessionId
     } catch (err: any) {
-      const pending = sshManager.getPendingHostKey(connectionId)
-      if (pending) {
-        safeWebContentsSend(event.sender, 'ssh:hostKeyMismatch', {
-          connectionId,
-          host: pending.host,
-          port: pending.port,
-          existingFingerprint: pending.existingFingerprint,
-          newFingerprint: pending.fingerprint,
-          role: pending.role,
-        })
-      }
-      throw err
+      throwConnectionError(event.sender, connectionId, err)
     }
   })
 
@@ -397,10 +408,17 @@ export function registerSshConnectHandlers(
     }
     // Capture resume id before confirm clears pending
     const resumeSessionId = sshManager.getPendingHostKeyResumeSessionId(connectionId)
+    const previousPending = sshManager.getPendingHostKey(connectionId)
     const hadLiveSession = !!(resumeSessionId && sshManager.hasSession(resumeSessionId))
     // After host-key failure the live map is usually empty; still treat a known
     // resumeSessionId as in-place when the renderer already owns that tab.
-    const sessionId = await sshManager.confirmHostKey(connectionId)
+    let sessionId: string
+    try {
+      sessionId = await sshManager.confirmHostKey(connectionId)
+    } catch (err) {
+      // Trusting a jump host can reveal another untrusted key on the target.
+      throwConnectionError(event.sender, connectionId, err, previousPending)
+    }
     if (sessionId) setSessionOwner(sessionId, event.sender.id)
     if (sessionId) onConnected?.(connectionId, sessionId)
     // Notify TerminalTab when this was a reconnect-style resume (session id reused)
@@ -509,18 +527,7 @@ export function registerSshConnectHandlers(
       broadcast(`ssh:reconnected:${id}`)
       return id
     } catch (err: any) {
-      const pending = sshManager.getPendingHostKey(connectionId)
-      if (pending) {
-        safeWebContentsSend(event.sender, 'ssh:hostKeyMismatch', {
-          connectionId,
-          host: pending.host,
-          port: pending.port,
-          existingFingerprint: pending.existingFingerprint,
-          newFingerprint: pending.fingerprint,
-          role: pending.role,
-        })
-      }
-      throw err
+      throwConnectionError(event.sender, connectionId, err)
     }
   })
 
