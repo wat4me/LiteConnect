@@ -13,6 +13,7 @@ import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 import AiImageStrip from './AiImageStrip.vue'
+import AiBackgroundTasks from './AiBackgroundTasks.vue'
 import { prepareAiImage } from '@/utils/ai/imageAttachment'
 import { AI_IMAGES_PER_MESSAGE } from '@shared/aiImages'
 import type { AiImageAttachment } from '@shared/types/ai'
@@ -976,6 +977,7 @@ async function runCodeToTerminal(code: string) {
       </div>
     </div>
 
+    <AiBackgroundTasks v-show="!showSettings && !showHistory" :session-id="sessionId" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
         ref="chatViewRef"

@@ -6,12 +6,13 @@ const path = require('node:path')
 
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-ui-'))
 app.setPath('userData', path.join(artifacts, 'profile'))
-// Includes 200-turn stress coverage, image uploads and long-session reminders.
+// Includes 200-turn stress coverage, images, model controls and background jobs.
 // Individual UI conditions still fail after 15 seconds.
+let lastAction = 'loading test page'
 const watchdog = setTimeout(() => {
-  console.error('UI regression timed out after 90 seconds')
+  console.error('UI regression timed out after 180 seconds', { lastAction, artifacts })
   app.exit(1)
-}, 90_000)
+}, 180_000)
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
@@ -19,6 +20,7 @@ app.whenReady().then(async () => {
     webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
   })
   const run = async (source) => {
+    lastAction = source.slice(0, 180)
     const result = await window.webContents.executeJavaScript(`(async () => {
       try { return { ok: true, value: await (${source}) }; }
       catch (error) { return { ok: false, error: error.stack || String(error) }; }
@@ -432,6 +434,23 @@ app.whenReady().then(async () => {
   await saveScreenshot('ai-settings-model-row-alignment.png')
   await run(`document.querySelector('.model-editor').open=true`)
   await saveScreenshot('ai-settings-image-capability.png')
+  await run(`window.__uiRegression.setBackgroundJobs([{jobId:'running-job',sessionId:'image-fixture',command:'sleep 30 && echo done',status:'running',startedAt:1}])`)
+  await waitFor('document.querySelector(".background-toolbar-fixture .ai-task-count-badge")?.textContent === "1"')
+  await run('window.__uiRegression.closeImageComposer()')
+  assert.equal(await run('document.querySelector(".background-toolbar-fixture .ai-task-count-badge").textContent'), '1', 'Closing the AI panel keeps the real background task indicator')
+  await run('window.__uiRegression.openImageComposer()')
+  await waitFor('document.querySelector(".ai-background-tasks.running")')
+  await run(`document.querySelector('.ai-background-tasks').open=true`)
+  await waitFor('document.querySelector(".ai-background-tasks code")?.textContent.includes("sleep 30")')
+  await run(`window.__uiRegression.switchImageSession('other-fixture')`)
+  await waitFor('!document.querySelector(".ai-background-tasks") && !document.querySelector(".background-toolbar-fixture .ai-task-count-badge")')
+  await run(`window.__uiRegression.switchImageSession('image-fixture')`)
+  await waitFor('document.querySelector(".ai-background-tasks.running")')
+  await saveScreenshot('ai-background-running.png')
+  await run(`window.__uiRegression.setBackgroundJobs([{jobId:'running-job',sessionId:'image-fixture',command:'sleep 30 && echo done',status:'completed',startedAt:1,finishedAt:2,exitCode:0}])`)
+  await waitFor('!document.querySelector(".background-toolbar-fixture .ai-task-count-badge") && !document.querySelector(".ai-background-tasks.running")')
+  await run(`document.querySelector('.ai-background-tasks').open=true`)
+  await waitFor('document.querySelector(".ai-background-tasks li")?.textContent.includes("已完成")')
   await run('window.__uiRegression.closeImageComposer()')
   await run('document.querySelector(".regression-root").scrollTop=0')
 

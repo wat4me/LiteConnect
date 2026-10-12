@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LeftToolbar from '@/components/workspace/LeftToolbar.vue'
+import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
 import type { Connection } from '@/env.d'
 import type {
@@ -98,6 +99,8 @@ const props = defineProps<{
   dockerButtonEnabled?: boolean
   disconnectedSessionIds?: Set<string>
 }>()
+
+const { runningCount: aiBackgroundTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
 
 const emit = defineEmits<{
   (e: 'jump-ai-approval', sessionId: string): void
@@ -317,6 +320,7 @@ watch(
       :snippets-active="snippetsPanelVisible"
       :show-ai-unread="showAiUnread"
       :show-ai-approval="showAiApproval"
+      :background-task-count="aiBackgroundTaskCount"
       :active-transfers="globalActiveTransfers"
       :docker-active="!!dockerMode"
       :docker-disabled="!dockerButtonEnabled && !dockerTabOpen"

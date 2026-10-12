@@ -292,6 +292,12 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   sshMeasureLatency: (sessionId: string) => ipcRenderer.invoke('ssh:measureLatency', sessionId),
   sshExec: (sessionId: string, command: string, timeoutMs?: number) => ipcRenderer.invoke('ssh:exec', sessionId, command, timeoutMs),
   mcpListTools: () => ipcRenderer.invoke('mcp:listTools'),
+  mcpListJobs: () => ipcRenderer.invoke('mcp:listJobs'),
+  onMcpJobsChanged: (callback: (jobs: import('../shared/mcp/types').SshMcpJobSummary[]) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, jobs: import('../shared/mcp/types').SshMcpJobSummary[]) => callback(jobs)
+    ipcRenderer.on('mcp:jobsChanged', listener)
+    return () => { ipcRenderer.removeListener('mcp:jobsChanged', listener) }
+  },
   mcpCallTool: (name: string, args?: Record<string, unknown>) =>
     ipcRenderer.invoke('mcp:callTool', name, args ?? {}),
   mcpGetHttpStatus: () => ipcRenderer.invoke('mcp:getHttpStatus'),

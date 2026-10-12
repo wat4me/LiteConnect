@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
 import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
 import { completeRendererConnect } from '../mcp/connectBridge'
@@ -8,6 +8,13 @@ import { isValidUUID } from '../utils/validation'
 
 export function registerMcpHandlers(runtime: SshMcpRuntime, httpGateway?: McpHttpGateway): void {
   ipcMain.handle('mcp:listTools', async () => runtime.listTools())
+  ipcMain.handle('mcp:listJobs', () => runtime.listJobs())
+  runtime.onJobsChanged(() => {
+    const jobs = runtime.listJobs()
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('mcp:jobsChanged', jobs)
+    }
+  })
   ipcMain.handle('mcp:callTool', async (_event, name: unknown, args: unknown) => runtime.call(name, args))
 
   ipcMain.handle('mcp:getHttpStatus', async () => {

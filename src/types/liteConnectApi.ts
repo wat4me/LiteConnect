@@ -54,7 +54,7 @@ import type {
   DockerStartContainerLogsResult,
 } from '@shared/types/docker'
 import type { MonitorData } from '@shared/types/monitor'
-import type { McpHttpStatus, SshMcpToolCallResult, SshMcpToolDefinition } from '@shared/mcp/types'
+import type { McpHttpStatus, SshMcpToolCallResult, SshMcpToolDefinition, SshMcpJobSummary } from '@shared/mcp/types'
 import type { AppBootstrapData, AppSettingsAll, AppSettingsAllPatch, WorkspaceTabsState } from '@shared/types/settings'
 import type { FileEntry, TransferConflictStrategy } from '@shared/types/sftp'
 import type { CommandSnippet, ShellCommandHistoryItem } from '@shared/types/snippets'
@@ -371,6 +371,8 @@ export interface LiteConnectApi {
   sshMeasureLatency: (sessionId: string) => Promise<number>
   sshExec: (sessionId: string, command: string, timeoutMs?: number) => Promise<string>
   mcpListTools: () => Promise<SshMcpToolDefinition[]>
+  mcpListJobs: () => Promise<SshMcpJobSummary[]>
+  onMcpJobsChanged: (callback: (jobs: SshMcpJobSummary[]) => void) => () => void
   mcpCallTool: (
     name: string,
     args?: Record<string, unknown>,

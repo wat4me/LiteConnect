@@ -20,6 +20,18 @@ export type McpJobRecord = {
 
 export class McpJobStore {
   private readonly jobs = new Map<string, McpJobRecord>()
+  private readonly listeners = new Set<() => void>()
+
+  onChanged(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  private notifyChanged() {
+    for (const listener of this.listeners) {
+      try { listener() } catch { /* Observers must not interrupt remote jobs. */ }
+    }
+  }
 
   create(input: {
     sessionId: string
@@ -47,6 +59,7 @@ export class McpJobStore {
       cancel: input.cancel,
     }
     this.jobs.set(job.jobId, job)
+    this.notifyChanged()
     return job
   }
 
@@ -67,6 +80,7 @@ export class McpJobStore {
     job.result = result
     job.error = error
     job.cancel = () => {}
+    this.notifyChanged()
   }
 
   cancel(jobId: string): boolean {

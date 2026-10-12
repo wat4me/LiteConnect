@@ -71,6 +71,14 @@ export class SshMcpRuntime {
     return SSH_MCP_TOOLS
   }
 
+  listJobs() {
+    return this.jobs.list().map(job => this.jobs.summary(job))
+  }
+
+  onJobsChanged(listener: () => void): () => void {
+    return this.jobs.onChanged(listener)
+  }
+
   async call(
     name: unknown,
     args: unknown,

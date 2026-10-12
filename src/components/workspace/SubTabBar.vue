@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/icons/AppIcon.vue'
+import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import { resolveSplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import type { SplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
@@ -9,6 +10,7 @@ import type { SplitDropPayload, SplitPreviewPayload } from '@/domain/session/typ
 import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
 
 const { t } = useI18n()
+const { runningSessionIds: backgroundJobSessions } = useAiBackgroundJobs(() => null)
 
 type SessionItem = { id: string; tabNumber: number }
 
@@ -144,6 +146,7 @@ function onTabClick(sessionId: string) {
             <span class="sub-tab-label">{{ splitSessionLabel(item.primary) }}</span>
             <span class="split-group-divider">|</span>
             <span class="sub-tab-label">{{ splitSessionLabel(item.secondary) }}</span>
+            <AppIcon v-if="hasSplitStatus([item.primary.id, item.secondary.id], backgroundJobSessions)" name="activity" size="xs" :title="t('ai.backgroundRunningHint')" style="color: var(--accent); flex-shrink: 0" />
             <span
               v-if="hasSplitStatus([item.primary.id, item.secondary.id], disconnectedSessionIds)"
               class="sub-tab-disconnected-dot"
@@ -181,6 +184,7 @@ function onTabClick(sessionId: string) {
             @click="onTabClick(item.item.id)"
           >
             <span class="sub-tab-label">{{ t('terminal.tabLabel', { n: item.item.tabNumber }) }}</span>
+            <AppIcon v-if="backgroundJobSessions.has(item.item.id)" name="activity" size="xs" :title="t('ai.backgroundRunningHint')" style="color: var(--accent); flex-shrink: 0" />
             <span
               v-if="disconnectedSessionIds?.has(item.item.id)"
               class="sub-tab-disconnected-dot"

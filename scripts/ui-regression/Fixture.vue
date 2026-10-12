@@ -5,6 +5,9 @@ import SftpBookmarkMenu from '../../src/components/sftp/SftpBookmarkMenu.vue'
 import InlineLabel from '../../src/components/common/InlineLabel.vue'
 import AiChatView from '../../src/components/ai/AiChatView.vue'
 import AiSidebar from '../../src/components/ai/AiSidebar.vue'
+import LeftToolbar from '../../src/components/workspace/LeftToolbar.vue'
+import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJobs'
+import type { SshMcpJobSummary } from '../../shared/mcp/types'
 import { useAiChat } from '../../src/composables/ai/useAiChat'
 import type { AiSessionStore, AiSettings } from '../../shared/types/ai'
 import FileEditorModal from '../../src/components/sftp/FileEditorModal.vue'
@@ -32,9 +35,13 @@ const otherImageHistory: AiSessionStore = { version: 1, activeThreadId: 'other-t
 let remoteContent = 'original content'
 let remoteRevision = 'a'.repeat(64)
 let previewFails = false
+let backgroundJobs: SshMcpJobSummary[] = []
+const jobListeners = new Set<(jobs: SshMcpJobSummary[]) => void>()
 // This test window has no production preload, credentials, SSH or disk writes.
 ;(window as any).LiteConnect = {
   getAiSettings: async () => JSON.parse(JSON.stringify(imageSettings)),
+  mcpListJobs: async () => backgroundJobs,
+  onMcpJobsChanged: (listener: (jobs: SshMcpJobSummary[]) => void) => { jobListeners.add(listener); return () => jobListeners.delete(listener) },
   listAiModels: async () => [{ id: 'vision-fixture', contextWindowTokens: 64000 }],
   getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(id === 'image-fixture' ? imageHistory : otherImageHistory)),
   setAiSessionStore: async (_id: string, store: AiSessionStore) => { imageHistory = store },
@@ -87,6 +94,7 @@ const syncOpen = ref(false)
 const aiMessages = ref<ChatItem[]>([])
 const imageComposerOpen = ref(false)
 const imageComposerSession = ref('image-fixture')
+const { runningCount: backgroundTaskCount } = useAiBackgroundJobs(() => imageComposerSession.value)
 const imageOpenGeneration = ref(1)
 const renameText = ref('重命名后的服务器日志 Production logs ' + '很长的名称'.repeat(12))
 const bookmarks = ref<SftpPathBookmark[]>([
@@ -101,6 +109,7 @@ function renameBookmark(item: SftpPathBookmark) {
 onMounted(() => {
   (window as any).__uiRegression = {
     calls,
+    setBackgroundJobs(jobs: SshMcpJobSummary[]) { backgroundJobs = jobs; jobListeners.forEach(listener => listener(jobs)) },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },
     async closeImageComposer() { imageComposerOpen.value = false; await nextTick() },
     async switchImageSession(id: string) { imageComposerSession.value = id; await nextTick() },
@@ -206,6 +215,7 @@ onMounted(() => {
     </section>
     <section class="ai-fixture"><AiChatView :messages="aiMessages" :has-api-configured="true" /></section>
     <section v-if="imageComposerOpen" class="ai-image-composer-fixture"><AiSidebar :session-id="imageComposerSession" :open-generation="imageOpenGeneration" /></section>
+    <section class="background-toolbar-fixture"><LeftToolbar :ai-active="imageComposerOpen" :files-active="false" :monitor-active="false" :batch-active="false" :snippets-active="false" :show-ai-unread="false" :background-task-count="backgroundTaskCount" /></section>
     <FileEditorModal :visible="editorOpen" session-id="ui-fixture" remote-path="/tmp/config" file-name="config" @close="editorOpen = false" />
     <DirectorySyncModal :visible="syncOpen" session-id="ui-fixture" remote-path="/tmp" @close="syncOpen = false" />
     <AppDialogHost />

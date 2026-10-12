@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/icons/AppIcon.vue'
+import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import type { Connection } from '@/env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
@@ -11,6 +12,7 @@ import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
 import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
 
 const { t } = useI18n()
+const { runningSessionIds: backgroundJobSessions } = useAiBackgroundJobs(() => null)
 
 type HostGroup = {
   connectionId: string
@@ -374,6 +376,7 @@ onBeforeUnmount(() => {
           <span class="tab-name">{{ item.primary.connectionName }}</span>
           <span class="host-split-divider">|</span>
           <span class="tab-name">{{ item.secondary.connectionName }}</span>
+          <AppIcon v-if="splitHostHasStatus(backgroundJobSessions, item.primary, item.secondary)" name="activity" size="sm" :title="t('ai.backgroundRunningHint')" style="color: var(--accent); flex-shrink: 0" />
           <span
             v-if="splitHostHasStatus(disconnectedSessionIds, item.primary, item.secondary)"
             class="tab-disconnected"
@@ -413,6 +416,7 @@ onBeforeUnmount(() => {
         >
           <div class="tab-indicator" :class="{ down: isGroupDisconnected(item.item) }"></div>
           <span class="tab-name">{{ item.item.connectionName }}</span>
+          <AppIcon v-if="item.item.sessions.some(session => backgroundJobSessions.has(session.id))" name="activity" size="sm" :title="t('ai.backgroundRunningHint')" style="color: var(--accent); flex-shrink: 0" />
           <span
             v-if="aiApprovalSessions && item.item.connectionId !== activeGroupId && hasGroupAiApproval(item.item)"
             class="tab-approval-dot"

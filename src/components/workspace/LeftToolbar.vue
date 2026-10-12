@@ -11,6 +11,7 @@ const props = defineProps<{
   snippetsActive: boolean
   showAiUnread: boolean
   showAiApproval?: boolean
+  backgroundTaskCount?: number
   /** Active SFTP transfers (all sessions); shown when files panel closed */
   activeTransfers?: number
   /** SFTP is hidden while a cross-host split uses the full SSH canvas. */
@@ -43,6 +44,7 @@ const dockerTooltip = computed(() => {
 
 const aiTooltip = computed(() => {
   if (props.aiDisabled) return t('toolbar.aiSplitDisabled')
+  if (props.backgroundTaskCount) return t('ai.backgroundTaskCount', { count: props.backgroundTaskCount })
   return t('toolbar.aiShortcut')
 })
 
@@ -60,12 +62,13 @@ const sftpTooltip = computed(() => {
         class="toolbar-icon-btn"
         type="button"
         :class="{ active: aiActive }"
-        :aria-label="t('toolbar.ai')"
+        :aria-label="backgroundTaskCount ? t('ai.backgroundTaskCount', { count: backgroundTaskCount }) : t('toolbar.ai')"
         :aria-pressed="aiActive"
         :disabled="sidePanelsDisabled || aiDisabled"
         @click="emit('toggle-ai')"
       >
         <AppIcon name="ai-chat" size="lg" />
+        <span v-if="backgroundTaskCount" class="ai-task-count-badge">{{ backgroundTaskCount }}</span>
         <span
           v-if="showAiApproval || showAiUnread"
           class="ai-reply-badge"
@@ -232,6 +235,23 @@ const sftpTooltip = computed(() => {
 
 .ai-reply-badge.approval {
   background: var(--warning);
+}
+
+.ai-task-count-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--bg-primary);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  pointer-events: none;
 }
 
 .transfer-count-badge {
