@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from 'vitest'
+import { describe, expect, it, afterEach } from 'vitest'
 import * as net from 'net'
 import {
   HijackHttpHeaderParser,
@@ -96,9 +96,13 @@ describe('startDockerExecAttachStream', () => {
     const ttyBytes = Buffer.from('你好🌍\x1b[31m', 'utf8')
     server!.on('connection', (sock) => {
       let buf = Buffer.alloc(0)
+      let responded = false
       sock.on('data', (c) => {
+        if (responded) return
         buf = Buffer.concat([buf, c])
         if (buf.includes('\r\n\r\n')) {
+          // The request body may arrive separately from its headers.
+          responded = true
           // Split header and first body across writes
           sock.write(Buffer.from('HTTP/1.1 200 OK\r\nContent-Type: application/vnd.docker.raw-stream\r\n'))
           sock.write(Buffer.concat([Buffer.from('\r\n'), ttyBytes.subarray(0, 3)]))
@@ -145,16 +149,19 @@ describe('startDockerExecAttachStream', () => {
     await listen()
     server!.on('connection', (sock) => {
       let buf = Buffer.alloc(0)
+      let responded = false
       sock.on('data', (c) => {
+        if (responded) return
         buf = Buffer.concat([buf, c])
         if (buf.includes('\r\n\r\n')) {
-          sock.write(
+          // Reject once, even if the request body arrives in a later TCP chunk.
+          responded = true
+          sock.end(
             Buffer.from(
               'HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nsecret-body!',
               'utf8',
             ),
           )
-          sock.end()
         }
       })
     })
