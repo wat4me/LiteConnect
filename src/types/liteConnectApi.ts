@@ -268,6 +268,19 @@ export interface LiteConnectApi {
 
   sshConnect: (connectionId: string) => Promise<string>
   aiOpenWorkspaceConnection: (connectionId: string) => Promise<string>
+  aiListWorkspaceConversations: (
+    hosts: { id: string; name: string; host: string; port?: number }[],
+    limit?: number,
+  ) => Promise<import('@shared/aiWorkspaceConversations').AiWorkspaceConversationItem[]>
+  aiListSchedules: () => Promise<import('@shared/aiSchedules').AiScheduleSnapshot>
+  aiGetNotificationSettings: () => Promise<import('@shared/aiNotifications').AiNotificationSettings>
+  aiSaveNotificationSettings: (input: import('@shared/aiNotifications').AiNotificationInput) => Promise<import('@shared/aiNotifications').AiNotificationSettings>
+  aiTestNotification: () => Promise<import('@shared/aiSchedules').AiRunNotification>
+  aiSaveSchedule: (input: import('@shared/aiSchedules').AiScheduleInput) => Promise<import('@shared/aiSchedules').AiSchedule>
+  aiRemoveSchedule: (id: string) => Promise<void>
+  aiRunSchedule: (id: string) => Promise<import('@shared/aiSchedules').AiScheduleRun>
+  aiStopScheduleRun: (id: string) => Promise<void>
+  onAiSchedulesChanged: (callback: (state: import('@shared/aiSchedules').AiScheduleSnapshot) => void) => () => void
   aiCancelWorkspaceConnection: (connectionId: string) => Promise<void>
   aiCloseWorkspaceConnection: (sessionId: string) => Promise<void>
   onAiWorkspaceConnection: (callback: (event: import('@shared/aiWorkspace').AiWorkspaceConnectionEvent) => void) => () => void

@@ -53,6 +53,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'selectionConsumed', id: number): void
+  (e: 'request-other-host-chat'): void
 }>()
 
 const {
@@ -597,7 +598,19 @@ async function ensureOpenPrepared() {
   }
 }
 
+const newChatMenuRef = ref<HTMLDetailsElement | null>(null)
+
+function closeNewChatMenu() {
+  newChatMenuRef.value?.removeAttribute('open')
+}
+
+function onNewChatMenuClick(event: MouseEvent) {
+  if (!(loading.value || newConversationBusy.value)) return
+  event.preventDefault()
+}
+
 async function handleNewConversation() {
+  closeNewChatMenu()
   if (loading.value || contextFileBusy.value || newConversationBusy.value) return
   const sessionId = props.sessionId
   const threadId = getSessionState(sessionId).activeThreadId
@@ -631,6 +644,11 @@ async function handleNewConversation() {
   } finally {
     newConversationBusy.value = false
   }
+}
+
+function requestOtherHostChat() {
+  closeNewChatMenu()
+  emit('request-other-host-chat')
 }
 
 async function chooseLocalContextFile() {
@@ -988,7 +1006,28 @@ async function runCodeToTerminal(code: string) {
         <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
       </div>
       <div class="ai-header-actions">
+        <details
+          v-if="workspace"
+          ref="newChatMenuRef"
+          class="ai-new-chat-menu"
+          :class="{ disabled: loading || newConversationBusy }"
+        >
+          <summary
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+            :title="t('ai.workspace.newConversationMenu')"
+            :aria-label="t('ai.workspace.newConversationMenu')"
+            :aria-disabled="loading || newConversationBusy"
+            @click="onNewChatMenuClick"
+          >
+            <AppIcon name="plus" size="sm" />
+          </summary>
+          <div class="ai-new-chat-dropdown">
+            <button type="button" :disabled="loading || newConversationBusy" @click="handleNewConversation">{{ t('ai.workspace.newOnCurrent') }}</button>
+            <button type="button" :disabled="loading || newConversationBusy" @click="requestOtherHostChat">{{ t('ai.workspace.newOnOther') }}</button>
+          </div>
+        </details>
         <button
+          v-else
           type="button"
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
           :disabled="loading || newConversationBusy"

@@ -5,21 +5,17 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiChatSegment, AiToolRun } from '../../env.d.ts'
 import { useMarkdownRenderer, type MarkdownBlock } from '@/composables/ai/useMarkdownRenderer'
-import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import type { ChatItem } from '../../composables/ai/useAiChat'
 import {
-  extractJsonStringField,
   toolRunDefaultOpen,
 } from '@shared/aiToolRunDisplay'
 import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { chatActivityDisplay } from '@/utils/ai/chatActivity'
 import { activeTimelineTurnId, collectChatTimelineTurns, overviewChatTimelineTurns } from '@/utils/ai/chatTimeline'
-import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
-import { splitToolReason } from '@/utils/ai/toolReason'
-import { toolRunPresentation, toolStateKeys } from '@/utils/ai/toolRunPresentation'
 import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
+import AiToolRunRow from './AiToolRun.vue'
 
 const props = defineProps<{
   messages: ChatItem[]
@@ -48,7 +44,6 @@ const examplePrompts = computed(() => [
 
 const { t } = useI18n()
 const { parseMarkdown } = useMarkdownRenderer()
-const toolNameLabel = useAiToolNameLabel()
 const activityNow = ref(Date.now())
 let activityTimer: ReturnType<typeof setInterval> | undefined
 let activityVisible = true
@@ -284,29 +279,13 @@ function toolRunKey(message: ChatItem, run: AiToolRun): string {
   return `${message.id}:${run.id}`
 }
 
-const { toolView } = createToolRunDisplayCache()
 
 function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
   return toolOpenState.get(toolRunKey(message, run)) === true
 }
 
-function toolRunExplanation(run: AiToolRun): string {
-  return splitToolReason(run.reason).explanation
-}
-
-/** Prefer the model's purpose statement; retain a compact fallback for legacy history. */
-function toolRunDescText(run: AiToolRun): string {
-  return (toolRunExplanation(run) || toolView(run).hint).replace(/\s+/g, ' ').trim()
-}
-
-function toolInvocationLabel(run: AiToolRun): string {
-  return extractJsonStringField(run.args || '', 'command') ? t('ai.toolCommand') : t('ai.toolParameters')
-}
-
-function onToolRunToggle(message: ChatItem, run: AiToolRun, event: Event) {
-  const el = event.currentTarget as HTMLDetailsElement
-  if (!el || el.tagName !== 'DETAILS') return
-  toolOpenState.set(toolRunKey(message, run), el.open)
+function onToolRunToggle(message: ChatItem, run: AiToolRun, open: boolean) {
+  toolOpenState.set(toolRunKey(message, run), open)
 }
 
 function isReasoningLive(message: ChatItem, segIndex: number): boolean {
@@ -352,20 +331,6 @@ watch(
   },
   { immediate: true },
 )
-
-function toolPresentation(message: ChatItem, run: AiToolRun) {
-  return toolRunPresentation(run, toolView(run).summary, message.streaming)
-}
-
-function toolRunStateLabel(message: ChatItem, run: AiToolRun): string {
-  return t(toolStateKeys[toolPresentation(message, run).state])
-}
-
-function toolRunDetail(message: ChatItem, run: AiToolRun): string {
-  const view = toolPresentation(message, run)
-  const detail = view.detailKey ? t(view.detailKey, view.detailParams || {}) : ''
-  return [detail, view.truncated ? t('ai.toolOutputTruncated') : ''].filter(Boolean).join(' · ')
-}
 
 function backgroundResultOutput(notice: string): string {
   try {
@@ -660,53 +625,7 @@ async function copyText(text: string, key: string) {
           </template>
         </div>
       </details>
-      <details
-        v-else-if="item.seg.kind === 'tool' && item.run"
-        class="tool-run"
-        :class="{
-          error:
-            item.run.status !== 'reclassify' &&
-            ['failed', 'timeout', 'denied', 'blocked'].includes(toolPresentation(message, item.run).state),
-          reclassify: item.run.status === 'reclassify',
-          pending: toolPresentation(message, item.run).state === 'running',
-          ask: item.run.status === 'ask',
-          danger: item.run.risk === 'destructive' || item.run.risk === 'privileged' || item.run.risk === 'forbidden',
-        }"
-        :open="isToolRunOpen(message, item.run)"
-        @toggle="onToolRunToggle(message, item.run!, $event)"
-      >
-        <summary class="tool-run-head">
-          <AppIcon name="chevron-right" size="xs" class="details-chevron" />
-          <span class="tool-run-name">{{ toolNameLabel(item.run.name) }}</span>
-          <span
-            v-if="!isToolRunOpen(message, item.run) && toolRunDescText(item.run)"
-            class="tool-run-desc"
-            :title="toolRunDescText(item.run)"
-          >{{ toolRunDescText(item.run) }}</span>
-          <span class="tool-run-outcome">
-            <span class="tool-run-state">{{ toolRunStateLabel(message, item.run) }}</span>
-            <span v-if="toolRunDetail(message, item.run)" class="tool-run-detail">{{ toolRunDetail(message, item.run) }}</span>
-          </span>
-        </summary>
-        <template v-if="isToolRunOpen(message, item.run)">
-        <div v-if="toolRunExplanation(item.run)" class="tool-run-section tool-run-explanation-section">
-          <div class="tool-run-section-label">{{ t('ai.toolExplanationLabel') }}</div>
-          <div class="tool-run-explanation">{{ toolRunExplanation(item.run) }}</div>
-        </div>
-        <div v-if="toolView(item.run).hint && item.run.status !== 'denied'" class="tool-run-section">
-          <div class="tool-run-section-label">{{ toolInvocationLabel(item.run) }}</div>
-          <pre class="tool-run-args">{{ toolView(item.run).hint }}</pre>
-        </div>
-        <div v-if="item.run.diffPreview || (toolView(item.run).body && item.run.status !== 'denied' && item.run.status !== 'blocked' && item.run.status !== 'reclassify') || item.run.status === 'blocked' || item.run.status === 'reclassify'" class="tool-run-section">
-          <div class="tool-run-section-label">{{ t('ai.toolExecutionResult') }}</div>
-          <div v-if="item.run.diffSummary" class="tool-run-result-summary">{{ item.run.diffSummary }}</div>
-          <pre v-if="item.run.diffPreview" class="tool-run-out">{{ item.run.diffPreview }}</pre>
-          <pre v-else-if="toolView(item.run).body && item.run.status !== 'denied' && item.run.status !== 'blocked' && item.run.status !== 'reclassify'" class="tool-run-out">{{ toolView(item.run).body }}</pre>
-          <div v-else-if="item.run.status === 'blocked'" class="tool-run-result-summary">{{ t('ai.toolAskForbidden') }}</div>
-          <div v-else-if="item.run.status === 'reclassify'" class="tool-run-result-summary">{{ t('ai.toolReclassifyHint') }}</div>
-        </div>
-        </template>
-      </details>
+      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" @toggle="onToolRunToggle(message, item.run!, $event)" />
       <div v-else-if="item.seg.kind === 'content'" class="message-content">
         <!-- Parsing the whole growing response on every stream chunk can saturate the
              renderer for very long replies. Render once when the turn settles. -->

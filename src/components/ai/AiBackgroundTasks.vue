@@ -17,8 +17,25 @@ const opened = ref<Set<string>>(new Set())
 const results = ref<Record<string, SshMcpJobResult>>({})
 const loading = ref<Record<string, boolean>>({})
 const errors = ref<Record<string, string>>({})
+const stopping = ref<Record<string, boolean>>({})
+const stopErrors = ref<Record<string, string>>({})
 let generation = 0
 const requests = new Map<string, number>()
+
+async function stopJob(job: SshMcpJobSummary) {
+  if (job.sessionId !== props.sessionId || job.status !== 'running' || stopping.value[job.jobId]) return
+  const currentGeneration = generation
+  stopping.value[job.jobId] = true
+  delete stopErrors.value[job.jobId]
+  try {
+    const response = await window.LiteConnect.mcpCallTool('cancel_job', { jobId: job.jobId })
+    if (response.isError) throw new Error(response.content)
+  } catch (error) {
+    if (generation === currentGeneration) stopErrors.value[job.jobId] = error instanceof Error ? error.message : String(error)
+  } finally {
+    if (generation === currentGeneration) stopping.value[job.jobId] = false
+  }
+}
 
 async function loadDetail(job: SshMcpJobSummary) {
   const currentGeneration = generation
@@ -56,6 +73,8 @@ watch(() => props.sessionId, () => {
   results.value = {}
   errors.value = {}
   loading.value = {}
+  stopping.value = {}
+  stopErrors.value = {}
 })
 watch(sessionJobs, (jobs, previous) => {
   for (const job of jobs) {
@@ -94,8 +113,8 @@ function fullTimeRange(job: SshMcpJobSummary) {
             <code class="tool-run-desc" :title="job.command">{{ job.command }}</code>
             <span class="tool-run-outcome">
               <span class="tool-run-state">{{ t(toolStateKeys[backgroundJobState(job.status, job.exitCode)]) }}</span>
-              <span v-if="job.exitCode != null && job.exitCode !== 0" class="tool-run-detail">{{ t('ai.toolSummaryExitHint', { code: job.exitCode }) }}</span>
             </span>
+            <button v-if="job.status === 'running'" type="button" class="background-job-stop" :disabled="stopping[job.jobId]" :title="t('ai.backgroundStopHint')" :aria-label="t('ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)">{{ t(stopping[job.jobId] ? 'ai.backgroundStopping' : 'ai.backgroundStop') }}</button>
           </summary>
           <div v-if="opened.has(job.jobId)" class="background-job-detail">
             <div class="tool-run-section-label">{{ t('ai.toolCommand') }}</div>
@@ -119,6 +138,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
             </template>
           </div>
         </details>
+        <p v-if="stopErrors[job.jobId]" class="background-job-error" role="alert">{{ t('ai.backgroundStopFailed') }} {{ stopErrors[job.jobId] }}</p>
       </li>
     </ul>
     </div>
@@ -141,6 +161,9 @@ li { min-width: 0; color: var(--text-secondary); }
 .tool-run-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .tool-run-outcome { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 6px; line-height: 20px; font-weight: 400; }
 .tool-run-state { flex-shrink: 0; white-space: nowrap; }
+.background-job-stop { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font: inherit; cursor: pointer; }
+.background-job-stop:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.background-job-stop:disabled { cursor: wait; opacity: .6; }
 .background-job-detail { margin: 2px 0 6px 20px; min-width: 0; }
 .tool-run-section-label { margin: 4px 0 2px; font-size: 10px; font-weight: 600; }
 .tool-run-args, .tool-run-out { margin: 0; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }

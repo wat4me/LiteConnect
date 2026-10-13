@@ -129,7 +129,7 @@ export function useMarkdownRenderer() {
     const lines = markdown.split(/\r?\n/)
     const blocks: MarkdownBlock[] = []
     let paragraph: string[] = []
-    let listItems: Array<{ ordered: boolean; text: string; depth: number }> = []
+    let listItems: Array<{ ordered: boolean; text: string; depth: number; start: number }> = []
     let code: string[] | null = null
     let codeLanguage = ''
     let openFence: FenceOpen | null = null
@@ -183,30 +183,28 @@ export function useMarkdownRenderer() {
 
     const flushList = () => {
       if (listItems.length === 0) return
-      // Flat list by type; nested indent rendered with margin via data-depth class
-      let html = ''
-      let openTag: 'ul' | 'ol' | null = null
-
-      const closeOpen = () => {
-        if (openTag) {
-          html += openTag === 'ol' ? '</ol>' : '</ul>'
-          openTag = null
+      // Keep nested lists inside their parent item, preserving the parent counter.
+      let index = 0
+      const renderLevel = (depth: number): string => {
+        let html = ''
+        let openTag = ''
+        while (index < listItems.length && listItems[index].depth >= depth) {
+          const item = listItems[index]
+          if (item.depth > depth) { html += renderLevel(item.depth); continue }
+          const tag = item.ordered ? 'ol' : 'ul'
+          if (openTag !== tag) {
+            if (openTag) html += `</${openTag}>`
+            html += `<${tag}${item.ordered && item.start !== 1 ? ` start="${item.start}"` : ''}>`
+            openTag = tag
+          }
+          index++
+          html += `<li>${item.text.split('\n').map(renderInlineMarkdown).join('<br>')}`
+          if (index < listItems.length && listItems[index].depth > depth) html += renderLevel(listItems[index].depth)
+          html += '</li>'
         }
+        return html + (openTag ? `</${openTag}>` : '')
       }
-
-      for (const item of listItems) {
-        const tag = item.ordered ? 'ol' : 'ul'
-        if (openTag !== tag) {
-          closeOpen()
-          html += `<${tag}>`
-          openTag = tag
-        }
-        const depthClass = item.depth > 0 ? ` class="md-li-depth-${Math.min(item.depth, 4)}"` : ''
-        html += `<li${depthClass}>${renderInlineMarkdown(item.text)}</li>`
-      }
-      closeOpen()
-
-      blocks.push({ type: 'html', content: html })
+      blocks.push({ type: 'html', content: renderLevel(listItems.reduce((depth, item) => Math.min(depth, item.depth), listItems[0].depth)) })
       listItems = []
     }
 
@@ -259,6 +257,9 @@ export function useMarkdownRenderer() {
       }
 
       if (!line.trim()) {
+        const next = lines.slice(lineIndex + 1).find(value => value.trim())
+        // A loose list may contain blank lines before nested/next items or indented prose.
+        if (listItems.length && next && /^(\s*([-*+]|\d+\.)\s+| {2,}\S)/.test(next) && !parseFenceLine(next)) continue
         if (nextNonBlankIsFence(lineIndex)) {
           flushParagraphBeforeFence()
         } else {
@@ -303,9 +304,15 @@ export function useMarkdownRenderer() {
         const depth = Math.floor(indent / 2)
         const marker = listMatch[2]
         const ordered = /^\d+\.$/.test(marker)
-        listItems.push({ ordered, text: listMatch[3], depth })
+        listItems.push({ ordered, text: listMatch[3], depth, start: ordered ? Number.parseInt(marker, 10) : 1 })
         continue
       }
+
+      if (listItems.length && /^ {2,}\S/.test(line)) {
+        listItems[listItems.length - 1].text += `\n${line.trim()}`
+        continue
+      }
+      flushList()
 
       if (line.startsWith('> ')) {
         flushParagraph()

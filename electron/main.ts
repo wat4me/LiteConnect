@@ -16,6 +16,7 @@
  * See ARCHITECTURE.md.
  */
 import { app, BrowserWindow, dialog } from 'electron'
+import { windowAppId } from './window/appIcon'
 import { registerAppBackgroundScheme, installAppBackgroundProtocol } from './window/appBackgroundProtocol'
 
 registerAppBackgroundScheme()
@@ -60,7 +61,7 @@ const isPrimaryInstance = installSingleInstance(showMainWindow)
 // Keep development windows grouped under LiteConnect instead of electron.exe;
 // Windows also uses this identity when resolving the taskbar icon.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.liteconnect.app')
+  app.setAppUserModelId(windowAppId(app.isPackaged))
 }
 
 const getMainWindow = () => getPrimaryWindow()
@@ -74,6 +75,7 @@ const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
 let aiExecutionService: AiExecutionService | undefined
+let aiScheduler: import('./ai/scheduler').AiScheduler | undefined
 let monitorAlerts: MonitorAlerts
 let backgroundMonitor: BackgroundMonitor
 const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, updated) => {
@@ -198,6 +200,8 @@ async function loadDeferredMain(): Promise<void> {
       if (!connection) return undefined
       return aiHistoryIdForHost(connection.host, connection.port || 22)
     })
+    const { registerAiScheduleHandlers } = await import('./ipc/registerAiScheduleHandlers')
+    aiScheduler = registerAiScheduleHandlers(aiExecutionService, sshManager, credentialStore, settingsStore)
 
     try {
       await gateway.applyFromSettings()
@@ -339,6 +343,7 @@ app.on('before-quit', (event) => {
   // Do not make `quitting` sticky or tear down live sessions in that case.
   if (event.defaultPrevented) return
   markQuitting()
+  aiScheduler?.dispose()
   aiExecutionService?.dispose()
   backgroundMonitor.dispose()
   clearLatencyTimers()

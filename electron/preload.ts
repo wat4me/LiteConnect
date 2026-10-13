@@ -204,6 +204,21 @@ contextBridge.exposeInMainWorld('LiteConnect', {
 
   sshConnect: (connectionId: string) => ipcRenderer.invoke('ssh:connect', connectionId),
   aiOpenWorkspaceConnection: (connectionId: string) => ipcRenderer.invoke('ai:openWorkspaceConnection', connectionId),
+  aiListWorkspaceConversations: (hosts: { id: string; name: string; host: string; port?: number }[], limit?: number) =>
+    ipcRenderer.invoke('ai:listWorkspaceConversations', hosts, limit),
+  aiListSchedules: () => ipcRenderer.invoke('ai:listSchedules'),
+  aiGetNotificationSettings: () => ipcRenderer.invoke('ai:getNotificationSettings'),
+  aiSaveNotificationSettings: (input: import('../shared/aiNotifications').AiNotificationInput) => ipcRenderer.invoke('ai:saveNotificationSettings', input),
+  aiTestNotification: () => ipcRenderer.invoke('ai:testNotification'),
+  aiSaveSchedule: (input: import('../shared/aiSchedules').AiScheduleInput) => ipcRenderer.invoke('ai:saveSchedule', input),
+  aiRemoveSchedule: (id: string) => ipcRenderer.invoke('ai:removeSchedule', id),
+  aiRunSchedule: (id: string) => ipcRenderer.invoke('ai:runSchedule', id),
+  aiStopScheduleRun: (id: string) => ipcRenderer.invoke('ai:stopScheduleRun', id),
+  onAiSchedulesChanged: (callback: (state: import('../shared/aiSchedules').AiScheduleSnapshot) => void) => {
+    const listener = (_event: unknown, state: import('../shared/aiSchedules').AiScheduleSnapshot) => callback(state)
+    ipcRenderer.on('ai:schedulesChanged', listener)
+    return () => ipcRenderer.removeListener('ai:schedulesChanged', listener)
+  },
   aiCancelWorkspaceConnection: (connectionId: string) => ipcRenderer.invoke('ai:cancelWorkspaceConnection', connectionId),
   aiCloseWorkspaceConnection: (sessionId: string) => ipcRenderer.invoke('ai:closeWorkspaceConnection', sessionId),
   onAiWorkspaceConnection: (callback: (event: import('../shared/aiWorkspace').AiWorkspaceConnectionEvent) => void) => {

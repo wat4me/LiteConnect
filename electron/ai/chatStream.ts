@@ -132,6 +132,7 @@ export async function runAiChatStream(opts: {
   sshMcpRuntime?: SshMcpRuntime
   onBackgroundJobsStarted?: (jobIds: string[]) => void
   onBackgroundJobCollected?: (jobId: string) => void
+  foregroundOnly?: boolean
   getToolPermission?: () => AiToolPermissionMode
   onToolApprovalRequested?: (input: {
     requestId: string
@@ -363,6 +364,7 @@ export async function runAiChatStream(opts: {
           parseToolCallArguments(call.function.arguments),
           boundSessionId,
         )
+        if (opts.foregroundOnly && call.function.name === 'exec') boundArgs.background = false
         // The declaration decides whether to ask; the command classifier is an
         // escalate-only floor on top of it, so a call labelled `read` that is
         // really a delete cannot ride through `auto` mode unexamined.
@@ -373,7 +375,7 @@ export async function runAiChatStream(opts: {
           toolPermission,
         )
         const mcpArgs = omitDeclaredRiskArg(boundArgs)
-        const callArgs = call.function.arguments || '{}'
+        const callArgs = opts.foregroundOnly && call.function.name === 'exec' ? JSON.stringify(boundArgs) : call.function.arguments || '{}'
         // Approval should not be blind: diff the file we are about to rewrite.
         // edit_file yields a small focused diff; write_file a whole-file one.
         const needsDiffPreview = gate.action === 'ask' &&

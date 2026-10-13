@@ -127,8 +127,15 @@ export class AiSettingsService {
   }
 
   getAiResolvedConfig(): AiResolvedSettings {
+    return this.resolveAiConfig()
+  }
+
+  /** Resolve a concrete provider/model, or fall back to the active pair. */
+  resolveAiConfig(providerId?: string | null, modelId?: string | null): AiResolvedSettings {
     const settings = this.getAiSettings()
-    const provider = settings.providers.find((p: any) => p.id === settings.activeProviderId) || settings.providers[0]
+    const requested = typeof providerId === 'string' && providerId ? settings.providers.find((p: any) => p.id === providerId) : undefined
+    if (providerId && !requested) throw new Error('计划指定的 AI 服务商已不存在，请编辑巡检计划后重试。')
+    const provider = requested || settings.providers.find((p: any) => p.id === settings.activeProviderId) || settings.providers[0]
     if (!provider) {
       return {
         baseUrl: '',
@@ -141,9 +148,17 @@ export class AiSettingsService {
         toolPermission: settings.toolPermission,
       }
     }
-    const model = settings.activeModel || firstAiModelId(provider.models)
+    const models = parseAiModels(provider.models)
+    const requestedModel = typeof modelId === 'string' ? modelId.trim() : ''
+    if (requested && requestedModel && !models.some(item => item.id === requestedModel)) {
+      throw new Error('计划指定的 AI 模型已不存在，请编辑巡检计划后重试。')
+    }
+    const model = requested
+      ? (requestedModel || firstAiModelId(provider.models))
+      : (settings.activeModel || firstAiModelId(provider.models))
+    if (!model) throw new Error('请先在 AI 设置中配置可用模型。')
     return {
-      supportsImages: parseAiModels(provider.models).find(item => item.id === model)?.supportsImages === true,
+      supportsImages: models.find(item => item.id === model)?.supportsImages === true,
       baseUrl: provider.baseUrl,
       model,
       apiKey: provider.apiKey,

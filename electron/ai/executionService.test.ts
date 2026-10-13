@@ -59,6 +59,16 @@ it('runs and persists with no UI observer and enforces unattended read-only perm
   expect(store.threads[0].messages.at(-1)).toMatchObject({ role: 'assistant', content: 'Server is healthy.', status: 'completed' })
 })
 
+it('forwards the bounded foreground-only contract for scheduled runs', async () => {
+  const { service, request } = setup()
+  mocks.run.mockImplementationOnce(async opts => {
+    expect(opts.foregroundOnly).toBe(true)
+    expect(opts.getToolPermission()).toBe('readonly')
+    return { content: 'done' }
+  })
+  await service.run({ ...request, foregroundOnly: true })
+})
+
 it('resumes an unattended background job without a renderer or event subscription', async () => {
   const { service, request, store, jobs, settle } = setup()
   const job: SshMcpJobResult = { jobId: 'headless-job', sessionId: 'ssh-a', command: 'inspect', status: 'running', startedAt: 2 }

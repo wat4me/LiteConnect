@@ -38,6 +38,7 @@ export type AppIconName =
   | 'folder-sync'
   | 'folder-up'
   | 'list-collapse'
+  | 'list'
   | 'locate'
   | 'pin'
   | 'pin-fill'
@@ -316,6 +317,14 @@ const iconStyle = computed(() => {
     <template v-else-if="name === 'folder-up'">
       <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
       <path d="M12 17v-6m-3 3 3-3 3 3" />
+    </template>
+    <template v-else-if="name === 'list'">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="4" y2="6" />
+      <line x1="3" y1="12" x2="4" y2="12" />
+      <line x1="3" y1="18" x2="4" y2="18" />
     </template>
     <!-- list-collapse: arrows folding toward the center line -->
     <template v-else-if="name === 'list-collapse'">

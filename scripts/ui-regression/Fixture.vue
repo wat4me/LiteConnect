@@ -14,6 +14,8 @@ import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJob
 import type { SshMcpJobSummary } from '../../shared/mcp/types'
 import { useAiChat } from '../../src/composables/ai/useAiChat'
 import type { AiSessionStore, AiSettings, AiToolRun } from '../../shared/types/ai'
+import type { AiScheduleInput, AiScheduleRun, AiScheduleSnapshot } from '../../shared/aiSchedules'
+import { aiScheduleConnectionIds, nextAiScheduleRun } from '../../shared/aiSchedules'
 import FileEditorModal from '../../src/components/sftp/FileEditorModal.vue'
 import DirectorySyncModal from '../../src/components/sftp/DirectorySyncModal.vue'
 import SftpToolbar from '../../src/components/sftp/SftpToolbar.vue'
@@ -49,14 +51,66 @@ let remoteContent = 'original content'
 let remoteRevision = 'a'.repeat(64)
 let previewFails = false
 let backgroundJobs: SshMcpJobSummary[] = []
+let cancelJobFails = false
 const jobListeners = new Set<(jobs: SshMcpJobSummary[]) => void>()
 const backgroundReplyListeners = new Set<(event: any) => void>()
 const workspaceListeners = new Set<(event: any) => void>()
 const workspaceSessions = new Map<string, string>()
 const workspaceOpens: string[] = []
+const scheduleState: AiScheduleSnapshot = { plans: [], runs: [] }
+const scheduleListeners = new Set<(state: AiScheduleSnapshot) => void>()
+const scheduleResolvers = new Map<string, (run: AiScheduleRun) => void>()
+let notificationSettings = { enabled: false, url: '', mode: 'issues' as 'issues' | 'all', hasToken: false }
+let notificationTestFails = false
+function publishSchedules() { scheduleListeners.forEach(listener => listener(structuredClone(scheduleState))) }
+function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
+  const run = scheduleState.runs.find(item => item.status === 'running')
+  if (!run) return
+  Object.assign(run, { status, finishedAt: Date.now(), content: status === 'completed' ? '巡检完成，磁盘空间正常。' : undefined,
+    toolRuns: status === 'completed' ? [{ id: 'inspect-disk', name: 'exec', args: '{"command":"df -h"}', content: '{"exitCode":0,"stdout":"disk healthy"}', status: 'done', isError: false }] : [] })
+  run.health = 'healthy'
+  if (run.hosts) for (const host of run.hosts) Object.assign(host, { status, health: 'healthy', content: status === 'completed' ? '本机磁盘正常。' : undefined, toolRuns: run.toolRuns?.map(tool => ({ ...tool, reason: '检查磁盘空间' })) })
+  if (status === 'failed' && run.hosts?.length) {
+    run.health = 'warning'
+    run.error = '部分巡检工具未能执行，请查看工具详情。'
+    run.content = '1. 磁盘使用率偏高\n\n   - 已读取磁盘指标\n\n1. 部分检查未完成\n\n   - 一条命令被只读策略拦截'
+    run.hosts.forEach((host, index) => Object.assign(host, { status: index ? 'completed' : 'failed', health: index ? 'healthy' : 'warning', content: index ? '本机磁盘正常。' : '磁盘使用率偏高，另有一条命令未能执行。', error: index ? undefined : run.error,
+      toolRuns: [{ id: 'inspect-disk', name: 'exec', args: '{"command":"df -h"}', reason: '检查磁盘空间', content: '{"exitCode":0,"stdout":"disk healthy"}', status: 'done', isError: false }, { id: 'blocked-check', name: 'exec', args: '{"command":"custom-inspect"}', reason: '检查服务配置', content: '命令被只读策略拦截', status: 'blocked', isError: true }],
+    }))
+  }
+  run.notification = { status: status === 'cancelled' || !notificationSettings.enabled || notificationSettings.mode === 'issues' ? 'skipped' : 'sent' }
+  publishSchedules()
+  scheduleResolvers.get(run.id)?.(structuredClone(run))
+  scheduleResolvers.delete(run.id)
+}
 // This test window has no production preload, credentials, SSH or disk writes.
 ;(window as any).LiteConnect = {
   getAiSettings: async () => JSON.parse(JSON.stringify(imageSettings)),
+  aiGetNotificationSettings: async () => ({ ...notificationSettings }),
+  aiSaveNotificationSettings: async (input: any) => { notificationSettings = { enabled: input.enabled, url: input.url, mode: input.mode, hasToken: input.token ? true : input.token === '' ? false : notificationSettings.hasToken }; return { ...notificationSettings } },
+  aiTestNotification: async () => ({ status: notificationTestFails ? 'failed' : 'sent', error: notificationTestFails ? '通知服务不可用' : undefined }),
+  aiListSchedules: async () => structuredClone(scheduleState),
+  onAiSchedulesChanged: (listener: (state: AiScheduleSnapshot) => void) => { scheduleListeners.add(listener); return () => scheduleListeners.delete(listener) },
+  aiSaveSchedule: async (input: AiScheduleInput) => {
+    const previous = scheduleState.plans.find(plan => plan.id === input.id)
+    const plan = { ...input, id: input.id || `plan-${scheduleState.plans.length}`, createdAt: previous?.createdAt || Date.now(), updatedAt: Date.now(), nextRunAt: nextAiScheduleRun(input, Date.now()), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+    const index = scheduleState.plans.findIndex(item => item.id === plan.id)
+    if (index < 0) scheduleState.plans.push(plan)
+    else scheduleState.plans[index] = plan
+    publishSchedules()
+    return structuredClone(plan)
+  },
+  aiRemoveSchedule: async (id: string) => { scheduleState.plans = scheduleState.plans.filter(plan => plan.id !== id); scheduleState.runs = scheduleState.runs.filter(run => run.scheduleId !== id); publishSchedules() },
+  aiRunSchedule: async (id: string) => {
+    const plan = scheduleState.plans.find(item => item.id === id)!
+    const run: AiScheduleRun = { id: `run-${scheduleState.runs.length}`, scheduleId: id, name: plan.name, connectionId: plan.connectionId, startedAt: Date.now(), status: 'running' }
+    run.hosts = aiScheduleConnectionIds(plan).map(connectionId => ({ connectionId, name: connections.find(connection => connection.id === connectionId)?.name || connectionId, status: 'running' }))
+    scheduleState.runs.unshift(run)
+    publishSchedules()
+    return new Promise<AiScheduleRun>(resolve => scheduleResolvers.set(run.id, resolve))
+  },
+  aiStopScheduleRun: async () => finishSchedule('cancelled'),
+  aiListWorkspaceConversations: async () => [],
   onAiWorkspaceConnection: (listener: (event: any) => void) => { workspaceListeners.add(listener); return () => workspaceListeners.delete(listener) },
   aiOpenWorkspaceConnection: async (id: string) => {
     workspaceOpens.push(id)
@@ -80,6 +134,7 @@ const workspaceOpens: string[] = []
     const job = backgroundJobs.find(item => item.jobId === args.jobId)
     if (!job) return { isError: true, content: 'JOB_NOT_FOUND', structuredContent: {} }
     if (name === 'cancel_job') {
+      if (cancelJobFails) return { isError: true, content: 'fixture cancellation failed', structuredContent: {} }
       job.status = 'cancelled'
       job.finishedAt = Date.now()
       jobListeners.forEach(listener => listener(backgroundJobs.map(item => ({ ...item }))))
@@ -161,6 +216,10 @@ onMounted(() => {
   (window as any).__uiRegression = {
     calls,
     workspaceOpens,
+    finishSchedule: () => finishSchedule('completed'),
+    failSchedule: () => finishSchedule('failed'),
+    scheduleSnapshot: () => structuredClone(scheduleState),
+    failNotificationTest: (value: boolean) => { notificationTestFails = value },
     async openLiteAi() {
       syncOpen.value = false
       imageComposerOpen.value = false
@@ -173,6 +232,7 @@ onMounted(() => {
     cancelledConnections,
     async setConnectionStage(stage?: SshConnectionStage) { connectionStages.value = stage ? { one: stage } : {}; await nextTick() },
     setBackgroundJobs(jobs: SshMcpJobSummary[]) { backgroundJobs = jobs; jobListeners.forEach(listener => listener(jobs)) },
+    setCancelJobFailure(value: boolean) { cancelJobFails = value },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },
     async closeImageComposer() { imageComposerOpen.value = false; await nextTick() },
     async switchImageSession(id: string) { imageComposerSession.value = id; await nextTick() },

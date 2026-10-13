@@ -19,8 +19,12 @@ export type AiExecutionOwner = {
 
 export interface AiExecutionRequest {
   requestId: string
+  /** Bounded scheduled runs cannot leave detached tool jobs behind. */
+  foregroundOnly?: boolean
   /** Explicit history identity: execution is no longer keyed by a UI window. */
   historyId: string
+  /** Optional per-run model config; falls back to the shared settings port. */
+  settings?: AiResolvedConfig
   owner: AiExecutionOwner
   target: AiChatStreamOptions
 }
@@ -156,7 +160,7 @@ export class AiExecutionService {
           control.controller.signal.throwIfAborted()
           await this.ports.settings.ready()
           control.controller.signal.throwIfAborted()
-          const settings = this.ports.settings.config()
+          const settings = request.settings || this.ports.settings.config()
           if (!settings.apiKey.trim()) throw new Error(t('ai.apiKeyRequired'))
           // Unattended execution has no approval UI. Its first-stage contract is
           // strictly read-only, even if global interactive settings allow writes.
@@ -171,7 +175,7 @@ export class AiExecutionService {
           return runAiChatStream({
             emit, checkpoint, requestId, messages, abortController: control.controller,
             sessionId: target.sessionId, cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
-            settings: { ...settings, toolPermission: permission() }, sshMcpRuntime: this.ports.runtime,
+            settings: { ...settings, toolPermission: permission() }, sshMcpRuntime: this.ports.runtime, foregroundOnly: request.foregroundOnly,
             onBackgroundJobsStarted: ids => {
               if (!this.disposed && this.owners.has(owner.id)) this.jobs.bind(this.jobOwner(request), ids)
             },

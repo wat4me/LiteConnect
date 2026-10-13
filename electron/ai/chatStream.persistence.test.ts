@@ -8,6 +8,21 @@ const settings: AiResolvedConfig = { baseUrl: 'https://example.test/v1', apiKey:
 afterEach(() => vi.unstubAllGlobals())
 const sse = (delta: object) => new Response(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\ndata: [DONE]\n\n`)
 
+it('forces scheduled command requests into foreground execution without launching background jobs', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [{ index: 0, id: 'inspect', function: { name: 'exec', arguments: JSON.stringify({ command: 'hostname', background: true, risk: 'read', explanation: 'inspect' }) } }] })).mockResolvedValueOnce(sse({ content: 'healthy' })))
+  const started = vi.fn()
+  const call = vi.fn(async (name: string, args: Record<string, unknown>) => {
+    if (name === 'exec') expect(args.background).toBe(false)
+    return { isError: false, content: '{"exitCode":0,"stdout":"host"}', structuredContent: { exitCode: 0, stdout: 'host' } }
+  })
+  await runAiChatStream({ emit: () => {}, requestId: 'scheduled-foreground', foregroundOnly: true,
+    settings: { ...settings, toolPermission: 'readonly' }, messages: [{ role: 'user', content: 'inspect' }],
+    sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7', sshMcpRuntime: { call } as unknown as SshMcpRuntime, onBackgroundJobsStarted: started,
+  })
+  expect(call).toHaveBeenCalledWith('exec', expect.objectContaining({ background: false }), expect.anything())
+  expect(started).not.toHaveBeenCalled()
+})
+
 it('registers launched jobs before clamping output and marks explicitly collected results', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [
     { index: 0, id: 'launch', function: { name: 'exec', arguments: JSON.stringify({ command: 'hostname', background: true, risk: 'read', explanation: 'Inspect the host' }) } },

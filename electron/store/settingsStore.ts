@@ -974,6 +974,10 @@ export class SettingsStore {
     return this.aiSettings.getAiResolvedConfig()
   }
 
+  resolveAiConfig(providerId?: string | null, modelId?: string | null): AiResolvedSettings {
+    return this.aiSettings.resolveAiConfig(providerId, modelId)
+  }
+
   getAll(): SettingsAll {
     const bg = this.getAppBackground()
     return {

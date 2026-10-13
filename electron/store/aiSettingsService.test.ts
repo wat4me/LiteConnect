@@ -39,6 +39,22 @@ describe('AiSettingsService', () => {
     })
   })
 
+  it('resolves an explicit provider/model without changing the active pair', async () => {
+    const stored: Record<string, any> = {}
+    const { service } = createService(stored)
+    await service.setAiSettings({
+      providers: [
+        { id: 'a', name: 'A', baseUrl: 'https://a.example', apiKey: 'alpha', models: ['a1'] },
+        { id: 'b', name: 'B', baseUrl: 'https://b.example', apiKey: 'beta', models: ['b1', 'b2'] },
+      ],
+      activeProviderId: 'a', activeModel: 'a1',
+    })
+    expect(service.resolveAiConfig('b', 'b2')).toMatchObject({ baseUrl: 'https://b.example', model: 'b2', apiKey: 'beta' })
+    expect(service.getAiResolvedConfig()).toMatchObject({ model: 'a1', apiKey: 'alpha' })
+    expect(() => service.resolveAiConfig('missing', 'x')).toThrow(/服务商/)
+    expect(() => service.resolveAiConfig('b', 'missing')).toThrow(/模型/)
+  })
+
   it('preserves existing policy defaults when saving a partial update and persists a model switch', async () => {
     const stored: Record<string, any> = {
       ai: {

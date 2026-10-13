@@ -53,6 +53,8 @@ asarUnpack:
   - node_modules/ssh2/**/*
   - node_modules/oracledb/**/*
 extraResources:
+  - from: build/LiteConnect.ico
+    to: LiteConnect.ico
   # Tray icon (read by electron/window/tray.ts from process.resourcesPath)
   - from: build/LiteConnect.png
     to: LiteConnect.png

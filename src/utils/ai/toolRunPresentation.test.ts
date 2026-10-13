@@ -16,7 +16,7 @@ describe('tool outcome presentation', () => {
     expect(backgroundJobState('completed', 0)).toBe('completed')
   })
 
-  it('keeps result counts, exit codes and truncation separate from state', () => {
+  it('shows result counts and truncation while mapping exit codes to outcome only', () => {
     expect(toolRunPresentation(run({ name: 'grep' }), { kind: 'entries', count: 0 })).toEqual({
       state: 'completed', detailKey: 'ai.toolSummaryMatches', detailParams: { n: 0 },
     })
@@ -24,8 +24,19 @@ describe('tool outcome presentation', () => {
       state: 'completed', detailKey: 'ai.toolSummaryEntries', detailParams: { n: 8 },
     })
     expect(toolRunPresentation(run(), { kind: 'exit', code: 1, truncated: true })).toEqual({
-      state: 'failed', detailKey: 'ai.toolSummaryExitHint', detailParams: { code: 1 }, truncated: true,
+      state: 'failed', truncated: true,
     })
+  })
+
+  it.each([0, 1, 127])('preserves exit code %s for AI and history but hides it from the user', code => {
+    const content = JSON.stringify({ exitCode: code, stdout: 'output' })
+    const stored = serializeToolRunForHistory({ name: 'exec', args: '{}', content, isError: false })
+    expect(JSON.parse(stored.content).exitCode).toBe(code)
+    const command = run({ name: 'exec', ...stored })
+    const outcome = toolRunPresentation(command, formatToolRunDisplay(command).summary)
+    expect(outcome.state).toBe(code === 0 ? 'completed' : 'failed')
+    expect(outcome.detailKey).toBeUndefined()
+    expect(outcome.detailParams).toBeUndefined()
   })
 
   it.each([

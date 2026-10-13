@@ -37,7 +37,7 @@ export function toolRunPresentation(run: AiToolRun, summary: ToolRunSummary, str
   if (run.isError) return { state: result?.code === 'EXEC_TIMEOUT' || /^EXEC_TIMEOUT\b/.test(run.content) ? 'timeout' : 'failed' }
   if (summary.kind === 'exit') return {
     state: summary.code === 0 ? 'completed' : 'failed',
-    detailKey: 'ai.toolSummaryExitHint', detailParams: { code: summary.code }, truncated: summary.truncated,
+    truncated: summary.truncated,
   }
   if (run.name === 'exec' && result?.jobId && result.status === 'running') return { state: 'started' }
   const detailKeys = {

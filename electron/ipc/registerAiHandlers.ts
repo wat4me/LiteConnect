@@ -26,6 +26,8 @@ import { runAiChatCompletion } from '../ai/chatCompletion'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { showAiApprovalNotification } from '../ai/approvalNotification'
 import { hydrateAiImages } from '../ai/imageStore'
+import { listAiWorkspaceConversations } from '../ai/workspaceConversations'
+import { AI_WORKSPACE_HISTORY_LIMIT } from '../../shared/aiWorkspaceConversations'
 
 export function registerAiHandlers(
   settingsStore: SettingsStore,
@@ -255,6 +257,16 @@ export function registerAiHandlers(
 
   ipcMain.handle('ai:resolveToolApproval', async (event, requestId: string, callId: string, approved: boolean) =>
     execution.resolveApproval(event.sender.id, requestId, callId, approved))
+
+  ipcMain.handle('ai:listWorkspaceConversations', (_event, hosts: unknown, limit?: unknown) => {
+    if (!Array.isArray(hosts)) return []
+    const refs = hosts.flatMap((item: any) => {
+      if (!item || typeof item.id !== 'string' || !item.id || typeof item.host !== 'string' || !item.host) return []
+      return [{ id: item.id, name: typeof item.name === 'string' ? item.name : item.host, host: item.host, port: Number(item.port) || 22 }]
+    })
+    const capped = typeof limit === 'number' && Number.isInteger(limit) && limit > 0 ? Math.min(50, limit) : AI_WORKSPACE_HISTORY_LIMIT
+    return listAiWorkspaceConversations(refs, capped)
+  })
 
   return execution
 }

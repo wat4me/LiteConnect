@@ -1,7 +1,8 @@
-import { BrowserWindow, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, Menu, session, shell } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { registerWindow } from './windowRegistry'
+import { resolveAppIcon, windowAppId } from './appIcon'
 
 const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
   dark: { color: '#0d1117', symbolColor: '#8b949e' },
@@ -10,18 +11,6 @@ const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
 }
 
 export { titleBarThemes }
-
-function resolveWindowIcon(): string {
-  if (process.env.VITE_DEV_SERVER_URL) {
-    // Windows uses the multi-size ICO reliably for the taskbar and window chrome.
-    // Passing the PNG here can leave the Vite/Electron development window with
-    // Electron's default icon (or no visible icon on some Windows versions).
-    return join(__dirname, process.platform === 'win32'
-      ? '../build/LiteConnect.ico'
-      : '../build/LiteConnect-app.png')
-  }
-  return join(__dirname, '../dist/LiteConnect.png')
-}
 
 export type CreateWindowOptions = {
   theme?: string
@@ -185,6 +174,7 @@ export function createWindow(
 
   const titleBarColors = resolveTitleBarColors(theme, customColors)
   const isDetached = !!opts.connectionId
+  const icon = resolveAppIcon(app.getAppPath(), process.resourcesPath, app.isPackaged)
 
   const mainWindow = new BrowserWindow({
     width: opts.width ?? (isDetached ? 1100 : 1200),
@@ -200,7 +190,7 @@ export function createWindow(
       symbolColor: titleBarColors.symbolColor,
       height: 36,
     },
-    icon: resolveWindowIcon(),
+    icon,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -211,6 +201,11 @@ export function createWindow(
       v8CacheOptions: 'code',
     },
   })
+
+  if (process.platform === 'win32' && !app.isPackaged && icon) {
+    mainWindow.setAppDetails({ appId: windowAppId(false), appIconPath: icon, appIconIndex: 0,
+      relaunchCommand: `"${process.execPath}" "${app.getAppPath()}"`, relaunchDisplayName: 'LiteConnect Dev' })
+  }
 
   registerWindow(mainWindow, {
     primary: opts.primary !== false && !isDetached && !opts.dbMode,

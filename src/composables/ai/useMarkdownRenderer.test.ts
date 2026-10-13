@@ -22,6 +22,27 @@ ls /data/Seeyon/Comi/elasticsearch/bin/ 2>/dev/null
 需要我帮你找出这套 ES 的官方启停脚本，确认它是怎么被拉起来的吗？`
 
 describe('parseMarkdown code fences', () => {
+  it('keeps loose ordered lists together and preserves a non-default start', () => {
+    const content = parseMarkdown('3. first\n\n4. second\n\n5. third').map(block => block.content).join('')
+    expect(content).toBe('<ol start="3"><li>first</li><li>second</li><li>third</li></ol>')
+  })
+
+  it('keeps ordered numbering around nested bullet lists and blank lines', () => {
+    const content = parseMarkdown('1. disk\n\n   - detail\n   - another\n\n1. memory\n\n   - usage\n\n1. services').map(block => block.content).join('')
+    expect(content).toBe('<ol><li>disk<ul><li>detail</li><li>another</li></ul></li><li>memory<ul><li>usage</li></ul></li><li>services</li></ol>')
+  })
+
+  it('keeps indented item explanations inside the list and ends at unindented prose', () => {
+    const blocks = parseMarkdown('1. disk\n\n   explanation\n\n2. memory\n\nConclusion\n\n1. new list')
+    expect(blocks.map(block => block.content)).toEqual(['<ol><li>disk<br>explanation</li><li>memory</li></ol>', '<p>Conclusion</p>', '<ol><li>new list</li></ol>'])
+  })
+
+  it('escapes HTML in nested list content and keeps a following fence separate', () => {
+    const blocks = parseMarkdown('1. <script>alert(1)</script>\n   - <img src=x>\n\n```sh\necho hi\n```')
+    expect(blocks[0].content).toContain('&lt;script&gt;')
+    expect(blocks[0].content).not.toContain('<img')
+    expect(blocks[1]).toMatchObject({ type: 'code', content: 'echo hi' })
+  })
   it('renders the typical 建议的下一步 bash block and keeps following prose as html', () => {
     const blocks = parseMarkdown(USER_SAMPLE)
     const code = blocks.filter((b) => b.type === 'code')

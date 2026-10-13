@@ -343,6 +343,45 @@
   gap: 6px;
 }
 
+.ai-new-chat-menu {
+  position: relative;
+}
+.ai-new-chat-menu summary {
+  list-style: none;
+}
+.ai-new-chat-menu summary::-webkit-details-marker { display: none; }
+.ai-new-chat-menu.disabled summary {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ai-new-chat-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-bg) 55%, transparent);
+}
+.ai-new-chat-dropdown button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.ai-new-chat-dropdown button:hover { background: var(--hover-bg); }
+.ai-new-chat-dropdown button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .composer-actions-right {
   flex: 1;
   min-width: 0;
@@ -821,3 +860,8 @@
 }
 .tool-policy-notice { color: var(--warning); }
 .tool-policy-notice strong { font-weight: 600; }
+
+/* Compact defaults; the textarea still grows to its measured content height. */
+.composer { padding: 8px 10px; gap: 5px; }
+.composer-add-image { width: 26px; height: 26px; min-height: 26px; }
+.ai-header { padding-top: 6px; padding-bottom: 6px; }

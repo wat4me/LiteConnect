@@ -37,6 +37,17 @@ it('queues while busy, then wakes on the reply-finished event', async () => {
   expect(deliver).toHaveBeenCalledOnce()
 })
 
+it('does not wake AI for an interrupted job and still delivers other jobs in the same conversation', async () => {
+  const { start, queue, deliver } = setup()
+  start('interrupted'); start('other')
+  queue.settled(job('interrupted', 'cancelled'))
+  await vi.advanceTimersByTimeAsync(100)
+  expect(deliver).not.toHaveBeenCalled()
+  queue.settled(job('other', 'completed'))
+  await vi.advanceTimersByTimeAsync(100)
+  expect(deliver).toHaveBeenCalledExactlyOnceWith(owner, [job('other', 'completed')])
+})
+
 it('delivers a command that finished before its tool acknowledgement', async () => {
   const { jobs, queue, deliver } = setup()
   jobs.set('fast', job('fast', 'completed'))
