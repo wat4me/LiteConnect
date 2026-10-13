@@ -39,6 +39,34 @@ function setup() {
 describe('SSH host-key confirmation IPC', () => {
   beforeEach(() => { handlers.clear(); vi.clearAllMocks() })
 
+  it('opens and reuses dedicated AI sessions without asking the renderer to create terminal tabs', async () => {
+    const { manager, sender } = setup()
+    manager.getPendingHostKey.mockReturnValue(undefined)
+    manager.hasSession.mockReturnValue(true)
+    manager.connect.mockResolvedValue(sid)
+    await expect(handlers.get('ai:openWorkspaceConnection')!({ sender }, cid)).resolves.toBe(sid)
+    await expect(handlers.get('ai:openWorkspaceConnection')!({ sender }, cid)).resolves.toBe(sid)
+    expect(manager.connect).toHaveBeenCalledOnce()
+    expect(sender.send).toHaveBeenCalledWith('ai:workspaceConnection', { connectionId: cid, sessionId: sid, status: 'connected' })
+    expect(sender.send).not.toHaveBeenCalledWith('mcp:connectRequest', expect.anything())
+    expect(() => handlers.get('ai:closeWorkspaceConnection')!({ sender: { ...sender, id: 2 } }, sid)).toThrow('does not own')
+  })
+
+  it('marks AI trust prompts and routes confirmation into the workspace connection', async () => {
+    const { manager, sender } = setup()
+    manager.getPendingHostKey.mockReturnValue(undefined)
+    manager.connect.mockImplementationOnce(async () => {
+      manager.getPendingHostKey.mockReturnValue(pending)
+      throw new Error('Host denied')
+    })
+    await expect(handlers.get('ai:openWorkspaceConnection')!({ sender }, cid)).rejects.toThrow(SSH_HOST_KEY_CONFIRMATION_REQUIRED)
+    expect(sender.send).toHaveBeenCalledWith('ssh:hostKeyMismatch', expect.objectContaining({ purpose: 'ai', connectionId: cid }))
+    manager.confirmHostKey.mockResolvedValueOnce(sid)
+    manager.hasSession.mockReturnValue(true)
+    await expect(handlers.get('ssh:confirmHostKey')!({ sender }, cid)).resolves.toBe(sid)
+    expect(sender.send).toHaveBeenCalledWith('ai:workspaceConnection', { connectionId: cid, sessionId: sid, status: 'connected' })
+  })
+
   it.each(['ssh:connect', 'ssh:reconnect', 'ssh:confirmHostKey'])('signals pending trust for %s without claiming a connected session', async (channel) => {
     const { sender, connected, manager } = setup()
     if (channel === 'ssh:confirmHostKey') {

@@ -7,13 +7,14 @@ import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
 const props = defineProps<{
-  appMode: 'ssh' | 'database'
+  appMode: 'ssh' | 'database' | 'ai'
   showSettingsPage: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'enter-ssh', forceHome?: boolean): void
   (e: 'enter-database'): void
+  (e: 'enter-ai'): void
   (e: 'toggle-settings'): void
   (e: 'open-shortcuts'): void
 }>()
@@ -28,9 +29,9 @@ const resourceButtonRef = ref<HTMLButtonElement | null>(null)
 const resourcePopupRef = ref<HTMLElement | null>(null)
 const resourceStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
 
-const moduleKey = computed(() => (props.appMode === 'database' ? 'DB' : 'SSH'))
+const moduleKey = computed(() => props.appMode === 'ai' ? 'AI' : props.appMode === 'database' ? 'DB' : 'SSH')
 const brandAria = computed(() =>
-  props.appMode === 'database' ? t('app.brandDbAria') : t('app.brandSshAria'),
+  props.appMode === 'ai' ? t('app.brandAiAria') : props.appMode === 'database' ? t('app.brandDbAria') : t('app.brandSshAria'),
 )
 
 async function positionModeMenu() {
@@ -52,9 +53,10 @@ function toggleMenu() {
   menuOpen.value = !menuOpen.value
 }
 
-function selectMode(mode: 'ssh' | 'database') {
+function selectMode(mode: 'ssh' | 'database' | 'ai') {
   menuOpen.value = false
   if (mode === 'ssh') emit('enter-ssh')
+  else if (mode === 'ai') emit('enter-ai')
   else emit('enter-database')
 }
 
@@ -177,6 +179,10 @@ watch(
               >
                 <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'database'" name="check" size="xs" /></span>
                 <span>DB</span>
+              </button>
+              <button type="button" class="titlebar-mode-item" role="menuitemradio" :aria-checked="appMode === 'ai'" @click="selectMode('ai')">
+                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'ai'" name="check" size="xs" /></span>
+                <span>AI</span>
               </button>
             </div>
           </Teleport>

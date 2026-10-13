@@ -1,4 +1,5 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { AiExecutionService } from '../ai/executionService'
 import { readFile, stat } from 'fs/promises'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
@@ -20,12 +21,8 @@ import {
   writeAiContextCheckpoint,
   writeAiSessionStore,
 } from '../ai/historyStore'
-import { abortAiChatStream, createAiStreamControl, resolveToolApproval, runAiChatStream } from '../ai/chatStream'
-import type { AiChatStreamOptions, AiContextCheckpoint } from '../../shared/types/ai'
+import type { AiChatStreamOptions } from '../../shared/types/ai'
 import { runAiChatCompletion } from '../ai/chatCompletion'
-import { runPersistedAiReply } from '../ai/streamPersistence'
-import { createStreamPublisher } from '../ai/streamPublisher'
-import { flattenConversationForApi } from '../../shared/aiMessages'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { showAiApprovalNotification } from '../ai/approvalNotification'
 import { hydrateAiImages } from '../ai/imageStore'
@@ -34,7 +31,7 @@ export function registerAiHandlers(
   settingsStore: SettingsStore,
   sshMcpRuntime?: SshMcpRuntime,
   resolveHistoryId?: (sessionId: string) => string | undefined,
-): void {
+): AiExecutionService {
   const ensureSettingsReady = () => settingsStore.init().then(() => settingsStore.initMigrations())
   const getHistoryLimits = () => {
     const settings = settingsStore.getAiSettings()
@@ -43,7 +40,12 @@ export function registerAiHandlers(
       maxMessages: settings.historyMaxMessages,
     }
   }
-  const runningHistories = new Set<string>()
+  const execution = new AiExecutionService({
+    settings: { ready: ensureSettingsReady, config: () => settingsStore.getAiResolvedConfig(), limits: getHistoryLimits },
+    history: { read: readAiSessionStore, save: upsertAiHistoryRecord, checkpoint: writeAiContextCheckpoint, hydrate: hydrateAiImages },
+    runtime: sshMcpRuntime,
+    onError: error => console.warn('Could not deliver AI background results', error),
+  })
   const historyIdsBySession = new Map<string, string>()
 
   const historyIdForSession = (sessionId: string): string => {
@@ -98,26 +100,34 @@ export function registerAiHandlers(
     return await readAiSessionStoreAndGc(historyIdForSession(sessionId), getHistoryLimits())
   })
 
-  ipcMain.handle('ai:setSessionStore', async (_event, sessionId: string, store: any) => {
+  ipcMain.handle('ai:setSessionStore', async (event, sessionId: string, store: any) => {
     if (!sessionId || typeof sessionId !== 'string') {
       throw new Error('Invalid AI session id')
     }
     await ensureSettingsReady()
     const limits = getHistoryLimits()
     await writeAiSessionStore(historyIdForSession(sessionId), store, limits)
+    execution.selectConversation(event.sender.id, sessionId, store.activeThreadId)
   })
 
-  ipcMain.handle('ai:createConversation', async (_event, sessionId: string, payload: any) => {
+  ipcMain.handle('ai:suppressBackgroundReplies', async (event, sessionId: string, threadId: string) => {
+    historyIdForSession(sessionId)
+    if (typeof threadId !== 'string' || !threadId) throw new Error('Invalid AI thread id')
+    await execution.suppressBackground(event.sender.id, sessionId, threadId)
+  })
+  ipcMain.handle('ai:createConversation', async (event, sessionId: string, payload: any) => {
     if (!sessionId || typeof sessionId !== 'string') {
       throw new Error('Invalid AI session id')
     }
     try {
       await ensureSettingsReady()
+      if (typeof payload?.threadId === 'string') await execution.suppressBackground(event.sender.id, sessionId, payload.threadId)
       const store = await createNewConversationAtomic(
         historyIdForSession(sessionId),
         payload && typeof payload === 'object' ? payload : {},
         getHistoryLimits(),
       )
+      execution.selectConversation(event.sender.id, sessionId, store.activeThreadId)
       return store
     } catch (err: any) {
       throw new Error(err?.message || 'Failed to create conversation')
@@ -213,90 +223,38 @@ export function registerAiHandlers(
     return runAiChatCompletion(settingsStore.getAiResolvedConfig(), messages)
   })
 
-  ipcMain.handle('ai:chatStream', async (event, requestId: string, messages: any, opts: AiChatStreamOptions) => {
-    if (!opts || typeof opts.sessionId !== 'string' || !opts.sessionId ||
-      typeof opts.threadId !== 'string' || !opts.threadId ||
-      typeof opts.assistantMessageId !== 'string' || !opts.assistantMessageId ||
-      typeof opts.createdAt !== 'number' || !Number.isFinite(opts.createdAt)) {
-      throw new Error('Invalid AI history target')
-    }
-    const target = { ...opts }
-    const historyId = historyIdForSession(target.sessionId)
-    if (runningHistories.has(historyId)) throw new Error('An AI reply is already running for this SSH host')
-    const ownerId = event.sender.id
-    const ownerWindow = BrowserWindow.fromWebContents(event.sender)
-    const control = createAiStreamControl(requestId, ownerId)
-    event.sender.once('destroyed', () => abortAiChatStream(requestId, ownerId))
-    runningHistories.add(historyId)
-    const publisher = createStreamPublisher((payload) => {
-      if (!event.sender.isDestroyed()) event.sender.send(`ai:chatStream:${requestId}`, payload)
-    })
-    try {
-      return await runPersistedAiReply({
-        target,
-        save: (record) => upsertAiHistoryRecord(
-          historyId,
-          record,
-          target.threadId,
-          getHistoryLimits(),
-        ),
-        publish: publisher.publish,
-        run: async (emit, checkpoint) => {
-          control.controller.signal.throwIfAborted()
-          await ensureSettingsReady()
-          const settings = settingsStore.getAiResolvedConfig()
-          if (!settings.apiKey.trim()) throw new Error(t('ai.apiKeyRequired'))
-          const limits = getHistoryLimits()
-          const store = await readAiSessionStore(historyId, limits)
-          if (store.activeThreadId !== target.threadId) await hydrateAiImages(historyId, store, target.threadId)
-          const thread = store.threads.find(item => item.id === target.threadId)
-          const historyMessages = thread
-            ? flattenConversationForApi(thread.messages)
-            : messages
-          return runAiChatStream({
-            emit, checkpoint, requestId, messages: historyMessages, abortController: control.controller,
-            sessionId: target.sessionId,
-            cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
-            settings, sshMcpRuntime,
-            contextFiles: thread?.contextFiles,
-            getToolPermission: () => settingsStore.getAiResolvedConfig().toolPermission,
-            onToolApprovalRequested: ({ sessionId, toolName }) => {
-              if (!settingsStore.getAiSettings().approvalNotifications) return
-              return showAiApprovalNotification(ownerWindow, { sessionId, toolName })
-            },
-            ...(thread ? {
-              contextHistory: {
-                compactionCount: thread.compactionCount,
-                records: thread.messages,
-                checkpoint: thread.contextCheckpoint,
-                saveCheckpoint: (next: AiContextCheckpoint) =>
-                  writeAiContextCheckpoint(
-                    historyId,
-                    target.threadId,
-                    next,
-                    limits,
-                  ),
-              },
-            } : {}),
-          })
+  ipcMain.handle('ai:chatStream', async (event, requestId: string, _messages: unknown, target: AiChatStreamOptions) => {
+    const sender = event.sender
+    const ownerWindow = BrowserWindow.fromWebContents(sender)
+    return execution.run({
+      requestId, historyId: historyIdForSession(target?.sessionId), target,
+      owner: {
+        id: sender.id, kind: 'interactive', isAlive: () => !sender.isDestroyed(),
+        onDisposed: callback => {
+          sender.once('destroyed', callback)
+          return () => { sender.removeListener('destroyed', callback) }
         },
-      })
-    } finally {
-      publisher.flush()
-      control.cleanup()
-      runningHistories.delete(historyId)
-    }
+      },
+    }, {
+      onStream: ({ requestId: id, payload }) => {
+        if (!sender.isDestroyed()) sender.send(`ai:chatStream:${id}`, payload)
+      },
+      onRecord: ({ trigger, requestId: id, target: destination, record }) => {
+        if (trigger === 'background' && !sender.isDestroyed()) sender.send('ai:backgroundReply', {
+          sessionId: destination.sessionId, threadId: destination.threadId, requestId: id, record,
+        })
+      },
+      onApproval: ({ sessionId, toolName }) => {
+        if (!settingsStore.getAiSettings().approvalNotifications) return
+        return showAiApprovalNotification(ownerWindow, { sessionId, toolName })
+      },
+    })
   })
 
-  ipcMain.handle('ai:abortChatStream', async (event, requestId: string) => {
-    return abortAiChatStream(requestId, event.sender.id)
-  })
+  ipcMain.handle('ai:abortChatStream', async (event, requestId: string) => execution.abort(event.sender.id, requestId))
 
-  ipcMain.handle(
-    'ai:resolveToolApproval',
-    async (event, requestId: string, callId: string, approved: boolean) => {
-      return resolveToolApproval(requestId, callId, approved, event.sender.id)
-    },
-  )
+  ipcMain.handle('ai:resolveToolApproval', async (event, requestId: string, callId: string, approved: boolean) =>
+    execution.resolveApproval(event.sender.id, requestId, callId, approved))
 
+  return execution
 }

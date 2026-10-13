@@ -6,7 +6,7 @@
  * 2. Register first-window IPC (store / window / SSH / DB / updater stubs)
  * 3. Open the migrated SQLite store, read the theme, then open the first window.
  * 4. After show: AI key migrations, X11 options, Docker/MCP/AI handler modules
- * 5. Quit / window-close teardown: monitors → docker → ssh sessions → db → MCP HTTP
+ * 5. Quit teardown: AI execution → monitors → docker → ssh sessions → db → MCP HTTP
  *
  * Three intentional SSH-related modes (keep separate):
  * - Interactive: SSHManager (shell / SFTP / transfer / X11 / monitor)
@@ -52,6 +52,7 @@ import {
   getPrimaryWindow,
 } from './window/windowRegistry'
 import type { McpHttpGateway } from './mcp/httpGateway'
+import type { AiExecutionService } from './ai/executionService'
 
 configureDevelopmentUserDataPath()
 const isPrimaryInstance = installSingleInstance(showMainWindow)
@@ -72,6 +73,7 @@ const dbQueryHistoryStore = new DbQueryHistoryStore()
 const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
+let aiExecutionService: AiExecutionService | undefined
 let monitorAlerts: MonitorAlerts
 let backgroundMonitor: BackgroundMonitor
 const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, updated) => {
@@ -189,7 +191,7 @@ async function loadDeferredMain(): Promise<void> {
     )
     mcpHttpGateway = gateway
     registerMcpHandlers(sshMcpRuntime, gateway)
-    registerAiHandlers(settingsStore, sshMcpRuntime, (sessionId) => {
+    aiExecutionService = registerAiHandlers(settingsStore, sshMcpRuntime, (sessionId) => {
       const snapshot = sshManager.getSessionSnapshot(sessionId)
       if (!snapshot) return undefined
       const connection = credentialStore.getConnection(snapshot.connectionId)
@@ -337,6 +339,7 @@ app.on('before-quit', (event) => {
   // Do not make `quitting` sticky or tear down live sessions in that case.
   if (event.defaultPrevented) return
   markQuitting()
+  aiExecutionService?.dispose()
   backgroundMonitor.dispose()
   clearLatencyTimers()
   monitorCollector.stopAll()

@@ -5,6 +5,7 @@ import { t } from '../i18n'
 /** The main process owns the reply. Publishing is only a best-effort UI projection. */
 export async function runPersistedAiReply(opts: {
   target: AiChatStreamOptions
+  backgroundNotice?: string
   save: (record: AiHistoryRecord) => Promise<void>
   publish: (payload: AiChatStreamPayload) => void
   run: (emit: (payload: AiChatStreamPayload) => void, checkpoint: () => Promise<void>) => Promise<AiChatResult>
@@ -14,6 +15,7 @@ export async function runPersistedAiReply(opts: {
     role: 'assistant',
     createdAt: opts.target.createdAt,
     content: '',
+    backgroundNotice: opts.backgroundNotice,
     status: 'running',
     segments: [],
     toolRuns: [],
@@ -113,6 +115,7 @@ export async function runPersistedAiReply(opts: {
   }
   return {
     content: record.content,
+    backgroundNotice: record.backgroundNotice,
     completedAt: record.completedAt,
     reasoningContent: record.reasoningContent,
     usage: record.usage,

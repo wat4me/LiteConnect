@@ -154,7 +154,7 @@ export function aiHistoryRecordForSummary(
   record: AiHistoryRecord,
   maxTokens: number,
 ): AiChatMessage | null {
-  if (record.error || record.status === 'running' || record.status === 'aborted') return null
+  if (record.status === 'running' || ((record.error || record.status === 'aborted') && !record.backgroundNotice)) return null
   if (record.role === 'user') {
     const imageNote = record.images?.length ? `\n[用户附带图片：${record.images.map(image => image.name).join('、')}；图片将随本条消息提供，请保留识别结论和关键细节。]` : ''
     const content = truncateToTokenBudget((record.content || '') + imageNote, maxTokens)
@@ -163,6 +163,7 @@ export function aiHistoryRecordForSummary(
   }
 
   const parts: string[] = []
+  if (record.backgroundNotice) parts.push(`应用提供的后台任务结果：\n${record.backgroundNotice}`)
   if (record.content?.trim()) parts.push(`助手回复：\n${record.content}`)
   for (const run of record.toolRuns || []) parts.push(toolRunText(run))
   if (!parts.length && record.apiMessages?.length) {

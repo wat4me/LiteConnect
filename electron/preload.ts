@@ -134,6 +134,12 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('ai:resolveToolApproval', requestId, callId, approved),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
+  aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => ipcRenderer.invoke('ai:suppressBackgroundReplies', sessionId, threadId),
+  onAiBackgroundReply: (callback: (event: import('../shared/types/ai').AiBackgroundReplyEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: import('../shared/types/ai').AiBackgroundReplyEvent) => callback(event)
+    ipcRenderer.on('ai:backgroundReply', listener)
+    return () => ipcRenderer.removeListener('ai:backgroundReply', listener)
+  },
   aiSelectLocalContextFile: () => ipcRenderer.invoke('ai:selectLocalContextFile'),
   aiReadLocalContextFile: (sessionId: string, threadId: string, path: string) => ipcRenderer.invoke('ai:readLocalContextFile', sessionId, threadId, path),
   aiCheckLocalContextFile: (path: string) => ipcRenderer.invoke('ai:checkLocalContextFile', path),
@@ -197,6 +203,14 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   importSshConfig: () => ipcRenderer.invoke('store:importSshConfig'),
 
   sshConnect: (connectionId: string) => ipcRenderer.invoke('ssh:connect', connectionId),
+  aiOpenWorkspaceConnection: (connectionId: string) => ipcRenderer.invoke('ai:openWorkspaceConnection', connectionId),
+  aiCancelWorkspaceConnection: (connectionId: string) => ipcRenderer.invoke('ai:cancelWorkspaceConnection', connectionId),
+  aiCloseWorkspaceConnection: (sessionId: string) => ipcRenderer.invoke('ai:closeWorkspaceConnection', sessionId),
+  onAiWorkspaceConnection: (callback: (event: import('../shared/aiWorkspace').AiWorkspaceConnectionEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: import('../shared/aiWorkspace').AiWorkspaceConnectionEvent) => callback(event)
+    ipcRenderer.on('ai:workspaceConnection', listener)
+    return () => ipcRenderer.removeListener('ai:workspaceConnection', listener)
+  },
   sshCancelConnect: (connectionId: string) => ipcRenderer.invoke('ssh:cancelConnect', connectionId),
   onSshConnectionProgress: (callback: (data: import('../shared/sshConnectionProgress').SshConnectionProgress) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: import('../shared/sshConnectionProgress').SshConnectionProgress) => callback(data)

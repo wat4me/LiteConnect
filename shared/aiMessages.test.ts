@@ -8,6 +8,21 @@ import {
   validateAiMessages,
 } from './aiMessages'
 
+it('replays application background results once without inventing a second tool response', () => {
+  const messages = flattenConversationForApi([
+    { role: 'user', content: 'restart the container' },
+    { role: 'assistant', status: 'completed', content: 'healthy', backgroundNotice: 'Application result: exit code 0, healthy',
+      apiMessages: [{ role: 'assistant', content: 'healthy' }] },
+  ])
+  expect(messages).toEqual([
+    { role: 'user', content: 'restart the container' },
+    { role: 'user', content: 'Application result: exit code 0, healthy' },
+    { role: 'assistant', content: 'healthy' },
+  ])
+  expect(flattenConversationForApi([{ role: 'assistant', status: 'running', content: '', backgroundNotice: 'not yet delivered' }])).toEqual([])
+  expect(flattenConversationForApi([{ role: 'assistant', error: true, content: 'API failed', backgroundNotice: 'result retained' }])).toEqual([{ role: 'user', content: 'result retained' }])
+})
+
 describe('validateAiMessages', () => {
   it('accepts Chat Completions tool turns', () => {
     const out = validateAiMessages([

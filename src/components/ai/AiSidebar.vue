@@ -38,6 +38,7 @@ const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   sessionId: string
+  workspace?: boolean
   active?: boolean
   /** Increments only when a previously closed AI panel opens for this SSH session. */
   openGeneration?: number
@@ -264,6 +265,7 @@ const composerModelLabel = computed(() => activeProvider.value?.models.find(m =>
 const permissionLabel = computed(() => t(`ai.permissionShort${settings.value.toolPermission === 'auto' ? 'Auto' : settings.value.toolPermission === 'readonly' ? 'Readonly' : 'Ask'}`))
 const savingComposer = ref(false)
 const contextFileBusy = ref(false)
+const newConversationBusy = ref(false)
 const permissionOptions = computed(() => ['ask', 'auto', 'readonly'].map(value => ({ value, label: t(`ai.permission_${value}`), description: t(`ai.permissionDesc_${value}`) })))
 async function savePermission(value: string) {
   if (loading.value || savingComposer.value) return
@@ -316,7 +318,7 @@ const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
   contextWindowTokens: activeContextWindowTokens.value,
   contextFiles: contextFiles.value,
 }))
-const canSend = computed(() => (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !contextFileBusy.value && !contextFilesTooLong.value)
+const canSend = computed(() => (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !contextFileBusy.value && !contextFilesTooLong.value)
 watch(contextFilesTooLong, () => { void nextTick(resizeComposer) })
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
@@ -569,8 +571,8 @@ async function ensureInitialLoad(syncUi = true) {
 }
 
 /**
- * Opening, remounting or switching an SSH pane resumes its current conversation.
- * Only the explicit New conversation action creates an empty draft.
+ * A new SSH session starts an empty draft. Reopening or switching an existing
+ * pane resumes that session's current conversation.
  */
 async function ensureOpenPrepared() {
   if (openPreparationPromise) {
@@ -596,9 +598,39 @@ async function ensureOpenPrepared() {
 }
 
 async function handleNewConversation() {
-  if (loading.value || contextFileBusy.value) return
-  await startNewConversation(props.sessionId, syncMessages)
-  syncFromState()
+  if (loading.value || contextFileBusy.value || newConversationBusy.value) return
+  const sessionId = props.sessionId
+  const threadId = getSessionState(sessionId).activeThreadId
+  newConversationBusy.value = true
+  try {
+    const jobs = (await window.LiteConnect.mcpListJobs()).filter(job => job.sessionId === sessionId && job.status === 'running')
+    if (jobs.length) {
+      try {
+        await appConfirm({
+          title: t('ai.newConversationRunningTitle'),
+          message: t('ai.newConversationRunningMessage', { count: jobs.length }),
+          detail: t('ai.newConversationRunningDetail'),
+          confirmText: t('ai.newConversationStopAndCreate'),
+          cancelText: t('common.cancel'),
+          danger: true, tone: 'warning',
+        })
+      } catch { return }
+    }
+    // A confirmation belongs to the window and conversation that opened it.
+    if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId || getSessionState(sessionId).loading) return
+    await window.LiteConnect.aiSuppressBackgroundReplies(sessionId, threadId)
+    for (const job of jobs) {
+      const result = await window.LiteConnect.mcpCallTool('cancel_job', { jobId: job.jobId })
+      if (result.isError) throw new Error(result.content)
+    }
+    if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
+    await startNewConversation(sessionId, syncMessages)
+    syncFromState()
+  } catch (error: any) {
+    ElMessage.warning(error?.message || t('ai.newConversationFailed'))
+  } finally {
+    newConversationBusy.value = false
+  }
 }
 
 async function chooseLocalContextFile() {
@@ -799,7 +831,7 @@ watch(showModelSwitcher, (open) => {
 
 async function handleSendText(text: string, images?: AiImageAttachment[]): Promise<boolean> {
   const content = text.trim()
-  if ((!content && !images?.length) || savingComposer.value || contextFilesTooLong.value) return false
+  if ((!content && !images?.length) || savingComposer.value || newConversationBusy.value || contextFilesTooLong.value) return false
   loading.value = true
   try {
     return await sendText(props.sessionId, content, syncMessages, images)
@@ -959,7 +991,7 @@ async function runCodeToTerminal(code: string) {
         <button
           type="button"
           class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
-          :disabled="loading"
+          :disabled="loading || newConversationBusy"
           :title="t('ai.newConversationHint')"
           @click="handleNewConversation"
         >
@@ -971,7 +1003,7 @@ async function runCodeToTerminal(code: string) {
         <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm header-settings-action" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
           <AppIcon name="settings" size="sm" />
         </button>
-        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('ai.closePanel')">
+        <button v-if="!workspace" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('ai.closePanel')">
           <AppIcon name="close" size="sm" />
         </button>
       </div>
@@ -980,6 +1012,7 @@ async function runCodeToTerminal(code: string) {
     <AiBackgroundTasks v-show="!showSettings && !showHistory" :session-id="sessionId" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
+        :terminal-actions="!workspace"
         ref="chatViewRef"
         :messages="messages"
         :has-api-configured="hasApiConfigured"
@@ -1050,7 +1083,7 @@ async function runCodeToTerminal(code: string) {
       <div v-if="showLongSessionReminder" class="composer-long-session" role="status">
         <p>{{ t('ai.longSessionReminder', { n: compactionCount }) }}</p>
         <div class="long-session-actions">
-          <button type="button" class="ui-btn ui-btn-xs" :disabled="loading || contextFileBusy || imageBusy" @click="handleNewConversation">{{ t('ai.newConversationTitle') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs" :disabled="loading || contextFileBusy || imageBusy || newConversationBusy" @click="handleNewConversation">{{ t('ai.newConversationTitle') }}</button>
           <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="continueLongSession">{{ t('ai.continueCurrentConversation') }}</button>
         </div>
       </div>

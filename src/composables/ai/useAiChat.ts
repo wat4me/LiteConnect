@@ -31,6 +31,7 @@ import { assertAiImageCapability, normalizeAiImages } from '@shared/aiImages'
 import { normalizeAiCompactionCount } from '@shared/aiCompaction'
 
 export type ChatItem = {
+  backgroundNotice?: string
   images?: AiImageAttachment[]
   id: string
   createdAt: number
@@ -68,6 +69,7 @@ type AiSessionState = {
 }
 
 const aiSessionStates = new Map<string, AiSessionState>()
+const backgroundSubscriptions = new WeakSet<object>()
 const resolvingToolApprovals = new Set<string>()
 const contextCompressionNotices = new Map<string, { close: () => void }>()
 
@@ -79,6 +81,8 @@ function closeContextCompressionNotice(sessionId: string): void {
 function createThreadId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
+
+const historyLoads = new Map<string, Promise<ChatItem[]>>()
 
 function getAiSessionState(sessionId: string): AiSessionState {
   let state = aiSessionStates.get(sessionId)
@@ -114,7 +118,7 @@ export function listAiResourceUsage(): { sessionCount: number; estimatedBytes: n
     for (const message of state.messages) {
       estimatedBytes += (message.images || []).reduce((sum, image) => sum + estimateAiTextBytes(image.dataUrl?.length || 0), 0)
       estimatedBytes += estimateAiTextBytes(
-        (message.content?.length || 0) + (message.reasoningContent?.length || 0),
+        (message.content?.length || 0) + (message.reasoningContent?.length || 0) + (message.backgroundNotice?.length || 0),
       )
     }
   }
@@ -282,6 +286,7 @@ export function useAiChat() {
       id: String(message.id),
       role: message.role as 'user' | 'assistant',
       content: String(message.content ?? ''),
+      backgroundNotice: message.backgroundNotice,
       createdAt: Number(message.createdAt) || Date.now(),
     }
     if (typeof message.completedAt === 'number' && Number.isFinite(message.completedAt)) {
@@ -308,6 +313,7 @@ export function useAiChat() {
       id: record.id,
       role: record.role,
       content: record.content || (record.role === 'assistant' && record.status === 'aborted' ? t('ai.stopped') : ''),
+      backgroundNotice: record.backgroundNotice,
       images: record.images,
       reasoningContent: record.reasoningContent,
       usage: record.usage,
@@ -496,13 +502,16 @@ export function useAiChat() {
     const activeId = state.activeThreadId || store.activeThreadId
     let active = store.threads.find((t) => t.id === activeId)
     if (!active) {
-      active = store.threads[0]
-      state.activeThreadId = active.id
-      store.activeThreadId = active.id
-    } else {
-      store.activeThreadId = active.id
-      state.activeThreadId = active.id
+      // Another SSH window may have pruned this window's empty draft.
+      // Recreate its own thread instead of overwriting a different conversation.
+      active = {
+        id: activeId, title: '', createdAt: Date.now(), updatedAt: Date.now(),
+        messages: [], contextFiles: [...state.contextFiles],
+      }
+      store.threads.push(active)
     }
+    store.activeThreadId = active.id
+    state.activeThreadId = active.id
 
     active.messages = state.messages
       .filter((m) => !m.streaming)
@@ -569,22 +578,32 @@ export function useAiChat() {
 
 
   async function loadHistory(sessionId: string): Promise<ChatItem[]> {
+    const pending = historyLoads.get(sessionId)
+    if (pending) return pending
     const state = getAiSessionState(sessionId)
-    try {
-      const store = await window.LiteConnect.getAiSessionStore(sessionId)
-      syncThreadSummaries(state, store)
-      const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
-      state.activeThreadId = active?.id || ''
-      const messages = (active?.messages || []).map(fromHistoryRecord)
-      state.contextCheckpoint = active?.contextCheckpoint
-      state.compactionCount = normalizeAiCompactionCount(active?.compactionCount) || normalizeAiCompactionCount(active?.contextCheckpoint?.compactionCount)
-      state.contextFiles = active?.contextFiles || []
-      state.loaded = true
-      return messages
-    } catch (err: any) {
-      ElMessage.warning(err?.message || t('ai.loadHistoryFailed'))
-      return []
-    }
+    const load = (async () => {
+      try {
+        // Host history is shared, but every new runtime SSH window starts its own
+        // draft. Reloads of an existing window keep its locally selected thread.
+        const store = state.loaded
+          ? await buildStoreFromState(sessionId)
+          : await window.LiteConnect.aiCreateConversation(sessionId, {})
+        syncThreadSummaries(state, store)
+        const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
+        state.activeThreadId = active?.id || ''
+        const messages = (active?.messages || []).map(fromHistoryRecord)
+        state.contextCheckpoint = active?.contextCheckpoint
+        state.compactionCount = normalizeAiCompactionCount(active?.compactionCount) || normalizeAiCompactionCount(active?.contextCheckpoint?.compactionCount)
+        state.contextFiles = active?.contextFiles || []
+        state.loaded = true
+        return messages
+      } catch (err: any) {
+        ElMessage.warning(err?.message || t('ai.loadHistoryFailed'))
+        return []
+      }
+    })()
+    historyLoads.set(sessionId, load)
+    try { return await load } finally { if (historyLoads.get(sessionId) === load) historyLoads.delete(sessionId) }
   }
 
   async function ensureAssistantReply(
@@ -786,17 +805,8 @@ export function useAiChat() {
 
     // Ensure there is an active thread before first message
     if (!state.activeThreadId) {
-      const store = await window.LiteConnect.getAiSessionStore(sessionId).catch(() => null)
-      if (store) {
-        syncThreadSummaries(state, store)
-        const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
-        if (active && state.messages.length === 0) {
-          applyThreadMessages(state, active)
-        }
-        state.activeThreadId = store.activeThreadId
-      } else {
-        state.activeThreadId = createThreadId()
-      }
+      await loadHistory(sessionId)
+      if (!state.loaded || !state.activeThreadId) return false
     }
 
     const userMessage = createMessage('user', content)
@@ -943,6 +953,7 @@ export function useAiChat() {
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
     if (state.loading || !state.activeThreadId) return false
+    if (!await persistActiveThread(sessionId)) return false
     try {
       const store = await window.LiteConnect.aiSetContextFile(sessionId, state.activeThreadId, file)
       const active = store.threads.find((thread) => thread.id === store.activeThreadId)
@@ -958,6 +969,7 @@ export function useAiChat() {
   async function removeConversationContextFile(sessionId: string, file: AiConversationContextFile, removeFromFuture: boolean): Promise<boolean> {
     const state = getAiSessionState(sessionId)
     if (state.loading || !state.activeThreadId) return false
+    if (!await persistActiveThread(sessionId)) return false
     try {
       const store = await window.LiteConnect.aiRemoveContextFile(sessionId, state.activeThreadId, file.source, file.path, removeFromFuture)
       const active = store.threads.find(thread => thread.id === store.activeThreadId)
@@ -1201,6 +1213,44 @@ export function useAiChat() {
   function saveSessionInput(sessionId: string, input: string) {
     const state = getAiSessionState(sessionId)
     state.input = input
+  }
+
+  const api = typeof window === 'undefined' ? undefined : window.LiteConnect
+  if (api?.onAiBackgroundReply && !backgroundSubscriptions.has(api)) {
+    backgroundSubscriptions.add(api)
+    api.onAiBackgroundReply(event => {
+      const state = aiSessionStates.get(event.sessionId)
+      if (!state || state.activeThreadId !== event.threadId) return
+      const message = fromHistoryRecord(event.record)
+      message.streaming = event.record.status === 'running'
+      const previous = state.messages.find(item => item.id === message.id)
+      if (message.streaming) {
+        const phase = message.toolRuns?.some(run => run.status === 'ask') ? 'approval'
+          : message.toolRuns?.some(run => run.status === 'running') ? 'tool'
+            : message.content ? 'responding' : message.reasoningContent ? 'reasoning' : 'waiting'
+        message.activity = { phase, phaseStartedAt: previous?.activity?.phase === phase ? previous.activity.phaseStartedAt : Date.now(), lastActivityAt: Date.now() }
+      }
+      if (previous) Object.assign(previous, message)
+      else state.messages.push(message)
+      state.activeRequestId = message.streaming ? event.requestId : null
+      setSessionLoading(event.sessionId, !!message.streaming)
+      if (!message.streaming) {
+        if (state.disposeAfterReply) {
+          aiSessionStates.delete(event.sessionId)
+          syncAiApprovalPending(event.sessionId, false)
+          return
+        }
+        const summary = state.threads.find(thread => thread.id === event.threadId)
+        if (summary) { summary.messageCount = state.messages.length; summary.updatedAt = Date.now() }
+        void api.getAiSessionStore(event.sessionId).then(store => {
+          if (state.activeThreadId !== event.threadId) return
+          const thread = store.threads.find(item => item.id === event.threadId)
+          state.contextCheckpoint = thread?.contextCheckpoint
+          state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(thread?.compactionCount))
+        }).catch(() => {})
+        notifyAiReplyComplete(event.sessionId)
+      }
+    })
   }
 
   return {

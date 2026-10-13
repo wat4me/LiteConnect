@@ -21,6 +21,12 @@ export type McpJobRecord = {
 export class McpJobStore {
   private readonly jobs = new Map<string, McpJobRecord>()
   private readonly listeners = new Set<() => void>()
+  private readonly settlementListeners = new Set<(job: SshMcpJobResult) => void>()
+
+  onSettled(listener: (job: SshMcpJobResult) => void): () => void {
+    this.settlementListeners.add(listener)
+    return () => { this.settlementListeners.delete(listener) }
+  }
 
   onChanged(listener: () => void): () => void {
     this.listeners.add(listener)
@@ -81,6 +87,9 @@ export class McpJobStore {
     job.error = error
     job.cancel = () => {}
     this.notifyChanged()
+    for (const listener of this.settlementListeners) {
+      try { listener(this.detail(job)) } catch { /* Observers cannot interrupt settlement. */ }
+    }
   }
 
   cancel(jobId: string): boolean {

@@ -78,7 +78,7 @@ Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`
 | Database | `components/database`, `composables/database`, `domain/database`, `utils/database` | SQL workspace |
 | Monitor | `components/monitor`, `composables/monitor` | Host metrics dock |
 | Snippets / batch | `components/snippets`, `composables/snippets`, `utils/snippets` | Command snippets, broadcast, snippet hotkeys |
-| AI | `components/ai`, `composables/ai` | Chat sidebar |
+| AI | `views/AiWorkspaceView.vue`, `components/ai`, `composables/ai` | Standalone LiteAI workspace and SSH chat sidebar |
 | Settings | `components/settings`, `composables/settings` | Settings panels |
 | Shared UI | `composables/shared`, `utils/shared` | Cross-cutting pure/UI helpers |
 
@@ -121,7 +121,7 @@ Do not merge these — they have different lifecycles and security boundaries:
 
 Renderer `Window.LiteConnect` lives in `src/types/liteConnectApi.ts`. `src/env.d.ts` only declares `Window` and re-exports shared types.
 
-AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; HTTP/parse lives in `electron/ai/providerHttp.ts`, session persistence in `electron/ai/historyStore.ts`, tool loop in `electron/ai/chatStream.ts`. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
+AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; it adapts Electron events to the transport-independent `electron/ai/executionService.ts`. The execution service owns request serialization, persistence, cancellation, approval routing and background-result continuation. Settings/history ports and optional observers allow unattended read-only execution without a renderer; explicit history/thread identities remain separate from SSH session and caller identities. HTTP/parse lives in `electron/ai/providerHttp.ts`, session persistence in `electron/ai/historyStore.ts`, tool loop in `electron/ai/chatStream.ts`. See `docs/AI-RUNTIME.md` for the execution contract. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
 
 All main-process application data is stored in `liteconnect.sqlite`, managed by `electron/store/appDatabase.ts`. The database uses WAL, foreign-key enforcement, full synchronous commits, schema versions, and transactional legacy migration. Collection rows are updated only when their order or payload changes. JSON/JSONL remains an import/export format and a one-time upgrade source, not a live application store.
 
@@ -143,6 +143,7 @@ MySQL streaming row caps and connection discard behavior live in `electron/db/dr
 
 AI sidebar context-file availability checks live in `src/composables/ai/useAiContextFileStatus.ts`; its scoped presentation rules live in `src/components/ai/AiSidebar.css`.
 AI sidebar history filtering and mutations live in `src/composables/ai/useAiSidebarHistory.ts`.
+`src/views/AiWorkspaceView.vue` reuses the chat sidebar in the standalone LiteAI module. `electron/ai/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
 AI chat message footer display and controls live in `src/components/ai/AiMessageFooter.vue`; `AiChatView.vue` keeps scroll and timeline coordination, with scoped rules in `AiChatView.css`.
 SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
 

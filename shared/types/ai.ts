@@ -104,6 +104,7 @@ export interface AiToolRun {
 
 export interface AiChatResult {
   content: string
+  backgroundNotice?: string
   /** Wall-clock time when this assistant turn finished. */
   completedAt?: number
   error?: boolean
@@ -140,6 +141,8 @@ export interface AiHistoryRecord {
   id: string
   role: 'user' | 'assistant'
   content: string
+  /** Application-generated background results, separate from human input. */
+  backgroundNotice?: string
   images?: AiImageAttachment[]
   reasoningContent?: string
   usage?: AiUsage
@@ -153,6 +156,13 @@ export interface AiHistoryRecord {
   segments?: AiChatSegment[]
   /** Wire transcript for this assistant turn; next request appends after it. */
   apiMessages?: AiChatMessage[]
+}
+
+export interface AiBackgroundReplyEvent {
+  sessionId: string
+  threadId: string
+  requestId: string
+  record: AiHistoryRecord
 }
 
 /** Local content-addressed attachment; dataUrl exists only in memory / IPC. */

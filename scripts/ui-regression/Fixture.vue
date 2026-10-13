@@ -7,11 +7,13 @@ import SftpBookmarkMenu from '../../src/components/sftp/SftpBookmarkMenu.vue'
 import InlineLabel from '../../src/components/common/InlineLabel.vue'
 import AiChatView from '../../src/components/ai/AiChatView.vue'
 import AiSidebar from '../../src/components/ai/AiSidebar.vue'
+import AiWorkspaceView from '../../src/views/AiWorkspaceView.vue'
+import AppTitlebar from '../../src/components/app/AppTitlebar.vue'
 import LeftToolbar from '../../src/components/workspace/LeftToolbar.vue'
 import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJobs'
 import type { SshMcpJobSummary } from '../../shared/mcp/types'
 import { useAiChat } from '../../src/composables/ai/useAiChat'
-import type { AiSessionStore, AiSettings } from '../../shared/types/ai'
+import type { AiSessionStore, AiSettings, AiToolRun } from '../../shared/types/ai'
 import FileEditorModal from '../../src/components/sftp/FileEditorModal.vue'
 import DirectorySyncModal from '../../src/components/sftp/DirectorySyncModal.vue'
 import SftpToolbar from '../../src/components/sftp/SftpToolbar.vue'
@@ -41,33 +43,66 @@ const connectionStages = ref<Record<string, SshConnectionStage>>({})
 const cancelledConnections: string[] = []
 const calls = { connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[], aiRequests: [] as any[], aiCreates: [] as string[] }
 const imageSettings: AiSettings = { providers: [{ id: 'fixture', name: '测试接口', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'vision-fixture', supportsImages: true }] }], activeProviderId: 'fixture', activeModel: 'vision-fixture', systemPrompt: '' }
-let imageHistory: AiSessionStore = { version: 1, activeThreadId: 'image-thread', defaultContextFiles: [], threads: [{ id: 'image-thread', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
+let imageHistory: AiSessionStore = { version: 1, activeThreadId: 'image-thread', defaultContextFiles: [], threads: [{ id: 'image-thread', title: '旧窗口的对话', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [{ id: 'old-host-message', role: 'user', content: '旧窗口的历史消息', createdAt: 1 }] }] }
 const otherImageHistory: AiSessionStore = { version: 1, activeThreadId: 'other-thread', defaultContextFiles: [], threads: [{ id: 'other-thread', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
 let remoteContent = 'original content'
 let remoteRevision = 'a'.repeat(64)
 let previewFails = false
 let backgroundJobs: SshMcpJobSummary[] = []
 const jobListeners = new Set<(jobs: SshMcpJobSummary[]) => void>()
+const backgroundReplyListeners = new Set<(event: any) => void>()
+const workspaceListeners = new Set<(event: any) => void>()
+const workspaceSessions = new Map<string, string>()
+const workspaceOpens: string[] = []
 // This test window has no production preload, credentials, SSH or disk writes.
 ;(window as any).LiteConnect = {
   getAiSettings: async () => JSON.parse(JSON.stringify(imageSettings)),
+  onAiWorkspaceConnection: (listener: (event: any) => void) => { workspaceListeners.add(listener); return () => workspaceListeners.delete(listener) },
+  aiOpenWorkspaceConnection: async (id: string) => {
+    workspaceOpens.push(id)
+    const sessionId = workspaceSessions.get(id) || `ai-workspace-${id}`
+    workspaceSessions.set(id, sessionId)
+    workspaceListeners.forEach(listener => listener({ connectionId: id, sessionId, status: 'connected' }))
+    return sessionId
+  },
+  aiCancelWorkspaceConnection: async () => {},
+  aiCloseWorkspaceConnection: async (sessionId: string) => {
+    for (const [connectionId, id] of workspaceSessions) if (id === sessionId) {
+      workspaceSessions.delete(connectionId)
+      workspaceListeners.forEach(listener => listener({ connectionId, sessionId, status: 'closed' }))
+    }
+  },
   mcpListJobs: async () => backgroundJobs,
+  aiSuppressBackgroundReplies: async () => {},
+  onAiBackgroundReply: (listener: (event: any) => void) => { backgroundReplyListeners.add(listener); return () => backgroundReplyListeners.delete(listener) },
+  mcpCallTool: async (name: string, args: { jobId: string }) => {
+    if (name !== 'get_job' && name !== 'cancel_job') throw new Error('Unexpected tool in background task details')
+    const job = backgroundJobs.find(item => item.jobId === args.jobId)
+    if (!job) return { isError: true, content: 'JOB_NOT_FOUND', structuredContent: {} }
+    if (name === 'cancel_job') {
+      job.status = 'cancelled'
+      job.finishedAt = Date.now()
+      jobListeners.forEach(listener => listener(backgroundJobs.map(item => ({ ...item }))))
+    }
+    return { isError: false, content: '', structuredContent: { ...job, stdout: job.status === 'running' ? undefined : 'container restarted\nverification passed', stderr: job.status === 'failed' ? 'restart failed' : '', truncated: false } }
+  },
   onMcpJobsChanged: (listener: (jobs: SshMcpJobSummary[]) => void) => { jobListeners.add(listener); return () => jobListeners.delete(listener) },
   listAiModels: async () => [{ id: 'vision-fixture', contextWindowTokens: 64000 }],
-  getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(id === 'image-fixture' ? imageHistory : otherImageHistory)),
+  getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(id === 'other-fixture' ? otherImageHistory : imageHistory)),
   setAiSessionStore: async (_id: string, store: AiSessionStore) => { imageHistory = store },
-  appendAiSessionHistory: async (_id: string, record: any) => { imageHistory.threads.find(thread => thread.id === imageHistory.activeThreadId)!.messages.push(record) },
+  appendAiSessionHistory: async (_id: string, record: any, threadId: string) => { imageHistory.threads.find(thread => thread.id === threadId)!.messages.push(record) },
   aiCreateConversation: async (_id: string, payload: any) => {
     calls.aiCreates.push(_id)
-    const previous = imageHistory.threads.find(thread => thread.id === (payload?.threadId || imageHistory.activeThreadId))!
+    const history = _id === 'other-fixture' ? otherImageHistory : imageHistory
+    const previous = history.threads.find(thread => thread.id === (payload?.threadId || history.activeThreadId))!
     if (payload?.messages) previous.messages = payload.messages
-    const id = 'new-image-thread'
-    imageHistory.threads.push({ id, title: '', createdAt: 2, updatedAt: 2, contextFiles: [], messages: [] })
-    imageHistory.activeThreadId = id
-    return JSON.parse(JSON.stringify(imageHistory))
+    const id = `new-image-thread-${calls.aiCreates.length}`
+    history.threads.push({ id, title: '', createdAt: 2, updatedAt: 2, contextFiles: [], messages: [] })
+    history.activeThreadId = id
+    return JSON.parse(JSON.stringify(history))
   },
   onAiChatStream: () => () => {},
-  aiChatStream: async (_id: string, messages: any[]) => { calls.aiRequests.push(messages); return { content: '截图分析完成' } },
+  aiChatStream: async (_id: string, messages: any[], options: any) => { calls.aiRequests.push(messages); return { content: options?.sessionId?.startsWith('ai-workspace-') ? '服务器磁盘和服务状态正常。\n\n```sh\ndf -h\n```' : '截图分析完成' } },
   getConnectionUsageStatsEnabled: async () => true,
   getAllSettings: async () => ({}),
   getConnections: async () => connections.map(conn => ({ ...conn })),
@@ -104,6 +139,8 @@ const editorOpen = ref(false)
 const syncOpen = ref(false)
 const aiMessages = ref<ChatItem[]>([])
 const imageComposerOpen = ref(false)
+const liteAiOpen = ref(false)
+const liteAiMode = ref<'ssh' | 'ai'>('ssh')
 const imageComposerSession = ref('image-fixture')
 const { runningCount: backgroundTaskCount } = useAiBackgroundJobs(() => imageComposerSession.value)
 const imageOpenGeneration = ref(1)
@@ -123,6 +160,14 @@ function renameBookmark(item: SftpPathBookmark) {
 onMounted(() => {
   (window as any).__uiRegression = {
     calls,
+    workspaceOpens,
+    async openLiteAi() {
+      syncOpen.value = false
+      imageComposerOpen.value = false
+      connections = connections.map((connection, index) => ({ ...connection, name: index === 0 ? '应用服务器' : '数据库服务器' }))
+      liteAiOpen.value = true
+      await nextTick()
+    },
     synchronizedWrites,
     sendSynchronizedInput(data: string) { synchronizedInput.forward('one', data) },
     cancelledConnections,
@@ -145,6 +190,19 @@ onMounted(() => {
       await nextTick()
     },
     getImageHistory() { return JSON.parse(JSON.stringify(imageHistory)) },
+    seedConversationMessage() {
+      const state = useAiChat().getSessionState(imageComposerSession.value)
+      state.messages.push(useAiChat().createMessage('user', '正在等待后台任务'))
+    },
+    emitBackgroundReply(status: 'running' | 'completed') {
+      const threadId = useAiChat().getSessionState(imageComposerSession.value).activeThreadId
+      const event = { sessionId: imageComposerSession.value, threadId, requestId: 'fixture-background-request', record: {
+        id: 'fixture-background-assistant', role: 'assistant', status, createdAt: Date.now(),
+        content: status === 'completed' ? '后台命令已完成并验证结果。' : '',
+        backgroundNotice: 'Application completion\n' + JSON.stringify([{ command: 'verify-container', stdout: 'container healthy' }]),
+      } }
+      backgroundReplyListeners.forEach(listener => listener(event))
+    },
     async setVisionEnabled(enabled: boolean) {
       imageSettings.providers[0].models[0].supportsImages = enabled
       useAiChat().replaceSettings(JSON.parse(JSON.stringify(imageSettings)))
@@ -171,6 +229,10 @@ onMounted(() => {
         reasoningContent: phase === 'reasoning' ? '正在分析部署脚本' : undefined,
         segments: phase === 'reasoning' ? [{ kind: 'reasoning', text: '正在分析部署脚本' }] : [],
       }]
+      await nextTick()
+    },
+    async aiTools(toolRuns: AiToolRun[]) {
+      aiMessages.value = [{ id: 'ai-tools', role: 'assistant', content: '', createdAt: Date.now(), streaming: true, toolRuns }]
       await nextTick()
     },
     async finishAi() { aiMessages.value = aiMessages.value.map(message => ({ ...message, streaming: false })); await nextTick() },
@@ -245,6 +307,10 @@ onMounted(() => {
     <FileEditorModal :visible="editorOpen" session-id="ui-fixture" remote-path="/tmp/config" file-name="config" @close="editorOpen = false" />
     <DirectorySyncModal :visible="syncOpen" session-id="ui-fixture" remote-path="/tmp" @close="syncOpen = false" />
     <AppDialogHost />
+    <section v-if="liteAiOpen" class="lite-ai-workspace-fixture">
+      <AppTitlebar :app-mode="liteAiMode" :show-settings-page="false" @enter-ai="liteAiMode = 'ai'" @enter-ssh="liteAiMode = 'ssh'" />
+      <AiWorkspaceView v-if="liteAiMode === 'ai'" />
+    </section>
   </main>
 </template>
 
@@ -260,4 +326,6 @@ onMounted(() => {
 .fixture-count { font-size: 10px; }
 .ai-fixture { display: flex; width: 440px; height: 280px; margin-top: 12px; }
 .ai-image-composer-fixture { position: relative; display: flex; width: 440px; height: 620px; margin-top: 12px; }
+.lite-ai-workspace-fixture { width: min(1050px, 100%); height: 680px; display: flex; flex-direction: column; margin-top: 12px; }
+.lite-ai-workspace-fixture > .ai-workspace { flex: 1; height: auto; }
 </style>

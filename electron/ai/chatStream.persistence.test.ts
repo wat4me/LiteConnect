@@ -8,6 +8,28 @@ const settings: AiResolvedConfig = { baseUrl: 'https://example.test/v1', apiKey:
 afterEach(() => vi.unstubAllGlobals())
 const sse = (delta: object) => new Response(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\ndata: [DONE]\n\n`)
 
+it('registers launched jobs before clamping output and marks explicitly collected results', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [
+    { index: 0, id: 'launch', function: { name: 'exec', arguments: JSON.stringify({ command: 'hostname', background: true, risk: 'read', explanation: 'Inspect the host' }) } },
+    { index: 1, id: 'collect', function: { name: 'get_job', arguments: JSON.stringify({ jobId: 'background-one', risk: 'read', explanation: 'Read the finished command' }) } },
+  ] })).mockResolvedValueOnce(sse({ content: 'finished' })))
+  const started = vi.fn()
+  const collected = vi.fn()
+  const call = vi.fn(async (name: string) => {
+    const structuredContent = name === 'list_sessions' ? { sessions: [] }
+      : { jobId: 'background-one', status: name === 'exec' ? 'running' : 'completed', stdout: 'host' }
+    return { isError: false, content: JSON.stringify(structuredContent), structuredContent }
+  })
+  await runAiChatStream({
+    emit: () => {}, requestId: 'background-binding', settings: { ...settings, toolPermission: 'readonly' },
+    messages: [{ role: 'user', content: 'inspect the host' }],
+    sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7', sshMcpRuntime: { call } as unknown as SshMcpRuntime,
+    onBackgroundJobsStarted: started, onBackgroundJobCollected: collected,
+  })
+  expect(started).toHaveBeenCalledWith(['background-one'])
+  expect(collected).toHaveBeenCalledWith('background-one')
+})
+
 it('only lets the owning renderer abort a stream', () => {
   const control = createAiStreamControl('owned-request', 7)
   expect(abortAiChatStream('owned-request', 8)).toBe(false)

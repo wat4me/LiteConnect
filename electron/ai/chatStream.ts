@@ -130,6 +130,8 @@ export async function runAiChatStream(opts: {
   settings: AiResolvedConfig
   contextFiles?: import('../../shared/types/ai').AiConversationContextFile[]
   sshMcpRuntime?: SshMcpRuntime
+  onBackgroundJobsStarted?: (jobIds: string[]) => void
+  onBackgroundJobCollected?: (jobId: string) => void
   getToolPermission?: () => AiToolPermissionMode
   onToolApprovalRequested?: (input: {
     requestId: string
@@ -471,6 +473,15 @@ export async function runAiChatStream(opts: {
           result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
         }
 
+        if (call.function.name === 'exec' && !result.isError && mcpArgs.background === true) {
+          const payload = result.structuredContent as { jobId?: string; jobs?: { jobId: string }[] }
+          const ids = payload?.jobId ? [payload.jobId] : (payload?.jobs || []).map(job => job.jobId)
+          opts.onBackgroundJobsStarted?.(ids)
+        }
+        if (call.function.name === 'get_job' && !result.isError) {
+          const job = result.structuredContent as { jobId?: string; status?: string }
+          if (job?.jobId && job.status && job.status !== 'running') opts.onBackgroundJobCollected?.(job.jobId)
+        }
         if (abortController.signal.aborted) break
 
         result = clampToolResultForModel(result)

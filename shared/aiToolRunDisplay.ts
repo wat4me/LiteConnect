@@ -165,6 +165,10 @@ function formatExecPayload(row: Record<string, unknown>, content: string): ToolR
 }
 
 function formatFromObject(name: string, obj: Record<string, unknown>, content: string): ToolRunDisplay | null {
+  const savedCount = name === 'grep' ? num(obj.matchCount) : name === 'glob' ? num(obj.fileCount) : undefined
+  if (savedCount != null && typeof obj.content === 'string') {
+    return { summary: { kind: 'entries', count: savedCount }, hint: '', body: obj.content }
+  }
   if (typeof obj.stdout === 'string' || typeof obj.stderr === 'string' || typeof obj.exitCode === 'number') {
     return formatExecPayload(obj, content)
   }
@@ -416,6 +420,17 @@ export function serializeToolRunForHistory(input: {
 
   const structured = input.structured ?? parseJsonValue(input.content)
   const obj = asRecord(structured)
+  if ((input.name === 'grep' || input.name === 'glob') && view.summary.kind === 'entries') {
+    const key = input.name === 'grep' ? 'matchCount' : 'fileCount'
+    // Leave room for JSON escaping while preserving the count independently of output.
+    let body = view.body.slice(0, AI_TOOL_RUN_CONTENT_MAX - 100)
+    let content = JSON.stringify({ [key]: view.summary.count, content: body })
+    while (content.length > AI_TOOL_RUN_CONTENT_MAX) {
+      body = body.slice(0, Math.floor(body.length * 0.8))
+      content = JSON.stringify({ [key]: view.summary.count, content: body })
+    }
+    return { args, content }
+  }
   if (obj && (typeof obj.stdout === 'string' || typeof obj.stderr === 'string' || typeof obj.exitCode === 'number')) {
     const stderrMarker = '\n\n[stderr]\n'
     const split = view.body.indexOf(stderrMarker)

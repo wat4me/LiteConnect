@@ -1,4 +1,5 @@
 export interface HostKeyMismatchData {
+  purpose?: 'ai'
   connectionId: string
   host: string
   port: number

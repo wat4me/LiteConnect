@@ -205,6 +205,7 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     id: typeof record.id === 'string' && record.id ? record.id : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role: record.role,
     content: record.content.slice(0, 200000),
+    backgroundNotice: typeof record.backgroundNotice === 'string' ? record.backgroundNotice.slice(0, 32000) : undefined,
     ...(record.role === 'user' && record.images?.length ? { images: normalizeAiImages(record.images) } : {}),
     reasoningContent: typeof record.reasoningContent === 'string' ? record.reasoningContent.slice(0, 200000) : undefined,
     usage: extractAiUsage({

@@ -7,6 +7,7 @@ export default {
     modeDatabase: '数据库',
     brandSshAria: '切换模块，当前 LiteConnect',
     brandDbAria: '切换模块，当前 LiteDB',
+    brandAiAria: '切换模块，当前 LiteAI',
     connectionManage: '连接管理',
     settings: '设置',
     closeSettings: '关闭设置',

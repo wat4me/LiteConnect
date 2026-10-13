@@ -199,6 +199,7 @@ export function flattenConversationForApi(
   items: Array<{
     role: string
     content?: string | null
+    backgroundNotice?: string
     images?: AiImageAttachment[]
     error?: boolean
     status?: 'running' | 'completed' | 'aborted' | 'error'
@@ -209,6 +210,9 @@ export function flattenConversationForApi(
 ): AiChatMessage[] {
   const out: AiChatMessage[] = []
   for (const item of items) {
+    if (item.backgroundNotice && !item.streaming && item.status !== 'running') {
+      out.push({ role: 'user', content: item.backgroundNotice })
+    }
     if (item.error || item.streaming) continue
     if (item.role === 'user') {
       const content = typeof item.content === 'string' ? item.content : ''

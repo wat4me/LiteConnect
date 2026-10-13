@@ -4,14 +4,15 @@ import type { SettingsTabId } from '@/domain/settings/types'
 export type { SettingsTabId }
 
 /**
- * Top-level module navigation: SSH / database / settings.
+ * Top-level module navigation: SSH / database / AI / settings.
  * Keeps App.vue free of shell routing state.
  */
 export function useAppNavigation(deps: { onSelectHome: () => void }) {
   const showSettingsPage = ref(false)
   /** Tab to select when SettingsView mounts / re-opens. */
   const settingsInitialTab = ref<SettingsTabId | undefined>(undefined)
-  const appMode = ref<'ssh' | 'database'>('ssh')
+  const appMode = ref<'ssh' | 'database' | 'ai'>('ssh')
+  const aiWorkspaceMounted = ref(false)
   const databaseMounted = ref(false)
   /** Lazy: mount terminal workspace only after first host session is needed. */
   const sshWorkspaceMounted = ref(false)
@@ -19,6 +20,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
 
   const isSshMode = computed(() => appMode.value === 'ssh' && !showSettingsPage.value)
   const isDatabaseMode = computed(() => appMode.value === 'database' && !showSettingsPage.value)
+  const isAiMode = computed(() => appMode.value === 'ai' && !showSettingsPage.value)
 
   function closeSettingsPage() {
     showSettingsPage.value = false
@@ -52,6 +54,13 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     databaseMounted.value = true
   }
 
+  function enterAi() {
+    showSettingsPage.value = false
+    settingsInitialTab.value = undefined
+    appMode.value = 'ai'
+    aiWorkspaceMounted.value = true
+  }
+
   function toggleSettingsPage() {
     if (showSettingsPage.value) {
       void settingsViewRef.value?.requestClose()
@@ -65,6 +74,9 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     settingsInitialTab,
     appMode,
     databaseMounted,
+    aiWorkspaceMounted,
+    isAiMode,
+    enterAi,
     sshWorkspaceMounted,
     settingsViewRef,
     isSshMode,

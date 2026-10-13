@@ -8,6 +8,7 @@ import AppDialogHost from '@/components/app/AppDialogHost.vue'
 
 const SettingsView = defineAsyncComponent(() => import('./views/SettingsView.vue'))
 const DatabaseView = defineAsyncComponent(() => import('./views/DatabaseView.vue'))
+const AiWorkspaceView = defineAsyncComponent(() => import('./views/AiWorkspaceView.vue'))
 const SshWorkspace = defineAsyncComponent(() => import('@/components/workspace/SshWorkspace.vue'))
 const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
@@ -373,6 +374,9 @@ const {
   settingsInitialTab,
   appMode,
   databaseMounted,
+  aiWorkspaceMounted,
+  isAiMode,
+  enterAi,
   sshWorkspaceMounted,
   settingsViewRef,
   isSshMode,
@@ -839,6 +843,7 @@ onBeforeUnmount(() => {
       :show-settings-page="showSettingsPage"
       @enter-ssh="handleEnterSshModule"
       @enter-database="handleEnterDatabaseModule"
+      @enter-ai="enterAi"
       @toggle-settings="toggleSettingsPage"
       @open-shortcuts="shortcutsHelpVisible = true"
     />
@@ -896,6 +901,9 @@ onBeforeUnmount(() => {
 
         <div v-show="isDatabaseMode" class="home-module">
           <DatabaseView v-if="databaseMounted" />
+        </div>
+        <div v-show="isAiMode" class="home-module">
+          <AiWorkspaceView v-if="aiWorkspaceMounted" :active="isAiMode" @open-connections="enterSsh(true)" />
         </div>
 
         <SshWorkspace

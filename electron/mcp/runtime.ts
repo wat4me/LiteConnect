@@ -79,6 +79,17 @@ export class SshMcpRuntime {
     return this.jobs.onChanged(listener)
   }
 
+  onJobSettled(listener: (job: import('../../shared/mcp/types').SshMcpJobResult) => void) {
+    return this.jobs.onSettled(listener)
+  }
+
+  getJobResult(jobId: string) {
+    const job = this.jobs.get(jobId)
+    return job ? this.jobs.detail(job) : undefined
+  }
+
+  hasSession(sessionId: string) { return Boolean(this.ssh.getSessionSnapshot(sessionId)) }
+
   async call(
     name: unknown,
     args: unknown,

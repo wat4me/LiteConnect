@@ -6,6 +6,42 @@ vi.mock('../../i18n', () => ({ t: (key: string) => key }))
 vi.mock('element-plus/es/components/message/index', () => ({ ElMessage: { warning: vi.fn() } }))
 afterEach(() => vi.unstubAllGlobals())
 
+it('projects background replies, exposes approvals and stops the correct autonomous request', async () => {
+  let receive: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void = () => {}
+  const approve = vi.fn(async () => true)
+  const abort = vi.fn(async () => true)
+  vi.stubGlobal('window', { LiteConnect: {
+    onAiBackgroundReply: (callback: typeof receive) => { receive = callback; return () => {} },
+    getAiSessionStore: async () => ({ threads: [] }),
+    aiResolveToolApproval: approve, aiAbortChatStream: abort,
+  } })
+  const chat = useAiChat()
+  const state = chat.getSessionState('background-projection')
+  state.activeThreadId = 'original-thread'
+  state.loaded = true
+  const event: import('@shared/types/ai').AiBackgroundReplyEvent = {
+    sessionId: 'background-projection', threadId: 'original-thread', requestId: 'automatic-request',
+    record: { id: 'automatic-reply', role: 'assistant', status: 'running', content: '', createdAt: 1,
+      backgroundNotice: 'Application completion\n[]',
+      toolRuns: [{ id: 'approval-call', name: 'exec', args: '{}', content: '', isError: false, status: 'ask' }] },
+  }
+  receive(event)
+  expect(state.loading).toBe(true)
+  expect(state.messages[0].activity?.phase).toBe('approval')
+  await chat.resolveToolApproval(event.sessionId, 'approval-call', true)
+  expect(approve).toHaveBeenCalledWith('automatic-request', 'approval-call', true)
+  await chat.stopGeneration(event.sessionId)
+  expect(abort).toHaveBeenCalledWith('automatic-request')
+  receive({ ...event, record: { ...event.record, content: 'task completed', status: 'completed', toolRuns: [] } })
+  expect(state.loading).toBe(false)
+  expect(state.activeRequestId).toBe(null)
+  expect(state.messages).toHaveLength(1)
+  expect(state.messages[0].content).toBe('task completed')
+  receive({ ...event, threadId: 'different-thread' })
+  expect(state.loading).toBe(false)
+  expect(state.activeThreadId).toBe('original-thread')
+})
+
 it('recovers the full reply without stream events and never writes assistant snapshots', async () => {
   const records: AiHistoryRecord[] = []
   const reply: AiChatResult = {

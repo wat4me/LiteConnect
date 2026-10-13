@@ -15,6 +15,7 @@ import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import { CredentialStore } from '../store/credentialStore'
+import { AiWorkspaceConnections } from '../ai/workspaceConnections'
 import {
   broadcast,
   clearSessionOwner,
@@ -137,8 +138,22 @@ export function registerSshConnectHandlers(
   const ensureKnownHostsReady = () => knownHosts.init()
   const attempts = new Map<string, Set<AbortController>>()
   const sessionAttempts = new Map<string, Set<AbortController>>()
-  function beginAttempt(sender: WebContents, connectionId: string, sessionId?: string) {
-    const key = `${sender.id}:${connectionId}`
+  const workspaceOwners = new Map<number, WebContents>()
+  const workspace = new AiWorkspaceConnections({
+    hasSession: id => sshManager.hasSession(id),
+    disconnect: id => { sshManager.disconnect(id); clearSessionOwner(id); broadcast(`ssh:closed:${id}`) },
+    cancel: (ownerId, connectionId) => {
+      for (const controller of attempts.get(`${ownerId}:ai:${connectionId}`) || []) controller.abort()
+      sshManager.rejectHostKey(connectionId)
+    },
+    notify: (ownerId, value) => {
+      const sender = workspaceOwners.get(ownerId)
+      if (sender) safeWebContentsSend(sender, 'ai:workspaceConnection', value)
+    },
+  })
+  sshManager.registerSessionTeardownHook?.(id => workspace.closed(id))
+  function beginAttempt(sender: WebContents, connectionId: string, sessionId?: string, purpose?: 'ai') {
+    const key = purpose === 'ai' ? `${sender.id}:ai:${connectionId}` : `${sender.id}:${connectionId}`
     const controller = new AbortController()
     const set = attempts.get(key) || new Set<AbortController>()
     set.add(controller)
@@ -181,6 +196,7 @@ export function registerSshConnectHandlers(
     connectionId: string,
     error: unknown,
     previousPending?: ReturnType<SSHManager['getPendingHostKey']>,
+    purpose?: 'ai',
   ): never {
     const pending = sshManager.getPendingHostKey(connectionId)
     if (pending && pending !== previousPending) {
@@ -191,6 +207,7 @@ export function registerSshConnectHandlers(
         existingFingerprint: pending.existingFingerprint,
         newFingerprint: pending.fingerprint,
         role: pending.role,
+        ...(purpose === 'ai' ? { purpose } : {}),
       })
       throw new Error(SSH_HOST_KEY_CONFIRMATION_REQUIRED)
     }
@@ -401,11 +418,12 @@ export function registerSshConnectHandlers(
     )
   })
 
-  ipcMain.handle('ssh:connect', async (event, connectionId: string) => {
+  async function connectSaved(sender: WebContents, connectionId: string, purpose?: 'ai'): Promise<string> {
     if (!isValidUUID(connectionId)) {
       throw new Error('Invalid connection id')
     }
-    const attempt = beginAttempt(event.sender, connectionId)
+    if (purpose === 'ai' && sshManager.getPendingHostKey(connectionId)) throw new Error('Complete the pending host verification before opening an AI connection')
+    const attempt = beginAttempt(sender, connectionId, undefined, purpose)
     try {
       await Promise.all([ensureCredentialStoreReady(), ensureKnownHostsReady()])
       if (attempt.signal.aborted) throw new Error(SSH_CONNECTION_CANCELLED)
@@ -414,7 +432,7 @@ export function registerSshConnectHandlers(
         connection = credentialStore.getConnectionForAuth(connectionId)
       } catch (err) {
         if (DecryptionError.is(err)) {
-          safeWebContentsSend(event.sender, 'ssh:decryptionFailed', {
+          safeWebContentsSend(sender, 'ssh:decryptionFailed', {
             connectionId,
             field: err.field || 'password',
             message: err.message,
@@ -432,13 +450,14 @@ export function registerSshConnectHandlers(
         signal: attempt.signal,
         onProgress: attempt.onProgress,
         onData: (sid, data) => {
-          emitSshData(sid, data)
+          if (purpose !== 'ai') emitSshData(sid, data)
           if (sessionLog && settingsStore.getSessionLogEnabled()) {
             sessionLog.append(sid, { host: String(connection.host || ''), port: Number(connection.port) || 22 }, data)
           }
         },
         onNotice: queueStartupNotice,
         onClose: (sid) => {
+          workspace.closed(sid)
           clearSessionOwner(sid)
           sessionLog?.endSession(sid)
           broadcast(`ssh:closed:${sid}`)
@@ -446,23 +465,37 @@ export function registerSshConnectHandlers(
         onError: (sid, err) => {
           broadcast(`ssh:error:${sid}`, err)
         },
-        onKeyboardInteractive: createKeyboardHandler(event.sender, connectionId, attempt.signal, connection.name),
+        onKeyboardInteractive: createKeyboardHandler(sender, connectionId, attempt.signal, connection.name),
       })
       if (attempt.signal.aborted) { sshManager.disconnect(sessionId); throw new Error(SSH_CONNECTION_CANCELLED) }
-      setSessionOwner(sessionId, event.sender.id)
+      setSessionOwner(sessionId, sender.id)
       onConnected?.(connectionId, sessionId)
       attempt.finish('connected')
       return sessionId
     } catch (err: any) {
       attempt.finish(isSshConnectionCancelled(err) ? 'cancelled' : sshManager.getPendingHostKey(connectionId) ? 'host-key' : 'failed')
-      throwConnectionError(event.sender, connectionId, err)
+      throwConnectionError(sender, connectionId, err, undefined, purpose)
     }
-  })
+  }
 
+  ipcMain.handle('ssh:connect', (event, connectionId: string) => connectSaved(event.sender, connectionId))
+
+  ipcMain.handle('ai:openWorkspaceConnection', (event, connectionId: string) => {
+    if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
+    const sender = event.sender
+    if (!workspaceOwners.has(sender.id)) {
+      workspaceOwners.set(sender.id, sender)
+      sender.once?.('destroyed', () => { workspace.disposeOwner(sender.id); workspaceOwners.delete(sender.id) })
+    }
+    return workspace.open(sender.id, connectionId, () => connectSaved(sender, connectionId, 'ai'))
+  })
+  ipcMain.handle('ai:cancelWorkspaceConnection', (event, connectionId: string) => workspace.cancel(event.sender.id, connectionId))
+  ipcMain.handle('ai:closeWorkspaceConnection', (event, sessionId: string) => workspace.close(event.sender.id, sessionId))
   ipcMain.handle('ssh:confirmHostKey', async (event, connectionId: string) => {
     if (!isValidUUID(connectionId)) {
       throw new Error('Invalid connection id')
     }
+    const purpose = workspace.isPending(event.sender.id, connectionId) ? 'ai' as const : undefined
     // Capture resume id before confirm clears pending
     const resumeSessionId = sshManager.getPendingHostKeyResumeSessionId(connectionId)
     const previousPending = sshManager.getPendingHostKey(connectionId)
@@ -470,7 +503,7 @@ export function registerSshConnectHandlers(
     // After host-key failure the live map is usually empty; still treat a known
     // resumeSessionId as in-place when the renderer already owns that tab.
     let sessionId: string
-    const attempt = beginAttempt(event.sender, connectionId, resumeSessionId)
+    const attempt = beginAttempt(event.sender, connectionId, resumeSessionId, purpose)
     try {
       const pending = sshManager.getPendingHostKey(connectionId)
       if (pending) {
@@ -482,10 +515,16 @@ export function registerSshConnectHandlers(
       attempt.finish('connected')
     } catch (err) {
       attempt.finish(isSshConnectionCancelled(err) ? 'cancelled' : sshManager.getPendingHostKey(connectionId) !== previousPending && sshManager.getPendingHostKey(connectionId) ? 'host-key' : 'failed')
+      if (purpose === 'ai' && (!sshManager.getPendingHostKey(connectionId) || sshManager.getPendingHostKey(connectionId) === previousPending)) workspace.cancel(event.sender.id, connectionId)
       // Trusting a jump host can reveal another untrusted key on the target.
-      throwConnectionError(event.sender, connectionId, err, previousPending)
+      throwConnectionError(event.sender, connectionId, err, previousPending, purpose)
     }
     if (sessionId) setSessionOwner(sessionId, event.sender.id)
+    if (purpose === 'ai' && !workspace.complete(event.sender.id, connectionId, sessionId)) {
+      sshManager.disconnect(sessionId)
+      clearSessionOwner(sessionId)
+      throw new Error(SSH_CONNECTION_CANCELLED)
+    }
     if (sessionId) onConnected?.(connectionId, sessionId)
     // Notify TerminalTab when this was a reconnect-style resume (session id reused)
     if (resumeSessionId && resumeSessionId === sessionId) {
@@ -501,6 +540,7 @@ export function registerSshConnectHandlers(
   ipcMain.handle('ssh:rejectHostKey', async (event, connectionId: string) => {
     if (!isValidUUID(connectionId)) throw new Error('Invalid connection id')
     sshManager.rejectHostKey(connectionId)
+    workspace.cancel(event.sender.id, connectionId)
     safeWebContentsSend(event.sender, 'ssh:connectionProgress', { connectionId, stage: 'cancelled' })
   })
 

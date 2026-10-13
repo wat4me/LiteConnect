@@ -204,6 +204,8 @@ export interface LiteConnectApi {
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) => Promise<boolean>
   getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
+  aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => Promise<void>
+  onAiBackgroundReply: (callback: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void) => () => void
   aiSelectLocalContextFile: () => Promise<AiConversationContextFile | null>
   aiReadLocalContextFile: (sessionId: string, threadId: string, path: string) => Promise<AiConversationContextFile>
   aiCheckLocalContextFile: (path: string) => Promise<'available' | 'missing' | 'unavailable'>
@@ -265,6 +267,10 @@ export interface LiteConnectApi {
   } | null>
 
   sshConnect: (connectionId: string) => Promise<string>
+  aiOpenWorkspaceConnection: (connectionId: string) => Promise<string>
+  aiCancelWorkspaceConnection: (connectionId: string) => Promise<void>
+  aiCloseWorkspaceConnection: (sessionId: string) => Promise<void>
+  onAiWorkspaceConnection: (callback: (event: import('@shared/aiWorkspace').AiWorkspaceConnectionEvent) => void) => () => void
   sshCancelConnect: (connectionId: string) => Promise<void>
   onSshConnectionProgress: (callback: (data: import('../../shared/sshConnectionProgress').SshConnectionProgress) => void) => () => void
   onSshKeyboardInteractiveClosed: (callback: (requestId: string) => void) => () => void
@@ -355,6 +361,7 @@ export interface LiteConnectApi {
   sshReplyKeyboardInteractive: (requestId: string, answers: string[] | null) => Promise<boolean>
   sshRejectHostKey: (connectionId: string) => Promise<void>
   onSshHostKeyMismatch: (callback: (data: {
+    purpose?: 'ai'
     connectionId: string
     host: string
     port: number

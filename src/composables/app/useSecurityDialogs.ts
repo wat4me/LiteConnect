@@ -48,11 +48,13 @@ export function useSecurityDialogs(deps: {
   async function handleHostKeyAccept() {
     if (!hostKeyMismatchData.value) return
     const connectionId = hostKeyMismatchData.value.connectionId
+    const purpose = hostKeyMismatchData.value.purpose
     hostKeyMismatchVisible.value = false
     hostKeyMismatchData.value = null
     showNext()
     try {
       const sessionId = await window.LiteConnect.sshConfirmHostKey(connectionId)
+      if (purpose === 'ai') return
       // Reconnect path: TerminalTab already mounted under sessionId (reconnected event clears UI).
       // First-connect path: no tab yet — adopt so we do not leave an orphan main-process session.
       if (sessionId && !deps.hasOpenSession?.(sessionId)) {

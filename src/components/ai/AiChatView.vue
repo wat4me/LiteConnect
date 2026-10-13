@@ -10,19 +10,20 @@ import type { ChatItem } from '../../composables/ai/useAiChat'
 import {
   extractJsonStringField,
   toolRunDefaultOpen,
-  type ToolRunSummary,
 } from '@shared/aiToolRunDisplay'
 import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { chatActivityDisplay } from '@/utils/ai/chatActivity'
 import { activeTimelineTurnId, collectChatTimelineTurns, overviewChatTimelineTurns } from '@/utils/ai/chatTimeline'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { splitToolReason } from '@/utils/ai/toolReason'
+import { toolRunPresentation, toolStateKeys } from '@/utils/ai/toolRunPresentation'
 import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
 
 const props = defineProps<{
   messages: ChatItem[]
+  terminalActions?: boolean
   hasApiConfigured: boolean
   loading?: boolean
   contextDroppedCount?: number
@@ -352,56 +353,30 @@ watch(
   { immediate: true },
 )
 
-function isNonzeroExit(run: AiToolRun): boolean {
-  const summary = toolView(run).summary
-  return summary.kind === 'exit' && summary.code !== 0
+function toolPresentation(message: ChatItem, run: AiToolRun) {
+  return toolRunPresentation(run, toolView(run).summary, message.streaming)
 }
 
 function toolRunStateLabel(message: ChatItem, run: AiToolRun): string {
-  if (run.status === 'ask') return t('ai.toolWaitingApproval')
-  if (run.status === 'aborted') return t('ai.toolAborted')
-  if (run.status === 'running' || (message.streaming && !run.content && run.status !== 'done')) {
-    return t('ai.toolRunning')
-  }
-  if (run.status === 'denied') return t('ai.toolDenied')
-  if (run.status === 'blocked') return t('ai.toolBlocked')
-  if (run.status === 'reclassify') return t('ai.toolReclassify')
-  if (run.isError) return t('ai.toolFailed')
-  return toolRunSummaryLabel(toolView(run).summary)
+  return t(toolStateKeys[toolPresentation(message, run).state])
 }
 
-function toolRunStateTitle(run: AiToolRun): string {
-  const summary = toolView(run).summary
-  if (summary.kind === 'exit') return t('ai.toolSummaryExitHint', { code: summary.code })
-  return ''
+function toolRunDetail(message: ChatItem, run: AiToolRun): string {
+  const view = toolPresentation(message, run)
+  const detail = view.detailKey ? t(view.detailKey, view.detailParams || {}) : ''
+  return [detail, view.truncated ? t('ai.toolOutputTruncated') : ''].filter(Boolean).join(' · ')
 }
 
-function toolRunSummaryLabel(summary: ToolRunSummary): string {
-  switch (summary.kind) {
-    case 'ok':
-      return t('ai.toolSummaryOk')
-    case 'text':
-      return summary.text
-    case 'exit':
-      if (summary.code === 0) {
-        return summary.truncated ? t('ai.toolSummaryExitOkTruncated') : t('ai.toolSummaryExitOk')
-      }
-      return summary.truncated ? t('ai.toolSummaryExitFailTruncated') : t('ai.toolSummaryExitFail')
-    case 'sessions':
-      return t('ai.toolSummarySessions', { n: summary.count })
-    case 'connections':
-      return t('ai.toolSummaryConnections', { n: summary.count })
-    case 'groups':
-      return t('ai.toolSummaryGroups', { n: summary.count })
-    case 'jobs':
-      return t('ai.toolSummaryJobs', { n: summary.count })
-    case 'entries':
-      return t('ai.toolSummaryEntries', { n: summary.count })
-    case 'ptys':
-      return t('ai.toolSummaryPtys', { n: summary.count })
-    default:
-      return ''
-  }
+function backgroundResultOutput(notice: string): string {
+  try {
+    const jobs: unknown = JSON.parse(notice.slice(notice.indexOf('\n') + 1))
+    if (!Array.isArray(jobs)) return ''
+    return jobs.map(job => {
+      if (!job || typeof job !== 'object') return ''
+      return [typeof job.command === 'string' ? job.command : '', ...(['stdout', 'stderr', 'error'] as const).map(field =>
+        typeof job[field] === 'string' && job[field] ? `${t(`ai.backgroundResult.${field}`)}\n${job[field]}` : '')].filter(Boolean).join('\n\n')
+    }).filter(Boolean).join('\n\n——\n\n')
+  } catch { return '' }
 }
 
 // Activity transitions can add lines without new stream text (for example the
@@ -604,6 +579,10 @@ async function copyText(text: string, key: string) {
         :data-role="message.role"
       >
       <div class="message-stack">
+      <details v-if="message.backgroundNotice" class="background-result-notice">
+        <summary>{{ t('ai.backgroundResultsReceived') }}</summary>
+        <pre>{{ backgroundResultOutput(message.backgroundNotice) }}</pre>
+      </details>
       <AiImageStrip v-if="message.images?.length" :images="message.images" />
       <div v-if="editingMessageId === message.id" class="message-edit-box">
         <textarea
@@ -687,9 +666,9 @@ async function copyText(text: string, key: string) {
         :class="{
           error:
             item.run.status !== 'reclassify' &&
-            (item.run.isError || item.run.status === 'denied' || item.run.status === 'blocked' || isNonzeroExit(item.run)),
+            ['failed', 'timeout', 'denied', 'blocked'].includes(toolPresentation(message, item.run).state),
           reclassify: item.run.status === 'reclassify',
-          pending: item.run.status === 'running',
+          pending: toolPresentation(message, item.run).state === 'running',
           ask: item.run.status === 'ask',
           danger: item.run.risk === 'destructive' || item.run.risk === 'privileged' || item.run.risk === 'forbidden',
         }"
@@ -704,7 +683,10 @@ async function copyText(text: string, key: string) {
             class="tool-run-desc"
             :title="toolRunDescText(item.run)"
           >{{ toolRunDescText(item.run) }}</span>
-          <span class="tool-run-state" :title="toolRunStateTitle(item.run)">{{ toolRunStateLabel(message, item.run) }}</span>
+          <span class="tool-run-outcome">
+            <span class="tool-run-state">{{ toolRunStateLabel(message, item.run) }}</span>
+            <span v-if="toolRunDetail(message, item.run)" class="tool-run-detail">{{ toolRunDetail(message, item.run) }}</span>
+          </span>
         </summary>
         <template v-if="isToolRunOpen(message, item.run)">
         <div v-if="toolRunExplanation(item.run)" class="tool-run-section tool-run-explanation-section">
@@ -734,8 +716,8 @@ async function copyText(text: string, key: string) {
             <div class="code-block-header">
               <span class="code-language">{{ block.language || 'text' }}</span>
               <div class="code-actions">
-                <button type="button" class="code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
-                <button type="button" class="code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
+                <button v-if="terminalActions !== false" type="button" class="code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
+                <button v-if="terminalActions !== false" type="button" class="code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
                 <button
                   type="button"
                   class="copy-btn"
