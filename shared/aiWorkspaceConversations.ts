@@ -1,4 +1,6 @@
 export interface AiWorkspaceConversationItem {
+  workspaceId?: string
+  connectionIds?: string[]
   connectionId: string
   hostLabel: string
   threadId: string

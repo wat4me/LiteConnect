@@ -38,6 +38,9 @@ let connections: Connection[] = [
 ]
 const initialData = { groups, connections }
 let workspaceHistory: AiWorkspaceConversationItem[] = []
+const scopeStores = new Map<string, AiSessionStore>()
+let workspaceScopes: Array<{ id: string; connectionIds: string[]; createdAt: number }> = []
+const historyFor = (id: string) => scopeStores.get(id) || (id === 'other-fixture' ? otherImageHistory : imageHistory)
 const synchronizedInput = createSynchronizedInput()
 provide(synchronizedInputKey, synchronizedInput)
 const synchronizedWrites: string[] = []
@@ -45,7 +48,7 @@ for (const id of ['one', 'two']) synchronizedInput.register(id, { writable: () =
 const synchronizedSessions = connections.map(conn => ({ id: conn.id, connectionName: conn.name, sshAddress: conn.host, tabNumber: 1, terminalLabel: '终端 1', displayName: `${conn.name} / 终端 1` }))
 const connectionStages = ref<Record<string, SshConnectionStage>>({})
 const cancelledConnections: string[] = []
-const calls = { connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[], aiRequests: [] as any[], aiCreates: [] as string[] }
+const calls = { clipboardWrites: [] as string[], connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[], aiRequests: [] as any[], aiCreates: [] as string[] }
 const imageSettings: AiSettings = { providers: [{ id: 'fixture', name: '测试接口', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'vision-fixture', supportsImages: true }] }], activeProviderId: 'fixture', activeModel: 'vision-fixture', systemPrompt: '' }
 let imageHistory: AiSessionStore = { version: 1, activeThreadId: 'image-thread', defaultContextFiles: [], threads: [{ id: 'image-thread', title: '旧窗口的对话', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [{ id: 'old-host-message', role: 'user', content: '旧窗口的历史消息', createdAt: 1 }] }] }
 const otherImageHistory: AiSessionStore = { version: 1, activeThreadId: 'other-thread', defaultContextFiles: [], threads: [{ id: 'other-thread', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
@@ -87,6 +90,7 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
 }
 // This test window has no production preload, credentials, SSH or disk writes.
 ;(window as any).LiteConnect = {
+  clipboardWriteText: async (text: string) => { calls.clipboardWrites.push(text) },
   getAiSettings: async () => JSON.parse(JSON.stringify(imageSettings)),
   aiGetNotificationSettings: async () => ({ ...notificationSettings }),
   aiSaveNotificationSettings: async (input: any) => { notificationSettings = { enabled: input.enabled, url: input.url, mode: input.mode, hasToken: input.token ? true : input.token === '' ? false : notificationSettings.hasToken }; return { ...notificationSettings } },
@@ -112,11 +116,26 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return new Promise<AiScheduleRun>(resolve => scheduleResolvers.set(run.id, resolve))
   },
   aiStopScheduleRun: async () => finishSchedule('cancelled'),
-  aiListWorkspaceConversations: async () => structuredClone(workspaceHistory),
+  aiListWorkspaceConversations: async () => structuredClone([...workspaceHistory, ...workspaceScopes.flatMap(scope =>
+    (scopeStores.get(scope.id)?.threads || []).filter(thread => thread.messages.length).map(thread => ({
+      workspaceId: scope.id, connectionIds: scope.connectionIds, connectionId: scope.id, threadId: thread.id,
+      title: thread.messages[0]?.content || '', updatedAt: Date.now(), messageCount: thread.messages.length,
+      hostLabel: scope.connectionIds.map(id => connections.find(host => host.id === id)?.name).join('、'),
+    }))),
+  ]),
+  aiOpenWorkspaceScope: async (input: { connectionIds?: string[]; id?: string }) => {
+    // Match Electron IPC serialization before the mock constructs its own objects.
+    input = structuredClone(input)
+    if (input.id) return structuredClone(workspaceScopes.find(scope => scope.id === input.id))
+    const scope = { id: `workspace:fixture-${workspaceScopes.length}`, connectionIds: [...input.connectionIds!], createdAt: Date.now() }
+    workspaceScopes.push(scope)
+    scopeStores.set(scope.id, { version: 1, activeThreadId: 'initial', defaultContextFiles: [], threads: [{ id: 'initial', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] })
+    return structuredClone(scope)
+  },
   onAiWorkspaceConnection: (listener: (event: any) => void) => { workspaceListeners.add(listener); return () => workspaceListeners.delete(listener) },
   aiOpenWorkspaceConnection: async (id: string) => {
     workspaceOpens.push(id)
-    const sessionId = workspaceSessions.get(id) || `ai-workspace-${id}`
+    const sessionId = workspaceSessions.get(id) || `ai-workspace-${id}-${workspaceOpens.length}`
     workspaceSessions.set(id, sessionId)
     workspaceListeners.forEach(listener => listener({ connectionId: id, sessionId, status: 'connected' }))
     return sessionId
@@ -145,12 +164,12 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
   },
   onMcpJobsChanged: (listener: (jobs: SshMcpJobSummary[]) => void) => { jobListeners.add(listener); return () => jobListeners.delete(listener) },
   listAiModels: async () => [{ id: 'vision-fixture', contextWindowTokens: 64000 }],
-  getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(id === 'other-fixture' ? otherImageHistory : imageHistory)),
-  setAiSessionStore: async (_id: string, store: AiSessionStore) => { imageHistory = store },
-  appendAiSessionHistory: async (_id: string, record: any, threadId: string) => { imageHistory.threads.find(thread => thread.id === threadId)!.messages.push(record) },
+  getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(historyFor(id))),
+  setAiSessionStore: async (id: string, store: AiSessionStore) => { if (id.startsWith('workspace:')) scopeStores.set(id, store); else imageHistory = store },
+  appendAiSessionHistory: async (_id: string, record: any, threadId: string) => { historyFor(_id).threads.find(thread => thread.id === threadId)!.messages.push(record) },
   aiCreateConversation: async (_id: string, payload: any) => {
     calls.aiCreates.push(_id)
-    const history = _id === 'other-fixture' ? otherImageHistory : imageHistory
+    const history = historyFor(_id)
     const previous = history.threads.find(thread => thread.id === (payload?.threadId || history.activeThreadId))!
     if (payload?.messages) previous.messages = payload.messages
     const id = `new-image-thread-${calls.aiCreates.length}`
@@ -159,7 +178,7 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return JSON.parse(JSON.stringify(history))
   },
   onAiChatStream: () => () => {},
-  aiChatStream: async (_id: string, messages: any[], options: any) => { calls.aiRequests.push(messages); return { content: options?.sessionId?.startsWith('ai-workspace-') ? '服务器磁盘和服务状态正常。\n\n```sh\ndf -h\n```' : '截图分析完成' } },
+  aiChatStream: async (_id: string, messages: any[], options: any) => { calls.aiRequests.push(messages); return { content: (options?.sessionId?.startsWith('ai-workspace-') || options?.sessionId?.startsWith('workspace:')) ? '服务器磁盘和服务状态正常。\n\n```sh\ndf -h\n```' : '截图分析完成' } },
   getConnectionUsageStatsEnabled: async () => true,
   getAllSettings: async () => ({}),
   getConnections: async () => connections.map(conn => ({ ...conn })),
@@ -225,10 +244,26 @@ onMounted(() => {
   (window as any).__uiRegression = {
     calls,
     workspaceOpens,
+    workspaceScopes,
     async setWorkspaceActive(active: boolean) { liteAiActive.value = active; await nextTick() },
     setWorkspacePreview(hosts: Connection[], history: AiWorkspaceConversationItem[]) {
       connections = hosts
-      workspaceHistory = history
+      workspaceScopes.length = 0; scopeStores.clear(); workspaceHistory = history
+    },
+    async seedLegacyWorkspaceHistory(connectionId: string) {
+      const connection = connections.find(host => host.id === connectionId)!
+      const threadId = `legacy-${connectionId}-${Date.now()}`
+      imageHistory.threads.push({ id: threadId, title: '旧版单机会话', createdAt: Date.now(), updatedAt: Date.now(), contextFiles: [], messages: [{ id: `${threadId}-message`, role: 'user', content: '恢复旧版单机历史', createdAt: Date.now() }] })
+      workspaceHistory = [{ connectionId, hostLabel: connection.name, threadId, title: '旧版单机会话', updatedAt: Date.now(), messageCount: 1 }, ...workspaceHistory]
+      await nextTick()
+    },
+    async seedWorkspaceResponse() {
+      const scope = workspaceScopes.at(-1)!
+      const state = useAiChat().getSessionState(scope.id)
+      const hosts = scope.connectionIds.map(id => connections.find(host => host.id === id)!)
+      const content = '## 跨服务器汇总\n| 服务器 | 状态 |\n| --- | --- |\n' + hosts.map(host => `| ${host.name} | 正常 |`).join('\n') + '\n' + hosts.map(host => `## ${host.name} (${host.host})\n服务正常\n\n\`\`\`bash\nfree -h\n\`\`\`\n`).join('\n') + '\n## 下一步\n检查服务间连接'
+      state.messages.push({ id: 'workspace-response', role: 'assistant', content, createdAt: Date.now() })
+      await nextTick()
     },
     async seedWorkspaceRail() {
       workspaceHistory = Array.from({ length: 14 }, (_, index) => ({
@@ -256,6 +291,24 @@ onMounted(() => {
     sendSynchronizedInput(data: string) { synchronizedInput.forward('one', data) },
     cancelledConnections,
     async setConnectionStage(stage?: SshConnectionStage) { connectionStages.value = stage ? { one: stage } : {}; await nextTick() },
+    async seedScopedJobs() {
+      const scope = workspaceScopes[0]
+      const state = useAiChat().getSessionState(scope.id)
+      const assistant = [...state.messages].reverse().find(message => message.role === 'assistant')!
+      const jobs = scope.connectionIds.map((id, index) => ({ jobId: `scope-job-${index}`, sessionId: workspaceSessions.get(id)!, command: `inspect host ${index}`, startedAt: Date.now(), status: 'running' as const }))
+      assistant.toolRuns = jobs.map((job, index) => ({ id: `scope-tool-${index}`, name: 'exec', args: '{}', content: 'started', isError: false, status: 'done', target: connections.find(host => host.id === scope.connectionIds[index])!.name, jobIds: [job.jobId] }))
+      assistant.segments = [...(assistant.segments || []), ...assistant.toolRuns.map(run => ({ kind: 'tool' as const, runId: run.id }))]
+      backgroundJobs = [...jobs, { ...jobs[1], jobId: 'another-conversation-job', command: 'unrelated task' }]
+      jobListeners.forEach(listener => listener(backgroundJobs))
+      await nextTick()
+    },
+    async disconnectScopedHost() {
+      const session = workspaceSessions.get(workspaceScopes[0].connectionIds[0])!
+      await window.LiteConnect.aiCloseWorkspaceConnection(session)
+      backgroundJobs = backgroundJobs.map(job => job.sessionId === session && job.jobId.startsWith('scope-job-') ? { ...job, status: 'cancelled' } : job)
+      jobListeners.forEach(listener => listener(backgroundJobs))
+    },
+    scopedJobStatus: () => backgroundJobs.map(job => [job.jobId, job.status]),
     setBackgroundJobs(jobs: SshMcpJobSummary[]) { backgroundJobs = jobs; jobListeners.forEach(listener => listener(jobs)) },
     setCancelJobFailure(value: boolean) { cancelJobFails = value },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },

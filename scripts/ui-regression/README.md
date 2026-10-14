@@ -16,7 +16,7 @@ eyecare and custom themes (including live accent token overrides). They also cov
 dragging a card's text into a collapsed group, preventing drags from
 action buttons, bookmark rename, AI stage/delay rendering, SFTP edit conflict
 and explicit overwrite with optional backup, directory upload selection, and
-long text/count layout. SFTP tree overflow is checked with long names; the tree must retain the
+long text/count layout. LiteAI checks also cover manual multi-server scope selection from both server cards/list rows and the new-chat dialog, selection persistence across search/view changes, pinned selection actions, target counts and connection ratios, selection-only compact cards, summary tables with collapsible per-host details and code copying, legacy and scoped history restoration, scoped background task cards and reconnecting without replacing the transcript. SFTP tree overflow is checked with long names; the tree must retain the
 requested pane width, keep actions inside the pane, truncate long names, and
 preserve the full path for hover at widths from 280 to 600 pixels. Bookmark layout
 is checked with Chinese, Latin, mixed, and long names at three widths and three

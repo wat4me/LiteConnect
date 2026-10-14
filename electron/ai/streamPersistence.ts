@@ -52,6 +52,8 @@ export async function runPersistedAiReply(opts: {
         status: incoming.status || (incoming.phase === 'start' ? 'running' : incoming.phase),
         isError: incoming.isError === true || ['denied', 'blocked', 'reclassify'].includes(incoming.phase),
         risk: incoming.risk ?? run.risk,
+        jobIds: incoming.jobIds ?? run.jobIds,
+        target: incoming.target ?? run.target,
         reason: incoming.reason ?? run.reason,
         diffSummary: incoming.diffSummary ?? run.diffSummary,
         diffPreview: incoming.diffPreview ?? run.diffPreview,

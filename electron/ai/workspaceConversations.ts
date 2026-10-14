@@ -1,3 +1,4 @@
+import { workspaceScopes, workspaceHistoryId } from './workspaceScopes'
 import { aiHistoryIdForHost } from './historyScope'
 import { aiSessionKey, getAppDatabase } from '../store/appDatabase'
 import { AI_WORKSPACE_HISTORY_LIMIT, type AiWorkspaceConversationItem } from '../../shared/aiWorkspaceConversations'
@@ -34,6 +35,18 @@ export function listAiWorkspaceConversations(hosts: HostRef[], limit = AI_WORKSP
         pinned: thread.pinned === true,
         active: thread.id === activeThreadId,
       })
+    }
+  }
+  for (const scope of workspaceScopes.list()) {
+    const raw = db.getSingleton<any>(aiSessionKey(workspaceHistoryId(scope.id)))
+    if (!Array.isArray(raw?.threads)) continue
+    const hostLabel = scope.connectionIds.map(id => hosts.find(host => host.id === id)?.name || id).join('、')
+    for (const thread of raw.threads) {
+      if (!thread?.id || !thread.messages?.length) continue
+      items.push({ workspaceId: scope.id, connectionIds: scope.connectionIds, connectionId: scope.id,
+        hostLabel, threadId: thread.id, title: (thread.customTitle || thread.title || hostLabel).slice(0, 80),
+        updatedAt: Number(thread.updatedAt) || Number(thread.createdAt) || 0, messageCount: thread.messages.length,
+        pinned: thread.pinned === true, active: thread.id === raw.activeThreadId })
     }
   }
   return items

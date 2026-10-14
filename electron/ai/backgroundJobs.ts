@@ -1,3 +1,4 @@
+import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import type { SshMcpJobResult } from '../../shared/mcp/types'
 
 export interface AiJobOwner {
@@ -6,6 +7,8 @@ export interface AiJobOwner {
   threadId: string
   ownerId: number | string
   cwd?: string
+  sessionIds?: string[]
+  targets?: AiWorkspaceTarget[]
 }
 
 const keyFor = (owner: AiJobOwner) => JSON.stringify([owner.ownerId, owner.sessionId, owner.threadId])
@@ -33,7 +36,7 @@ export class AiBackgroundJobs {
     if (this.suppressed.has(keyFor(owner))) return
     for (const id of ids) {
       const job = this.options.getJob(id)
-      if (!job || job.sessionId !== owner.sessionId) continue
+      if (!job || !(owner.sessionIds || [owner.sessionId]).includes(job.sessionId)) continue
       this.owners.set(id, { ...owner })
       // Very short commands can finish before the tool's acknowledgement.
       if (job.status !== 'running') this.settled(job)
@@ -145,10 +148,10 @@ export class AiBackgroundJobs {
   }
 }
 
-export function backgroundJobNotice(jobs: SshMcpJobResult[]): string {
+export function backgroundJobNotice(jobs: SshMcpJobResult[], targets?: AiWorkspaceTarget[]): string {
   let limit = Math.max(8, Math.floor(12000 / Math.max(1, jobs.length)))
   const render = () => JSON.stringify(jobs.map(job => ({
-    jobId: job.jobId, command: job.command.slice(0, Math.min(500, limit)), status: job.status,
+    jobId: job.jobId, connectionId: targets?.find(target => target.sessionId === job.sessionId)?.connectionId, command: job.command.slice(0, Math.min(500, limit)), status: job.status,
     exitCode: job.exitCode, error: job.error?.slice(0, Math.min(300, limit)),
     stdout: job.stdout?.slice(-limit), stderr: job.stderr?.slice(-Math.min(limit, 500)),
     truncated: job.truncated || job.command.length > Math.min(500, limit) || (job.stdout?.length || 0) > limit || (job.stderr?.length || 0) > Math.min(limit, 500),

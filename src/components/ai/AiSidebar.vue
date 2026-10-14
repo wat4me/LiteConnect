@@ -24,6 +24,9 @@ import AiChatView from './AiChatView.vue'
 import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConversationUsage } from '@shared/aiContext'
 import { flattenConversationForApi } from '@shared/aiMessages'
 import { projectAiHistoryForContext, AI_COMPACTION_NEW_THREAD_AT } from '@shared/aiCompaction'
+import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
+import { workspaceToolsForChat, workspaceToolSystemAddendum } from '@shared/aiWorkspacePrompt'
+import { estimateTokens } from '@shared/aiContext'
 import { estimateSidebarAiRequest, sidebarContextFilesFit } from '@shared/aiSidebarPrompt'
 import { isAiMarkdownFilePath } from '@shared/aiFixedContext'
 import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
@@ -39,6 +42,8 @@ const { t } = useI18n()
 const props = withDefaults(defineProps<{
   sessionId: string
   workspace?: boolean
+  workspaceTargets?: AiWorkspaceTarget[]
+  executionAvailable?: boolean
   active?: boolean
   /** Increments only when a previously closed AI panel opens for this SSH session. */
   openGeneration?: number
@@ -48,7 +53,7 @@ const props = withDefaults(defineProps<{
     text: string
     mode: 'send' | 'insert'
   } | null
-}>(), { active: true, openGeneration: 0 })
+}>(), { active: true, openGeneration: 0, executionAvailable: true })
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -311,15 +316,23 @@ const hasApiConfigured = computed(() => {
 let initialLoadPromise: Promise<void> | null = null
 let openPreparationPromise: Promise<void> | null = null
 let handledOpenGeneration = 0
+const toolContext = computed(() => props.workspaceTargets ? {
+  system: workspaceToolSystemAddendum(props.workspaceTargets),
+  schemaTokens: estimateTokens(JSON.stringify(workspaceToolsForChat())),
+} : undefined)
+const workspaceJobIds = computed(() => props.workspaceTargets ? messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => run.jobIds || [])) : undefined)
+const workspaceJobTargets = computed(() => Object.fromEntries(messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => (run.jobIds || []).map(id => [id, run.target || ''])))))
+const targetSessionIds = computed(() => props.workspaceTargets?.map(target => target.sessionId).filter(Boolean) || [props.sessionId])
 const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
   systemPrompt: settings.value.systemPrompt,
+  toolContext: toolContext.value,
   sessionId: props.sessionId,
   cwd: sftpListedCwdState()[props.sessionId],
   model: settings.value.activeModel || displayModelName.value,
   contextWindowTokens: activeContextWindowTokens.value,
   contextFiles: contextFiles.value,
 }))
-const canSend = computed(() => (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !contextFileBusy.value && !contextFilesTooLong.value)
+const canSend = computed(() => props.executionAvailable && (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !contextFileBusy.value && !contextFilesTooLong.value)
 watch(contextFilesTooLong, () => { void nextTick(resizeComposer) })
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
@@ -393,6 +406,7 @@ const contextDroppedCount = computed(() => {
   return estimateSidebarAiRequest({
     systemPrompt: settings.value.systemPrompt,
     messages: conv,
+    toolContext: toolContext.value,
     sessionId: props.sessionId,
     cwd: sftpListedCwdState()[props.sessionId],
     model: settings.value.activeModel || displayModelName.value,
@@ -616,7 +630,7 @@ async function handleNewConversation() {
   const threadId = getSessionState(sessionId).activeThreadId
   newConversationBusy.value = true
   try {
-    const jobs = (await window.LiteConnect.mcpListJobs()).filter(job => job.sessionId === sessionId && job.status === 'running')
+    const jobs = (await window.LiteConnect.mcpListJobs()).filter(job => targetSessionIds.value.includes(job.sessionId) && (!workspaceJobIds.value || workspaceJobIds.value.includes(job.jobId)) && job.status === 'running')
     if (jobs.length) {
       try {
         await appConfirm({
@@ -734,7 +748,7 @@ async function removeContextFile(file: AiConversationContextFile) {
 }
 
 async function handleRegenerate(messageId: string) {
-  if (contextFilesTooLong.value) return
+  if (contextFilesTooLong.value || !props.executionAvailable) return
   loading.value = true
   try {
     await regenerateMessage(props.sessionId, messageId, syncMessages)
@@ -744,7 +758,7 @@ async function handleRegenerate(messageId: string) {
 }
 
 async function handleRetry(messageId: string) {
-  if (contextFilesTooLong.value) return
+  if (contextFilesTooLong.value || !props.executionAvailable) return
   loading.value = true
   try {
     await retryMessage(props.sessionId, messageId, syncMessages)
@@ -849,7 +863,7 @@ watch(showModelSwitcher, (open) => {
 
 async function handleSendText(text: string, images?: AiImageAttachment[]): Promise<boolean> {
   const content = text.trim()
-  if ((!content && !images?.length) || savingComposer.value || newConversationBusy.value || contextFilesTooLong.value) return false
+  if ((!content && !images?.length) || savingComposer.value || newConversationBusy.value || contextFilesTooLong.value || !props.executionAvailable) return false
   loading.value = true
   try {
     return await sendText(props.sessionId, content, syncMessages, images)
@@ -1022,8 +1036,8 @@ async function runCodeToTerminal(code: string) {
             <AppIcon name="plus" size="sm" />
           </summary>
           <div class="ai-new-chat-dropdown">
-            <button type="button" :disabled="loading || newConversationBusy" @click="handleNewConversation">{{ t('ai.workspace.newOnCurrent') }}</button>
-            <button type="button" :disabled="loading || newConversationBusy" @click="requestOtherHostChat">{{ t('ai.workspace.newOnOther') }}</button>
+            <button type="button" :disabled="loading || newConversationBusy" @click="handleNewConversation">{{ t(workspaceTargets ? 'ai.workspace.newInScope' : 'ai.workspace.newOnCurrent') }}</button>
+            <button type="button" :disabled="loading || newConversationBusy" @click="requestOtherHostChat">{{ t(workspaceTargets ? 'ai.workspace.newScope' : 'ai.workspace.newOnOther') }}</button>
           </div>
         </details>
         <button
@@ -1048,10 +1062,12 @@ async function runCodeToTerminal(code: string) {
       </div>
     </div>
 
-    <AiBackgroundTasks v-show="!showSettings && !showHistory" :session-id="sessionId" />
+    <AiBackgroundTasks v-show="!showSettings && !showHistory" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
         :terminal-actions="!workspace"
+        :workspace-host-count="workspaceTargets?.length"
+        :workspace-targets="workspaceTargets"
         ref="chatViewRef"
         :messages="messages"
         :has-api-configured="hasApiConfigured"
@@ -1076,6 +1092,7 @@ async function runCodeToTerminal(code: string) {
         :class="{ danger: run.risk === 'destructive' || run.risk === 'privileged' || run.risk === 'forbidden' }"
       >
         <div class="tool-approval-head">
+          <span v-if="run.target" class="tool-approval-target">{{ run.target }}</span>
           <span class="tool-approval-name">{{ toolNameLabel(run.name) }}</span>
           <span v-if="approvalRiskLabel(run.risk)" class="tool-approval-risk" :data-risk="run.risk">{{ approvalRiskLabel(run.risk) }}</span>
           <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
@@ -1141,7 +1158,7 @@ async function runCodeToTerminal(code: string) {
               <div class="composer-context-add-actions">
                 <div class="composer-context-actions-title">{{ t('ai.contextFileChooseSource') }}</div>
                 <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
-                <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
+                <button v-if="!workspaceTargets" type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
                 <div v-if="contextFiles.length >= 5" class="composer-context-limit">{{ t('ai.contextFileLimit') }}</div>
               </div>
             </div>

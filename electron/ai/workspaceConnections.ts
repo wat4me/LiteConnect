@@ -43,6 +43,11 @@ export class AiWorkspaceConnections {
     return !!entry && !entry.sessionId
   }
 
+  sessionFor(ownerId: number, connectionId: string) {
+    const id = this.entries.get(key(ownerId, connectionId))?.sessionId
+    return id && this.ports.hasSession(id) ? id : undefined
+  }
+
   complete(ownerId: number, connectionId: string, sessionId: string) {
     const entry = this.entries.get(key(ownerId, connectionId))
     if (!entry || !this.ports.hasSession(sessionId)) return false

@@ -37,6 +37,20 @@ export default {
       status: { running: '执行中', completed: '执行成功', failed: '执行失败', cancelled: '已停止' },
     },
     workspace: {
+      selectionHint: '选择 1 台单机管理，选择多台协同管理', selectionEmpty: '点击卡片选择服务器，支持跨分组多选',
+      selectionCount: '已选 {count} 台服务器', selectedServers: '已选择的服务器', startCollaboration: '开始会话（{count}）',
+      selectResults: '选择当前结果', deselectResults: '取消选择当前结果', clearSelection: '清空选择',
+      selectNamed: '选择服务器 {name}', removeSelected: '取消选择 {name}', selectionLimit: '每个会话最多选择 {count} 台服务器',
+      singleChat: '单机对话', continueSingle: '继续单机对话', collaborateMore: '协同管理更多服务器',
+
+      emptyConfigured: '已选择 {count} 台服务器。可以检查状态、比较差异，或协同排查问题；操作时会标明目标服务器。',
+      exampleCompare: '比较所选服务器的磁盘和内存使用情况', exampleServices: '检查各台服务器的服务状态', exampleLogs: '结合各台服务器的日志排查异常',
+      scopeHint: '选择一台或多台服务器，由同一个 AI 会话管理。管理范围随会话保存，历史记录独立于 SSH 页面。',
+      scopeCount: '本会话管理 {count} 台', scopeConnectionRatio: '已连接 {connected}/{count}', hostCountBadge: '{count} 台', serverDetails: '查看主机详情', scopeSelected: '已选 {count} 台，最多 {max} 台', scopeStart: '开始会话',
+      scopeDisconnected: '管理范围内有服务器未连接，请重新连接后继续。',
+      scopeTrustHint: '请完成服务器验证，然后点击开始会话重试。',
+      scopeBusyHint: '请先停止生成，再关闭会话。', closeScope: '关闭会话', newInScope: '在当前范围新建', newScope: '选择服务器新建',
+
       allHosts: '全部服务器', filterHosts: '筛选服务器', clearSearch: '清空搜索', resetFilters: '查看全部服务器',
       serverName: '服务器', connectionAddress: '连接地址', connectionStatus: '连接状态', actions: '操作',
       yesterday: '昨天', noSavedHosts: '添加你的第一台服务器', noConnectedHosts: '还没有已连接的服务器',

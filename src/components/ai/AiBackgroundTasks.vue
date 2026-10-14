@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 import type { SshMcpJobResult, SshMcpJobSummary } from '@shared/mcp/types'
 import { useI18n } from 'vue-i18n'
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import { backgroundJobState, toolStateKeys } from '@/utils/ai/toolRunPresentation'
 import AppIcon from '../icons/AppIcon.vue'
 
-const props = defineProps<{ sessionId: string }>()
+const props = defineProps<{ sessionId: string; targets?: AiWorkspaceTarget[]; jobIds?: string[]; jobTargets?: Record<string, string> }>()
 const { t } = useI18n()
-const { sessionJobs, runningCount } = useAiBackgroundJobs(() => props.sessionId)
+const { sessionJobs } = useAiBackgroundJobs(() => props.targets?.map(target => target.sessionId) || props.sessionId, () => props.jobIds)
+const runningCount = computed(() => sessionJobs.value.filter(job => job.status === 'running').length)
 const displayedJobs = computed(() => [
   ...sessionJobs.value.filter(job => job.status === 'running'),
   ...sessionJobs.value.filter(job => job.status !== 'running').slice(0, 5),
@@ -23,7 +25,7 @@ let generation = 0
 const requests = new Map<string, number>()
 
 async function stopJob(job: SshMcpJobSummary) {
-  if (job.sessionId !== props.sessionId || job.status !== 'running' || stopping.value[job.jobId]) return
+  if (!(props.jobIds ? props.jobIds.includes(job.jobId) : (props.targets?.map(target => target.sessionId) || [props.sessionId]).includes(job.sessionId)) || job.status !== 'running' || stopping.value[job.jobId]) return
   const currentGeneration = generation
   stopping.value[job.jobId] = true
   delete stopErrors.value[job.jobId]
@@ -59,7 +61,7 @@ async function loadDetail(job: SshMcpJobSummary) {
 }
 
 function onToggle(job: SshMcpJobSummary, event: Event) {
-  if (job.sessionId !== props.sessionId) return
+  if (!(props.jobIds ? props.jobIds.includes(job.jobId) : (props.targets?.map(target => target.sessionId) || [props.sessionId]).includes(job.sessionId))) return
   if ((event.target as HTMLDetailsElement).open) {
     opened.value.add(job.jobId)
     void loadDetail(job)
@@ -109,6 +111,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
         <details class="background-job tool-run" @toggle="onToggle(job, $event)">
           <summary class="tool-run-head">
             <AppIcon name="chevron-right" size="xs" class="details-chevron" />
+            <span v-if="targets" class="tool-run-name">{{ jobTargets?.[job.jobId] || targets.find(target => target.sessionId === job.sessionId)?.name }}</span>
             <span class="tool-run-name">{{ t('ai.toolName.exec') }}</span>
             <code class="tool-run-desc" :title="job.command">{{ job.command }}</code>
             <span class="tool-run-outcome">

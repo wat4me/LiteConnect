@@ -69,3 +69,31 @@ it('reports when a selected local Markdown source was deleted', async () => {
     await unlink(path).catch(() => {})
   }
 })
+
+
+it('opens a manually selected workspace under independent history and rejects another window accessing it', async () => {
+  const database = await import('../store/appDatabase')
+  const docs = new Map<string, unknown>()
+  const storage = vi.spyOn(database, 'getAppDatabase').mockReturnValue({
+    getSingleton: (key: string) => docs.get(key), setSingleton: (key: string, value: unknown) => docs.set(key, value),
+  } as any)
+  const { configureWorkspaceTargets, workspaceHistoryId, workspaceScopes } = await import('../ai/workspaceScopes')
+  const id = randomUUID()
+  configureWorkspaceTargets((owner, connectionId) => owner === 1 && connectionId === id
+    ? { connectionId, sessionId: randomUUID(), name: 'selected', host: 'selected.example', port: 22, username: 'ops' } : undefined)
+  try {
+    const { registerAiHandlers } = await import('./registerAiHandlers')
+    registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any, undefined, () => 'host-v1:22:selected.example')
+    const open = mocks.handlers.get('ai:openWorkspaceScope')!
+    const scope = await open({ sender: { id: 1 } }, { connectionIds: [id] })
+    const load = mocks.handlers.get('ai:getSessionStore')!
+    await load({ sender: { id: 1 } }, scope.id)
+    expect(mocks.readStore).toHaveBeenLastCalledWith(workspaceHistoryId(scope.id), expect.anything())
+    await expect(load({ sender: { id: 2 } }, scope.id)).rejects.toThrow('not open in this window')
+    await expect(open({ sender: { id: 2 } }, { id: scope.id })).rejects.toThrow('Connect every selected')
+    workspaceScopes.disposeOwner(1)
+  } finally {
+    configureWorkspaceTargets(() => undefined)
+    storage.mockRestore()
+  }
+})

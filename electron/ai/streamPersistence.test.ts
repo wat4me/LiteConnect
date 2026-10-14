@@ -43,7 +43,7 @@ describe('main-process stream persistence', () => {
     })
     await vi.advanceTimersByTimeAsync(0)
     expect(records).toHaveLength(1)
-    emit({ type: 'tool', value: { id: 't', name: 'grep', args: '{"pattern":"DOCKER|copy"}', phase: 'running' } })
+    emit({ type: 'tool', value: { id: 't', name: 'grep', args: '{"pattern":"DOCKER|copy"}', target: 'server B', jobIds: ['B-job'], phase: 'running' } })
     await boundary()
     expect(records.at(-1)?.toolRuns?.[0]).toMatchObject({ status: 'running', args: '{"pattern":"DOCKER|copy"}' })
     for (let i = 0; i < 24; i++) {
@@ -57,7 +57,7 @@ describe('main-process stream persistence', () => {
     finish({ content: 'answer', apiMessages: [{ role: 'assistant', content: 'answer' }] })
     const reply = await pending
     expect(records.at(-1)).toMatchObject({ content: 'answer', reasoningContent: 'x'.repeat(24) })
-    expect(reply.toolRuns?.[0]).toMatchObject({ status: 'done', content: 'found' })
+    expect(reply.toolRuns?.[0]).toMatchObject({ status: 'done', content: 'found', target: 'server B', jobIds: ['B-job'] })
     expect(reply.segments?.map(s => s.kind)).toEqual(['tool', 'reasoning', 'content'])
     expect(records.every(r => r.id === 'reply')).toBe(true)
     expect(records[1].toolRuns?.[0].status).toBe('running') // Snapshots never mutate later.

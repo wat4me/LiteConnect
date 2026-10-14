@@ -10,7 +10,7 @@ vi.mock('./chatStream', async importOriginal => ({ ...await importOriginal<typeo
 const services: AiExecutionService[] = []
 afterEach(() => { services.forEach(service => service.dispose()); services.length = 0; mocks.run.mockReset() })
 
-function setup() {
+function setup(workspaceTargets?: import('./executionService').AiExecutionPorts['workspaceTargets'], workspaceOwned?: import('./executionService').AiExecutionPorts['workspaceOwned']) {
   const store: AiSessionStore = {
     version: 1, activeThreadId: 'thread-a', defaultContextFiles: [],
     threads: [{ id: 'thread-a', title: '', createdAt: 1, updatedAt: 1, contextFiles: [],
@@ -21,7 +21,7 @@ function setup() {
   let settled: (job: SshMcpJobResult) => void = () => {}
   let ready = false
   const unsubscribe = vi.fn()
-  const hasSession = vi.fn(() => true)
+  const hasSession = vi.fn((_id: string) => true)
   const save = vi.fn(async (_history: string, record: any, threadId: string) => {
     expect(ready).toBe(true)
     const thread = store.threads.find(item => item.id === threadId)!
@@ -31,6 +31,7 @@ function setup() {
     else thread.messages[index] = copy
   })
   const service = new AiExecutionService({
+    workspaceTargets, workspaceOwned,
     settings: { ready: async () => { ready = true }, config: () => config, limits: () => ({}) },
     history: { read: async () => JSON.parse(JSON.stringify(store)), save, checkpoint: vi.fn(), hydrate: vi.fn() },
     runtime: { hasSession, getJobResult: id => jobs.get(id), onJobSettled: callback => { settled = callback; return unsubscribe } } as unknown as SshMcpRuntime,
@@ -179,4 +180,66 @@ it('disposes runtime subscriptions and rejects new runs after shutdown', async (
   service.dispose()
   expect(unsubscribe).toHaveBeenCalledOnce()
   await expect(service.run(request)).rejects.toThrow('disposed')
+})
+
+
+it('routes a workspace execution and background completion through its saved scope instead of the virtual session id', async () => {
+  const targets = ['a', 'b'].map(id => ({ connectionId: id, sessionId: `ssh-${id}`, name: id, host: `${id}.example`, port: 22, username: 'ops' }))
+  const resolver = vi.fn((session: string, owner: number | string) => {
+    if (session !== 'workspace:one') return undefined
+    if (owner !== 1) throw new Error('not owned')
+    return targets
+  })
+  const { service, request, jobs, settle, hasSession, store } = setup(resolver)
+  request.owner = { id: 1, kind: 'interactive' }
+  request.target.sessionId = 'workspace:one'
+  hasSession.mockImplementation((id: string) => id === 'ssh-a' || id === 'ssh-b')
+  const job: SshMcpJobResult = { jobId: 'host-b-job', sessionId: 'ssh-b', command: 'inspect B', status: 'running', startedAt: 2 }
+  const outside: SshMcpJobResult = { ...job, jobId: 'outside-job', sessionId: 'ssh-c' }
+  jobs.set(job.jobId, job); jobs.set(outside.jobId, outside)
+  mocks.run.mockImplementationOnce(async opts => {
+    expect(opts.workspaceTargets).toEqual(targets)
+    opts.onBackgroundJobsStarted([job.jobId, outside.jobId])
+    return { content: 'started B' }
+  }).mockImplementationOnce(async opts => {
+    expect(opts.sessionId).toBe('workspace:one')
+    expect(opts.messages.at(-1).content).toContain('"connectionId":"b"')
+    expect(opts.messages.at(-1).content).not.toContain('outside-job')
+    return { content: 'B completed' }
+  })
+  await service.run(request)
+  Object.assign(job, { status: 'completed', stdout: 'B output' })
+  settle({ ...outside, status: 'completed' }); settle(job)
+  await vi.waitFor(() => expect(store.threads[0].messages.at(-1)?.content).toBe('B completed'))
+  expect(mocks.run).toHaveBeenCalledTimes(2)
+  await expect(service.run({ ...request, requestId: 'unowned', owner: { id: 2, kind: 'interactive' } })).rejects.toThrow('not owned')
+  expect(mocks.run).toHaveBeenCalledTimes(2)
+})
+
+
+it('retains a scoped completion while another selected host is disconnected, then resumes after reconnect', async () => {
+  let connected = true
+  const targets = ['a', 'b'].map(id => ({ connectionId: id, sessionId: `ssh-${id}`, name: id, host: `${id}.example`, port: 22, username: 'ops' }))
+  const { service, request, jobs, settle, store } = setup(() => {
+    if (!connected) throw new Error('selected server disconnected')
+    return targets
+  }, () => true)
+  request.owner = { id: 1, kind: 'interactive' }
+  request.target.sessionId = 'workspace:one'
+  const job: SshMcpJobResult = { jobId: 'retained', sessionId: 'ssh-b', command: 'inspect B', status: 'running', startedAt: 1 }
+  jobs.set(job.jobId, job)
+  mocks.run.mockImplementationOnce(async opts => { opts.onBackgroundJobsStarted([job.jobId]); return { content: 'started' } })
+    .mockImplementationOnce(async opts => {
+      expect(opts.messages.at(-1).content).toContain('"connectionId":"b"')
+      return { content: 'retained result delivered' }
+    })
+  await service.run(request)
+  connected = false
+  settle({ ...job, status: 'completed', stdout: 'B finished' })
+  await new Promise(resolve => setTimeout(resolve, 100))
+  expect(mocks.run).toHaveBeenCalledTimes(1)
+  targets[1].sessionId = 'reconnected-b'
+  connected = true
+  service.selectConversation(1, 'workspace:one', request.target.threadId)
+  await vi.waitFor(() => expect(store.threads[0].messages.at(-1)?.content).toBe('retained result delivered'))
 })

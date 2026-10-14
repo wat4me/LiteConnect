@@ -50,6 +50,7 @@ function onToggle(event: Event) {
       >
         <summary class="tool-run-head">
           <AppIcon name="chevron-right" size="xs" class="details-chevron" />
+          <span v-if="run.target" class="tool-run-target" :title="run.target">{{ run.target }}</span>
           <span class="tool-run-name">{{ toolNameLabel(run.name) }}</span>
           <span
             v-if="!isOpen && description"
@@ -83,6 +84,7 @@ function onToggle(event: Event) {
 </template>
 
 <style scoped>
+.tool-run-target { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; }
 .tool-run {
   padding: 1px 0;
   border: none;

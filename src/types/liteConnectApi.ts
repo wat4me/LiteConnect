@@ -267,6 +267,7 @@ export interface LiteConnectApi {
   } | null>
 
   sshConnect: (connectionId: string) => Promise<string>
+  aiOpenWorkspaceScope: (input: { connectionIds?: string[]; id?: string }) => Promise<import('@shared/aiWorkspace').AiWorkspaceScope>
   aiOpenWorkspaceConnection: (connectionId: string) => Promise<string>
   aiListWorkspaceConversations: (
     hosts: { id: string; name: string; host: string; port?: number }[],

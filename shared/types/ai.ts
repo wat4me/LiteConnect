@@ -95,6 +95,8 @@ export interface AiToolRun {
   isError: boolean
   status?: AiToolRunStatus
   risk?: AiToolRisk
+  jobIds?: string[]
+  target?: string
   reason?: string
   /** One-line `+N / -M` summary for the pending file rewrite, if any. */
   diffSummary?: string
@@ -260,6 +262,8 @@ export type AiChatStreamPayload =
         content?: string
         isError?: boolean
         risk?: AiToolRisk
+        jobIds?: string[]
+        target?: string
         reason?: string
         status?: AiToolRunStatus
         /** One-line `+N / -M` summary for the pending file rewrite. */

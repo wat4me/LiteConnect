@@ -152,6 +152,8 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
       isError: rec.isError === true,
       status,
       risk,
+      jobIds: Array.isArray(rec.jobIds) ? rec.jobIds.filter((id): id is string => typeof id === 'string' && id.length <= 100).slice(0, 20) : undefined,
+      target: typeof rec.target === 'string' ? rec.target.slice(0, 500) : undefined,
       reason: typeof rec.reason === 'string' ? rec.reason.slice(0, 500) : undefined,
       diffSummary: typeof rec.diffSummary === 'string' ? rec.diffSummary.slice(0, 500) : undefined,
       diffPreview: typeof rec.diffPreview === 'string' ? rec.diffPreview.slice(0, AI_TOOL_DIFF_MAX_CHARS) : undefined,

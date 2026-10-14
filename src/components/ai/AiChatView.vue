@@ -16,10 +16,14 @@ import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
 import AiToolRunRow from './AiToolRun.vue'
+import AiWorkspaceResponse from './AiWorkspaceResponse.vue'
+import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 
 const props = defineProps<{
   messages: ChatItem[]
   terminalActions?: boolean
+  workspaceHostCount?: number
+  workspaceTargets?: AiWorkspaceTarget[]
   hasApiConfigured: boolean
   loading?: boolean
   contextDroppedCount?: number
@@ -36,7 +40,7 @@ const emit = defineEmits<{
   (e: 'use-example', text: string): void
 }>()
 
-const examplePrompts = computed(() => [
+const examplePrompts = computed(() => props.workspaceHostCount ? [t('ai.workspace.exampleCompare'), t('ai.workspace.exampleServices'), t('ai.workspace.exampleLogs')] : [
   t('ai.exampleExplainError'),
   t('ai.exampleDiskCheck'),
   t('ai.exampleSafeCommand'),
@@ -508,7 +512,7 @@ async function copyText(text: string, key: string) {
         </div>
         <div class="ui-empty-title">{{ t('ai.emptyTitle') }}</div>
         <div class="ui-empty-desc">
-          {{ hasApiConfigured ? t('ai.emptyConfigured') : t('ai.emptyNoKey') }}
+          {{ hasApiConfigured ? t(workspaceHostCount ? 'ai.workspace.emptyConfigured' : 'ai.emptyConfigured', { count: workspaceHostCount }) : t('ai.emptyNoKey') }}
         </div>
         <div class="ui-empty-actions">
           <button v-if="!hasApiConfigured" type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="emit('open-settings')">
@@ -630,6 +634,7 @@ async function copyText(text: string, key: string) {
         <!-- Parsing the whole growing response on every stream chunk can saturate the
              renderer for very long replies. Render once when the turn settles. -->
         <div v-if="message.streaming" class="markdown-block markdown-streaming">{{ item.seg.kind === 'content' ? item.seg.text : '' }}</div>
+        <AiWorkspaceResponse v-else-if="message.role === 'assistant' && (workspaceTargets?.length || 0) > 1" :text="item.seg.text" :targets="workspaceTargets!" />
         <template v-else v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'content' ? item.seg.text : '')" :key="index">
           <div v-if="block.type === 'code'" class="code-block">
             <div class="code-block-header">

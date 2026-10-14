@@ -865,3 +865,6 @@
 .composer { padding: 8px 10px; gap: 5px; }
 .composer-add-image { width: 26px; height: 26px; min-height: 26px; }
 .ai-header { padding-top: 6px; padding-bottom: 6px; }
+
+.tool-approval-head:has(.tool-approval-target) { flex-wrap: wrap; }
+.tool-approval-target { flex-basis: 100%; overflow-wrap: anywhere; font-weight: 600; color: var(--accent); }

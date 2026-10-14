@@ -134,6 +134,7 @@ export function sidebarToolSchemaTokens(): number {
 export function estimateSidebarAiRequest(opts: {
   systemPrompt: string
   messages: AiChatMessage[]
+  toolContext?: { system: string; schemaTokens: number }
   sessionId?: string
   cwd?: string
   model?: string
@@ -141,12 +142,12 @@ export function estimateSidebarAiRequest(opts: {
   contextFiles?: AiConversationContextFile[]
 }): SidebarAiRequestEstimate {
   const bound = Boolean(opts.sessionId)
-  const extraSystem = bound
+  const extraSystem = opts.toolContext?.system ?? (bound
     ? sshToolSystemAddendum({
         sessionId: opts.sessionId || '',
         cwd: opts.cwd,
       })
-    : ''
+    : '')
   const files = opts.contextFiles || []
   const fixedContext = files.map(formatAiConversationContextFile).join('\n\n')
   const pack = packAiMessages({
@@ -156,7 +157,7 @@ export function estimateSidebarAiRequest(opts: {
     model: opts.model,
     contextWindowTokens: opts.contextWindowTokens,
   })
-  const toolSchemaTokens = bound ? sidebarToolSchemaTokens() : 0
+  const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens() : 0)
   return {
     ...pack,
     toolSchemaTokens,
@@ -167,6 +168,7 @@ export function estimateSidebarAiRequest(opts: {
 /** Match the main-process guard: every selected file body must survive system-message packing. */
 export function sidebarContextFilesFit(opts: {
   systemPrompt: string
+  toolContext?: { system: string; schemaTokens: number }
   sessionId?: string
   cwd?: string
   model?: string

@@ -7,7 +7,7 @@ let unsubscribe: (() => void) | undefined
 let revision = 0
 
 /** One shared subscription survives closing the panel while the workspace is mounted. */
-export function useAiBackgroundJobs(sessionId: () => string | null | undefined) {
+export function useAiBackgroundJobs(sessionId: () => string | string[] | null | undefined, jobIds?: () => string[] | undefined) {
   consumers++
   if (consumers === 1) {
     const initialRevision = ++revision
@@ -28,7 +28,13 @@ export function useAiBackgroundJobs(sessionId: () => string | null | undefined) 
       jobs.value = []
     }
   })
-  const sessionJobs = computed(() => jobs.value.filter(job => job.sessionId === sessionId()))
+  const sessionJobs = computed(() => {
+    const owned = jobIds?.()
+    if (owned) return jobs.value.filter(job => owned.includes(job.jobId))
+    const current = sessionId()
+    const ids = Array.isArray(current) ? current : [current]
+    return jobs.value.filter(job => ids.includes(job.sessionId))
+  })
   const runningCount = computed(() => sessionJobs.value.filter(job => job.status === 'running').length)
   const runningSessionIds = computed(() => new Set(jobs.value.filter(job => job.status === 'running').map(job => job.sessionId)))
   return { sessionJobs, runningCount, runningSessionIds }

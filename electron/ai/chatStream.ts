@@ -1,3 +1,6 @@
+import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
+import { workspaceToolsForChat, workspaceToolSystemAddendum } from '../../shared/aiWorkspacePrompt'
+import { routeWorkspaceTool, callWorkspaceTool } from './workspaceToolRouting'
 import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
 import { assertAiImageCapability } from '../../shared/aiImages'
 import { formatAiConversationContextFile } from '../../shared/aiFixedContext'
@@ -126,6 +129,7 @@ export async function runAiChatStream(opts: {
   requestId: string
   messages: unknown
   sessionId?: string
+  workspaceTargets?: AiWorkspaceTarget[]
   cwd?: string
   settings: AiResolvedConfig
   contextFiles?: import('../../shared/types/ai').AiConversationContextFile[]
@@ -173,8 +177,11 @@ export async function runAiChatStream(opts: {
   const boundSessionId =
     typeof sessionId === 'string' && isValidUUID(sessionId) ? sessionId : ''
   let extraSystem = ''
-  let useTools = Boolean(sshMcpRuntime && boundSessionId)
-  if (useTools && sshMcpRuntime) {
+  const workspaceTargets = opts.workspaceTargets
+  let useTools = Boolean(sshMcpRuntime && (workspaceTargets?.length || boundSessionId))
+  if (workspaceTargets) {
+    extraSystem = workspaceToolSystemAddendum(workspaceTargets)
+  } else if (useTools && sshMcpRuntime) {
     const listed = await sshMcpRuntime.call('list_sessions', {})
     const sessions =
       (listed.structuredContent as {
@@ -195,7 +202,7 @@ export async function runAiChatStream(opts: {
   const control = opts.abortController ? undefined : createAiStreamControl(requestId)
   const abortController = opts.abortController || control!.controller
   const cleanupStream = () => control?.cleanup()
-  const tools = useTools ? sshToolsForChat() : undefined
+  const tools = useTools ? (workspaceTargets ? workspaceToolsForChat() : sshToolsForChat()) : undefined
   let contextMessages = chatMessages
   let activeContextCheckpoint = opts.contextHistory?.checkpoint
   if (opts.contextHistory) {
@@ -360,10 +367,27 @@ export async function runAiChatStream(opts: {
       ]
 
       for (const call of assistantToolCalls) {
-        const boundArgs = bindSessionArgs(
-          parseToolCallArguments(call.function.arguments),
-          boundSessionId,
-        )
+        const rawArgs = parseToolCallArguments(call.function.arguments)
+        let targetLabel: string | undefined
+        let boundArgs: Record<string, unknown>
+        try {
+          if (workspaceTargets) {
+            const routed = routeWorkspaceTool(call.function.name, rawArgs, workspaceTargets, sshMcpRuntime)
+            boundArgs = routed.args
+            targetLabel = routed.label
+          } else boundArgs = bindSessionArgs(rawArgs, boundSessionId)
+        } catch (error) {
+          const content = error instanceof Error ? error.message : String(error)
+          const run: AiToolRun = { id: call.id, name: call.function.name, args: call.function.arguments || '{}', content, isError: true, status: 'blocked' }
+          toolRuns.push(run)
+          send({ type: 'tool', value: { ...run, phase: 'blocked' } })
+          apiMessages.push({ role: 'tool', toolCallId: call.id, content })
+          await opts.checkpoint?.()
+          continue
+        }
+        const executeTool = () => workspaceTargets
+          ? callWorkspaceTool(sshMcpRuntime, call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
+          : sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
         if (opts.foregroundOnly && call.function.name === 'exec') boundArgs.background = false
         // The declaration decides whether to ask; the command classifier is an
         // escalate-only floor on top of it, so a call labelled `read` that is
@@ -399,6 +423,7 @@ export async function runAiChatStream(opts: {
             name: call.function.name,
             args: callArgs,
             risk: gate.risk,
+            target: targetLabel,
             reason: gate.reason,
             ...(diffPreview
               ? { diffSummary: diffPreview.summary, diffPreview: diffPreview.diff }
@@ -414,7 +439,7 @@ export async function runAiChatStream(opts: {
             const closeNotification = opts.onToolApprovalRequested({
               requestId,
               callId: call.id,
-              sessionId: boundSessionId,
+              sessionId: String(boundArgs.sessionId || boundSessionId),
               toolName: call.function.name,
             })
             if (closeNotification) {
@@ -464,20 +489,23 @@ export async function runAiChatStream(opts: {
                 name: call.function.name,
                 args: callArgs,
                 risk: gate.risk,
+                target: targetLabel,
                 reason: gate.reason,
               },
             })
             await opts.checkpoint?.()
             if (abortController.signal.aborted) break
-            result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
+            result = await executeTool()
           }
         } else {
-          result = await sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
+          result = await executeTool()
         }
 
+        let jobIds: string[] | undefined
         if (call.function.name === 'exec' && !result.isError && mcpArgs.background === true) {
           const payload = result.structuredContent as { jobId?: string; jobs?: { jobId: string }[] }
           const ids = payload?.jobId ? [payload.jobId] : (payload?.jobs || []).map(job => job.jobId)
+          jobIds = ids
           opts.onBackgroundJobsStarted?.(ids)
         }
         if (call.function.name === 'get_job' && !result.isError) {
@@ -503,6 +531,8 @@ export async function runAiChatStream(opts: {
           isError: result.isError,
           status,
           risk: gate.risk,
+          jobIds,
+          target: targetLabel,
           reason: gate.reason,
         }
         toolRuns.push(run)
@@ -516,6 +546,8 @@ export async function runAiChatStream(opts: {
             content: run.content,
             isError: run.isError,
             risk: run.risk,
+            jobIds: run.jobIds,
+            target: run.target,
             reason: run.reason,
             status: run.status,
           },

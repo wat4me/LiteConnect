@@ -15,6 +15,7 @@ import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import { CredentialStore } from '../store/credentialStore'
+import { configureWorkspaceTargets, workspaceScopes } from '../ai/workspaceScopes'
 import { AiWorkspaceConnections } from '../ai/workspaceConnections'
 import {
   broadcast,
@@ -150,6 +151,13 @@ export function registerSshConnectHandlers(
       const sender = workspaceOwners.get(ownerId)
       if (sender) safeWebContentsSend(sender, 'ai:workspaceConnection', value)
     },
+  })
+  configureWorkspaceTargets((ownerId, connectionId) => {
+    if (typeof ownerId !== 'number') return undefined
+    const sessionId = workspace.sessionFor(ownerId, connectionId)
+    const connection = credentialStore.getConnection(connectionId)
+    if (!sessionId || !connection) return undefined
+    return { connectionId, sessionId, name: connection.name, host: connection.host, port: connection.port || 22, username: connection.username, note: connection.note, group: credentialStore.getGroups().find(group => group.id === connection.group)?.name }
   })
   sshManager.registerSessionTeardownHook?.(id => workspace.closed(id))
   function beginAttempt(sender: WebContents, connectionId: string, sessionId?: string, purpose?: 'ai') {
@@ -485,7 +493,7 @@ export function registerSshConnectHandlers(
     const sender = event.sender
     if (!workspaceOwners.has(sender.id)) {
       workspaceOwners.set(sender.id, sender)
-      sender.once?.('destroyed', () => { workspace.disposeOwner(sender.id); workspaceOwners.delete(sender.id) })
+      sender.once?.('destroyed', () => { workspace.disposeOwner(sender.id); workspaceScopes.disposeOwner(sender.id); workspaceOwners.delete(sender.id) })
     }
     return workspace.open(sender.id, connectionId, () => connectSaved(sender, connectionId, 'ai'))
   })

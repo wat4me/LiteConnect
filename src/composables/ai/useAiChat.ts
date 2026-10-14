@@ -337,6 +337,8 @@ export function useAiChat() {
       isError: run.isError === true,
       status: run.status,
       risk: run.risk,
+      jobIds: run.jobIds ? [...run.jobIds] : undefined,
+      target: run.target,
       reason: run.reason,
       diffSummary: run.diffSummary,
       diffPreview: run.diffPreview,
@@ -701,6 +703,8 @@ export function useAiChat() {
               incoming.phase === 'reclassify',
             status,
             risk: incoming.risk ?? prev?.risk,
+            jobIds: incoming.jobIds ?? prev?.jobIds,
+            target: incoming.target ?? prev?.target,
             reason: incoming.reason ?? prev?.reason,
             // Kept for later phases so the card keeps showing what was approved.
             diffSummary: incoming.diffSummary ?? prev?.diffSummary,

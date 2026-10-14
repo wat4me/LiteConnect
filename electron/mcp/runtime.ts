@@ -88,6 +88,8 @@ export class SshMcpRuntime {
     return job ? this.jobs.detail(job) : undefined
   }
 
+  getPtySessionId(ptyId: string) { return this.ptys.list().find(pty => pty.ptyId === ptyId)?.sessionId }
+
   hasSession(sessionId: string) { return Boolean(this.ssh.getSessionSnapshot(sessionId)) }
 
   async call(

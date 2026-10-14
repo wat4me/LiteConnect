@@ -203,6 +203,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   importSshConfig: () => ipcRenderer.invoke('store:importSshConfig'),
 
   sshConnect: (connectionId: string) => ipcRenderer.invoke('ssh:connect', connectionId),
+  aiOpenWorkspaceScope: (input: { connectionIds?: string[]; id?: string }) => ipcRenderer.invoke('ai:openWorkspaceScope', input),
   aiOpenWorkspaceConnection: (connectionId: string) => ipcRenderer.invoke('ai:openWorkspaceConnection', connectionId),
   aiListWorkspaceConversations: (hosts: { id: string; name: string; host: string; port?: number }[], limit?: number) =>
     ipcRenderer.invoke('ai:listWorkspaceConversations', hosts, limit),

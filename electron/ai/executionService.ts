@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type { AiHistoryLimits } from '../../shared/aiHistoryLimits'
 import type { AiChatResult, AiChatStreamOptions, AiChatStreamPayload, AiContextCheckpoint, AiHistoryRecord, AiResolvedConfig, AiSessionStore } from '../../shared/types/ai'
 import { flattenConversationForApi } from '../../shared/aiMessages'
+import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import { t } from '../i18n'
 import { AiBackgroundJobs, backgroundJobNotice, type AiJobOwner } from './backgroundJobs'
@@ -53,6 +54,8 @@ export interface AiExecutionPorts {
     checkpoint: (historyId: string, threadId: string, checkpoint: AiContextCheckpoint, limits: Partial<AiHistoryLimits>) => Promise<void>
     hydrate: (historyId: string, store: AiSessionStore, threadId: string) => Promise<unknown>
   }
+  workspaceOwned?: (sessionId: string, ownerId: number | string) => boolean
+  workspaceTargets?: (sessionId: string, ownerId: number | string) => AiWorkspaceTarget[] | undefined
   runtime?: SshMcpRuntime
   onError?: (error: unknown) => void
 }
@@ -76,7 +79,7 @@ export class AiExecutionService {
       getJob: id => ports.runtime?.getJobResult(id),
       busy: owner => this.runningHistories.has(owner.historyId),
       alive: owner => this.ownerAlive(owner),
-      available: owner => this.ownerAlive(owner) && this.selections.get(selectionKey(owner.ownerId, owner.sessionId))?.threadId === owner.threadId,
+      available: owner => this.ownerAlive(owner) && this.executionAvailable(owner) && this.selections.get(selectionKey(owner.ownerId, owner.sessionId))?.threadId === owner.threadId,
       deliver: async (owner, jobs) => {
         const destination = this.owners.get(owner.ownerId)
         if (!destination) return
@@ -86,7 +89,7 @@ export class AiExecutionService {
         await this.execute({
           requestId: `ai-background-${randomUUID()}`, historyId: owner.historyId, owner: destination.owner,
           target: { sessionId: owner.sessionId, threadId: owner.threadId, assistantMessageId: randomUUID(), createdAt: Date.now(), cwd: owner.cwd },
-        }, destination.observer, 'background', backgroundJobNotice(jobs))
+        }, destination.observer, 'background', backgroundJobNotice(jobs, owner.targets))
       },
       onError: error => ports.onError?.(error),
     })
@@ -95,11 +98,22 @@ export class AiExecutionService {
 
   private ownerAlive(owner: AiJobOwner) {
     const destination = this.owners.get(owner.ownerId)
-    return !this.disposed && Boolean(destination && destination.owner.isAlive?.() !== false && this.ports.runtime?.hasSession(owner.sessionId))
+    try {
+      const workspaceOwned = this.ports.workspaceOwned?.(owner.sessionId, owner.ownerId)
+      return !this.disposed && Boolean(destination && destination.owner.isAlive?.() !== false &&
+        (owner.sessionId.startsWith('workspace:') && workspaceOwned !== undefined ? workspaceOwned : this.executionAvailable(owner)))
+    } catch { return false }
   }
 
-  selectConversation(ownerId: number | string, sessionId: string, threadId: string) {
-    this.selections.set(selectionKey(ownerId, sessionId), { ownerId, threadId })
+  private executionAvailable(owner: AiJobOwner) {
+    try {
+      const targets = this.ports.workspaceTargets?.(owner.sessionId, owner.ownerId)
+      return targets ? targets.every(target => this.ports.runtime?.hasSession(target.sessionId)) : Boolean(this.ports.runtime?.hasSession(owner.sessionId))
+    } catch { return false }
+  }
+
+  selectConversation(ownerId: number | string, sessionId: string, threadId?: string) {
+    if (threadId) this.selections.set(selectionKey(ownerId, sessionId), { ownerId, threadId })
     this.jobs.flush()
   }
 
@@ -127,8 +141,8 @@ export class AiExecutionService {
     if (owner.isAlive?.() === false) throw new Error('AI execution owner is unavailable')
   }
 
-  private jobOwner(request: AiExecutionRequest): AiJobOwner {
-    return { historyId: request.historyId, sessionId: request.target.sessionId, threadId: request.target.threadId, ownerId: request.owner.id, cwd: request.target.cwd }
+  private jobOwner(request: AiExecutionRequest, targets = this.ports.workspaceTargets?.(request.target.sessionId, request.owner.id)): AiJobOwner {
+    return { historyId: request.historyId, sessionId: request.target.sessionId, threadId: request.target.threadId, ownerId: request.owner.id, cwd: request.target.cwd, sessionIds: targets?.map(target => target.sessionId), targets: targets?.map(target => ({ ...target })) }
   }
 
   private async execute(request: AiExecutionRequest, observer: AiExecutionObserver | undefined, trigger: AiExecutionEvent['trigger'], backgroundNotice?: string): Promise<AiChatResult> {
@@ -146,7 +160,8 @@ export class AiExecutionService {
     try {
       await this.ports.settings.ready()
       control.controller.signal.throwIfAborted()
-      if (this.ports.runtime && !this.ports.runtime.hasSession(target.sessionId)) throw new Error('SSH session is unavailable for AI execution')
+      const workspaceTargets = this.ports.workspaceTargets?.(target.sessionId, request.owner.id)
+      if (this.ports.runtime && !(workspaceTargets ? workspaceTargets.every(item => this.ports.runtime?.hasSession(item.sessionId)) : this.ports.runtime.hasSession(target.sessionId))) throw new Error('SSH session is unavailable for AI execution')
       const initial = await this.ports.history.read(historyId, this.ports.settings.limits())
       if (!initial.threads.some(thread => thread.id === target.threadId)) throw new Error('AI execution conversation no longer exists')
       return await runPersistedAiReply({
@@ -174,12 +189,13 @@ export class AiExecutionService {
           if (backgroundNotice) messages.push({ role: 'user', content: backgroundNotice })
           return runAiChatStream({
             emit, checkpoint, requestId, messages, abortController: control.controller,
+            workspaceTargets,
             sessionId: target.sessionId, cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
             settings: { ...settings, toolPermission: permission() }, sshMcpRuntime: this.ports.runtime, foregroundOnly: request.foregroundOnly,
             onBackgroundJobsStarted: ids => {
-              if (!this.disposed && this.owners.has(owner.id)) this.jobs.bind(this.jobOwner(request), ids)
+              if (!this.disposed && this.owners.has(owner.id)) this.jobs.bind(this.jobOwner(request, workspaceTargets), ids)
             },
-            onBackgroundJobCollected: id => this.jobs.collected(id, this.jobOwner(request)),
+            onBackgroundJobCollected: id => this.jobs.collected(id, this.jobOwner(request, workspaceTargets)),
             contextFiles: thread.contextFiles, getToolPermission: permission,
             onToolApprovalRequested: owner.kind === 'interactive' ? observer?.onApproval : undefined,
             contextHistory: {
