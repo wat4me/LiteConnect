@@ -100,6 +100,9 @@ jobs:
           test -f release/latest.yml
           test -f release/latest-mac.yml
           test -f release/latest-linux.yml
+          version="${GITHUB_REF_NAME#v}"
+          test -f "release/LiteConnect-Setup-${version}.exe"
+          test -f "release/LiteConnect-Setup-${version}.exe.blockmap"
           compgen -G 'release/*.exe' >/dev/null
           compgen -G 'release/*.dmg' >/dev/null
           compgen -G 'release/*.AppImage' >/dev/null
