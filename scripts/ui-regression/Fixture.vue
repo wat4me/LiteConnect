@@ -24,6 +24,7 @@ import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
 import type { ChatItem } from '../../src/composables/ai/useAiChat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
+import type { AiWorkspaceConversationItem } from '../../shared/aiWorkspaceConversations'
 import type { SshConnectionStage } from '../../shared/sshConnectionProgress'
 import type { FileEntry, SftpPathBookmark } from '../../shared/types/sftp'
 
@@ -36,6 +37,7 @@ let connections: Connection[] = [
   { id: 'two', name: '服务器二 Server two', group: 'prod', host: 'prod.example.test', port: 22, username: 'tester', password: '', createdAt: 2, updatedAt: 2 },
 ]
 const initialData = { groups, connections }
+let workspaceHistory: AiWorkspaceConversationItem[] = []
 const synchronizedInput = createSynchronizedInput()
 provide(synchronizedInputKey, synchronizedInput)
 const synchronizedWrites: string[] = []
@@ -110,7 +112,7 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return new Promise<AiScheduleRun>(resolve => scheduleResolvers.set(run.id, resolve))
   },
   aiStopScheduleRun: async () => finishSchedule('cancelled'),
-  aiListWorkspaceConversations: async () => [],
+  aiListWorkspaceConversations: async () => structuredClone(workspaceHistory),
   onAiWorkspaceConnection: (listener: (event: any) => void) => { workspaceListeners.add(listener); return () => workspaceListeners.delete(listener) },
   aiOpenWorkspaceConnection: async (id: string) => {
     workspaceOpens.push(id)
@@ -161,6 +163,12 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
   getConnectionUsageStatsEnabled: async () => true,
   getAllSettings: async () => ({}),
   getConnections: async () => connections.map(conn => ({ ...conn })),
+  setConnectionPinned: async (id: string, pinned: boolean) => {
+    const connection = connections.find(conn => conn.id === id)
+    if (!connection) throw new Error('Fixture connection not found')
+    connection.pinned = pinned
+    return { ...connection }
+  },
   getGroups: async () => groups.map(group => ({ ...group })),
   setManySettings: async () => {},
   updateConnectionGroup: async (id: string, group: string) => {
@@ -195,6 +203,7 @@ const syncOpen = ref(false)
 const aiMessages = ref<ChatItem[]>([])
 const imageComposerOpen = ref(false)
 const liteAiOpen = ref(false)
+const liteAiActive = ref(true)
 const liteAiMode = ref<'ssh' | 'ai'>('ssh')
 const imageComposerSession = ref('image-fixture')
 const { runningCount: backgroundTaskCount } = useAiBackgroundJobs(() => imageComposerSession.value)
@@ -216,6 +225,22 @@ onMounted(() => {
   (window as any).__uiRegression = {
     calls,
     workspaceOpens,
+    async setWorkspaceActive(active: boolean) { liteAiActive.value = active; await nextTick() },
+    setWorkspacePreview(hosts: Connection[], history: AiWorkspaceConversationItem[]) {
+      connections = hosts
+      workspaceHistory = history
+    },
+    async seedWorkspaceRail() {
+      workspaceHistory = Array.from({ length: 14 }, (_, index) => ({
+        connectionId: connections[index % connections.length].id,
+        hostLabel: connections[index % connections.length].name,
+        threadId: `rail-history-${index}`,
+        title: `历史会话 ${index + 1}：检查服务器服务与磁盘状态`,
+        updatedAt: Date.now() - index * 86_400_000,
+        messageCount: 6,
+      }))
+      for (const connection of connections) await window.LiteConnect.aiOpenWorkspaceConnection(connection.id)
+    },
     finishSchedule: () => finishSchedule('completed'),
     failSchedule: () => finishSchedule('failed'),
     scheduleSnapshot: () => structuredClone(scheduleState),
@@ -369,7 +394,7 @@ onMounted(() => {
     <AppDialogHost />
     <section v-if="liteAiOpen" class="lite-ai-workspace-fixture">
       <AppTitlebar :app-mode="liteAiMode" :show-settings-page="false" @enter-ai="liteAiMode = 'ai'" @enter-ssh="liteAiMode = 'ssh'" />
-      <AiWorkspaceView v-if="liteAiMode === 'ai'" />
+      <AiWorkspaceView v-if="liteAiMode === 'ai'" :active="liteAiActive" />
     </section>
   </main>
 </template>

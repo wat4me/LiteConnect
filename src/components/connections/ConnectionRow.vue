@@ -452,6 +452,19 @@ function onMenuAction(action: MenuAction) {
         </button>
       </el-tooltip>
 
+      <el-tooltip :content="connection.pinned ? t('connections.unpin') : t('connections.pin')" placement="bottom">
+        <button
+          class="action-btn secondary-action pin-action"
+          type="button"
+          :class="{ active: connection.pinned }"
+          :aria-label="connection.pinned ? t('connections.unpin') : t('connections.pin')"
+          :aria-pressed="connection.pinned === true"
+          @click.stop="emit('pin', connection.id)"
+        >
+          <AppIcon :name="connection.pinned ? 'pin-fill' : 'pin'" size="sm" />
+        </button>
+      </el-tooltip>
+
       <div class="more-wrap secondary-action">
         <el-tooltip :content="t('connections.more')" placement="bottom" :disabled="menuOpen">
           <button
@@ -511,7 +524,13 @@ function onMenuAction(action: MenuAction) {
               <AppIcon name="edit" size="sm" class="more-item-icon" />
               {{ t('connections.edit') }}
             </button>
-            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('pin')">
+            <button
+              v-if="menuMode === 'context'"
+              type="button"
+              class="ui-menu-item"
+              role="menuitem"
+              @click="onMenuAction('pin')"
+            >
               <AppIcon :name="connection.pinned ? 'pin-fill' : 'pin'" size="sm" class="more-item-icon" />
               {{ connection.pinned ? t('connections.unpin') : t('connections.pin') }}
             </button>
@@ -833,9 +852,15 @@ function onMenuAction(action: MenuAction) {
   border-color: var(--accent);
 }
 
-.action-btn.more {
+.action-btn.more,
+.action-btn.pin-action {
   width: 28px;
   padding-inline: 0;
+}
+
+.action-btn.pin-action.active {
+  color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .connect-label {

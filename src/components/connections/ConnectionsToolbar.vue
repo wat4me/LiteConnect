@@ -8,8 +8,10 @@ const props = defineProps<{
   activeGroupName: string
   searchQuery: string
   searchScope: 'group' | 'all'
+  inSmartView?: boolean
   batchTesting: boolean
   filteredCount: number
+  totalCount?: number
   importing: boolean
 }>()
 
@@ -29,6 +31,11 @@ const scopeItems = computed(() => [
   { id: 'group', label: t('connections.searchCurrentGroup') },
   { id: 'all', label: t('connections.allConnections') },
 ])
+const resultSummary = computed(() => {
+  const total = props.totalCount ?? props.filteredCount
+  if (!props.searchQuery.trim() && props.filteredCount === total) return ''
+  return t('connections.resultCount', { shown: props.filteredCount, total })
+})
 const actionItems = computed(() => [
   { id: 'batch-test', label: t(props.batchTesting ? 'connections.batchTesting' : 'connections.batchTest'), title: t('connections.batchTestTooltip'), disabled: props.batchTesting || props.filteredCount === 0 },
   { id: 'import', label: t('connections.import'), title: t('connections.importTooltip'), disabled: props.importing },
@@ -47,10 +54,16 @@ defineExpose({ searchInputRef })
   <header class="page-header">
     <div class="page-title-row">
       <h2 class="page-title">{{ t('connections.title') }}</h2>
-      <span v-if="props.searchScope === 'group'" class="page-group-pill" :title="props.activeGroupName">{{ props.activeGroupName }}</span>
+      <span
+        v-if="props.inSmartView || props.searchScope === 'group'"
+        class="page-group-pill"
+        :title="props.activeGroupName"
+      >{{ props.activeGroupName }}</span>
+      <span v-if="resultSummary" class="page-result-count">{{ resultSummary }}</span>
     </div>
     <div class="page-toolbar">
       <ToolbarDropdown
+        v-if="!props.inSmartView"
         class="search-scope" :model-value="props.searchScope" :items="scopeItems"
         :label="t(props.searchScope === 'group' ? 'connections.searchCurrentGroup' : 'connections.allConnections')"
         :aria-label="t('connections.searchScope')" menu-class="scope-menu"
@@ -143,6 +156,12 @@ defineExpose({ searchInputRef })
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-result-count {
+  font-size: 12px;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 

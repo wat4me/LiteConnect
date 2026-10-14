@@ -30,15 +30,22 @@ const loading = ref(false)
 const closing = ref(false)
 const showSchedules = ref(false)
 const railCollapsed = ref(false)
-const hostView = ref<'cards' | 'list'>('cards')
+const HISTORY_PREVIEW_COUNT = 5
+const historyExpanded = ref(false)
+const historyList = ref<HTMLElement | null>(null)
+const hostView = ref<'cards' | 'list'>(readHostView())
+const hostFilter = ref<'all' | 'connected'>('all')
 const browsing = ref(true)
 const scheduleCreateToken = ref(0)
 const collapsedGroups = ref<Record<string, boolean>>({})
 const pendingThreadId = ref('')
 const pendingNewConversation = ref(false)
 const sessionTick = ref(0)
-const hostPicker = ref<'switch' | 'new' | null>(null)
+const hostPicker = ref<'switch' | 'new' | 'create' | null>(null)
 const pickerQuery = ref('')
+const pickerCollapsedGroups = ref<Record<string, boolean>>({})
+const pickerElement = ref<HTMLElement | null>(null)
+let pickerReturnFocus: HTMLElement | null = null
 let disposed = false
 let unsubscribe: (() => void) | undefined
 let unsubscribeReply: (() => void) | undefined
@@ -48,7 +55,10 @@ const sessionId = computed(() => sessions.value[selectedId.value] || '')
 const connectedCount = computed(() => Object.keys(sessions.value).length)
 const visible = computed(() => {
   const text = query.value.trim().toLocaleLowerCase()
-  return connections.value.filter(connection => !text || `${connection.name} ${connection.host} ${connection.username} ${groupName(connection)}`.toLocaleLowerCase().includes(text))
+  return connections.value.filter(connection =>
+    (hostFilter.value === 'all' || !!sessions.value[connection.id]) &&
+    (!text || `${connection.name} ${connection.host} ${connection.username} ${connection.note || ''} ${groupName(connection)}`.toLocaleLowerCase().includes(text)),
+  )
 })
 const pickerHosts = computed(() => {
   const text = pickerQuery.value.trim().toLocaleLowerCase()
@@ -56,14 +66,20 @@ const pickerHosts = computed(() => {
     .filter(connection => {
       if (hostPicker.value === 'new' && connection.id === selectedId.value) return false
       if (!text) return true
-      return `${connection.name} ${connection.host} ${connection.username} ${groupName(connection)}`.toLocaleLowerCase().includes(text)
+      return `${connection.name} ${connection.host} ${connection.username} ${connection.note || ''} ${groupName(connection)}`.toLocaleLowerCase().includes(text)
     })
-    .sort((a, b) => Number(!!sessions.value[b.id]) - Number(!!sessions.value[a.id]) || a.name.localeCompare(b.name, 'zh-CN'))
 })
-const groupedHosts = computed(() => {
+const groupedHosts = computed(() => groupConnections(visible.value))
+const pickerGroups = computed(() => groupConnections(pickerHosts.value, true))
+
+function groupConnections(hostsToGroup: Connection[], connectedFirst = false) {
   const sections: { id: string; name: string; hosts: Connection[] }[] = []
   const byGroup = new Map<string, Connection[]>()
-  for (const connection of visible.value) {
+  const compareHosts = (a: Connection, b: Connection) =>
+    Number(b.pinned === true) - Number(a.pinned === true) ||
+    (connectedFirst ? Number(!!sessions.value[b.id]) - Number(!!sessions.value[a.id]) : 0) ||
+    (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'zh-CN')
+  for (const connection of hostsToGroup) {
     const id = connection.group || ''
     const list = byGroup.get(id) || []
     list.push(connection)
@@ -73,18 +89,18 @@ const groupedHosts = computed(() => {
   for (const group of ordered) {
     const hosts = byGroup.get(group.id)
     if (!hosts?.length) continue
-    sections.push({ id: group.id, name: group.name, hosts: hosts.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'zh-CN')) })
+    sections.push({ id: group.id, name: group.name, hosts: hosts.sort(compareHosts) })
     byGroup.delete(group.id)
   }
   for (const [id, hosts] of byGroup) {
     sections.push({
       id: id || '__ungrouped__',
       name: id ? t('ai.workspace.unknownGroup') : t('ai.workspace.ungrouped'),
-      hosts: hosts.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'zh-CN')),
+      hosts: hosts.sort(compareHosts),
     })
   }
   return sections
-})
+}
 const currentConversations = computed(() => {
   void sessionTick.value
   return Object.entries(sessions.value).flatMap(([connectionId, id]) => {
@@ -109,11 +125,45 @@ const historyConversations = computed(() => {
   const open = new Set(currentConversations.value.map(item => `${item.connectionId}:${item.threadId}`))
   return recent.value
     .filter(item => !open.has(`${item.connectionId}:${item.threadId}`))
-    .slice(0, AI_WORKSPACE_HISTORY_LIMIT)
+})
+const displayedHistory = computed(() => historyExpanded.value
+  ? historyConversations.value
+  : historyConversations.value.slice(0, HISTORY_PREVIEW_COUNT))
+const historySections = computed(() => {
+  const sections = new Map<string, AiWorkspaceConversationItem[]>()
+  const today = new Date().toDateString()
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  for (const item of displayedHistory.value) {
+    const date = new Date(item.updatedAt)
+    const label = date.toDateString() === today ? t('ai.today')
+      : date.toDateString() === yesterday.toDateString() ? t('ai.workspace.yesterday')
+        : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    const items = sections.get(label) || []
+    items.push(item)
+    sections.set(label, items)
+  }
+  return Array.from(sections, ([label, items]) => ({ label, items }))
 })
 
+function toggleHistory() {
+  historyExpanded.value = !historyExpanded.value
+  void nextTick(() => { if (historyList.value) historyList.value.scrollTop = 0 })
+}
+
+function readHostView(): 'cards' | 'list' {
+  try { return localStorage.getItem('LiteConnect.aiWorkspace.hostView') === 'cards' ? 'cards' : 'list' }
+  catch { return 'list' }
+}
+
+function resetFilters() {
+  query.value = ''
+  hostFilter.value = 'all'
+}
+
 function groupName(connection: Connection) {
-  return groups.value.find(group => group.id === connection.group)?.name || ''
+  return groups.value.find(group => group.id === connection.group)?.name ||
+    t(connection.group ? 'ai.workspace.unknownGroup' : 'ai.workspace.ungrouped')
 }
 function groupKey(id: string) { return id || '__ungrouped__' }
 function isCollapsed(id: string) { return !!collapsedGroups.value[groupKey(id)] }
@@ -121,14 +171,12 @@ function toggleGroup(id: string) {
   const key = groupKey(id)
   collapsedGroups.value = { ...collapsedGroups.value, [key]: !collapsedGroups.value[key] }
 }
-function formatTime(value: number) {
-  if (!value) return ''
-  const date = new Date(value)
-  const now = new Date()
-  if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return date.toLocaleDateString()
+function isPickerGroupCollapsed(id: string) {
+  return !pickerQuery.value.trim() && !!pickerCollapsedGroups.value[id]
 }
-
+function togglePickerGroup(id: string) {
+  pickerCollapsedGroups.value = { ...pickerCollapsedGroups.value, [id]: !isPickerGroupCollapsed(id) }
+}
 async function refreshRecent() {
   if (!connections.value.length) { recent.value = []; return }
   try {
@@ -170,15 +218,36 @@ async function applyPendingActions(id: string) {
   await refreshRecent()
 }
 
-function openHostPicker(mode: 'switch' | 'new') {
+function openHostPicker(mode: 'switch' | 'new' | 'create') {
   if (connectingId.value || closing.value) return
+  pickerReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   pickerQuery.value = ''
+  pickerCollapsedGroups.value = {}
   hostPicker.value = mode
+  void nextTick(() => pickerElement.value?.querySelector<HTMLInputElement>('input')?.focus())
 }
 
 function closeHostPicker() {
   hostPicker.value = null
   pickerQuery.value = ''
+  const target = pickerReturnFocus
+  pickerReturnFocus = null
+  void nextTick(() => { if (target?.isConnected) target.focus() })
+}
+
+function trapPickerFocus(event: KeyboardEvent) {
+  const controls = Array.from(pickerElement.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input') || [])
+    .filter(element => element.getClientRects().length > 0)
+  if (!controls?.length) return
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 async function pickHost(connection: Connection) {
@@ -332,9 +401,20 @@ function backToHosts() {
   void refreshRecent()
 }
 
+function refreshWhenActive() {
+  if (props.active && !loading.value && !disposed) void refresh()
+}
+
 watch(browsing, value => { if (value) void refreshRecent() })
+watch(() => props.active, active => { if (active) void refresh() })
+watch(hostView, value => {
+  try { localStorage.setItem('LiteConnect.aiWorkspace.hostView', value) }
+  catch { /* Browsing works when local storage is unavailable. */ }
+})
 
 onMounted(() => {
+  window.addEventListener('focus', refreshWhenActive)
+  window.addEventListener('connections-store-change', refreshWhenActive)
   unsubscribe = window.LiteConnect.onAiWorkspaceConnection(onConnection)
   unsubscribeReply = onReplyComplete(() => {
     sessionTick.value += 1
@@ -344,6 +424,8 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   disposed = true
+  window.removeEventListener('focus', refreshWhenActive)
+  window.removeEventListener('connections-store-change', refreshWhenActive)
   unsubscribe?.()
   unsubscribeReply?.()
   if (connectingId.value) void window.LiteConnect.aiCancelWorkspaceConnection(connectingId.value).catch(() => {})
@@ -357,63 +439,69 @@ onBeforeUnmount(() => {
 <template>
   <div class="ai-workspace" :class="{ 'is-schedule': showSchedules }">
     <aside class="ai-workspace-rail" :class="{ collapsed: railCollapsed }">
-      <header>
-        <AppIcon v-if="!railCollapsed" name="ai-chat" size="sm" />
-        <strong v-if="!railCollapsed">LiteAI</strong>
-        <button v-if="!railCollapsed" type="button" class="ui-icon-btn" :title="t('ai.workspace.refresh')" :disabled="loading" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
+      <div class="rail-top-actions">
+        <button type="button" class="workspace-new-chat" :title="t('ai.workspace.newConversationMenu')" :aria-label="t('ai.workspace.newConversationMenu')" :disabled="!!connectingId || closing || !connections.length" @click="openHostPicker('create')">
+          <AppIcon name="plus" size="sm" /><span v-if="!railCollapsed">{{ t('ai.workspace.newConversationMenu') }}</span>
+        </button>
         <button type="button" class="ui-icon-btn rail-collapse" :title="t(railCollapsed ? 'ai.workspace.expandRail' : 'ai.workspace.collapseRail')" :aria-label="t(railCollapsed ? 'ai.workspace.expandRail' : 'ai.workspace.collapseRail')" :aria-expanded="!railCollapsed" @click="railCollapsed = !railCollapsed"><AppIcon :name="railCollapsed ? 'chevron-right' : 'chevron-left'" size="xs" /></button>
-      </header>
+      </div>
       <nav class="workspace-primary-nav" :aria-label="t('ai.workspace.navigation')">
         <button type="button" class="workspace-manage workspace-host-entry" :class="{ active: browsing && !showSchedules }" :aria-current="browsing && !showSchedules ? 'page' : undefined" :title="t('ai.schedule.host')" @click="backToHosts"><AppIcon name="server" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.host') }}</span></button>
-        <button v-if="sessionId" type="button" class="workspace-manage workspace-chat-entry" :class="{ active: !browsing && !showSchedules }" :aria-current="!browsing && !showSchedules ? 'page' : undefined" :title="t('ai.workspace.currentChats')" @click="showSchedules = false; browsing = false"><AppIcon name="ai-chat" size="sm" /><span v-if="!railCollapsed">{{ t('ai.workspace.currentChats') }}</span></button>
         <button type="button" class="workspace-manage workspace-schedule-entry" :class="{ active: showSchedules }" :aria-current="showSchedules ? 'page' : undefined" :title="t('ai.schedule.title')" @click="openSchedules()"><AppIcon name="activity" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.title') }}</span></button>
       </nav>
-      <section v-show="!railCollapsed" class="rail-section">
-        <div class="rail-section-head">
-          <h3>{{ t('ai.workspace.currentChats') }}</h3>
-          <button
-            type="button"
-            class="ui-btn ui-btn-xs rail-new-host"
-            :title="t('ai.workspace.newOnOther')"
-            :disabled="!!connectingId || closing || !connections.length"
-            :aria-label="t('ai.workspace.newOnOther')"
-            @click="openHostPicker('new')"
-          >
-            <AppIcon name="plus" size="xs" /><span>{{ t('ai.workspace.otherHost') }}</span>
+      <div v-show="!railCollapsed" class="rail-conversations">
+        <section class="rail-section rail-current">
+          <div class="rail-section-head">
+            <h3>{{ t('ai.workspace.currentChats') }}</h3>
+            <span class="rail-count">{{ currentConversations.length }}</span>
+          </div>
+          <div class="rail-list rail-current-list" role="region" :aria-label="t('ai.workspace.currentChats')" tabindex="0">
+            <p v-if="!currentConversations.length" class="rail-empty">{{ t('ai.workspace.noCurrentChats') }}</p>
+            <button
+              v-for="item in currentConversations"
+              :key="item.sessionId"
+              type="button"
+              class="rail-item"
+              :class="{ active: item.viewing && !showSchedules && !browsing }"
+              :title="`${item.title}\n${item.hostLabel}`"
+              :aria-current="item.viewing && !showSchedules && !browsing ? 'page' : undefined"
+              @click="openCurrent(item)"
+            >
+              <span class="rail-item-title"><span class="connection-dot connected" />{{ item.title }}</span>
+              <span class="rail-item-meta">{{ item.hostLabel }}</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="rail-section rail-history">
+          <div class="rail-section-head">
+            <h3>{{ t('ai.workspace.recentChats') }}</h3>
+            <span class="rail-count">{{ historyConversations.length }}</span>
+          </div>
+          <div ref="historyList" class="rail-list rail-history-list" role="region" :aria-label="t('ai.workspace.recentChats')" tabindex="0">
+            <p v-if="!historyConversations.length" class="rail-empty">{{ t('ai.workspace.noRecentChats') }}</p>
+            <div v-for="section in historySections" :key="section.label" class="rail-history-group">
+              <h4>{{ section.label }}</h4>
+              <button
+                v-for="item in section.items"
+                :key="`${item.connectionId}:${item.threadId}`"
+                type="button"
+                class="rail-item"
+                :title="`${item.title}\n${item.hostLabel} · ${new Date(item.updatedAt).toLocaleString()}`"
+                @click="openHistory(item)"
+              >
+                <span class="rail-item-title">{{ item.title }}</span>
+                <span class="rail-item-meta">{{ item.hostLabel }}</span>
+              </button>
+            </div>
+          </div>
+          <button v-if="historyConversations.length > HISTORY_PREVIEW_COUNT" type="button" class="rail-history-toggle" :aria-expanded="historyExpanded" @click="toggleHistory">
+            <AppIcon :name="historyExpanded ? 'chevron-up' : 'chevron-down'" size="xs" />
+            {{ historyExpanded ? t('ai.workspace.collapseHistory') : t('ai.workspace.expandHistory', { count: historyConversations.length - HISTORY_PREVIEW_COUNT }) }}
           </button>
-        </div>
-        <p v-if="!currentConversations.length" class="rail-empty">{{ t('ai.workspace.noCurrentChats') }}</p>
-        <button
-          v-for="item in currentConversations"
-          :key="item.sessionId"
-          type="button"
-          class="rail-item"
-          :class="{ active: item.viewing && !showSchedules && !browsing }"
-          @click="openCurrent(item)"
-        >
-          <span class="rail-item-title">{{ item.title }}</span>
-          <span class="rail-item-meta">{{ item.hostLabel }}</span>
-        </button>
-      </section>
+        </section>
+      </div>
 
-      <section v-show="!railCollapsed" class="rail-section rail-history">
-        <h3>{{ t('ai.workspace.recentChats') }}</h3>
-        <p v-if="!historyConversations.length" class="rail-empty">{{ t('ai.workspace.noRecentChats') }}</p>
-        <button
-          v-for="item in historyConversations"
-          :key="`${item.connectionId}:${item.threadId}`"
-          type="button"
-          class="rail-item"
-          @click="openHistory(item)"
-        >
-          <span class="rail-item-title">{{ item.title }}</span>
-          <span class="rail-item-meta">{{ item.hostLabel }} · {{ formatTime(item.updatedAt) }}</span>
-        </button>
-      </section>
-
-      <nav class="workspace-nav">
-        <button type="button" class="workspace-manage" :title="t('ai.workspace.manageConnections')" @click="emit('open-connections')"><AppIcon name="settings" size="sm" /><span v-if="!railCollapsed">{{ t('ai.workspace.manageConnections') }}</span></button>
-      </nav>
     </aside>
 
     <AiSchedulePanel
@@ -440,7 +528,7 @@ onBeforeUnmount(() => {
             <span>{{ selected.username }}@{{ selected.host }}:{{ selected.port || 22 }}</span>
             <AppIcon name="chevron-down" size="xs" />
           </button>
-          <span class="workspace-target-status">{{ connectingId === selected.id ? t('ai.workspace.connecting') : sessionId ? t('ai.workspace.connected') : t('ai.workspace.disconnected') }}</span>
+          <span class="workspace-target-status" :class="{ connected: !!sessionId, connecting: connectingId === selected.id }"><span class="connection-dot" :class="{ connected: !!sessionId, connecting: connectingId === selected.id }" />{{ connectingId === selected.id ? t('ai.workspace.connecting') : sessionId ? t('ai.workspace.connected') : t('ai.workspace.disconnected') }}</span>
           <button v-if="connectingId === selected.id" type="button" class="ui-btn ui-btn-xs" @click="cancelConnect">{{ t('common.cancel') }}</button>
           <button v-else-if="sessionId" type="button" class="ui-btn ui-btn-xs" :disabled="closing" @click="disconnect()">{{ t('ai.workspace.disconnect') }}</button>
         </header>
@@ -466,68 +554,86 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else class="workspace-browser">
-        <header class="workspace-browser-header">
-          <div>
-            <h2>{{ t('ai.workspace.browseTitle') }}</h2>
-            <p>{{ t('ai.workspace.browseHint') }}</p>
+        <div class="workspace-toolbar">
+          <div class="workspace-filter-tabs" role="group" :aria-label="t('ai.workspace.filterHosts')">
+            <button type="button" data-filter="all" :class="{ active: hostFilter === 'all' }" :aria-pressed="hostFilter === 'all'" @click="hostFilter = 'all'">{{ t('ai.workspace.allHosts') }}<span>{{ connections.length }}</span></button>
+            <button type="button" data-filter="connected" :class="{ active: hostFilter === 'connected' }" :aria-pressed="hostFilter === 'connected'" @click="hostFilter = 'connected'">{{ t('ai.workspace.connected') }}<span>{{ connectedCount }}</span></button>
           </div>
-          <div class="workspace-toolbar">
-            <input v-model="query" class="workspace-search" :placeholder="t('ai.workspace.search')" :aria-label="t('ai.workspace.search')" />
+          <div class="workspace-toolbar-controls">
+            <div class="workspace-search-field">
+              <AppIcon name="search" size="sm" />
+              <input v-model="query" class="workspace-search" :placeholder="t('ai.workspace.search')" :aria-label="t('ai.workspace.search')" />
+              <button v-if="query" type="button" class="workspace-search-clear" :title="t('ai.workspace.clearSearch')" :aria-label="t('ai.workspace.clearSearch')" @click="query = ''"><AppIcon name="close" size="xs" /></button>
+            </div>
             <div class="workspace-view-switch" role="group" :aria-label="t('ai.workspace.viewMode')">
               <button type="button" data-view="cards" :class="{ active: hostView === 'cards' }" :aria-pressed="hostView === 'cards'" @click="hostView = 'cards'"><AppIcon name="home-grid" size="sm" />{{ t('ai.workspace.cardViewLabel') }}</button>
               <button type="button" data-view="list" :class="{ active: hostView === 'list' }" :aria-pressed="hostView === 'list'" @click="hostView = 'list'"><AppIcon name="list" size="sm" />{{ t('ai.workspace.listViewLabel') }}</button>
             </div>
           </div>
-        </header>
-
-        <div class="workspace-stats">
-          <span>{{ t('ai.workspace.hostTotal', { count: visible.length }) }}</span>
-          <span v-if="connectedCount">{{ t('ai.workspace.connectedCount', { count: connectedCount }) }}</span>
-          <span>{{ t('ai.workspace.groupTotal', { count: groupedHosts.length }) }}</span>
+          <div class="workspace-toolbar-actions">
+            <button type="button" class="ui-icon-btn" :title="t('ai.workspace.refresh')" :aria-label="t('ai.workspace.refresh')" :disabled="loading" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
+            <button type="button" class="ui-btn ui-btn-sm workspace-manage-button" :title="t('ai.workspace.manageConnections')" :aria-label="t('ai.workspace.manageConnections')" @click="emit('open-connections')"><AppIcon name="settings" size="sm" /><span class="workspace-manage-label">{{ t('ai.workspace.manageConnections') }}</span></button>
+          </div>
         </div>
 
         <p v-if="error" class="workspace-error" role="alert">{{ error }}</p>
-        <p v-if="loading" class="workspace-caption">{{ t('common.loading') }}</p>
-        <p v-else-if="!visible.length" class="workspace-empty">
-          {{ t('ai.workspace.noConnections') }}
-          <button type="button" class="ui-btn ui-btn-primary ui-btn-sm" @click="emit('open-connections')">{{ t('ai.workspace.manageConnections') }}</button>
-        </p>
+        <p v-if="loading" class="workspace-caption" role="status">{{ t('common.loading') }}</p>
+        <div v-else-if="!visible.length" class="workspace-empty" role="status">
+          <span class="workspace-empty-icon"><AppIcon :name="connections.length ? 'search' : 'server'" size="2xl" /></span>
+          <h3>{{ !connections.length ? t('ai.workspace.noSavedHosts') : hostFilter === 'connected' && !query ? t('ai.workspace.noConnectedHosts') : t('ai.workspace.noConnections') }}</h3>
+          <p>{{ connections.length ? t('ai.workspace.emptyFilterHint') : t('ai.workspace.emptyHostsHint') }}</p>
+          <button v-if="connections.length" type="button" class="ui-btn ui-btn-sm" @click="resetFilters">{{ t('ai.workspace.resetFilters') }}</button>
+          <button v-else type="button" class="ui-btn ui-btn-primary ui-btn-sm" @click="emit('open-connections')">{{ t('ai.workspace.manageConnections') }}</button>
+        </div>
 
         <section v-for="section in groupedHosts" :key="section.id" class="workspace-group">
-          <button type="button" class="workspace-group-header" @click="toggleGroup(section.id)">
+          <button type="button" class="workspace-group-header" :aria-expanded="!isCollapsed(section.id)" @click="toggleGroup(section.id)">
             <AppIcon :name="isCollapsed(section.id) ? 'chevron-right' : 'chevron-down'" size="xs" />
+            <AppIcon name="folder" size="sm" />
             <strong>{{ section.name }}</strong>
             <span>{{ t('ai.workspace.groupCount', { count: section.hosts.length }) }}</span>
           </button>
+          <div v-if="hostView === 'list' && !isCollapsed(section.id)" class="workspace-list-heading" aria-hidden="true">
+            <span>{{ t('ai.workspace.serverName') }}</span><span>{{ t('ai.workspace.connectionAddress') }}</span><span>{{ t('ai.workspace.connectionStatus') }}</span><span>{{ t('ai.workspace.actions') }}</span>
+          </div>
           <div v-show="!isCollapsed(section.id)" class="workspace-card-grid" :class="{ 'is-list': hostView === 'list' }">
             <article
               v-for="connection in section.hosts"
               :key="connection.id"
               class="workspace-card"
               :class="{
+                pinned: connection.pinned === true,
                 selected: selectedId === connection.id,
                 connected: !!sessions[connection.id],
                 connecting: connectingId === connection.id,
               }"
               tabindex="0"
+              :aria-label="`${connection.name}, ${connection.username}@${connection.host}:${connection.port || 22}`"
               @keydown.enter.self.prevent="startChat(connection)"
               @keydown.space.self.prevent="selectHost(connection)"
               @click="selectHost(connection)"
               @dblclick="startChat(connection)"
             >
               <div class="workspace-card-top">
-                <AppIcon name="server" size="sm" />
-                <strong>{{ connection.name }}</strong>
-                <span v-if="sessions[connection.id]" class="workspace-card-status connected">{{ t('ai.workspace.connected') }}</span>
-                <span v-else-if="connectingId === connection.id" class="workspace-card-status connecting">{{ t('ai.workspace.connecting') }}</span>
+                <span class="workspace-host-icon"><AppIcon name="server" size="md" /></span>
+                <div class="workspace-host-name">
+                  <span class="workspace-host-label">
+                    <strong :title="connection.name">{{ connection.name }}</strong>
+                    <span v-if="connection.pinned" class="workspace-pin" role="img" :title="t('connections.pinned')" :aria-label="t('connections.pinned')"><AppIcon name="pin-fill" size="xs" /></span>
+                  </span>
+                  <span v-if="connection.note" class="workspace-card-note" :title="connection.note">{{ connection.note }}</span>
+                </div>
               </div>
-              <p>{{ connection.username }}@{{ connection.host }}:{{ connection.port || 22 }}</p>
-              <p v-if="connection.note" class="workspace-card-note">{{ connection.note }}</p>
+              <p class="workspace-host-address" :title="`${connection.username}@${connection.host}:${connection.port || 22}`">{{ connection.username }}@{{ connection.host }}:{{ connection.port || 22 }}</p>
+              <span class="workspace-card-status" :class="{ connected: !!sessions[connection.id], connecting: connectingId === connection.id }">
+                <span class="connection-dot" :class="{ connected: !!sessions[connection.id], connecting: connectingId === connection.id }" />
+                {{ connectingId === connection.id ? t('ai.workspace.connecting') : sessions[connection.id] ? t('ai.workspace.connected') : t('ai.workspace.disconnected') }}
+              </span>
               <div class="workspace-card-actions" @click.stop @dblclick.stop>
                 <button v-if="connectingId === connection.id" type="button" class="ui-btn ui-btn-xs" @click="cancelConnect">{{ t('common.cancel') }}</button>
                 <template v-else>
-                  <button type="button" class="ui-btn ui-btn-primary ui-btn-xs" :disabled="closing || !!connectingId" @click="startChat(connection)">{{ sessions[connection.id] ? t('ai.workspace.continueChat') : t('ai.workspace.startChat') }}</button>
-                  <button v-if="sessions[connection.id]" type="button" class="ui-btn ui-btn-xs" :disabled="closing || !!connectingId" @click="disconnect(connection.id)">{{ t('ai.workspace.disconnect') }}</button>
+                  <button type="button" class="ui-btn ui-btn-xs workspace-start-chat" :class="{ 'ui-btn-primary': !!sessions[connection.id] }" :disabled="closing || !!connectingId" @click="startChat(connection)">{{ sessions[connection.id] ? t('ai.workspace.continueChat') : t('ai.workspace.startChat') }}<AppIcon name="chevron-right" size="xs" /></button>
+                  <button v-if="sessions[connection.id]" type="button" class="ui-icon-btn workspace-disconnect" :title="t('ai.workspace.disconnect')" :aria-label="t('ai.workspace.disconnect')" :disabled="closing || !!connectingId" @click="disconnect(connection.id)"><AppIcon name="stop" size="xs" /></button>
                 </template>
               </div>
             </article>
@@ -540,13 +646,13 @@ onBeforeUnmount(() => {
 
     <div v-if="hostPicker && !showSchedules" class="host-picker-layer" @keydown.esc.prevent="closeHostPicker">
       <button type="button" class="host-picker-backdrop" :aria-label="t('common.cancel')" @click="closeHostPicker" />
-      <section class="host-picker" role="dialog" :aria-label="hostPicker === 'new' ? t('ai.workspace.newOnOtherTitle') : t('ai.workspace.switchHost')">
+      <section ref="pickerElement" class="host-picker" role="dialog" aria-modal="true" :aria-label="hostPicker === 'create' ? t('ai.workspace.newConversationMenu') : hostPicker === 'new' ? t('ai.workspace.newOnOtherTitle') : t('ai.workspace.switchHost')" @keydown.tab="trapPickerFocus">
         <header>
           <div>
-            <h3>{{ hostPicker === 'new' ? t('ai.workspace.newOnOtherTitle') : t('ai.workspace.switchHost') }}</h3>
-            <p>{{ hostPicker === 'new' ? t('ai.workspace.newOnOtherHint') : t('ai.workspace.switchHostHint') }}</p>
+            <h3>{{ hostPicker === 'create' ? t('ai.workspace.newConversationMenu') : hostPicker === 'new' ? t('ai.workspace.newOnOtherTitle') : t('ai.workspace.switchHost') }}</h3>
+            <p>{{ hostPicker === 'create' ? t('ai.workspace.createChatHint') : hostPicker === 'new' ? t('ai.workspace.newOnOtherHint') : t('ai.workspace.switchHostHint') }}</p>
           </div>
-          <button type="button" class="ui-icon-btn" :title="t('common.cancel')" @click="closeHostPicker"><AppIcon name="close" size="sm" /></button>
+          <button type="button" class="ui-icon-btn" :title="t('common.cancel')" :aria-label="t('common.cancel')" @click="closeHostPicker"><AppIcon name="close" size="sm" /></button>
         </header>
         <input
           v-model="pickerQuery"
@@ -557,25 +663,38 @@ onBeforeUnmount(() => {
         />
         <p v-if="!pickerHosts.length" class="rail-empty">{{ t('ai.workspace.pickHostEmpty') }}</p>
         <div v-else class="host-picker-list">
-          <button
-            v-for="connection in pickerHosts"
-            :key="connection.id"
-            type="button"
-            class="host-picker-item"
-            :class="{ connected: !!sessions[connection.id], current: connection.id === selectedId }"
-            :disabled="!!connectingId || closing"
-            @click="pickHost(connection)"
-          >
-            <span class="host-picker-item-main">
-              <strong>{{ connection.name }}</strong>
-              <span>{{ connection.username }}@{{ connection.host }}:{{ connection.port || 22 }}</span>
-            </span>
-            <span class="host-picker-item-meta">
-              <span v-if="connection.id === selectedId">{{ t('ai.workspace.currentHost') }}</span>
-              <span v-else-if="sessions[connection.id]">{{ t('ai.workspace.connected') }}</span>
-              <span>{{ hostPicker === 'new' ? t('ai.workspace.openNewAction') : t('ai.workspace.switchHostAction') }}</span>
-            </span>
-          </button>
+          <section v-for="section in pickerGroups" :key="section.id" class="host-picker-group">
+            <button type="button" class="host-picker-group-heading" :aria-expanded="!isPickerGroupCollapsed(section.id)" :disabled="!!pickerQuery.trim()" @click="togglePickerGroup(section.id)">
+              <AppIcon :name="isPickerGroupCollapsed(section.id) ? 'chevron-right' : 'chevron-down'" size="xs" />
+              <AppIcon name="folder" size="sm" />
+              <strong :title="section.name">{{ section.name }}</strong>
+              <span>{{ t('ai.workspace.groupCount', { count: section.hosts.length }) }}</span>
+            </button>
+            <div v-show="!isPickerGroupCollapsed(section.id)" class="host-picker-group-items">
+              <button
+                v-for="connection in section.hosts"
+                :key="connection.id"
+                type="button"
+                class="host-picker-item"
+                :class="{ pinned: connection.pinned === true, connected: !!sessions[connection.id], current: connection.id === selectedId }"
+                :disabled="!!connectingId || closing"
+                @click="pickHost(connection)"
+              >
+                <span class="host-picker-item-main">
+                  <span class="workspace-host-label">
+                    <strong :title="connection.name">{{ connection.name }}</strong>
+                    <span v-if="connection.pinned" class="workspace-pin" role="img" :title="t('connections.pinned')" :aria-label="t('connections.pinned')"><AppIcon name="pin-fill" size="xs" /></span>
+                  </span>
+                  <span>{{ connection.username }}@{{ connection.host }}:{{ connection.port || 22 }}</span>
+                </span>
+                <span class="host-picker-item-meta">
+                  <span v-if="connection.id === selectedId">{{ t('ai.workspace.currentHost') }}</span>
+                  <span v-else-if="sessions[connection.id]">{{ t('ai.workspace.connected') }}</span>
+                  <span>{{ hostPicker === 'switch' ? t('ai.workspace.switchHostAction') : t('ai.workspace.openNewAction') }}</span>
+                </span>
+              </button>
+            </div>
+          </section>
         </div>
       </section>
     </div>
@@ -583,23 +702,37 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.ai-workspace { position: relative; display: flex; height: 100%; min-height: 0; min-width: 0; background: var(--bg-primary); color: var(--text-primary); }
-.ai-workspace-rail { display: flex; flex-direction: column; width: 248px; flex-shrink: 0; padding: 16px 12px; border-right: 1px solid var(--border-color); background: var(--bg-secondary); min-height: 0; }
-.ai-workspace-rail > header { display: flex; align-items: center; gap: 8px; font-size: 15px; margin-bottom: 14px; }
-.ai-workspace-rail > header button { margin-left: auto; }
-.rail-section { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
-.rail-section-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ai-workspace { position: relative; display: flex; height: 100%; min-height: 0; min-width: 0; background: var(--bg-primary); color: var(--text-primary); container: ai-workspace / inline-size; }
+.ai-workspace-rail { display: flex; flex-direction: column; width: 252px; flex-shrink: 0; padding: 20px 12px 12px; border-right: 1px solid var(--border-color); background: var(--bg-secondary); min-height: 0; }
+.rail-top-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; margin-bottom: 20px; }
+.workspace-new-chat { display: flex; flex: 1; align-items: center; justify-content: center; gap: 8px; min-width: 0; min-height: 36px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-color)); border-radius: 8px; background: var(--accent-bg); color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.workspace-new-chat:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 17%, var(--bg-secondary)); }
+.workspace-new-chat:disabled { opacity: 0.5; cursor: not-allowed; }
+.workspace-primary-nav { display: flex; flex-direction: column; gap: 4px; padding-bottom: 18px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; }
+.workspace-primary-nav .workspace-manage { justify-content: flex-start; gap: 10px; }
+.workspace-manage.active { color: var(--accent); background: var(--accent-bg); font-weight: 600; }
+.rail-conversations { display: grid; grid-template-rows: minmax(0, min(35%, 240px)) minmax(0, 1fr); gap: 20px; flex: 1; min-height: 0; overflow: hidden; }
+.rail-section { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden; }
+.rail-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.rail-list:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; border-radius: 6px; }
+.rail-section-head { display: flex; flex-shrink: 0; align-items: center; gap: 6px; margin-bottom: 6px; padding: 0 10px; }
 .rail-section h3,
-.rail-section-head h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); }
+.rail-section-head h3 { margin: 0 10px 6px; font-size: 11px; font-weight: 500; color: var(--text-secondary); }
 .rail-section-head h3 { margin: 0; flex: 1; }
-.rail-history { flex: 1; min-height: 0; margin-top: 16px; overflow: auto; }
-.rail-empty { margin: 0; padding: 8px 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
-.rail-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; }
-.rail-item:hover, .rail-item.active { background: var(--accent-bg); border-color: var(--accent); }
-.rail-item-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail-item-meta { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-nav { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding-top: 12px; }
-.workspace-manage { display: flex; align-items: center; justify-content: space-between; padding: 8px; border: 0; border-radius: 7px; color: var(--text-secondary); background: transparent; cursor: pointer; font-size: 12px; }
+.rail-count { font-size: 10px; color: var(--text-secondary); background: var(--bg-tertiary); padding: 1px 5px; border-radius: 4px; }
+.rail-history { padding-top: 16px; border-top: 1px solid var(--border-color); }
+.rail-history-group h4 { margin: 14px 10px 5px; color: var(--text-secondary); font-size: 10px; font-weight: 400; }
+.rail-history-group:first-child h4 { margin-top: 4px; }
+.rail-history-toggle { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 30px; margin-top: 4px; padding: 6px 8px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; cursor: pointer; font: inherit; font-size: 11px; }
+.rail-history-toggle:hover { color: var(--accent); background: var(--accent-bg); }
+.rail-empty { margin: 0; padding: 10px; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+.rail-item { display: flex; flex-direction: column; gap: 5px; width: 100%; text-align: left; padding: 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; }
+.rail-item:hover { background: var(--hover-bg); }
+.rail-item.active { background: var(--accent-bg); color: var(--accent); }
+.rail-item-title { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-item-title .connection-dot { display: inline-block; margin-right: 7px; vertical-align: 1px; }
+.rail-item-meta { font-size: 10px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-manage { display: flex; align-items: center; padding: 10px; border: 0; border-radius: 7px; color: var(--text-secondary); background: transparent; cursor: pointer; font: inherit; font-size: 12px; }
 .workspace-manage:hover { background: var(--accent-bg); color: var(--text-primary); }
 .ai-workspace-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .workspace-chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
@@ -620,6 +753,8 @@ onBeforeUnmount(() => {
 .workspace-target-host:disabled { cursor: not-allowed; opacity: 0.7; }
 .workspace-target-host strong { color: var(--text-primary); }
 .workspace-target-host span, .workspace-target-status { color: var(--text-secondary); }
+.workspace-target-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 11px; }
+.workspace-target-status.connected { color: var(--success); }
 .workspace-target-host :deep(.app-icon) { color: var(--text-secondary); flex-shrink: 0; }
 .host-picker-layer {
   position: absolute; inset: 0; z-index: 20; display: flex; align-items: flex-start; justify-content: center;
@@ -639,8 +774,15 @@ onBeforeUnmount(() => {
 .host-picker > header h3 { margin: 0 0 4px; font-size: 15px; }
 .host-picker > header p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .host-picker > header button { margin-left: auto; flex-shrink: 0; }
-.host-picker-search { width: 100%; }
-.host-picker-list { display: flex; flex-direction: column; gap: 4px; overflow: auto; min-height: 0; }
+.host-picker-search { width: 100%; flex-shrink: 0; }
+.host-picker-list { display: flex; flex-direction: column; gap: 12px; overflow: auto; min-height: 0; }
+.host-picker-group { flex-shrink: 0; min-width: 0; }
+.host-picker-group-heading { display: flex; align-items: center; gap: 7px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font: inherit; text-align: left; cursor: pointer; }
+.host-picker-group-heading:hover:not(:disabled) { background: var(--hover-bg); }
+.host-picker-group-heading:disabled { cursor: default; }
+.host-picker-group-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.host-picker-group-heading > span { flex-shrink: 0; font-size: 11px; }
+.host-picker-group-items { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
 .host-picker-item {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%;
   padding: 10px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent;
@@ -652,63 +794,110 @@ onBeforeUnmount(() => {
 .host-picker-item-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .host-picker-item-main strong { font-size: 13px; }
 .host-picker-item-main span { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.workspace-host-label { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.workspace-host-label strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.workspace-host-label .workspace-pin { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--accent); }
 .host-picker-item-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; color: var(--text-secondary); font-size: 11px; }
 .lite-ai-chat { display: flex; flex: 1; min-height: 0; min-width: 0; width: 100%; max-width: 1100px; margin: 0 auto; }
 .lite-ai-chat :deep(.ai-sidebar) { width: 100%; max-width: none; min-width: 0; border-left: 0; flex: 1; }
-.workspace-browser { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; padding: 18px 20px; overflow: auto; }
-.workspace-browser-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
-.workspace-browser-header h2 { margin: 0 0 4px; font-size: 20px; }
-.workspace-browser-header p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; max-width: 520px; }
-.workspace-toolbar { display: flex; flex-wrap: nowrap; flex: 0 1 440px; width: 440px; max-width: 100%; min-width: 0; margin-left: auto; gap: 8px; align-items: center; }
-.workspace-toolbar > .workspace-search { flex: 1 1 0; width: 0; min-width: 0; height: 36px; }
+.workspace-browser { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; padding: 20px clamp(20px, 3vw, 48px); overflow: auto; container-type: inline-size; }
+.workspace-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+.workspace-toolbar { display: flex; flex-wrap: wrap; min-width: 0; gap: 12px; align-items: center; justify-content: space-between; padding: 0 0 14px; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); }
+.workspace-toolbar-controls { display: flex; flex: 1 1 300px; min-width: min(240px, 100%); gap: 10px; align-items: center; }
+.workspace-filter-tabs { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.workspace-filter-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.workspace-filter-tabs button:hover { background: var(--hover-bg); }
+.workspace-filter-tabs button.active { color: var(--text-primary); background: var(--bg-secondary); font-weight: 600; }
+.workspace-filter-tabs button span { padding: 0 5px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 10px; font-weight: 400; }
+.workspace-search-field { display: flex; align-items: center; flex: 1; min-width: 0; height: 34px; padding: 0 10px; gap: 7px; border: 1px solid var(--border-color); border-radius: 7px; color: var(--text-secondary); background: var(--bg-primary); }
+.workspace-search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.workspace-search-field > .workspace-search { width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; outline: none; }
+.workspace-search-clear { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 20px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.workspace-search-clear:hover { background: var(--hover-bg); }
 .workspace-search { width: min(260px, 100%); box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 7px; color: var(--text-primary); background: var(--bg-secondary); font: inherit; font-size: 12px; }
-.workspace-stats { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 16px; color: var(--text-secondary); font-size: 12px; }
 .workspace-caption { color: var(--text-secondary); font-size: 12px; }
-.workspace-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; color: var(--text-secondary); font-size: 13px; }
-.workspace-group { margin-bottom: 18px; }
-.workspace-group-header { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 2px; border: 0; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; }
-.workspace-group-header strong { font-size: 13px; }
-.workspace-group-header span { color: var(--text-secondary); font-size: 12px; }
-.workspace-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.workspace-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); cursor: pointer; text-align: left; min-width: 0; }
-.workspace-card:hover, .workspace-card.selected { border-color: var(--accent); background: var(--accent-bg); }
-.workspace-card.connected { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 35%, transparent); }
-.workspace-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.workspace-card-top strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.workspace-card p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.workspace-card-note { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.workspace-card-status { flex-shrink: 0; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--bg-primary); color: var(--text-secondary); }
-.workspace-card-status.connected { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
-.workspace-card-status.connecting { color: var(--accent); background: var(--accent-bg); }
-.workspace-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; }
+.workspace-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 64px 16px; text-align: center; color: var(--text-secondary); font-size: 12px; }
+.workspace-empty-icon { display: grid; place-items: center; width: 60px; height: 60px; margin-bottom: 4px; border-radius: 18px; background: var(--bg-secondary); }
+.workspace-empty h3 { color: var(--text-primary); font-size: 15px; font-weight: 600; }
+.workspace-empty p { max-width: 340px; line-height: 1.7; }
+.workspace-group { margin-bottom: 24px; }
+.workspace-group-header { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 2px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; text-align: left; }
+.workspace-group-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.workspace-group-header span { flex-shrink: 0; font-size: 10px; }
+.workspace-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 10px; }
+.workspace-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-primary); cursor: pointer; text-align: left; min-width: 0; }
+.workspace-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color)); background: color-mix(in srgb, var(--accent) 3%, var(--bg-primary)); }
+.workspace-card.selected { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color)); background: color-mix(in srgb, var(--accent) 5%, var(--bg-primary)); }
+.workspace-card-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.workspace-host-icon { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--border-color); border-radius: 9px; color: var(--text-secondary); background: var(--bg-secondary); }
+.workspace-card-grid:not(.is-list) .workspace-host-icon { width: 30px; height: 30px; border-radius: 8px; }
+.workspace-card.connected .workspace-host-icon { color: var(--accent); background: var(--accent-bg); border-color: transparent; }
+.workspace-host-name { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.workspace-host-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.workspace-host-address { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.workspace-card-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 11px; }
+.workspace-card-status { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
+.workspace-card-status.connected { color: var(--success); }
+.workspace-card-status.connecting { color: var(--accent); }
+.connection-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--text-secondary); opacity: 0.55; }
+.connection-dot.connected { background: var(--success); opacity: 1; }
+.connection-dot.connecting { background: var(--accent); opacity: 1; }
+.workspace-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border-color); }
+.workspace-start-chat { margin-left: auto; }
+.workspace-disconnect { width: 26px; height: 26px; }
 .workspace-error { padding: 10px 0; margin: 0; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
 .workspace-error.inset { padding-left: 20px; padding-right: 20px; }
-@media (max-width: 900px) {
-  .ai-workspace-rail { width: 200px; }
-  .workspace-browser { padding: 16px 14px; }
-  .workspace-search { width: 100%; }
-}
-@media (max-width: 640px) {
-  .workspace-card-grid { grid-template-columns: 1fr; }
-}
-.workspace-primary-nav { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
-.workspace-primary-nav .workspace-manage, .workspace-nav .workspace-manage { justify-content: flex-start; gap: 8px; }
-.workspace-manage.active { color: var(--accent); background: var(--accent-bg); }
-.ai-workspace-rail.collapsed { width: 46px; padding: 12px 6px; }
-.ai-workspace-rail.collapsed > header { justify-content: center; }
-.ai-workspace-rail.collapsed > header button { margin: 0; }
-.ai-workspace-rail.collapsed .workspace-nav { margin-top: auto; }
+.ai-workspace-rail.collapsed { width: 54px; padding: 20px 8px 12px; }
+.ai-workspace-rail.collapsed .rail-top-actions { flex-direction: column; }
+.ai-workspace-rail.collapsed .workspace-new-chat { width: 100%; flex: none; }
 .ai-workspace-rail.collapsed .workspace-manage { justify-content: center; padding: 10px 6px; }
-.rail-new-host { gap: 4px; }
-.workspace-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.workspace-view-switch { display: inline-flex; flex-shrink: 0; align-items: center; padding: 3px; gap: 2px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
-.workspace-view-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.workspace-card:focus-visible, .ai-workspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace-view-switch { display: inline-flex; flex-shrink: 0; align-items: center; padding: 3px; gap: 2px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-secondary); }
+.workspace-view-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
 .workspace-view-switch button:hover { background: var(--hover-bg); color: var(--text-primary); }
-.workspace-view-switch button.active { color: var(--accent); background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+.workspace-view-switch button.active { color: var(--accent); background: var(--bg-primary); box-shadow: 0 1px 3px color-mix(in srgb, var(--overlay-bg) 18%, transparent); }
 .workspace-view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.workspace-card-grid.is-list { grid-template-columns: 1fr; }
-.is-list .workspace-card { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) auto; gap: 6px 14px; align-items: center; }
-.is-list .workspace-card-actions { grid-column: 3; grid-row: 1 / 3; padding: 0; margin: 0; }
-.is-list .workspace-card-note { grid-column: 1 / 3; }
-@media(max-width:900px) { .is-list .workspace-card { grid-template-columns: minmax(0,1fr) auto; } .is-list .workspace-card > p { grid-column: 1; } .is-list .workspace-card-actions { grid-column: 2; } }
+.workspace-list-heading, .is-list .workspace-card { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(130px, 1fr) 76px 128px; align-items: center; gap: 16px; }
+.workspace-list-heading { padding: 9px 16px; color: var(--text-secondary); font-size: 10px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-bottom: 0; border-radius: 8px 8px 0 0; }
+.workspace-list-heading > span:last-child { text-align: right; }
+.workspace-card-grid.is-list { grid-template-columns: minmax(0, 1fr); gap: 0; border: 1px solid var(--border-color); border-radius: 0 0 8px 8px; overflow: hidden; }
+.is-list .workspace-card { min-height: 58px; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--border-color); border-radius: 0; }
+.is-list .workspace-card:last-child { border-bottom: 0; }
+.is-list .workspace-card.selected { box-shadow: inset 3px 0 var(--accent); }
+.is-list .workspace-card-actions { justify-content: flex-end; flex-wrap: nowrap; padding: 0; margin: 0; border: 0; }
+.is-list .workspace-card:focus-visible { outline-offset: -2px; }
+@container (max-width: 660px) {
+  .workspace-list-heading { display: none; }
+  .workspace-card-grid.is-list { border-radius: 8px; }
+  .is-list .workspace-card { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; }
+  .is-list .workspace-card-top { grid-column: 1; grid-row: 1; }
+  .is-list .workspace-host-address { grid-column: 1; grid-row: 2; padding-left: 44px; }
+  .is-list .workspace-card-status { grid-column: 2; grid-row: 1; justify-self: end; }
+  .is-list .workspace-card-actions { grid-column: 2; grid-row: 2; }
+  .workspace-toolbar-controls { flex: 1 1 100%; order: 1; }
+}
+@container ai-workspace (max-width: 900px) {
+  .ai-workspace-rail:not(.collapsed) { width: 218px; }
+  .workspace-browser { padding: 20px; }
+  .workspace-target { flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+  .workspace-target-host { flex-basis: 50%; }
+}
+@container ai-workspace (max-width: 640px) {
+  .ai-workspace-rail:not(.collapsed) { width: 182px; padding-left: 8px; padding-right: 8px; }
+  .workspace-browser { padding: 20px 14px; }
+}
+@container (max-width: 340px) {
+  .workspace-toolbar-actions { gap: 6px; }
+  .workspace-manage-label { display: none; }
+  .workspace-manage-button { width: 32px; height: 32px; padding: 0; }
+  .workspace-view-switch button { padding: 5px; gap: 3px; }
+  .workspace-toolbar-controls { flex-wrap: wrap; }
+  .workspace-search-field { flex-basis: 100%; }
+  .workspace-view-switch { margin-left: auto; }
+  .is-list .workspace-card { padding: 12px; }
+  .is-list .workspace-card-top { grid-column: 1 / -1; }
+  .is-list .workspace-card-status { grid-column: 1; grid-row: 3; justify-self: start; }
+  .is-list .workspace-card-actions { grid-row: 3; }
+  .is-list .workspace-host-address { grid-column: 1 / -1; }
+}
 </style>

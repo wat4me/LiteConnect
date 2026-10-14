@@ -137,6 +137,8 @@ const {
   connections,
   groups,
   activeGroupId,
+  smartView,
+  inSmartView,
   searchQuery,
   searchScope,
   reorderDisabled,
@@ -148,10 +150,16 @@ const {
   dragConnId,
   dropInsertIndex,
   connectionCounts,
+  smartViewCounts,
+  usedColorTags,
   activeGroupName,
   filteredConnections,
+  crossGroupSearchHits,
+  groupConnectionTotal,
   loadData,
   onSelectGroup,
+  onSelectSmartView,
+  expandSearchToAllGroups,
   onAddGroup,
   onRenameGroup,
   onDeleteGroup,
@@ -280,11 +288,15 @@ defineExpose({ loadData, editConnection: onEditConnection })
     <GroupPanel
       :groups="groups"
       :active-group-id="activeGroupId"
+      :smart-view="smartView"
       :connection-counts="connectionCounts"
+      :smart-view-counts="smartViewCounts"
+      :used-color-tags="usedColorTags"
       :connections="connections"
       :connecting-connection-ids="connectingConnectionIds"
       @cancel-connect="emit('cancel-connect', $event)"
       @select="onSelectGroup"
+      @select-smart="onSelectSmartView"
       @add="onAddGroup"
       @rename="onRenameGroup"
       @delete="onDeleteGroup"
@@ -292,6 +304,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       @reorder="onReorderGroups"
       @move-connection="onMoveConnection"
       @connect="onConnectFromRow"
+      @pin="togglePin"
     />
 
     <div class="connections-main">
@@ -300,8 +313,10 @@ defineExpose({ loadData, editConnection: onEditConnection })
         :active-group-name="activeGroupName"
         :search-query="searchQuery"
         :search-scope="searchScope"
+        :in-smart-view="inSmartView"
         :batch-testing="batchTesting"
         :filtered-count="filteredCount"
+        :total-count="groupConnectionTotal"
         :importing="importing"
         @update:search-query="searchQuery = $event"
         @update:search-scope="searchScope = $event"
@@ -313,7 +328,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       />
 
       <div class="filter-bar">
-        <div class="color-filter">
+        <div v-if="!smartView?.startsWith('tag:')" class="color-filter">
         <span class="filter-label">{{ t('connections.colorTag') }}</span>
         <div class="filter-chips">
           <button
@@ -338,6 +353,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
               class="sort-option"
               :class="{ active: sortMode === 'manual' }"
               :aria-pressed="sortMode === 'manual'"
+              :disabled="smartView === 'recent'"
               @click="selectSortMode('manual')"
             >
               {{ t('connections.sortManual') }}
@@ -346,8 +362,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
               v-if="usageStatsEnabled"
               type="button"
               class="sort-option"
-              :class="{ active: sortMode === 'recent' }"
-              :aria-pressed="sortMode === 'recent'"
+              :class="{ active: sortMode === 'recent' || smartView === 'recent' }"
+              :aria-pressed="sortMode === 'recent' || smartView === 'recent'"
               @click="selectSortMode('recent')"
             >
               {{ t('connections.sortRecent') }}
@@ -358,6 +374,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
               class="sort-option"
               :class="{ active: sortMode === 'frequent' }"
               :aria-pressed="sortMode === 'frequent'"
+              :disabled="smartView === 'recent'"
               @click="selectSortMode('frequent')"
             >
               {{ t('connections.sortFrequent') }}
@@ -373,6 +390,20 @@ defineExpose({ loadData, editConnection: onEditConnection })
           {{ t('connections.clearFilters') }}
         </button>
       </div>
+
+      <button
+        v-if="crossGroupSearchHits > 0 && filteredCount === 0"
+        type="button"
+        class="cross-group-hint"
+        @click="expandSearchToAllGroups"
+      >
+        {{ t('connections.expandSearchAll', { count: crossGroupSearchHits }) }}
+      </button>
+      <p v-else-if="crossGroupSearchHits > 0" class="cross-group-hint-inline">
+        <button type="button" class="cross-group-link" @click="expandSearchToAllGroups">
+          {{ t('connections.expandSearchAll', { count: crossGroupSearchHits }) }}
+        </button>
+      </p>
 
       <p class="list-keyboard-hint">{{ t('connections.searchKeyboardHint') }}</p>
 
@@ -399,7 +430,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
             :connection="conn"
             :test-status="getTestStatus(conn.id)"
             :reorder-disabled="reorderDisabled"
-            :group-name="searchScope === 'all' ? getConnectionGroupName(conn) : undefined"
+            :group-name="searchScope === 'all' || inSmartView ? getConnectionGroupName(conn) : undefined"
             :keyboard-active="listKeyboardIndex === index"
             :show-usage-stats="usageStatsEnabled"
             :connecting="connectingConnectionIds.has(conn.id)"
@@ -432,8 +463,28 @@ defineExpose({ loadData, editConnection: onEditConnection })
             <p class="ui-empty-title">{{ t('connections.emptyFilteredTitle') }}</p>
             <p class="ui-empty-desc">{{ t('connections.emptyFilteredDesc') }}</p>
             <div class="ui-empty-actions">
+              <button
+                v-if="crossGroupSearchHits > 0"
+                type="button"
+                class="ui-btn ui-btn-primary"
+                @click="expandSearchToAllGroups"
+              >
+                {{ t('connections.expandSearchAll', { count: crossGroupSearchHits }) }}
+              </button>
               <button type="button" class="ui-btn" @click="clearFilters">{{ t('connections.clearFilters') }}</button>
             </div>
+          </template>
+          <template v-else-if="smartView === 'pinned'">
+            <p class="ui-empty-title">{{ t('connections.emptySmartPinnedTitle') }}</p>
+            <p class="ui-empty-desc">{{ t('connections.emptySmartPinnedDesc') }}</p>
+          </template>
+          <template v-else-if="smartView === 'recent'">
+            <p class="ui-empty-title">{{ t('connections.emptySmartRecentTitle') }}</p>
+            <p class="ui-empty-desc">{{ t('connections.emptySmartRecentDesc') }}</p>
+          </template>
+          <template v-else-if="smartView?.startsWith('tag:')">
+            <p class="ui-empty-title">{{ t('connections.emptySmartTagTitle') }}</p>
+            <p class="ui-empty-desc">{{ t('connections.emptySmartTagDesc') }}</p>
           </template>
           <template v-else>
             <p class="ui-empty-title">{{ t('connections.emptyGroupTitle', { name: activeGroupName }) }}</p>
@@ -496,6 +547,37 @@ defineExpose({ loadData, editConnection: onEditConnection })
   margin-bottom: 8px;
   padding: 4px 0 8px;
   border-bottom: 1px solid var(--border-color);
+}
+
+.cross-group-hint {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  border-radius: 8px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cross-group-hint-inline {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.cross-group-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .filter-label {

@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Connection, Group } from '../../env.d.ts'
 import {
+  CONNECTION_COLOR_TAGS,
   getConnectionTagColor,
   getConnectionTagLabel,
   hasConnectionColorTag,
 } from '@/utils/connections/connectionTags'
+import type { ConnectionSmartView } from '@/composables/connections/useConnectionList'
 import { createDragAutoScroll } from '@/utils/shared/dragAutoScroll'
 import {
   dataTransferHasConn,
@@ -21,13 +23,17 @@ const { t } = useI18n()
 const props = defineProps<{
   groups: Group[]
   activeGroupId: string | null
+  smartView?: ConnectionSmartView | null
   connectionCounts: Record<string, number>
+  smartViewCounts?: { pinned: number; recent: number; tags: Record<string, number> }
+  usedColorTags?: { id: string; color: string; label: string }[]
   connections: Connection[]
   connectingConnectionIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
   (e: 'select', groupId: string): void
+  (e: 'select-smart', view: ConnectionSmartView): void
   (e: 'add'): void
   (e: 'rename', group: Group): void
   (e: 'delete', groupId: string): void
@@ -35,6 +41,7 @@ const emit = defineEmits<{
   (e: 'reorder', orderedIds: string[]): void
   (e: 'connect', connectionId: string): void
   (e: 'cancel-connect', connectionId: string): void
+  (e: 'pin', connectionId: string): void
   (e: 'moveConnection', connectionId: string, groupId: string | null): void
 }>()
 
@@ -189,17 +196,18 @@ function onGroupMenuAction(
   group: Group,
 ) {
   closeCtxMenu()
-  if (action === 'select') emit('select', group.id)
+  if (action === 'select') selectGroup(group.id)
   else if (action === 'rename') startRename(group)
   else if (action === 'setDefault' && !group.isDefault) emit('setDefault', group.id)
   else if (action === 'toggleCollapse') toggleGroupCollapsed(group.id)
   else if (action === 'delete') emit('delete', group.id)
 }
 
-function onConnMenuAction(action: 'connect' | 'selectGroup', conn: Connection) {
+function onConnMenuAction(action: 'connect' | 'selectGroup' | 'pin', conn: Connection) {
   closeCtxMenu()
   if (action === 'connect') requestConnection(conn.id)
-  else if (action === 'selectGroup' && conn.group) emit('select', conn.group)
+  else if (action === 'selectGroup' && conn.group) selectGroup(conn.group)
+  else if (action === 'pin') emit('pin', conn.id)
 }
 
 function requestConnection(connectionId: string) {
@@ -268,15 +276,27 @@ function getVisibleConnectionsForGroup(groupId: string): Connection[] {
 }
 
 function matchesConnection(conn: Connection, query: string): boolean {
+  const tag = conn.colorTag || ''
+  const tagLabel = CONNECTION_COLOR_TAGS.find((item) => item.id === tag)?.label || ''
   return (
     conn.name.toLowerCase().includes(query) ||
     conn.host.toLowerCase().includes(query) ||
-    conn.username.toLowerCase().includes(query)
+    conn.username.toLowerCase().includes(query) ||
+    (conn.note || '').toLowerCase().includes(query) ||
+    tag.toLowerCase().includes(query) ||
+    tagLabel.toLowerCase().includes(query)
   )
 }
 
 function isGroupCollapsed(groupId: string): boolean {
   return !normalizedGroupSearchQuery.value && !expandedGroupIds.value.has(groupId)
+}
+
+function expandGroup(groupId: string) {
+  if (expandedGroupIds.value.has(groupId)) return
+  const next = new Set(expandedGroupIds.value)
+  next.add(groupId)
+  expandedGroupIds.value = next
 }
 
 function toggleGroupCollapsed(groupId: string) {
@@ -288,6 +308,27 @@ function toggleGroupCollapsed(groupId: string) {
   }
   expandedGroupIds.value = next
 }
+
+function selectGroup(groupId: string) {
+  expandGroup(groupId)
+  emit('select', groupId)
+}
+
+function tagSmartView(tagId: string): ConnectionSmartView {
+  return `tag:${tagId}`
+}
+
+function isTagSmartView(tagId: string) {
+  return props.smartView === tagSmartView(tagId)
+}
+
+watch(
+  () => props.activeGroupId,
+  (groupId) => {
+    if (groupId && !props.smartView) expandGroup(groupId)
+  },
+  { immediate: true },
+)
 
 function startRename(group: Group) {
   editingId.value = group.id
@@ -426,6 +467,47 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
       />
     </div>
     <div ref="groupListRef" class="group-list">
+      <section v-if="!normalizedGroupSearchQuery" class="smart-section">
+        <h4 class="smart-section-title">{{ t('groups.smartViews') }}</h4>
+        <button
+          type="button"
+          class="smart-item"
+          :class="{ active: smartView === 'pinned' }"
+          @click="emit('select-smart', 'pinned')"
+        >
+          <AppIcon name="pin" size="xs" />
+          <span class="smart-item-name">{{ t('connections.smartPinned') }}</span>
+          <span class="group-count">{{ smartViewCounts?.pinned || 0 }}</span>
+        </button>
+        <button
+          type="button"
+          class="smart-item"
+          :class="{ active: smartView === 'recent' }"
+          @click="emit('select-smart', 'recent')"
+        >
+          <AppIcon name="history" size="xs" />
+          <span class="smart-item-name">{{ t('connections.smartRecent') }}</span>
+          <span class="group-count">{{ smartViewCounts?.recent || 0 }}</span>
+        </button>
+      </section>
+
+      <section v-if="!normalizedGroupSearchQuery && usedColorTags?.length" class="smart-section">
+        <h4 class="smart-section-title">{{ t('groups.tags') }}</h4>
+        <button
+          v-for="tag in usedColorTags"
+          :key="tag.id"
+          type="button"
+          class="smart-item"
+          :class="{ active: isTagSmartView(tag.id) }"
+          @click="emit('select-smart', tagSmartView(tag.id))"
+        >
+          <span class="smart-tag-swatch" :style="{ background: tag.color }"></span>
+          <span class="smart-item-name">{{ tag.label }}</span>
+          <span class="group-count">{{ smartViewCounts?.tags[tag.id] || 0 }}</span>
+        </button>
+      </section>
+
+      <h4 v-if="!normalizedGroupSearchQuery" class="smart-section-title groups-section-title">{{ t('groups.title') }}</h4>
       <template v-for="group in visibleGroups" :key="group.id">
         <!-- Whole block accepts connection drops (not only the thin title row) -->
         <div
@@ -438,15 +520,15 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           <div
             class="group-item"
             tabindex="0"
-            @keydown.enter.self="emit('select', group.id)"
-            @keydown.space.self.prevent="emit('select', group.id)"
+            @keydown.enter.self="selectGroup(group.id)"
+            @keydown.space.self.prevent="selectGroup(group.id)"
             :class="{
-              active: group.id === activeGroupId,
+              active: !smartView && group.id === activeGroupId,
               dragging: dragIndex === getGroupIndex(group.id),
               'drop-above': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id),
               'drop-below': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id),
             }"
-            @click="emit('select', group.id)"
+            @click="selectGroup(group.id)"
             @contextmenu="onGroupContextMenu($event, group)"
             @dragover="onGroupItemDragOver($event, group.id)"
             @dragleave="onGroupItemDragLeave"
@@ -521,7 +603,11 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               v-for="conn in getVisibleConnectionsForGroup(group.id)"
               :key="conn.id"
               class="sidebar-conn"
-              :class="{ dragging: dragConnId === conn.id, connecting: connectingConnectionIds?.has(conn.id) }"
+              :class="{
+                dragging: dragConnId === conn.id,
+                connecting: connectingConnectionIds?.has(conn.id),
+                pinned: !!conn.pinned,
+              }"
               :aria-busy="connectingConnectionIds?.has(conn.id)"
               @dblclick="requestConnection(conn.id)"
               @contextmenu="onConnContextMenu($event, conn)"
@@ -554,7 +640,28 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               ></span>
               <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
               <span v-if="connectingConnectionIds?.has(conn.id)" class="sidebar-conn-spinner" :title="t('connections.connectingTitle')"></span>
-              <button v-if="connectingConnectionIds?.has(conn.id)" type="button" class="ui-icon-btn" :title="t('common.cancel')" @click.stop="emit('cancel-connect', conn.id)"><AppIcon name="close" size="xs" /></button>
+              <button
+                v-if="connectingConnectionIds?.has(conn.id)"
+                type="button"
+                class="ui-icon-btn"
+                :title="t('common.cancel')"
+                @click.stop="emit('cancel-connect', conn.id)"
+              >
+                <AppIcon name="close" size="xs" />
+              </button>
+              <button
+                v-else
+                type="button"
+                class="sidebar-conn-pin"
+                :class="{ active: !!conn.pinned }"
+                :title="conn.pinned ? t('connections.unpin') : t('connections.pin')"
+                :aria-label="conn.pinned ? t('connections.unpin') : t('connections.pin')"
+                :aria-pressed="conn.pinned === true"
+                @click.stop="emit('pin', conn.id)"
+                @dblclick.stop
+              >
+                <AppIcon :name="conn.pinned ? 'pin-fill' : 'pin'" size="xs" />
+              </button>
             </div>
           </div>
         </div>
@@ -665,6 +772,15 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
             <AppIcon name="folder" size="sm" class="group-ctx-icon" />
             {{ t('groups.viewInGroup') }}
           </button>
+          <button
+            type="button"
+            class="ui-menu-item"
+            role="menuitem"
+            @click="onConnMenuAction('pin', ctxMenu.conn)"
+          >
+            <AppIcon :name="ctxMenu.conn.pinned ? 'pin-fill' : 'pin'" size="sm" class="group-ctx-icon" />
+            {{ ctxMenu.conn.pinned ? t('connections.unpin') : t('connections.pin') }}
+          </button>
         </template>
 
         <!-- Empty panel area -->
@@ -753,6 +869,68 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-search-input::placeholder {
   color: var(--text-secondary);
+}
+
+.smart-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.smart-section-title,
+.groups-section-title {
+  margin: 0 2px 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.groups-section-title {
+  margin-top: 4px;
+}
+
+.smart-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.smart-item:hover {
+  background: var(--hover-bg);
+}
+
+.smart-item.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.smart-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-tag-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
 
 .group-list {
@@ -1099,5 +1277,38 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .sidebar-conn:hover .sidebar-conn-name {
   color: var(--text-primary);
+}
+
+.sidebar-conn-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sidebar-conn:hover .sidebar-conn-pin,
+.sidebar-conn-pin.active,
+.sidebar-conn.pinned .sidebar-conn-pin {
+  opacity: 1;
+}
+
+.sidebar-conn-pin:hover,
+.sidebar-conn-pin.active {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.sidebar-conn.connecting .sidebar-conn-pin {
+  display: none;
 }
 </style>

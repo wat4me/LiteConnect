@@ -11,6 +11,11 @@ import {
 import { t } from '@/i18n'
 import type { ConnectionSortMode } from '@shared/connectionSort'
 
+/** Virtual sidebar layers (not persisted groups). */
+export type ConnectionSmartView = 'pinned' | 'recent' | `tag:${string}`
+
+export const CONNECTION_RECENT_VIEW_LIMIT = 24
+
 export function useConnectionList(options: {
   initialData?: Ref<{
     connections: Connection[]
@@ -27,6 +32,8 @@ export function useConnectionList(options: {
   const connections = ref<Connection[]>([])
   const groups = ref<Group[]>([])
   const activeGroupId = ref<string | null>(null)
+  /** Smart/virtual view; when set, list ignores current-group scope. */
+  const smartView = ref<ConnectionSmartView | null>(null)
   const searchQuery = ref('')
   const searchScope = ref<'group' | 'all'>('group')
   /** Filter by color tag id; empty = all */
@@ -58,38 +65,86 @@ export function useConnectionList(options: {
     return counts
   })
 
+  const inSmartView = computed(() => smartView.value != null)
+
   const activeGroupName = computed(() => {
+    const view = smartView.value
+    if (view === 'pinned') return t('connections.smartPinned')
+    if (view === 'recent') return t('connections.smartRecent')
+    if (view?.startsWith('tag:')) {
+      const tagId = view.slice(4)
+      return CONNECTION_COLOR_TAGS.find((tag) => tag.id === tagId)?.label || t('connections.colorTag')
+    }
     if (searchScope.value === 'all') return t('connections.allConnections')
     const g = groups.value.find((item) => item.id === activeGroupId.value)
     return g?.name || t('connections.allConnections')
   })
 
+  function connectionMatchesQuery(c: Connection, q: string): boolean {
+    const tag = c.colorTag || ''
+    const tagLabel = CONNECTION_COLOR_TAGS.find((item) => item.id === tag)?.label || ''
+    const groupName = groups.value.find((g) => g.id === c.group)?.name || ''
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.host.toLowerCase().includes(q) ||
+      c.username.toLowerCase().includes(q) ||
+      (c.note || '').toLowerCase().includes(q) ||
+      tag.toLowerCase().includes(q) ||
+      tagLabel.toLowerCase().includes(q) ||
+      groupName.toLowerCase().includes(q)
+    )
+  }
+
+  const smartViewCounts = computed(() => {
+    const pinned = connections.value.filter((c) => c.pinned === true).length
+    const recent = connections.value
+      .filter((c) => (c.lastConnectedAt || 0) > 0)
+      .length
+    const tags: Record<string, number> = {}
+    for (const tag of CONNECTION_COLOR_TAGS) {
+      if (!tag.id) continue
+      tags[tag.id] = connections.value.filter((c) => (c.colorTag || '') === tag.id).length
+    }
+    return {
+      pinned,
+      recent: Math.min(recent, CONNECTION_RECENT_VIEW_LIMIT),
+      tags,
+    }
+  })
+
+  const usedColorTags = computed(() =>
+    CONNECTION_COLOR_TAGS.filter((tag) => tag.id && (smartViewCounts.value.tags[tag.id] || 0) > 0),
+  )
+
   const filteredConnections = computed(() => {
     let list = connections.value
+    const view = smartView.value
 
-    if (searchScope.value === 'group' && activeGroupId.value) {
+    if (view === 'pinned') {
+      list = list.filter((c) => c.pinned === true)
+    } else if (view === 'recent') {
+      list = [...list]
+        .filter((c) => (c.lastConnectedAt || 0) > 0)
+        .sort((a, b) => (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0))
+        .slice(0, CONNECTION_RECENT_VIEW_LIMIT)
+    } else if (view?.startsWith('tag:')) {
+      const tagId = view.slice(4)
+      list = list.filter((c) => (c.colorTag || '') === tagId)
+    } else if (searchScope.value === 'group' && activeGroupId.value) {
       list = list.filter((c) => c.group === activeGroupId.value)
     }
 
     if (searchQuery.value.trim()) {
       const q = searchQuery.value.trim().toLowerCase()
-      list = list.filter((c) => {
-        const tag = c.colorTag || ''
-        const tagLabel = CONNECTION_COLOR_TAGS.find((t) => t.id === tag)?.label || ''
-        return (
-          c.name.toLowerCase().includes(q) ||
-          c.host.toLowerCase().includes(q) ||
-          c.username.toLowerCase().includes(q) ||
-          (c.note || '').toLowerCase().includes(q) ||
-          tag.toLowerCase().includes(q) ||
-          tagLabel.toLowerCase().includes(q)
-        )
-      })
+      list = list.filter((c) => connectionMatchesQuery(c, q))
     }
 
-    if (colorTagFilter.value) {
+    if (colorTagFilter.value && !view?.startsWith('tag:')) {
       list = list.filter((c) => (c.colorTag || '') === colorTagFilter.value)
     }
+
+    // Recent smart view already ordered by lastConnectedAt; keep that order.
+    if (view === 'recent') return list
 
     // Always keep pinned on top; secondary order by sortMode
     const sorted = [...list].sort((a, b) => {
@@ -114,13 +169,40 @@ export function useConnectionList(options: {
     return sorted
   })
 
+  /** Matches in other groups when current group search is empty (for expand hint). */
+  const crossGroupSearchHits = computed(() => {
+    if (smartView.value) return 0
+    if (searchScope.value !== 'group' || !activeGroupId.value) return 0
+    const q = searchQuery.value.trim().toLowerCase()
+    if (!q) return 0
+    return connections.value.filter(
+      (c) => c.group !== activeGroupId.value && connectionMatchesQuery(c, q),
+    ).length
+  })
+
+  const groupConnectionTotal = computed(() => {
+    if (smartView.value === 'pinned') return smartViewCounts.value.pinned
+    if (smartView.value === 'recent') return smartViewCounts.value.recent
+    if (smartView.value?.startsWith('tag:')) {
+      return smartViewCounts.value.tags[smartView.value.slice(4)] || 0
+    }
+    if (searchScope.value === 'all') return connections.value.length
+    if (!activeGroupId.value) return connections.value.length
+    return connectionCounts.value[activeGroupId.value] || 0
+  })
+
   /** Drag-reorder only when manual sort and no filters that reshuffle the list */
   const isSearching = computed(
     () => searchQuery.value.trim().length > 0 || sortMode.value !== 'manual',
   )
 
   const reorderDisabled = computed(
-    () => isSearching.value || !!colorTagFilter.value || searchScope.value === 'all' || !activeGroupId.value,
+    () =>
+      isSearching.value ||
+      !!colorTagFilter.value ||
+      searchScope.value === 'all' ||
+      !!smartView.value ||
+      !activeGroupId.value,
   )
 
   function getConnectionGroupName(connection: Connection): string {
@@ -185,7 +267,19 @@ export function useConnectionList(options: {
 
   function onSelectGroup(groupId: string) {
     activeGroupId.value = groupId
+    smartView.value = null
     searchScope.value = 'group'
+  }
+
+  function onSelectSmartView(view: ConnectionSmartView) {
+    smartView.value = view
+    searchScope.value = 'all'
+    if (view.startsWith('tag:')) colorTagFilter.value = ''
+  }
+
+  function expandSearchToAllGroups() {
+    searchScope.value = 'all'
+    smartView.value = null
   }
 
   async function onAddGroup() {
@@ -539,7 +633,7 @@ export function useConnectionList(options: {
     }
   })
 
-  watch([activeGroupId, searchQuery, searchScope, colorTagFilter, sortMode], () => {
+  watch([activeGroupId, smartView, searchQuery, searchScope, colorTagFilter, sortMode], () => {
     listKeyboardIndex.value = -1
   })
 
@@ -563,6 +657,8 @@ export function useConnectionList(options: {
     connections,
     groups,
     activeGroupId,
+    smartView,
+    inSmartView,
     searchQuery,
     searchScope,
     reorderDisabled,
@@ -574,12 +670,18 @@ export function useConnectionList(options: {
     dragConnId,
     dropInsertIndex,
     connectionCounts,
+    smartViewCounts,
+    usedColorTags,
     activeGroupName,
     filteredConnections,
+    crossGroupSearchHits,
+    groupConnectionTotal,
     isSearching,
     loadData,
     selectInitialGroup,
     onSelectGroup,
+    onSelectSmartView,
+    expandSearchToAllGroups,
     onAddGroup,
     onRenameGroup,
     onDeleteGroup,

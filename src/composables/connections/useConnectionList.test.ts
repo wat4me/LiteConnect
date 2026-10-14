@@ -38,9 +38,9 @@ const groups = [
   { id: 'test', name: '测试' },
 ] as Group[]
 const connections = [
-  { id: 'one', name: 'web-one', host: 'one.example', username: 'root', group: 'production', order: 0 },
-  { id: 'two', name: 'web-two', host: 'two.example', username: 'root', group: 'test', order: 1, colorTag: 'red' },
-  { id: 'three', name: 'database', host: 'three.example', username: 'admin', group: 'production', order: 2 },
+  { id: 'one', name: 'web-one', host: 'one.example', username: 'root', group: 'production', order: 0, pinned: true, lastConnectedAt: 200 },
+  { id: 'two', name: 'web-two', host: 'two.example', username: 'root', group: 'test', order: 1, colorTag: 'red', lastConnectedAt: 300 },
+  { id: 'three', name: 'database', host: 'three.example', username: 'admin', group: 'production', order: 2, lastConnectedAt: 100 },
 ] as Connection[]
 
 let scope: EffectScope
@@ -123,6 +123,51 @@ describe('connection search scope', () => {
     expect(list.searchScope.value).toBe('group')
     expect(list.filteredConnections.value.map(c => c.id)).toEqual(['two'])
     expect(list.activeGroupName.value).toBe('测试')
+  })
+
+  it('opens smart views across groups and restores group scope on group select', () => {
+    const list = setup()
+    list.onSelectSmartView('pinned')
+    expect(list.smartView.value).toBe('pinned')
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['one'])
+    expect(list.activeGroupName.value).toBe('connections.smartPinned')
+    expect(list.reorderDisabled.value).toBe(true)
+
+    list.onSelectSmartView('recent')
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['two', 'one', 'three'])
+
+    list.onSelectSmartView('tag:red')
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['two'])
+    expect(list.reorderDisabled.value).toBe(true)
+
+    list.onSelectGroup('production')
+    expect(list.smartView.value).toBeNull()
+    expect(list.searchScope.value).toBe('group')
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['one', 'three'])
+  })
+
+  it('hints when the current group has no hits but other groups match', () => {
+    const list = setup()
+    list.onSelectGroup('production')
+    list.searchQuery.value = 'web-two'
+    expect(list.filteredConnections.value).toHaveLength(0)
+    expect(list.crossGroupSearchHits.value).toBe(1)
+    list.expandSearchToAllGroups()
+    expect(list.searchScope.value).toBe('all')
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['two'])
+  })
+
+  it('matches notes and group names in search', () => {
+    const list = setup()
+    list.searchScope.value = 'all'
+    list.connections.value = [
+      ...connections,
+      { id: 'four', name: 'cache', host: 'cache.example', username: 'root', group: 'test', order: 3, note: 'redis cluster' },
+    ] as Connection[]
+    list.searchQuery.value = 'redis'
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['four'])
+    list.searchQuery.value = '测试'
+    expect(list.filteredConnections.value.map(c => c.id).sort()).toEqual(['four', 'two'])
   })
 
   it('disables cross-group reordering while retaining group moves', async () => {

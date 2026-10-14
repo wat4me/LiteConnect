@@ -8,7 +8,8 @@ It uses a temporary profile and mocked connection IPC; it never connects to a
 server or reads/writes real connection settings. The window closes after the
 checks, and the server is shut down even when a check fails.
 
-The checks cover default group collapse, current/all-group search, Enter to
+The checks cover automatic expansion of the initially selected group, manual
+collapse and expansion when selecting another group, current/all-group search, Enter to
 connect, toolbar menu dismissal and focus return, sidebar pointer/keyboard
 resize, narrow window overflow, and selection/tag colors across dark, light,
 eyecare and custom themes (including live accent token overrides). They also cover

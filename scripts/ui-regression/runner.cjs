@@ -6,13 +6,15 @@ const path = require('node:path')
 
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-ui-'))
 app.setPath('userData', path.join(artifacts, 'profile'))
-// Includes 200-turn stress coverage, images, model controls and background jobs.
+// Includes 200-turn stress coverage, images, model controls, background jobs,
+// grouped host picking and independently scrolling conversation sections.
 // Individual UI conditions still fail after 15 seconds.
+const suiteTimeoutMs = 300_000
 let lastAction = 'loading test page'
 const watchdog = setTimeout(() => {
-  console.error('UI regression timed out after 180 seconds', { lastAction, artifacts })
+  console.error(`UI regression timed out after ${suiteTimeoutMs / 1000} seconds`, { lastAction, artifacts })
   app.exit(1)
-}, 180_000)
+}, suiteTimeoutMs)
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
@@ -69,7 +71,26 @@ app.whenReady().then(async () => {
   await run(`Array.from(document.querySelectorAll('.sync-heading button')).find(button=>button.textContent.includes('停止同步')).click()`)
   await run('window.__uiRegression.sendSynchronizedInput("ignored")')
   assert.equal(await run('window.__uiRegression.synchronizedWrites.length'), 1, 'Stopping immediately stops forwarding')
-  assert.equal(await run('document.querySelectorAll(".group-connections").length'), 0, 'Groups start collapsed')
+  assert.deepEqual(await run(`Array.from(document.querySelectorAll('.group-block')).map(block=>({
+    name:block.querySelector('.group-name').textContent,
+    active:block.querySelector('.group-item').classList.contains('active'),
+    expanded:block.querySelector('.collapse-btn').getAttribute('aria-expanded'),
+    connections:block.querySelectorAll('.sidebar-conn').length,
+  }))`), [
+    {name:'默认分组',active:true,expanded:'true',connections:1},
+    {name:'生产环境 Production',active:false,expanded:'false',connections:0},
+  ], 'The initially selected default group expands while other groups remain collapsed')
+  await run(`document.querySelector('.group-item.active .collapse-btn').click()`)
+  await waitFor('document.querySelectorAll(".group-connections").length === 0')
+  assert.equal(await run('document.querySelector(".group-item.active .group-name").textContent'), '默认分组', 'Manually collapsing the current group preserves its selection')
+  await run(`document.querySelector('.group-item.active').click()`)
+  await waitFor('document.querySelector(".group-item.active .collapse-btn").getAttribute("aria-expanded") === "true"')
+  await run(`document.querySelectorAll('.group-item')[1].click()`)
+  await waitFor('document.querySelectorAll(".group-item")[1].classList.contains("active") && document.querySelectorAll(".group-item .collapse-btn")[1].getAttribute("aria-expanded") === "true"')
+  assert.equal(await run('document.querySelectorAll(".group-block")[1].querySelector(".sidebar-conn .sidebar-conn-name").textContent'), '服务器二 Server two', 'Selecting another group expands its own connections')
+  await run(`document.querySelector('.group-item').click()`)
+  await run(`document.querySelectorAll('.group-item .collapse-btn')[1].click()`)
+  await waitFor('document.querySelectorAll(".group-item")[0].classList.contains("active") && document.querySelectorAll(".group-item .collapse-btn")[1].getAttribute("aria-expanded") === "false"')
   await run('window.__uiRegression.setConnectionStage("keyboard")')
   await waitFor('document.querySelector(".connection-row").textContent.includes("等待验证码")')
   await run('document.querySelector(".connection-row .action-btn.connect").click()')
@@ -131,7 +152,7 @@ app.whenReady().then(async () => {
     assert.notEqual(state.tag, state.background, 'Connection tag remains distinct from selected background')
     assert.ok(state.chipText, 'Selected filter retains theme text')
     const actions = await run(`Array.from(document.querySelectorAll('.connection-row .secondary-action')).map(el => ({opacity:getComputedStyle(el).opacity,pointerEvents:getComputedStyle(el).pointerEvents}))`)
-    assert.equal(actions.length, 3, 'Copy, edit and more actions remain discoverable')
+    assert.equal(actions.length, 4, 'Copy, edit, pin and more actions remain discoverable')
     assert.ok(actions.every(action => action.opacity === '1' && action.pointerEvents !== 'none'), `${theme} row actions are visible and clickable without hover`)
     if (theme === 'custom') {
       await run('document.documentElement.style.setProperty("--accent", "#ae49e1")')
@@ -616,7 +637,24 @@ app.whenReady().then(async () => {
   await run(`document.querySelector('.titlebar-mode-menu .titlebar-mode-item:last-child').click()`)
   await waitFor('document.querySelectorAll(".workspace-card").length === 2')
   assert.equal(await run('document.querySelector(".workspace-toolbar").textContent.includes("新建巡检")'), false, 'Server browsing keeps inspection creation in the inspection page')
-  assert.deepEqual(await run('Array.from(document.querySelectorAll(".workspace-view-switch button")).map(button=>[button.textContent.trim(),button.getAttribute("aria-pressed")])'), [['卡片','true'],['列表','false']], 'Both view modes have visible labels and a selected state')
+  assert.deepEqual(await run('Array.from(document.querySelectorAll(".workspace-view-switch button")).map(button=>[button.textContent.trim(),button.getAttribute("aria-pressed")])'), [['卡片','false'],['列表','true']], 'The compact list is the default and both modes have visible labels')
+
+  assert.equal(await run('document.querySelectorAll(".workspace-card-status").length'), 2, 'Every server exposes its connection state before selection')
+  await run(`document.querySelector('[data-filter=connected]').click()`)
+  await waitFor('document.querySelector(".workspace-empty")?.textContent.includes("还没有已连接")')
+  assert.equal(await run('document.querySelectorAll(".workspace-card").length'), 0, 'Connected filter excludes saved but disconnected servers')
+  await run(`document.querySelector('.workspace-empty button').click()`)
+  await waitFor('document.querySelectorAll(".workspace-card").length === 2')
+  await run(`(() => {const input=document.querySelector('.workspace-search-field input');input.value='没有这样的服务器';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await waitFor('document.querySelector(".workspace-empty")?.textContent.includes("没有匹配")')
+  await run(`document.querySelector('.workspace-search-clear').click()`)
+  await waitFor('document.querySelectorAll(".workspace-card").length === 2')
+  for (const width of [1050, 680, 520]) {
+    await run(`document.querySelector('.lite-ai-workspace-fixture').style.width='${width}px'`)
+    const overflow = await run(`(() => {const panel=document.querySelector('.ai-workspace');const browser=document.querySelector('.workspace-browser');return [panel.scrollWidth-panel.clientWidth,browser.scrollWidth-browser.clientWidth]})()`)
+    assert.ok(overflow.every(value => value <= 1), `Server list fits a ${width}px workspace: ${JSON.stringify(overflow)}`)
+  }
+  await run(`document.querySelector('.lite-ai-workspace-fixture').style.width='1050px'`)
 
   assert.equal(await run('document.querySelectorAll(".workspace-selected").length'), 0, 'Server cards have one entry action without a duplicated footer')
   await run(`document.querySelector('.workspace-view-switch [data-view=list]').click()`)
@@ -624,6 +662,7 @@ app.whenReady().then(async () => {
   assert.equal(await run('document.querySelector(".workspace-view-switch [data-view=list]").getAttribute("aria-pressed")'), 'true', 'List view visibly marks its selected mode')
   await saveScreenshot('lite-ai-host-list.png')
   await run(`document.querySelector('.workspace-view-switch [data-view=cards]').click()`)
+  assert.equal(await run('localStorage.getItem("LiteConnect.aiWorkspace.hostView")'), 'cards', 'View preference is remembered')
   await saveScreenshot('lite-ai-welcome.png')
   const terminalConnectsBeforeAi = await run('window.__uiRegression.calls.connects.length')
   await run(`document.querySelector('.workspace-card').click()`)
@@ -651,6 +690,9 @@ app.whenReady().then(async () => {
   assert.equal(await run('window.__uiRegression.workspaceOpens.length'), 2, 'Switching back reuses the workspace connection and conversation')
   await run(`document.querySelector('.workspace-host-entry').click()`)
   await waitFor('document.querySelector(".workspace-browser")?.getClientRects().length')
+  await run(`document.querySelector('[data-filter=connected]').click()`)
+  await waitFor('document.querySelectorAll(".workspace-card.connected").length === 2')
+  await run(`document.querySelector('[data-filter=all]').click()`)
   await run(`document.querySelector('.workspace-view-switch [data-view=list]').click()`)
   await run(`document.querySelector('.workspace-card.selected').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`)
   await waitFor('document.querySelector(".lite-ai-chat .composer-input")?.value === "服务器 A 的草稿"')
@@ -745,9 +787,140 @@ app.whenReady().then(async () => {
   await waitFor('document.querySelectorAll(".app-dialog-actions button").length === 2')
   await run(`document.querySelector('.app-dialog-actions button:last-child').click()`)
   await waitFor('!document.querySelector(".schedule-plan")')
+
+  await run(`document.querySelector('.workspace-host-entry').click()`)
+  if (await run('!!document.querySelector(".ai-workspace-rail.collapsed")')) {
+    await run(`document.querySelector('.rail-collapse').click()`)
+  }
+  await run(`document.querySelector('.rail-section .rail-item').click()`)
+  await waitFor('document.querySelector(".lite-ai-chat .composer-input")')
+  await run(`(() => {const input=document.querySelector('.lite-ai-chat .composer-input');input.value='检查当前服务器状态';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await waitFor('!document.querySelector(".lite-ai-chat .send-btn").disabled')
+  await run(`document.querySelector('.lite-ai-chat .send-btn').click()`)
+  await waitFor('document.querySelector(".lite-ai-chat").textContent.includes("服务器磁盘和服务状态正常") && !document.querySelector(".lite-ai-chat .stop-btn")')
+  const createsBeforeWorkspace = await run('window.__uiRegression.calls.aiCreates.length')
+  const opensBeforeWorkspace = await run('window.__uiRegression.workspaceOpens.length')
+  await run(`document.querySelector('.workspace-new-chat').click()`)
+  await waitFor('document.querySelectorAll(".host-picker-item").length === 2')
+  assert.equal(await run('document.activeElement.classList.contains("host-picker-search")'), true, 'New conversation focuses server search')
+  await run(`document.querySelector('.host-picker-item.current').click()`)
+  await waitFor(`window.__uiRegression.calls.aiCreates.length === ${createsBeforeWorkspace + 1} && document.querySelector('.lite-ai-chat .composer-input')`)
+  assert.equal(await run('window.__uiRegression.workspaceOpens.length'), opensBeforeWorkspace, 'A new conversation on the current server reuses its connection')
+  assert.equal(await run('document.querySelectorAll(".lite-ai-chat .chat-row").length'), 0, 'New conversation opens an empty thread')
+  await run(`document.querySelector('.workspace-host-entry').click()`)
+  await run(`(() => {
+    const names=['OA 应用服务器','开发环境','数据库主机','测试服务','容器节点','腾讯云主机'];
+    const addresses=['10.2.178.163','10.2.5.75','10.2.178.202','10.2.5.223','10.1.131.14','10.2.178.165'];
+    const notes=['OA 服务 · 日常运维','开发与联调环境','业务数据存储','自动化测试环境','Docker 应用与后台任务','云端服务'];
+    const hosts=names.map((name,index)=>({id:index===0?'one':index===1?'two':'preview-'+index,name,host:addresses[index],port:22,username:'root',password:'',group:index===5?'prod':'dev',note:notes[index],createdAt:1,updatedAt:1}));
+    const now=new Date();const yesterday=new Date(now);yesterday.setDate(yesterday.getDate()-1);
+    const history=['检查 OA 服务的运行情况','看看服务器磁盘的使用情况','排查数据库连接超时','检查 Docker 容器状态','查看服务器上的应用日志'].map((title,index)=>({connectionId:hosts[index].id,hostLabel:hosts[index].name,threadId:'preview-history-'+index,title,updatedAt:index<2?now.getTime()-index*60000:yesterday.getTime()-index*60000,messageCount:6}));
+    window.__uiRegression.setWorkspacePreview(hosts,history);
+    document.querySelector('.workspace-toolbar-actions .ui-icon-btn').click();
+  })()`)
+  await waitFor('document.querySelectorAll(".workspace-card").length === 6 && document.querySelectorAll(".rail-history-group").length === 2')
+  const opensBeforePinRefresh = await run('window.__uiRegression.workspaceOpens.length')
+  await run('window.__uiRegression.setWorkspaceActive(false)')
+  await run(`window.LiteConnect.setConnectionPinned('preview-4',true)`)
+  await run(`window.LiteConnect.setConnectionPinned('preview-5',true)`)
+  await run('window.__uiRegression.setWorkspaceActive(true)')
+  await waitFor('document.querySelectorAll(".workspace-card.pinned").length === 2')
+  assert.equal(await run('document.querySelector(".workspace-card .workspace-host-name strong").textContent'), '容器节点', 'Returning from connection management refreshes pins and sorts them first inside their group')
+  assert.equal(await run('document.querySelectorAll(".workspace-card .workspace-pin").length'), 2, 'Both card and list entries identify pinned servers')
+  assert.equal(await run('window.__uiRegression.workspaceOpens.length'), opensBeforePinRefresh, 'Refreshing pin metadata preserves existing AI connections')
+  await run('window.__uiRegression.setWorkspaceActive(false)')
+  await run(`window.LiteConnect.setConnectionPinned('preview-4',false)`)
+  await run('window.__uiRegression.setWorkspaceActive(true)')
+  await waitFor('document.querySelectorAll(".workspace-card.pinned").length === 1')
+  assert.equal(await run('document.querySelector(".workspace-card .workspace-host-name strong").textContent'), '测试服务', 'Unpinning restores the previous ordering')
+  await run('window.__uiRegression.setWorkspaceActive(false)')
+  await run(`window.LiteConnect.setConnectionPinned('preview-4',true)`)
+  await run('window.__uiRegression.setWorkspaceActive(true)')
+  await waitFor('document.querySelectorAll(".workspace-card.pinned").length === 2')
+  assert.deepEqual(await run('Array.from(document.querySelectorAll(".rail-history-group h4")).map(el=>el.textContent)'), ['今天','昨天'], 'History groups conversations by day')
+  await run(`(() => {const input=document.querySelector('.workspace-search-field input');input.value='OA 服务';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await waitFor('document.querySelectorAll(".workspace-card").length === 1')
+  assert.equal(await run('document.querySelector(".workspace-host-name strong").textContent'), 'OA 应用服务器', 'Search includes server notes')
+  await run(`document.querySelector('.workspace-search-clear').click()`)
+  await waitFor('document.querySelectorAll(".workspace-card").length === 6')
+  await run(`(() => {const fixture=document.querySelector('.lite-ai-workspace-fixture');fixture.style.height='800px';fixture.scrollIntoView({block:'center'})})()`)
+  await run(`window.__uiRegression.setTheme('light')`)
+  await run(`document.querySelector('.rail-section .rail-item').click()`)
+  await waitFor('document.querySelector(".workspace-target-host")')
+  await run(`document.querySelector('.workspace-target-host').click()`)
+  await waitFor('document.querySelectorAll(".host-picker-group").length === 2')
+  assert.deepEqual(await run('Array.from(document.querySelectorAll(".host-picker-group")).map(group=>[group.querySelector("strong").textContent,group.querySelectorAll(".host-picker-item").length])'), [['默认分组',5],['生产环境 Production',1]], 'In-chat server switching retains the browser group order and counts')
+  assert.equal(await run('document.querySelector(".host-picker-item.current").closest(".host-picker-group").querySelector("strong").textContent'), '默认分组', 'The current connection stays in its own group')
+  assert.equal(await run('document.querySelector(".host-picker-item .workspace-host-label strong").textContent'), '容器节点', 'Pinned servers take priority over connected servers inside picker groups')
+  assert.equal(await run('document.querySelectorAll(".host-picker-item .workspace-pin").length'), 2, 'The in-chat picker identifies pinned servers')
+  await saveScreenshot('lite-ai-grouped-host-picker.png')
+  await run(`(() => {const input=document.querySelector('.host-picker-search');input.value='Production';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await waitFor('document.querySelectorAll(".host-picker-group").length === 1 && document.querySelectorAll(".host-picker-item").length === 1')
+  assert.equal(await run('document.querySelector(".host-picker-group-heading strong").textContent'), '生产环境 Production', 'Group-name search retains the matching group heading')
+  await run(`(() => {const input=document.querySelector('.host-picker-search');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await waitFor('document.querySelectorAll(".host-picker-group").length === 2')
+  await run(`document.querySelector('.host-picker-group-heading').click()`)
+  assert.equal(await run('Array.from(document.querySelectorAll(".host-picker-item")).filter(item=>item.getClientRects().length).length'), 1, 'Collapsing a picker group hides only its servers')
+  await run(`(() => {const input=document.querySelector('.host-picker-search');input.value='默认分组';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await waitFor('Array.from(document.querySelectorAll(".host-picker-item")).filter(item=>item.getClientRects().length).length === 5')
+  await run(`document.querySelector('.host-picker-search').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)
+  await waitFor('!document.querySelector(".host-picker")')
+  await run(`document.querySelector('.workspace-new-chat').click()`)
+  await waitFor('document.querySelectorAll(".host-picker-group").length === 2')
+  assert.equal(await run('Array.from(document.querySelectorAll(".host-picker-group-heading")).every(button=>button.getAttribute("aria-expanded")==="true")'), true, 'New conversation uses the same groups and starts expanded')
+  await run(`document.querySelector('.host-picker-backdrop').click()`)
+  await run(`document.querySelector('.workspace-host-entry').click()`)
+  await run(`document.querySelector('.workspace-view-switch [data-view=list]').click()`)
+  for (const theme of ['light','dark','eyecare']) {
+    await run(`window.__uiRegression.setTheme('${theme}')`)
+    await saveScreenshot(`lite-ai-redesign-${theme}.png`)
+  }
+  await run(`window.__uiRegression.setTheme('light')`)
+  await run(`document.querySelector('.workspace-view-switch [data-view=cards]').click()`)
+  assert.ok(await run('Array.from(document.querySelectorAll(".workspace-card")).every(card=>card.getBoundingClientRect().height<=165)'), 'Compact cards retain their content and actions within a smaller height')
+  await saveScreenshot('lite-ai-redesign-cards.png')
+  for (const width of [680,520]) {
+    await run(`document.querySelector('.lite-ai-workspace-fixture').style.width='${width}px'`)
+    for (const view of ['list','cards']) {
+      await run(`document.querySelector('.workspace-view-switch [data-view=${view}]').click()`)
+      const fits = await run(`(() => {const browser=document.querySelector('.workspace-browser');return browser.scrollWidth<=browser.clientWidth+1 && Array.from(document.querySelectorAll('.workspace-card-actions button')).every(button=>{const card=button.closest('.workspace-card').getBoundingClientRect();const rect=button.getBoundingClientRect();return rect.right<=card.right+1 && rect.left>=card.left-1})})()`)
+      assert.ok(fits, `${view} layout and actions fit at ${width}px`)
+    }
+    await run(`document.querySelector('.workspace-view-switch [data-view=list]').click()`)
+    await saveScreenshot(`lite-ai-redesign-${width}.png`)
+  }
+  await run(`(() => {const fixture=document.querySelector('.lite-ai-workspace-fixture');fixture.style.width='1050px';fixture.style.height='680px';fixture.scrollIntoView({block:'center'})})()`)
+  await run('window.__uiRegression.seedWorkspaceRail()')
+  await run(`document.querySelector('.workspace-host-entry').click()`)
+  await waitFor('document.querySelector(".workspace-browser")')
+  await run(`document.querySelector('.workspace-toolbar-actions .ui-icon-btn').click()`)
+  await waitFor('document.querySelectorAll(".rail-current-list .rail-item").length === 6 && document.querySelectorAll(".rail-history-list .rail-item").length === 5 && document.querySelector(".rail-history .rail-count").textContent === "14"')
+  assert.equal(await run('document.querySelector(".rail-history-toggle").getAttribute("aria-expanded")'), 'false', 'History initially shows only five conversations')
+  assert.equal(await run('document.querySelector(".rail-history-toggle").textContent.includes("9")'), true, 'History toggle shows how many extra conversations are available')
+  const railPartitionHeights = await run('Array.from(document.querySelectorAll(".rail-conversations > .rail-section")).map(section=>section.getBoundingClientRect().height)')
+  await run(`document.querySelector('.rail-history-toggle').click()`)
+  await waitFor('document.querySelectorAll(".rail-history-list .rail-item").length === 14')
+  assert.equal(await run('document.querySelector(".rail-history-toggle").getAttribute("aria-expanded")'), 'true', 'Expanding history exposes the remaining conversations')
+  assert.deepEqual(await run('Array.from(document.querySelectorAll(".rail-conversations > .rail-section")).map(section=>section.getBoundingClientRect().height)'), railPartitionHeights, 'Expanding history keeps both section heights unchanged')
+  assert.equal(await run(`(() => {const current=document.querySelector('.rail-current-list');const history=document.querySelector('.rail-history-list');const outer=document.querySelector('.rail-conversations');return [current,history].every(list=>list.scrollHeight>list.clientHeight && getComputedStyle(list).overflowY==='auto') && outer.scrollHeight<=outer.clientHeight+1})()`), true, 'Both conversation lists scroll inside their sections without stretching the sidebar')
+  await run(`document.querySelector('.rail-current-list').scrollTop=40`)
+  assert.equal(await run('document.querySelector(".rail-history-list").scrollTop'), 0, 'Scrolling opened conversations does not scroll history')
+  await run(`document.querySelector('.rail-history-list').scrollTop=80`)
+  assert.equal(await run('document.querySelector(".rail-current-list").scrollTop'), 40, 'Scrolling history does not scroll opened conversations')
+  assert.equal(await run(`(() => {const toggle=document.querySelector('.rail-history-toggle').getBoundingClientRect();const section=document.querySelector('.rail-history').getBoundingClientRect();return toggle.bottom<=section.bottom+1 && toggle.top>=section.top})()`), true, 'History toggle stays visible outside the scrolling list')
+  await saveScreenshot('lite-ai-sidebar-expanded.png')
+  await run(`document.querySelector('.rail-history-toggle').click()`)
+  await waitFor('document.querySelectorAll(".rail-history-list .rail-item").length === 5 && document.querySelector(".rail-history-list").scrollTop === 0')
+  await saveScreenshot('lite-ai-sidebar-five.png')
+  for (const height of [500,800]) {
+    await run(`document.querySelector('.lite-ai-workspace-fixture').style.height='${height}px'`)
+    assert.equal(await run(`(() => {const rail=document.querySelector('.ai-workspace-rail');const sections=[...document.querySelectorAll('.rail-conversations > .rail-section')];return rail.scrollHeight<=rail.clientHeight+1 && sections.every(section=>section.getBoundingClientRect().bottom<=rail.getBoundingClientRect().bottom)})()`), true, `Conversation sections stay bounded at a ${height}px workspace height`)
+  }
+  await run(`document.querySelector('.rail-collapse').click()`)
+  await saveScreenshot('lite-ai-redesign-collapsed.png')
   await run('window.__uiRegression.setWidth(320)')
   await saveScreenshot('ui-regression.png')
-  console.log(JSON.stringify({passed:true,layoutCases,themeCases:themeCases.length,flows:['collapsed groups','toolbar menu and Escape','sidebar pointer and keyboard resize','narrow window layout','theme selection and color tags','global search','keyboard connection','whole-card drag','button protection','bookmark rename','AI stages and stalled output','SFTP conflict and confirmed backup','directory upload selection'],artifacts}))
+  console.log(JSON.stringify({passed:true,layoutCases,themeCases:themeCases.length,flows:['current group expansion and manual collapse','toolbar menu and Escape','sidebar pointer and keyboard resize','narrow window layout','theme selection and color tags','global search','keyboard connection','whole-card drag','button protection','bookmark rename','AI stages and stalled output','SFTP conflict and confirmed backup','directory upload selection'],artifacts}))
   clearTimeout(watchdog)
   window.destroy()
   app.quit()
