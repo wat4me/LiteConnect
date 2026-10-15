@@ -34,6 +34,10 @@ UI (components / views)
 | Persistence | `electron/store/` | credentials, settings, histories |
 | SSH MCP runtime | `electron/mcp/` | Tool runtime + policy over open `SSHManager` sessions |
 | SSH MCP HTTP | `electron/mcp/http*.ts` | Optional 127.0.0.1 Streamable HTTP gateway (Bearer, off by default) |
+| AI conversation | `electron/ai/chatStream.ts`, `chatCompletion.ts` | Request/turn orchestration and canonical transcripts |
+| AI protocols | `electron/ai/providers/` | Typed adapter contracts, registry, OpenAI/Anthropic codecs, SSE transport |
+| AI provider service | `electron/ai/providerService.ts` | Model discovery pagination, connection probes, timeouts |
+| AI tools | `electron/ai/toolExecution.ts`, `streamControl.ts` | Scope/policy/approval/execution and request ownership/cancellation |
 
 Import the real subpath (e.g. `ssh/trust/knownHosts`, `db/tunnel/sshTunnel`). Root-level re-export shells were removed.
 
@@ -61,6 +65,8 @@ npm run lint   # architecture-focused ESLint (dependency zones)
 | `electron/mcp` | `docker`, `db`, `ai` | MCP may import `ssh` types/`sessionExec`; only `bind.ts` should take `SSHManager` |
 | `electron/ai` | `ssh`, `docker`, `db` | AI tools go through MCP runtime |
 | `electron/store` | `ssh`, `docker`, `mcp`, `ai` | persistence stays below services |
+| `electron/ai/providers` | AI orchestration/tools/history; `ipc`, `store`, `mcp` | protocol codecs stay below application services |
+| OpenAI / Anthropic adapter | each other's implementation | share canonical validation rather than another wire format |
 
 Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`).
 
@@ -121,7 +127,7 @@ Do not merge these — they have different lifecycles and security boundaries:
 
 Renderer `Window.LiteConnect` lives in `src/types/liteConnectApi.ts`. `src/env.d.ts` only declares `Window` and re-exports shared types.
 
-AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; it adapts Electron events to the transport-independent `electron/ai/executionService.ts`. The execution service owns request serialization, persistence, cancellation, approval routing and background-result continuation. Settings/history ports and optional observers allow unattended read-only execution without a renderer; explicit history/thread identities remain separate from SSH session and caller identities. HTTP/parse lives in `electron/ai/providerHttp.ts`, session persistence in `electron/ai/historyStore.ts`, tool loop in `electron/ai/chatStream.ts`. See `docs/AI-RUNTIME.md` for the execution contract. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
+AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; it adapts Electron events to the transport-independent `electron/ai/executionService.ts`. The execution service owns request serialization, persistence, cancellation, approval routing and background-result continuation. Settings/history ports and optional observers allow unattended read-only execution without a renderer; explicit history/thread identities remain separate from SSH session and caller identities. Protocol codecs live in `electron/ai/providers/`, discovery/probing in `electron/ai/providerService.ts`, request packing in `electron/ai/requestContext.ts`, settings validation in `electron/ai/settingsValidation.ts`, and session persistence in `electron/ai/historyStore.ts`. The turn loop in `electron/ai/chatStream.ts` delegates individual calls to `toolExecution.ts`; `streamControl.ts` owns cancellation and pending approvals. See `docs/AI-RUNTIME.md` for the execution contract. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
 
 All main-process application data is stored in `liteconnect.sqlite`, managed by `electron/store/appDatabase.ts`. The database uses WAL, foreign-key enforcement, full synchronous commits, schema versions, and transactional legacy migration. Collection rows are updated only when their order or payload changes. JSON/JSONL remains an import/export format and a one-time upgrade source, not a live application store.
 
@@ -150,6 +156,24 @@ AI chat message footer display and controls live in `src/components/ai/AiMessage
 SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
 
 UI-only helpers stay in `src/utils/**`, never in `shared/`.
+
+## AI provider and tool boundaries
+
+AI providers implement the contract in `electron/ai/providers/types.ts` and register
+once in `providers/registry.ts`. Conversation orchestration consumes canonical
+messages, deltas, usage and adapter capabilities; it must not branch on Claude
+content blocks or vendor names. `providers/http.ts` owns only URL validation,
+HTTP error reading and SSE framing. Each provider owns its authentication,
+endpoints, message/tool/image encoding, response parsing and model-page schema.
+
+`shared/aiMessages.ts` owns canonical transcript normalization and repair of
+incomplete tool turns, without generating an OpenAI request. Shared image
+availability/size checks live in `shared/aiImages.ts`; both providers call them
+directly. `shared/anthropicContent.ts` remains shared because the renderer's IPC
+projection and local history both need lossless validation of signed blocks.
+`shared/types/ai.ts` is the single runtime configuration definition, also used by
+the settings store. Protocol adapters cannot import AI orchestration/tool/history
+services or each other's codecs; ESLint enforces those dependency directions.
 
 ## Intentional coupling (keep)
 

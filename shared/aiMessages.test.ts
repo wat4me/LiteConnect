@@ -4,7 +4,6 @@ import {
   flattenConversationForApi,
   limitAiMessagesPreservingToolProtocol,
   sanitizeAiToolProtocol,
-  toApiChatMessages,
   validateAiMessages,
 } from './aiMessages'
 
@@ -47,58 +46,6 @@ describe('validateAiMessages', () => {
 
   it('rejects empty user content', () => {
     expect(() => validateAiMessages([{ role: 'user', content: '  ' }])).toThrow()
-  })
-})
-
-describe('toApiChatMessages', () => {
-  it('emits reasoning_content and tool_calls only when tools are on', () => {
-    const msgs = [
-      { role: 'user' as const, content: 'q' },
-      {
-        role: 'assistant' as const,
-        content: '',
-        reasoningContent: 'plan',
-        toolCalls: [{ id: 'c1', type: 'function' as const, function: { name: 'exec', arguments: '{}' } }],
-      },
-      { role: 'tool' as const, content: 'ok', toolCallId: 'c1' },
-      { role: 'assistant' as const, content: 'done', reasoningContent: 'end' },
-    ]
-    expect(toApiChatMessages(msgs, true)).toEqual([
-      { role: 'user', content: 'q' },
-      {
-        role: 'assistant',
-        content: null,
-        reasoning_content: 'plan',
-        tool_calls: [{ id: 'c1', type: 'function', function: { name: 'exec', arguments: '{}' } }],
-      },
-      { role: 'tool', tool_call_id: 'c1', content: 'ok' },
-      { role: 'assistant', content: 'done', reasoning_content: 'end' },
-    ])
-    expect(toApiChatMessages(msgs, false)).toEqual([
-      { role: 'user', content: 'q' },
-      { role: 'assistant', content: 'done' },
-    ])
-  })
-
-  it('drops incomplete tool protocol before sending', () => {
-    const out = toApiChatMessages([
-      { role: 'user', content: 'q' },
-      {
-        role: 'assistant',
-        content: '',
-        toolCalls: [
-          { id: 'c1', type: 'function', function: { name: 'exec', arguments: '{}' } },
-          { id: 'c2', type: 'function', function: { name: 'exec', arguments: '{}' } },
-        ],
-      },
-      { role: 'tool', toolCallId: 'c1', content: 'only one result' },
-      { role: 'assistant', content: 'later answer' },
-      { role: 'tool', toolCallId: 'orphan', content: 'orphan result' },
-    ], true)
-    expect(out).toEqual([
-      { role: 'user', content: 'q' },
-      { role: 'assistant', content: 'later answer' },
-    ])
   })
 })
 
@@ -180,6 +127,15 @@ describe('flattenConversationForApi', () => {
 })
 
 describe('appendFinalAssistantTurn', () => {
+  it('retains the live reply and original provider metadata without history truncation', () => {
+    const content = 'x'.repeat(200_001)
+    const anthropicContent = [{ type: 'thinking' as const, thinking: '', signature: 'opaque+/==' }]
+    const tail = appendFinalAssistantTurn([], { content, anthropicContent }).at(-1)!
+    expect(tail.content.length).toBe(content.length)
+    expect(tail.content).toBe(content)
+    expect(tail.anthropicContent).toEqual(anthropicContent)
+    expect(appendFinalAssistantTurn([], { content: '', anthropicContent })).toHaveLength(1)
+  })
   it('appends the text-only tail after tool results', () => {
     const generated = appendFinalAssistantTurn(
       [

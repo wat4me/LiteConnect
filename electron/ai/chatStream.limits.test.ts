@@ -5,7 +5,7 @@ import {
   MAX_AI_TURN_API_MESSAGES,
   normalizeAiToolRounds,
 } from '../../shared/aiToolLimits'
-import { validateAiSettings } from './providerHttp'
+import { validateAiSettings } from './settingsValidation'
 import type { SshMcpRuntime } from '../mcp/runtime'
 const settings = { baseUrl: 'https://example.test/v1', apiKey: 'test', model: 'test', systemPrompt: '', temperature: 0, maxToolRounds: 2 }
 const sse = (delta: object) => new Response(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\ndata: [DONE]\n\n`)

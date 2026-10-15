@@ -50,6 +50,9 @@ function isCjkCodePoint(code: number): boolean {
 }
 
 export function messageTokens(message: AiContextMessage): number {
+  if (message.anthropicContent?.length) {
+    return estimateTokens(JSON.stringify(message.anthropicContent)) + aiImageTokens(message.images) + 6
+  }
   let n = estimateTokens(message.content || '') + estimateTokens(message.reasoningContent || '') + 6
   n += aiImageTokens(message.images)
   if (message.role === 'tool' && message.toolCallId) n += 4
@@ -61,6 +64,7 @@ export function messageTokens(message: AiContextMessage): number {
 
 function clonePackedMessage(message: AiContextMessage): AiContextMessage {
   const out: AiContextMessage = { role: message.role, content: message.content || '' }
+  if (message.role === 'assistant' && message.anthropicContent?.length) out.anthropicContent = message.anthropicContent
   if (message.role === 'user' && message.images?.length) out.images = message.images
   if (message.role === 'assistant' && message.reasoningContent?.trim()) {
     out.reasoningContent = message.reasoningContent
@@ -80,6 +84,7 @@ function keepableMessage(message: AiContextMessage): boolean {
   if (message.role === 'assistant') {
     return Boolean(
       message.content?.trim() ||
+        message.anthropicContent?.length ||
         message.reasoningContent?.trim() ||
         message.toolCalls?.length,
     )

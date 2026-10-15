@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { aiImageTokens, assertAiImageCapability, normalizeAiImages } from './aiImages'
-import { flattenConversationForApi, toApiChatMessages, validateAiMessages } from './aiMessages'
+import { aiImageTokens, assertAiImageCapability, normalizeAiImages, validateAiRequestImages } from './aiImages'
+import { flattenConversationForApi, validateAiMessages } from './aiMessages'
 import { packAiMessages, parseAiModels } from './aiContext'
 import { aiHistoryRecordForSummary } from './aiCompaction'
 import type { AiImageAttachment } from './types/ai'
@@ -20,10 +20,9 @@ describe('AI image message protocol', () => {
     ]
     const projected = flattenConversationForApi(history as Parameters<typeof flattenConversationForApi>[0])
     expect(projected.filter(message => message.images?.length)).toHaveLength(2)
-    const wire = toApiChatMessages(projected, true) as any[]
-    expect(wire[0].content).toEqual([{ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }])
-    expect(wire.at(-1).content[0]).toEqual({ type: 'text', text: 'compare' })
-    expect(wire[2]).toEqual({ role: 'tool', tool_call_id: 't', content: 'done' })
+    expect(projected[0]).toMatchObject({ role: 'user', images: [image] })
+    expect(projected.at(-1)).toMatchObject({ role: 'user', content: 'compare', images: [image] })
+    expect(projected[2]).toEqual({ role: 'tool', toolCallId: 't', content: 'done' })
   })
   it('keeps images while packing/truncating and accounts for visual input without counting base64 as text', () => {
     const packed = packAiMessages({ messages: [{ role: 'user', content: 'x'.repeat(10000), images: [image] }], budgetTokens: 1100, reserveOutputTokens: 0 })
@@ -40,12 +39,12 @@ describe('AI image message protocol', () => {
     expect(() => normalizeAiImages([{ ...image, mimeType: 'image/svg+xml' }])).toThrow()
     expect(() => normalizeAiImages(Array(5).fill(image))).toThrow()
     expect(() => validateAiMessages([{ role: 'user', content: '', images: [image] }])).not.toThrow()
-    expect(() => toApiChatMessages([{ role: 'user', content: '', images: [{ ...image, dataUrl: undefined, missing: true }] }], false)).toThrow('已丢失')
+    expect(() => validateAiRequestImages([{ role: 'user', content: '', images: [{ ...image, dataUrl: undefined, missing: true }] }])).toThrow('已丢失')
     expect(() => assertAiImageCapability([{ role: 'user', content: '', images: [image] }], false)).toThrow('未启用')
     expect(parseAiModels([{ id: 'custom', supportsImages: true }, { id: 'text', supportsImages: false }])).toEqual([{ id: 'custom', supportsImages: true }, { id: 'text', supportsImages: false }])
   })
   it('rejects aggregate request payloads exceeding the shared limit', () => {
     const large = { ...image, dataUrl: `data:image/png;base64,${'a'.repeat(4 * 1024 * 1024)}` }
-    expect(() => toApiChatMessages(Array.from({ length: 7 }, () => ({ role: 'user', content: 'image', images: [large] })), false)).toThrow('20 MB')
+    expect(() => validateAiRequestImages(Array.from({ length: 7 }, () => ({ role: 'user', content: 'image', images: [large] })))).toThrow('20 MB')
   })
 })

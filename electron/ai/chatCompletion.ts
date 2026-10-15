@@ -2,7 +2,10 @@ import type { AiResolvedConfig } from '../../shared/types/ai'
 import { assertAiImageCapability } from '../../shared/aiImages'
 import { isContextLengthError, resolveContextWindowTokens } from '../../shared/aiContext'
 import { t } from '../i18n'
-import { extractAiUsage, getAiChatCompletionsUrl, getFirstString, normalizeAiContent, packRequestMessages, readHttpErrorMessage, toApiChatMessages, validateAiMessages } from './providerHttp'
+import { readHttpErrorMessage } from './providers/http'
+import { getAiProviderAdapter } from './providers/registry'
+import { packRequestMessages } from './requestContext'
+import { validateAiMessages } from '../../shared/aiMessages'
 
 export async function runAiChatCompletion(
   settings: AiResolvedConfig,
@@ -12,26 +15,22 @@ export async function runAiChatCompletion(
   systemMaxTokens?: number,
   requiredContext?: string,
 ) {
+  const provider = getAiProviderAdapter(settings.protocol)
   const chatMessages = validateAiMessages(messages)
   assertAiImageCapability(chatMessages, settings.supportsImages)
   if (!settings.apiKey.trim()) {
     throw new Error(t('ai.apiKeyRequired'))
   }
 
-  const postChat = (packed: ReturnType<typeof packRequestMessages>) =>
-    fetch(getAiChatCompletionsUrl(settings.baseUrl), {
+  const postChat = (packed: ReturnType<typeof packRequestMessages>) => {
+    const request = provider.buildRequest(settings, packed)
+    return fetch(request.url, {
       method: 'POST',
       signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: settings.model,
-        temperature: settings.temperature ?? 0.7,
-        messages: toApiChatMessages(packed, false),
-      }),
+      headers: request.headers,
+      body: request.body,
     })
+  }
 
   const assertFixedContext = (packed: ReturnType<typeof packRequestMessages>) => {
     if (requiredContext && !packed[0]?.content.includes(requiredContext)) {
@@ -62,25 +61,15 @@ export async function runAiChatCompletion(
   }
 
   const data = await response.json()
-  const choice = data?.choices?.[0]
-  const message = choice?.message || {}
-  const content = normalizeAiContent(message.content ?? choice?.text)
+  const reply = provider.parseResponse(settings, data)
+  const { content } = reply
   if (!content) {
     throw new Error(t('ai.noMessageContent'))
   }
-  const reasoningContent = getFirstString(
-    message.reasoning_content,
-    message.reasoning,
-    message.thinking,
-    choice?.reasoning_content,
-    choice?.reasoning,
-    choice?.thinking,
-    data?.reasoning_content,
-    data?.reasoning,
-  )
   return {
     content,
-    reasoningContent: reasoningContent || undefined,
-    usage: extractAiUsage(data?.usage),
+    reasoningContent: reply.reasoningContent,
+    usage: reply.usage,
+    ...('apiMessages' in reply ? { apiMessages: reply.apiMessages } : {}),
   }
 }

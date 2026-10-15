@@ -1,6 +1,7 @@
+import { accumulateToolCallDeltas, type AccumulatedToolCall } from './toolCallDeltas'
+import { aggregateAiUsage } from '../../shared/aiUsage'
 import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import { workspaceToolsForChat, workspaceToolSystemAddendum } from '../../shared/aiWorkspacePrompt'
-import { routeWorkspaceTool, callWorkspaceTool } from './workspaceToolRouting'
 import { normalizeAiToolRounds } from '../../shared/aiToolLimits'
 import { assertAiImageCapability } from '../../shared/aiImages'
 import { formatAiConversationContextFile } from '../../shared/aiFixedContext'
@@ -11,29 +12,19 @@ import {
   resolveContextWindowTokens,
 } from '../../shared/aiContext'
 import {
-  accumulateToolCallDeltas,
-  bindSessionArgs,
   looksLikeToolsUnsupported,
-  parseToolCallArguments,
   sshToolsForChat,
   sshToolSystemAddendum,
-  type AccumulatedToolCall,
 } from './sshToolChat'
-import { serializeToolRunForHistory } from '../../shared/aiToolRunDisplay'
-import { clampToolResultForModel } from '../../shared/mcp/toolResultClamp'
 import {
-  AI_TOOL_APPROVAL_TIMEOUT_MS,
-  assessAiToolCall,
-  formatAiRiskReclassifyContent,
-  omitDeclaredRiskArg,
   sanitizeAiToolPermission,
   type AiToolPermissionMode,
-  type AiToolRunStatus,
 } from '../../shared/aiToolPolicy'
-import { appendFinalAssistantTurn } from '../../shared/aiMessages'
-import { applyCommandFloor, commandContentRisk } from './commandFloor'
-import { buildFileChangeDiffPreview } from './toolDiffPreview'
+import { appendFinalAssistantTurn, validateAiMessages } from '../../shared/aiMessages'
 import { maybeCompactAiContext } from './contextCompaction'
+import { getAiProviderAdapter } from './providers/registry'
+import { createAiStreamControl, clearPendingToolApprovals } from './streamControl'
+import { executeAiToolCall, type AiToolApprovalObserver } from './toolExecution'
 import type {
   AiChatMessage,
   AiChatStreamPayload,
@@ -41,86 +32,12 @@ import type {
   AiHistoryRecord,
   AiResolvedConfig,
   AiToolRun,
+  AiUsage,
 } from '../../shared/types/ai'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import { isValidUUID } from '../utils/validation'
-import {
-  extractAiReasoningFromChoice,
-  extractAiUsage,
-  getAiChatCompletionsUrl,
-  normalizeAiContent,
-  packRequestMessages,
-  readAiStream,
-  readHttpErrorMessage,
-  toApiChatMessages,
-  validateAiMessages,
-} from './providerHttp'
-
-type ActiveAiStream = { controller: AbortController; ownerId?: number }
-const activeAiStreams = new Map<string, ActiveAiStream>()
-
-export function createAiStreamControl(requestId: string, ownerId?: number) {
-  if (typeof requestId !== 'string' || !requestId || activeAiStreams.has(requestId)) {
-    throw new Error('Invalid or active AI request id')
-  }
-  const controller = new AbortController()
-  const active = { controller, ownerId }
-  activeAiStreams.set(requestId, active)
-  return {
-    controller,
-    cleanup: () => {
-      if (activeAiStreams.get(requestId) === active) activeAiStreams.delete(requestId)
-    },
-  }
-}
-
-type PendingToolApproval = { finish: (approved: boolean) => void; ownerId?: number }
-const pendingToolApprovals = new Map<string, PendingToolApproval>()
-
-function toolApprovalKey(requestId: string, callId: string): string {
-  return `${requestId}::${callId}`
-}
-
-function waitForToolApproval(requestId: string, callId: string, signal: AbortSignal): Promise<boolean> {
-  const key = toolApprovalKey(requestId, callId)
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (approved: boolean) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      signal.removeEventListener('abort', onAbort)
-      pendingToolApprovals.delete(key)
-      resolve(approved)
-    }
-    const onAbort = () => finish(false)
-    const timer = setTimeout(() => finish(false), AI_TOOL_APPROVAL_TIMEOUT_MS)
-    pendingToolApprovals.set(key, { finish, ownerId: activeAiStreams.get(requestId)?.ownerId })
-    signal.addEventListener('abort', onAbort)
-    if (signal.aborted) finish(false)
-  })
-}
-
-export function abortAiChatStream(requestId: string, ownerId?: number): boolean {
-  if (!requestId || typeof requestId !== 'string') return false
-  const active = activeAiStreams.get(requestId)
-  if (!active || (ownerId !== undefined && active.ownerId !== ownerId)) return false
-  active.controller.abort()
-  return true
-}
-
-export function resolveToolApproval(
-  requestId: string,
-  callId: string,
-  approved: boolean,
-  ownerId?: number,
-): boolean {
-  if (typeof requestId !== 'string' || typeof callId !== 'string') return false
-  const pending = pendingToolApprovals.get(toolApprovalKey(requestId, callId))
-  if (!pending || (ownerId !== undefined && pending.ownerId !== ownerId)) return false
-  pending.finish(approved === true)
-  return true
-}
+import { readHttpErrorMessage } from './providers/http'
+import { packRequestMessages } from './requestContext'
 
 export async function runAiChatStream(opts: {
   emit: (payload: AiChatStreamPayload) => void
@@ -138,12 +55,7 @@ export async function runAiChatStream(opts: {
   onBackgroundJobCollected?: (jobId: string) => void
   foregroundOnly?: boolean
   getToolPermission?: () => AiToolPermissionMode
-  onToolApprovalRequested?: (input: {
-    requestId: string
-    callId: string
-    sessionId: string
-    toolName: string
-  }) => void | (() => void)
+  onToolApprovalRequested?: AiToolApprovalObserver
   contextHistory?: {
     compactionCount?: number
     records: AiHistoryRecord[]
@@ -153,7 +65,7 @@ export async function runAiChatStream(opts: {
 }): Promise<{
   content: string
   reasoningContent?: string
-  usage?: ReturnType<typeof extractAiUsage>
+  usage?: AiUsage
   toolRuns?: AiToolRun[]
   aborted?: boolean
   apiMessages?: AiChatMessage[]
@@ -165,6 +77,7 @@ export async function runAiChatStream(opts: {
   if (!requestId || typeof requestId !== 'string') {
     throw new Error('Invalid AI request id')
   }
+  const provider = getAiProviderAdapter(settings.protocol)
   const chatMessages = validateAiMessages(messages)
   assertAiImageCapability(chatMessages, settings.supportsImages)
 
@@ -178,7 +91,7 @@ export async function runAiChatStream(opts: {
     typeof sessionId === 'string' && isValidUUID(sessionId) ? sessionId : ''
   let extraSystem = ''
   const workspaceTargets = opts.workspaceTargets
-  let useTools = Boolean(sshMcpRuntime && (workspaceTargets?.length || boundSessionId))
+  const useTools = Boolean(sshMcpRuntime && (workspaceTargets?.length || boundSessionId))
   if (workspaceTargets) {
     extraSystem = workspaceToolSystemAddendum(workspaceTargets)
   } else if (useTools && sshMcpRuntime) {
@@ -203,6 +116,12 @@ export async function runAiChatStream(opts: {
   const abortController = opts.abortController || control!.controller
   const cleanupStream = () => control?.cleanup()
   const tools = useTools ? (workspaceTargets ? workspaceToolsForChat() : sshToolsForChat()) : undefined
+  const usageRequests: (AiUsage | undefined)[] = []
+  const reportUsage = () => {
+    const usage = aggregateAiUsage(usageRequests)
+    if (usage) send({ type: 'usage', value: usage })
+    return usage
+  }
   let contextMessages = chatMessages
   let activeContextCheckpoint = opts.contextHistory?.checkpoint
   if (opts.contextHistory) {
@@ -217,6 +136,7 @@ export async function runAiChatStream(opts: {
         signal: abortController.signal,
         emit: send,
         saveCheckpoint: opts.contextHistory.saveCheckpoint,
+        onUsage: usage => { usageRequests.push(usage); reportUsage() },
       })
       contextMessages = prepared.messages
       activeContextCheckpoint = prepared.checkpoint
@@ -235,30 +155,20 @@ export async function runAiChatStream(opts: {
   let packedMessages: AiChatMessage[]
   try { packedMessages = packMessages(contextMessages) } catch (error) { cleanupStream(); throw error }
 
-  const createBody = (includeUsage: boolean, msgs: any[], withTools: boolean) => ({
-    model: settings.model,
-    temperature: settings.temperature ?? 0.7,
-    messages: toApiChatMessages(msgs, withTools),
-    stream: true,
-    ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
-    ...(withTools && tools ? { tools, tool_choice: 'auto' as const } : {}),
-  })
-
-  const requestStream = (includeUsage: boolean, msgs: any[], withTools: boolean) =>
-    fetch(getAiChatCompletionsUrl(settings.baseUrl), {
+  const requestStream = (includeUsage: boolean, msgs: AiChatMessage[], withTools: boolean) => {
+    const request = provider.buildRequest(settings, msgs, { stream: true, includeUsage, tools: withTools ? tools : undefined })
+    return fetch(request.url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify(createBody(includeUsage, msgs, withTools)),
+      headers: request.headers,
+      body: request.body,
       signal: abortController.signal,
     })
+  }
 
-  const openStream = async (msgs: any[], withTools: boolean) => {
+  const openStream = async (msgs: AiChatMessage[], withTools: boolean) => {
     send({ type: 'model-status', value: 'requesting' })
     let response = await requestStream(true, msgs, withTools)
-    if (!response.ok && (response.status === 400 || response.status === 422)) {
+    if (provider.supportsStreamUsageOption && !response.ok && (response.status === 400 || response.status === 422)) {
       const detail = await readHttpErrorMessage(response.clone(), '')
       if (/stream[_\s-]?options|include[_\s-]?usage/i.test(detail)) {
         response = await requestStream(false, msgs, withTools)
@@ -272,16 +182,14 @@ export async function runAiChatStream(opts: {
     let apiMessages: AiChatMessage[] = packedMessages
     const contentParts: string[] = []
     let reasoningContent = ''
-    let lastRoundContent = ''
-    let lastRoundReasoning = ''
-    let usage: ReturnType<typeof extractAiUsage> | undefined
+    let lastRoundMessage: AiChatMessage = { role: 'assistant', content: '' }
     const toolRuns: AiToolRun[] = []
     let toolsEnabled = Boolean(useTools && tools)
 
     const turnApiMessages = (): AiChatMessage[] | undefined => {
       const generated = appendFinalAssistantTurn(
         apiMessages.slice(packedMessages.length),
-        { content: lastRoundContent, reasoningContent: lastRoundReasoning },
+        lastRoundMessage,
       )
       return generated.length ? generated : undefined
     }
@@ -310,22 +218,21 @@ export async function runAiChatStream(opts: {
         }
       }
       streamAccepted = true
+      const usageIndex = usageRequests.push(undefined) - 1
+      reportUsage()
       send({ type: 'model-status', value: 'waiting' })
 
       let roundContent = ''
       let roundReasoning = ''
-      lastRoundContent = ''
-      lastRoundReasoning = ''
+      lastRoundMessage = { role: 'assistant', content: '' }
       const toolAcc = new Map<number, AccumulatedToolCall>()
-      await readAiStream(response, (chunk) => {
+      const roundMessage = await provider.readStream(settings, response, (delta) => {
         if (abortController.signal.aborted) return
-        const choice = chunk?.choices?.[0]
-        const delta = choice?.delta || {}
-        const contentDelta = normalizeAiContent(delta.content ?? choice?.text)
-        const reasoningDelta = extractAiReasoningFromChoice(choice)
-        const chunkUsage = extractAiUsage(chunk?.usage)
-        accumulateToolCallDeltas(toolAcc, delta.tool_calls || choice?.message?.tool_calls)
-        if (delta.tool_calls?.length || choice?.message?.tool_calls?.length) {
+        const contentDelta = delta.content
+        const reasoningDelta = delta.reasoning
+        const chunkUsage = delta.usage
+        accumulateToolCallDeltas(toolAcc, delta.toolCalls)
+        if (delta.toolCalls?.length) {
           send({ type: 'model-status', value: 'tool-input' })
         }
 
@@ -339,13 +246,12 @@ export async function runAiChatStream(opts: {
           send({ type: 'content', value: contentDelta })
         }
         if (chunkUsage) {
-          usage = chunkUsage
-          send({ type: 'usage', value: chunkUsage })
+          usageRequests[usageIndex] = chunkUsage
+          reportUsage()
         }
       })
 
-      lastRoundContent = roundContent
-      lastRoundReasoning = roundReasoning
+      lastRoundMessage = roundMessage
       if (roundContent.trim()) contentParts.push(roundContent)
 
       const calls = [...toolAcc.values()].filter((c) => c.name)
@@ -359,6 +265,7 @@ export async function runAiChatStream(opts: {
       apiMessages = [
         ...apiMessages,
         {
+          ...roundMessage,
           role: 'assistant',
           content: roundContent || '',
           ...(roundReasoning ? { reasoningContent: roundReasoning } : {}),
@@ -367,203 +274,23 @@ export async function runAiChatStream(opts: {
       ]
 
       for (const call of assistantToolCalls) {
-        const rawArgs = parseToolCallArguments(call.function.arguments)
-        let targetLabel: string | undefined
-        let boundArgs: Record<string, unknown>
-        try {
-          if (workspaceTargets) {
-            const routed = routeWorkspaceTool(call.function.name, rawArgs, workspaceTargets, sshMcpRuntime)
-            boundArgs = routed.args
-            targetLabel = routed.label
-          } else boundArgs = bindSessionArgs(rawArgs, boundSessionId)
-        } catch (error) {
-          const content = error instanceof Error ? error.message : String(error)
-          const run: AiToolRun = { id: call.id, name: call.function.name, args: call.function.arguments || '{}', content, isError: true, status: 'blocked' }
-          toolRuns.push(run)
-          send({ type: 'tool', value: { ...run, phase: 'blocked' } })
-          apiMessages.push({ role: 'tool', toolCallId: call.id, content })
-          await opts.checkpoint?.()
-          continue
-        }
-        const executeTool = () => workspaceTargets
-          ? callWorkspaceTool(sshMcpRuntime, call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
-          : sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal: abortController.signal })
-        if (opts.foregroundOnly && call.function.name === 'exec') boundArgs.background = false
-        // The declaration decides whether to ask; the command classifier is an
-        // escalate-only floor on top of it, so a call labelled `read` that is
-        // really a delete cannot ride through `auto` mode unexamined.
-        const toolPermission = currentToolPermission()
-        const gate = applyCommandFloor(
-          assessAiToolCall(call.function.name, boundArgs, toolPermission),
-          commandContentRisk(call.function.name, boundArgs),
-          toolPermission,
-        )
-        const mcpArgs = omitDeclaredRiskArg(boundArgs)
-        const callArgs = opts.foregroundOnly && call.function.name === 'exec' ? JSON.stringify(boundArgs) : call.function.arguments || '{}'
-        // Approval should not be blind: diff the file we are about to rewrite.
-        // edit_file yields a small focused diff; write_file a whole-file one.
-        const needsDiffPreview = gate.action === 'ask' &&
-          (call.function.name === 'write_file' || call.function.name === 'edit_file')
-        if (needsDiffPreview) send({ type: 'model-status', value: 'tool-prepare' })
-        const diffPreview = needsDiffPreview
-          ? await buildFileChangeDiffPreview(sshMcpRuntime, call.function.name, mcpArgs)
-          : undefined
-        send({
-          type: 'tool',
-          value: {
-            phase:
-              gate.action === 'ask'
-                ? 'ask'
-                : gate.action === 'deny'
-                  ? 'blocked'
-                  : gate.action === 'reclassify'
-                    ? 'reclassify'
-                    : 'running',
-            id: call.id,
-            name: call.function.name,
-            args: callArgs,
-            risk: gate.risk,
-            target: targetLabel,
-            reason: gate.reason,
-            ...(diffPreview
-              ? { diffSummary: diffPreview.summary, diffPreview: diffPreview.diff }
-              : {}),
-          },
+        const result = await executeAiToolCall(call, {
+          requestId, boundSessionId, workspaceTargets, sshMcpRuntime,
+          signal: abortController.signal, send, getToolPermission: currentToolPermission,
+          checkpoint: opts.checkpoint, foregroundOnly: opts.foregroundOnly,
+          onToolApprovalRequested: opts.onToolApprovalRequested,
+          onBackgroundJobsStarted: opts.onBackgroundJobsStarted,
+          onBackgroundJobCollected: opts.onBackgroundJobCollected,
         })
-
-        const approval = gate.action === 'ask'
-          ? waitForToolApproval(requestId, call.id, abortController.signal)
-          : undefined
-        if (approval && opts.onToolApprovalRequested) {
-          try {
-            const closeNotification = opts.onToolApprovalRequested({
-              requestId,
-              callId: call.id,
-              sessionId: String(boundArgs.sessionId || boundSessionId),
-              toolName: call.function.name,
-            })
-            if (closeNotification) {
-              void approval.finally(closeNotification)
-            }
-          } catch (err) {
-            console.warn('[AI Approval Notification]', err)
-          }
-        }
-        await opts.checkpoint?.()
-        if (abortController.signal.aborted) break
-        let result: { isError: boolean; content: string; structuredContent?: unknown }
-        let status: AiToolRunStatus = 'done'
-        if (gate.action === 'reclassify') {
-          status = 'reclassify'
-          result = {
-            isError: true,
-            content: formatAiRiskReclassifyContent(gate),
-            structuredContent: {
-              code: gate.code,
-              message: gate.reason,
-            },
-          }
-        } else if (gate.action === 'deny') {
-          status = 'blocked'
-          result = {
-            isError: true,
-            content: `${gate.code}: 当前设置仅允许申报为 read 的操作；本次申报为 ${gate.risk}，未执行。`,
-            structuredContent: { code: gate.code, message: gate.reason },
-          }
-        } else if (gate.action === 'ask') {
-          const approved = await approval
-          if (!approved) {
-            status = 'denied'
-            result = {
-              isError: true,
-              content: abortController.signal.aborted
-                ? 'USER_DENIED: The request was cancelled.'
-                : 'USER_DENIED: The user refused this tool call.',
-            }
-          } else {
-            send({
-              type: 'tool',
-              value: {
-                phase: 'running',
-                id: call.id,
-                name: call.function.name,
-                args: callArgs,
-                risk: gate.risk,
-                target: targetLabel,
-                reason: gate.reason,
-              },
-            })
-            await opts.checkpoint?.()
-            if (abortController.signal.aborted) break
-            result = await executeTool()
-          }
-        } else {
-          result = await executeTool()
-        }
-
-        let jobIds: string[] | undefined
-        if (call.function.name === 'exec' && !result.isError && mcpArgs.background === true) {
-          const payload = result.structuredContent as { jobId?: string; jobs?: { jobId: string }[] }
-          const ids = payload?.jobId ? [payload.jobId] : (payload?.jobs || []).map(job => job.jobId)
-          jobIds = ids
-          opts.onBackgroundJobsStarted?.(ids)
-        }
-        if (call.function.name === 'get_job' && !result.isError) {
-          const job = result.structuredContent as { jobId?: string; status?: string }
-          if (job?.jobId && job.status && job.status !== 'running') opts.onBackgroundJobCollected?.(job.jobId)
-        }
-        if (abortController.signal.aborted) break
-
-        result = clampToolResultForModel(result)
-
-        const stored = serializeToolRunForHistory({
-          name: call.function.name,
-          args: callArgs,
-          content: result.content,
-          isError: result.isError,
-          structured: result.structuredContent,
-        })
-        const run: AiToolRun = {
-          id: call.id,
-          name: call.function.name,
-          args: stored.args,
-          content: stored.content,
-          isError: result.isError,
-          status,
-          risk: gate.risk,
-          jobIds,
-          target: targetLabel,
-          reason: gate.reason,
-        }
-        toolRuns.push(run)
-        send({
-          type: 'tool',
-          value: {
-            phase: status === 'done' ? 'done' : status,
-            id: run.id,
-            name: run.name,
-            args: run.args,
-            content: run.content,
-            isError: run.isError,
-            risk: run.risk,
-            jobIds: run.jobIds,
-            target: run.target,
-            reason: run.reason,
-            status: run.status,
-          },
-        })
-        apiMessages.push({
-          role: 'tool',
-          toolCallId: call.id,
-          content: result.content,
-        })
+        if (!result) break
+        toolRuns.push(result.run)
+        apiMessages.push(result.message)
         await opts.checkpoint?.()
       }
       if (round + 1 === maxToolRounds && !abortController.signal.aborted) {
         const notice = t('ai.toolRoundLimitReached', { count: maxToolRounds })
         contentParts.push(notice)
-        lastRoundContent = notice
-        lastRoundReasoning = ''
+        lastRoundMessage = { role: 'assistant', content: notice }
         send({ type: 'content', value: `\n\n${notice}` })
         await opts.checkpoint?.()
       }
@@ -576,7 +303,7 @@ export async function runAiChatStream(opts: {
       return {
         content,
         reasoningContent: reasoningContent || undefined,
-        usage,
+        usage: aggregateAiUsage(usageRequests),
         toolRuns,
         aborted: true,
         apiMessages: apiTurn,
@@ -588,7 +315,7 @@ export async function runAiChatStream(opts: {
     return {
       content,
       reasoningContent: reasoningContent || undefined,
-      usage,
+      usage: aggregateAiUsage(usageRequests),
       toolRuns,
       apiMessages: apiTurn,
       contextCheckpoint: activeContextCheckpoint,
@@ -598,26 +325,26 @@ export async function runAiChatStream(opts: {
       send({ type: 'done' })
       return { content: '', aborted: true, contextCheckpoint: activeContextCheckpoint }
     }
-    if (!receivedText && streamAccepted) {
+    if (!receivedText && streamAccepted && provider.allowsCompletionFallback) {
       const reply = await runAiChatCompletion(
         settings, contextMessages, abortController.signal, extraSystem,
         contextFiles.length ? 40_000 : undefined, contextFiles.length ? contextFiles.map(formatAiConversationContextFile).join('\n\n') : undefined,
       )
       if (reply.reasoningContent) send({ type: 'reasoning', value: reply.reasoningContent })
       send({ type: 'content', value: reply.content })
-      if (reply.usage) send({ type: 'usage', value: reply.usage })
+      usageRequests.push(reply.usage)
+      const usage = reportUsage()
       send({ type: 'done' })
       return {
         ...reply,
-        apiMessages: [{ role: 'assistant', content: reply.content, reasoningContent: reply.reasoningContent }],
+        usage,
+        apiMessages: reply.apiMessages || [{ role: 'assistant', content: reply.content, reasoningContent: reply.reasoningContent }],
         contextCheckpoint: activeContextCheckpoint,
       }
     }
     throw err
   } finally {
-    for (const [key, pending] of pendingToolApprovals) {
-      if (key.startsWith(`${requestId}::`)) pending.finish(false)
-    }
+    clearPendingToolApprovals(requestId)
     cleanupStream()
   }
 }

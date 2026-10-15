@@ -5,7 +5,8 @@ import { readFile, stat } from 'fs/promises'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
 import type { SshMcpRuntime } from '../mcp/runtime'
-import { listAiProviderModels, testAiProviderConfig, validateAiSettings } from '../ai/providerHttp'
+import { listAiProviderModels, testAiProviderConfig } from '../ai/providerService'
+import { validateAiSettings } from '../ai/settingsValidation'
 import {
   createNewConversationAtomic,
   AI_CONTEXT_FILE_MAX_BYTES,

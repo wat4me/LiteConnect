@@ -46,3 +46,13 @@ export function assertAiImageCapability(messages: AiChatMessage[], supportsImage
     throw new Error('当前模型未启用图片支持。请在模型设置中启用支持图片，或切换支持图片的模型；历史含图片时也需要使用支持图片的模型。')
   }
 }
+
+/** Shared attachment availability/size rules, independent of any wire format. */
+export function validateAiRequestImages(messages: readonly AiChatMessage[]): void {
+  let bytes = 0
+  for (const message of messages) for (const image of message.images || []) {
+    if (!image.dataUrl || image.missing) throw new Error(`图片 ${image.name} 已丢失，请重新添加图片或开始新会话`)
+    bytes += Math.ceil((image.dataUrl.length - image.dataUrl.indexOf(',') - 1) * 3 / 4)
+    if (bytes > AI_IMAGES_REQUEST_MAX_BYTES) throw new Error('会话图片总量超过 20 MB，请开始新会话或移除旧图片消息')
+  }
+}

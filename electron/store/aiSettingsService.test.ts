@@ -12,6 +12,19 @@ function createService(stored: Record<string, any>) {
 }
 
 describe('AiSettingsService', () => {
+  it('persists native protocol with encrypted keys and resolves it for chats and scheduled models', async () => {
+    const stored: Record<string, any> = {}
+    const { service } = createService(stored)
+    await service.setAiSettings({ providers: [
+      { id: 'old', name: 'Old', baseUrl: 'https://old.example/v1', apiKey: 'old-key', models: ['old'] },
+      { id: 'claude', name: 'Claude', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'claude-key', models: ['claude-fixture'] },
+    ], activeProviderId: 'old', activeModel: 'old' })
+    expect(service.getAiResolvedConfig().protocol).toBe('openai')
+    expect(service.resolveAiConfig('claude', 'claude-fixture')).toMatchObject({ protocol: 'anthropic', apiKey: 'claude-key' })
+    expect(stored.ai.providers[1]).toMatchObject({ protocol: 'anthropic', apiKey: 'encrypted:claude-key' })
+    await service.switchAiModel('claude', 'claude-fixture')
+    expect(service.getAiResolvedConfig().protocol).toBe('anthropic')
+  })
   it('persists explicit image capability per model and resolves it after a model switch', async () => {
     const stored: Record<string, any> = {}
     const { service } = createService(stored)

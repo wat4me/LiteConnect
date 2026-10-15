@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { runAiChatCompletion } from './chatCompletion'
 import { runAiChatStream } from './chatStream'
-import { packRequestMessages } from './providerHttp'
+import { packRequestMessages } from './requestContext'
 import type { AiChatMessage, AiResolvedConfig } from '../../shared/types/ai'
 
 const settings: AiResolvedConfig = { baseUrl: 'https://example.test/v1', apiKey: 'fixture', model: 'custom', systemPrompt: '', temperature: 0, supportsImages: true }

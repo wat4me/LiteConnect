@@ -18,7 +18,18 @@ export interface AiDiscoveredModel {
   contextWindowTokens?: number
 }
 
+export type AiProviderProtocol = 'openai' | 'anthropic'
+
+/** Original Claude content blocks, including opaque thinking signatures. */
+export type AiAnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+
 export interface AiProvider {
+  /** Unset on older configurations means OpenAI compatible. */
+  protocol?: AiProviderProtocol
   id: string
   name: string
   baseUrl: string
@@ -48,6 +59,7 @@ export interface AiSettings {
 }
 
 export interface AiResolvedConfig {
+  protocol?: AiProviderProtocol
   supportsImages?: boolean
   maxToolRounds?: number
   baseUrl: string
@@ -59,7 +71,7 @@ export interface AiResolvedConfig {
   toolPermission?: AiToolPermissionMode
 }
 
-/** OpenAI Chat Completions function tool call. */
+/** Provider-neutral function call, using Chat Completions field names. */
 export interface AiFunctionToolCall {
   id: string
   type: 'function'
@@ -67,10 +79,11 @@ export interface AiFunctionToolCall {
 }
 
 /**
- * Chat Completions message as sent to the model.
- * Assistant turns with tools use `toolCalls`; results use `role: 'tool'`.
+ * Canonical model transcript, converted by the selected protocol adapter.
+ * Claude's signed blocks accompany the assistant's display text and tool calls.
  */
 export interface AiChatMessage {
+  anthropicContent?: AiAnthropicContentBlock[]
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   images?: AiImageAttachment[]
@@ -82,9 +95,18 @@ export interface AiChatMessage {
 
 export interface AiUsage {
   promptTokens?: number
+  /** Cache hits and misses are subsets of promptTokens, not extra tokens. */
+  cachedPromptTokens?: number
+  uncachedPromptTokens?: number
+  /** Subset of uncachedPromptTokens written to Claude's prompt cache. */
+  cacheCreationPromptTokens?: number
   completionTokens?: number
   totalTokens?: number
+  /** Already included in completionTokens. */
   reasoningTokens?: number
+  requestCount?: number
+  usageIncomplete?: boolean
+  cacheUsageIncomplete?: boolean
 }
 
 export interface AiToolRun {

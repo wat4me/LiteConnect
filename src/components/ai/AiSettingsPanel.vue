@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { defaultAiProviderBaseUrl, normalizeAiProviderProtocol } from '@shared/aiProviderProtocol'
+import type { AiProviderProtocol } from '@shared/types/ai'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -42,6 +44,7 @@ function cloneSettings(settings?: AiSettings | null): AiSettings {
       }
   raw.providers = (raw.providers || []).map((p) => ({
     ...p,
+    protocol: normalizeAiProviderProtocol(p.protocol),
     models: parseAiModels(p.models),
   }))
   raw.maxToolRounds = normalizeAiToolRounds(raw.maxToolRounds)
@@ -81,9 +84,10 @@ async function fetchModels() {
   selectedModels.value = []
   const baseUrl = provider.baseUrl
   const apiKey = provider.apiKey
+  const protocol = provider.protocol
   try {
-    const models = await window.LiteConnect.listAiModels({ baseUrl, apiKey })
-    if (editingProvider.value === provider && provider.baseUrl === baseUrl && provider.apiKey === apiKey) {
+    const models = await window.LiteConnect.listAiModels({ baseUrl, apiKey, protocol })
+    if (editingProvider.value === provider && provider.baseUrl === baseUrl && provider.apiKey === apiKey && provider.protocol === protocol) {
       discoveredModels.value = models
       fetchedModels.value = models.map(model => model.id)
       for (const model of provider.models) {
@@ -134,7 +138,7 @@ const editingProvider = computed<AiProvider | null>(() => {
   return draftSettings.value.providers.find((p) => p.id === editingProviderId.value) || null
 })
 
-watch(() => [editingProvider.value?.baseUrl, editingProvider.value?.apiKey], () => {
+watch(() => [editingProvider.value?.baseUrl, editingProvider.value?.apiKey, editingProvider.value?.protocol], () => {
   fetchedModels.value = null
   selectedModels.value = []
   fetchError.value = ''
@@ -150,10 +154,21 @@ function generateProviderId(): string {
   return `prov-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+function changeProviderProtocol(event: Event) {
+  const provider = editingProvider.value
+  if (!provider) return
+  const previous = normalizeAiProviderProtocol(provider.protocol)
+  const next = normalizeAiProviderProtocol((event.target as HTMLSelectElement).value)
+  if (!provider.baseUrl.trim() || provider.baseUrl.trim() === defaultAiProviderBaseUrl(previous)) provider.baseUrl = defaultAiProviderBaseUrl(next)
+  provider.protocol = next
+  for (const model of provider.models) model.contextMetadata = undefined
+}
+
 function addProvider() {
   const newProvider: AiProvider = {
     id: generateProviderId(),
     name: t('ai.newProvider'),
+    protocol: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     models: [],
@@ -224,6 +239,7 @@ async function testProvider() {
   try {
     await window.LiteConnect.testAiProvider({
       baseUrl: provider.baseUrl.trim(),
+      protocol: provider.protocol,
       apiKey: provider.apiKey,
       model,
     })
@@ -242,6 +258,7 @@ async function saveSettings() {
       id: p.id,
       name: p.name.trim() || t('ai.unnamedProvider'),
       baseUrl: p.baseUrl.trim(),
+      protocol: normalizeAiProviderProtocol(p.protocol),
       apiKey: p.apiKey,
       models: parseAiModels(p.models),
     })),
@@ -388,8 +405,15 @@ defineExpose({ applyExternal })
       <label for="ai-provider-name" class="field-label">{{ t('common.name') }}</label>
       <input id="ai-provider-name" v-model="editingProvider.name" class="ui-input ui-input-sm" placeholder="OpenAI" />
 
+      <label for="ai-provider-protocol" class="field-label">{{ t('ai.providerProtocol') }}</label>
+      <select id="ai-provider-protocol" :value="editingProvider.protocol || 'openai'" class="ui-input ui-input-sm" @change="changeProviderProtocol">
+        <option value="openai">{{ t('ai.protocolOpenai') }}</option>
+        <option value="anthropic">Anthropic Messages（Claude）</option>
+      </select>
+      <p class="permission-hint">{{ t(editingProvider.protocol === 'anthropic' ? 'ai.protocolAnthropicHint' : 'ai.protocolOpenaiHint') }}</p>
+
       <label for="ai-provider-url" class="field-label">Base URL</label>
-      <input id="ai-provider-url" v-model="editingProvider.baseUrl" class="ui-input ui-input-sm" placeholder="https://api.openai.com/v1" />
+      <input id="ai-provider-url" v-model="editingProvider.baseUrl" class="ui-input ui-input-sm" :placeholder="defaultAiProviderBaseUrl(editingProvider.protocol as AiProviderProtocol || 'openai')" />
 
       <label for="ai-provider-key" class="field-label">API Key</label>
       <div class="api-key-field"><input id="ai-provider-key" v-model="editingProvider.apiKey" class="ui-input ui-input-sm" :type="showApiKey ? 'text' : 'password'" placeholder="sk-..." autocomplete="off" />

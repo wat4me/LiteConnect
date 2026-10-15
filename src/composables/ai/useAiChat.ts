@@ -1,3 +1,4 @@
+import { normalizeAiUsage } from '@shared/aiUsage'
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
@@ -272,13 +273,7 @@ export function useAiChat() {
    * produces "An object could not be cloned". Always emit plain data.
    */
   function plainUsage(usage: AiUsage | undefined): AiUsage | undefined {
-    if (!usage || typeof usage !== 'object') return undefined
-    const out: AiUsage = {}
-    if (typeof usage.promptTokens === 'number') out.promptTokens = usage.promptTokens
-    if (typeof usage.completionTokens === 'number') out.completionTokens = usage.completionTokens
-    if (typeof usage.totalTokens === 'number') out.totalTokens = usage.totalTokens
-    if (typeof usage.reasoningTokens === 'number') out.reasoningTokens = usage.reasoningTokens
-    return Object.keys(out).length > 0 ? out : undefined
+    return normalizeAiUsage(usage)
   }
 
   function toHistoryRecord(message: ChatItem): AiHistoryRecord {
@@ -362,6 +357,7 @@ export function useAiChat() {
         return { role: m.role, content: String(m.content ?? ''), ...(m.images?.length ? { images: JSON.parse(JSON.stringify(m.images)) } : {}) }
       }
       const row: AiChatMessage = { role: 'assistant', content: String(m.content ?? '') }
+      if (m.anthropicContent?.length) row.anthropicContent = JSON.parse(JSON.stringify(m.anthropicContent))
       if (m.reasoningContent) row.reasoningContent = String(m.reasoningContent)
       if (m.toolCalls?.length) {
         row.toolCalls = m.toolCalls.map((c) => ({

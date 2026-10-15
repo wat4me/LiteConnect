@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { abortAiChatStream, createAiStreamControl, resolveToolApproval, runAiChatStream } from './chatStream'
+import { runAiChatStream } from './chatStream'
+import { abortAiChatStream, createAiStreamControl, resolveToolApproval } from './streamControl'
 import { runPersistedAiReply } from './streamPersistence'
 import type { SshMcpRuntime } from '../mcp/runtime'
-import type { AiHistoryRecord, AiResolvedConfig } from '../../shared/types/ai'
+import type { AiHistoryRecord, AiResolvedConfig, AiChatStreamPayload } from '../../shared/types/ai'
 
 const settings: AiResolvedConfig = { baseUrl: 'https://example.test/v1', apiKey: 'test', model: 'test', systemPrompt: '', temperature: 0 }
 afterEach(() => vi.unstubAllGlobals())
@@ -252,4 +253,27 @@ it('clears and persists pending approval when cancelled during its checkpoint', 
   expect(records.at(-1)?.toolRuns?.[0].status).toBe('denied')
   expect(call).toHaveBeenCalledTimes(1) // Session metadata only; no command ran.
   expect(resolveToolApproval(requestId, 't', true)).toBe(false)
+})
+
+
+it('accumulates request usage across tool rounds, replacing repeated stream usage snapshots', async () => {
+  const response = (chunks: object[]) => new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n')
+  const firstUsage = { prompt_tokens: 1000, completion_tokens: 100, prompt_tokens_details: { cached_tokens: 800 }, completion_tokens_details: { reasoning_tokens: 60 } }
+  const secondUsage = { prompt_tokens: 2000, completion_tokens: 200, prompt_cache_hit_tokens: 1500, prompt_cache_miss_tokens: 500 }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response([
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'inspect-usage', function: { name: 'exec', arguments: JSON.stringify({ command: 'hostname', risk: 'read', explanation: 'Read hostname' }) } }] } }] },
+    { choices: [], usage: firstUsage }, { choices: [], usage: firstUsage },
+  ])).mockResolvedValueOnce(response([{ choices: [{ delta: { content: 'healthy' } }], usage: secondUsage }])))
+  const events: AiChatStreamPayload[] = []
+  const call = vi.fn(async () => ({ isError: false, content: 'host', structuredContent: { sessions: [] } }))
+  const result = await runAiChatStream({ emit: event => { events.push(event) }, requestId: 'usage-tool-rounds', settings: { ...settings, toolPermission: 'readonly' },
+    messages: [{ role: 'user', content: 'check hostname' }], sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7', sshMcpRuntime: { call } as unknown as SshMcpRuntime })
+  expect(result.usage).toEqual({ requestCount: 2, promptTokens: 3000, cachedPromptTokens: 2300, uncachedPromptTokens: 700, completionTokens: 300, totalTokens: 3300, reasoningTokens: 60 })
+  expect(events.filter(event => event.type === 'usage').at(-1)).toEqual({ type: 'usage', value: result.usage })
+})
+
+it('marks a completed turn with missing provider usage as unknown instead of zero', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse({ content: 'healthy' })))
+  const result = await runAiChatStream({ emit: () => {}, requestId: 'missing-provider-usage', settings, messages: [{ role: 'user', content: 'hello' }] })
+  expect(result.usage).toEqual({ requestCount: 1, usageIncomplete: true, cacheUsageIncomplete: true })
 })

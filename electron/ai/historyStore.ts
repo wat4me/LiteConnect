@@ -16,7 +16,7 @@ import type {
   AiSessionStore,
   AiToolRun,
 } from '../../shared/types/ai'
-import { extractAiUsage } from './providerHttp'
+import { normalizeAiUsage } from '../../shared/aiUsage'
 import {
   aiSessionKey,
   getAppDatabase,
@@ -210,12 +210,7 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     backgroundNotice: typeof record.backgroundNotice === 'string' ? record.backgroundNotice.slice(0, 32000) : undefined,
     ...(record.role === 'user' && record.images?.length ? { images: normalizeAiImages(record.images) } : {}),
     reasoningContent: typeof record.reasoningContent === 'string' ? record.reasoningContent.slice(0, 200000) : undefined,
-    usage: extractAiUsage({
-      prompt_tokens: record.usage?.promptTokens,
-      completion_tokens: record.usage?.completionTokens,
-      total_tokens: record.usage?.totalTokens,
-      reasoning_tokens: record.usage?.reasoningTokens,
-    }),
+    usage: normalizeAiUsage(record.usage),
     error: record.error === true,
     status:
       record.status === 'running' ||

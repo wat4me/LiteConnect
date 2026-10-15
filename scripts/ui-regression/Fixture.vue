@@ -13,7 +13,7 @@ import LeftToolbar from '../../src/components/workspace/LeftToolbar.vue'
 import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJobs'
 import type { SshMcpJobSummary } from '../../shared/mcp/types'
 import { useAiChat } from '../../src/composables/ai/useAiChat'
-import type { AiSessionStore, AiSettings, AiToolRun } from '../../shared/types/ai'
+import type { AiSessionStore, AiSettings, AiToolRun, AiUsage } from '../../shared/types/ai'
 import type { AiScheduleInput, AiScheduleRun, AiScheduleSnapshot } from '../../shared/aiSchedules'
 import { aiScheduleConnectionIds, nextAiScheduleRun } from '../../shared/aiSchedules'
 import FileEditorModal from '../../src/components/sftp/FileEditorModal.vue'
@@ -359,6 +359,10 @@ onMounted(() => {
     failPreview() { previewFails = true },
     restorePreview() { previewFails = false },
     async openSync() { syncOpen.value = true; await nextTick() },
+    async aiUsage(usage: AiUsage) {
+      aiMessages.value = [{ id: 'ai-usage', role: 'assistant', content: '多服务器检查完成。', createdAt: Date.now(), completedAt: Date.now(), usage }]
+      await nextTick()
+    },
     async aiPhase(phase: AiActivityPhase, quietMs = 0) {
       const now = Date.now()
       aiMessages.value = [{

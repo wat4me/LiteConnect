@@ -1,6 +1,7 @@
 import type { AiChatMessage, AiFunctionToolCall } from './types/ai'
 import type { AiImageAttachment } from './types/ai'
-import { normalizeAiImages, AI_IMAGES_REQUEST_MAX_BYTES } from './aiImages'
+import { normalizeAiImages } from './aiImages'
+import { normalizeAnthropicContent } from './anthropicContent'
 import { MAX_AI_TOOL_CALLS_PER_ROUND, MAX_AI_TURN_API_MESSAGES } from './aiToolLimits'
 
 export const AI_MESSAGE_CONTENT_MAX = 200_000
@@ -65,8 +66,10 @@ export function normalizeAiChatMessage(raw: unknown): AiChatMessage | null {
         ? m.reasoning_content
         : ''
   const reasoning = reasoningRaw.slice(0, AI_MESSAGE_CONTENT_MAX)
-  if (!content.trim() && !reasoning.trim() && !toolCalls.length) return null
+  const anthropicContent = normalizeAnthropicContent(m.anthropicContent)
+  if (!content.trim() && !reasoning.trim() && !toolCalls.length && !anthropicContent) return null
   const out: AiChatMessage = { role: 'assistant', content }
+  if (anthropicContent) out.anthropicContent = anthropicContent
   if (reasoning.trim()) out.reasoningContent = reasoning
   if (toolCalls.length) out.toolCalls = toolCalls
   return out
@@ -152,49 +155,6 @@ export function limitAiMessagesPreservingToolProtocol(
   return out
 }
 
-/** Map packed messages onto the Chat Completions wire. CoT is only sent when `tools` is present. */
-export function toApiChatMessages(messages: unknown[], withTools: boolean): unknown[] {
-  if (!Array.isArray(messages)) return []
-  const out: unknown[] = []
-  let imageBytes = 0
-  const validMessages = withTools
-    ? sanitizeAiToolProtocol(messages)
-    : messages.map(normalizeAiChatMessage).filter((message): message is AiChatMessage => message !== null)
-  for (const m of validMessages) {
-    if (m.role === 'tool') {
-      if (!withTools) continue
-      out.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content })
-      continue
-    }
-    if (m.role === 'system' || m.role === 'user') {
-      if (m.role === 'user' && m.images?.length) {
-        const parts: unknown[] = m.content ? [{ type: 'text', text: m.content }] : []
-        for (const image of m.images) {
-          if (!image.dataUrl || image.missing) throw new Error(`图片 ${image.name} 已丢失，请重新添加图片或开始新会话`)
-          imageBytes += Math.ceil((image.dataUrl.length - image.dataUrl.indexOf(',') - 1) * 3 / 4)
-          if (imageBytes > AI_IMAGES_REQUEST_MAX_BYTES) throw new Error('会话图片总量超过 20 MB，请开始新会话或移除旧图片消息')
-          parts.push({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } })
-        }
-        out.push({ role: m.role, content: parts })
-      } else out.push({ role: m.role, content: m.content })
-      continue
-    }
-    const hadToolCalls = Boolean(m.toolCalls?.length)
-    if (!withTools && hadToolCalls && !m.content.trim()) continue
-    const toolCalls = withTools ? m.toolCalls : undefined
-    const next: Record<string, unknown> = {
-      role: 'assistant',
-      content: toolCalls?.length && !m.content.trim() ? null : m.content,
-    }
-    if (withTools && m.reasoningContent?.trim()) {
-      next.reasoning_content = m.reasoningContent
-    }
-    if (toolCalls?.length) next.tool_calls = toolCalls
-    out.push(next)
-  }
-  return out
-}
-
 export function flattenConversationForApi(
   items: Array<{
     role: string
@@ -240,15 +200,17 @@ export function flattenConversationForApi(
 /** After a tool loop, append the final assistant text if it is not already on the transcript. */
 export function appendFinalAssistantTurn(
   generated: AiChatMessage[],
-  lastRound: { content: string; reasoningContent?: string },
+  lastRound: Omit<AiChatMessage, 'role'>,
 ): AiChatMessage[] {
   const last = generated[generated.length - 1]
   const hasFinalAssistant = last?.role === 'assistant' && !last.toolCalls?.length
   if (hasFinalAssistant) return generated
   const content = lastRound.content || ''
   const reasoning = lastRound.reasoningContent || ''
-  if (!content.trim() && !reasoning.trim()) return generated
-  const row: AiChatMessage = { role: 'assistant', content }
+  const row: AiChatMessage = { ...lastRound, role: 'assistant', content }
   if (reasoning.trim()) row.reasoningContent = reasoning
+  else delete row.reasoningContent
+  // Validate an opaque-only tail without normalizing/truncating a live reply.
+  if (!content.trim() && !reasoning.trim() && !normalizeAiChatMessage(row)) return generated
   return [...generated, row]
 }

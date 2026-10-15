@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { accumulateToolCallDeltas } from './toolCallDeltas'
 import {
-  accumulateToolCallDeltas,
   bindSessionArgs,
   looksLikeToolsUnsupported,
   parseToolCallArguments,

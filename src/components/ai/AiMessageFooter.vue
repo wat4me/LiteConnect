@@ -4,6 +4,7 @@ import type { AiUsage } from '../../env.d.ts'
 import type { ChatItem } from '@/composables/ai/useAiChat'
 import { formatMessageTime, formatMessageTimeDetail, messageDisplayTimestamp } from '@/utils/ai/messageTime'
 import { formatCompactTokenCount } from '@/utils/ai/tokenCount'
+import { normalizeAiUsage } from '@shared/aiUsage'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -24,21 +25,40 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-function formatUsageDetail(usage?: AiUsage): string {
+function formatUsageDetail(raw?: AiUsage): string {
+  const usage = normalizeAiUsage(raw)
   if (!usage) return ''
-  const parts: string[] = []
-  if (usage.promptTokens !== undefined) parts.push(t('ai.usageInput', { n: usage.promptTokens }))
-  if (usage.completionTokens !== undefined) parts.push(t('ai.usageOutput', { n: usage.completionTokens }))
-  if (usage.reasoningTokens !== undefined) parts.push(t('ai.usageReasoning', { n: usage.reasoningTokens }))
-  if (usage.totalTokens !== undefined) parts.push(t('ai.usageTotal', { n: usage.totalTokens }))
-  return parts.join(' · ')
+  const n = (count: number | undefined) => count ?? t('ai.usageNotReported')
+  const parts = [
+    t('ai.usageInput', { n: n(usage.promptTokens) }),
+    t('ai.usageCachedInput', { n: n(usage.cachedPromptTokens) }),
+    t('ai.usageUncachedInput', { n: n(usage.uncachedPromptTokens) }),
+    ...(usage.cacheCreationPromptTokens !== undefined ? [t('ai.usageCacheCreationDetail', { n: usage.cacheCreationPromptTokens })] : []),
+    t('ai.usageOutput', { n: n(usage.completionTokens) }),
+    ...(usage.reasoningTokens !== undefined ? [t('ai.usageReasoningIncluded', { n: usage.reasoningTokens })] : []),
+    t('ai.usageTotal', { n: n(usage.totalTokens) }),
+    ...(usage.requestCount ? [t('ai.usageRequests', { n: usage.requestCount })] : []),
+    t('ai.usageAccountingHint'),
+  ]
+  if (usage.usageIncomplete) parts.push(t('ai.usagePartialHint'))
+  if (usage.cacheUsageIncomplete) parts.push(t('ai.usageCachePartialHint'))
+  return parts.join('\n')
 }
 
-function formatUsage(usage?: AiUsage): string {
+function formatUsage(raw?: AiUsage): string {
+  const usage = normalizeAiUsage(raw)
   if (!usage) return ''
-  if (usage.totalTokens !== undefined) return t('ai.usageCompact', { n: formatCompactTokenCount(usage.totalTokens) })
-  const n = (usage.promptTokens || 0) + (usage.completionTokens || 0) + (usage.reasoningTokens || 0)
-  return n > 0 ? t('ai.usageCompact', { n: formatCompactTokenCount(n) }) : ''
+  const parts: string[] = []
+  if (usage.totalTokens !== undefined) parts.push(t('ai.usageCompact', { n: formatCompactTokenCount(usage.totalTokens) }))
+  else parts.push(t(props.message.streaming ? 'ai.usagePending' : 'ai.usageUnavailable'))
+  if (usage.cachedPromptTokens !== undefined) parts.push(t('ai.usageCachedCompact', { n: formatCompactTokenCount(usage.cachedPromptTokens) }))
+  if (usage.uncachedPromptTokens !== undefined) parts.push(t('ai.usageUncachedCompact', { n: formatCompactTokenCount(usage.uncachedPromptTokens) }))
+  if (usage.cacheCreationPromptTokens) parts.push(t('ai.usageCacheCreationCompact', { n: formatCompactTokenCount(usage.cacheCreationPromptTokens) }))
+  if (usage.cachedPromptTokens === undefined && usage.uncachedPromptTokens === undefined) parts.push(t('ai.usageCacheUnavailable'))
+  if (usage.completionTokens !== undefined) parts.push(t('ai.usageOutput', { n: formatCompactTokenCount(usage.completionTokens) }))
+  if (usage.usageIncomplete) parts.push(t('ai.usagePartial'))
+  else if (usage.cacheUsageIncomplete && (usage.cachedPromptTokens !== undefined || usage.uncachedPromptTokens !== undefined)) parts.push(t('ai.usageCachePartial'))
+  return parts.join(' · ')
 }
 
 function messageTimeText(): string {
@@ -75,6 +95,8 @@ function messageTimeIso(): string {
       v-if="message.role === 'assistant' && formatUsage(message.usage)"
       class="usage-line"
       :title="formatUsageDetail(message.usage)"
+      :aria-label="formatUsageDetail(message.usage)"
+      tabindex="0"
     >{{ formatUsage(message.usage) }}</span>
     <div v-if="!loading && !message.streaming" class="message-actions">
       <template v-if="message.role === 'user'">

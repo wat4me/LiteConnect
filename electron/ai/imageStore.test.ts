@@ -5,7 +5,8 @@ import { tmpdir } from 'os'
 import { join, resolve, sep } from 'path'
 import { closeAppDatabase, getAppDatabase, initializeAppDatabase, aiSessionKey } from '../store/appDatabase'
 import { readAiSessionStore, writeAiSessionStore } from './historyStore'
-import { toApiChatMessages, flattenConversationForApi } from '../../shared/aiMessages'
+import { flattenConversationForApi } from '../../shared/aiMessages'
+import { toApiChatMessages } from './providers/openai'
 import type { AiImageAttachment, AiSessionStore } from '../../shared/types/ai'
 
 const appPath = vi.hoisted(() => ({ value: '' }))

@@ -24,6 +24,22 @@ function records(): AiHistoryRecord[] {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('maybeCompactAiContext', () => {
+  it('uses native Claude requests and accounts for summary cache writes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ type: 'message', content: [{ type: 'text', text: '## 用户目标与意图\n- 继续部署' }], stop_reason: 'end_turn', usage: { input_tokens: 100, cache_read_input_tokens: 200, cache_creation_input_tokens: 50, output_tokens: 20 } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const onUsage = vi.fn()
+    const saved = vi.fn(async () => {})
+    const result = await maybeCompactAiContext({ records: records(), settings: { ...settings, protocol: 'anthropic' }, signal: new AbortController().signal, emit: () => {}, saveCheckpoint: saved, onUsage })
+    expect(saved).toHaveBeenCalledOnce()
+    expect(result.checkpoint?.throughMessageId).toBe('a1')
+    expect(fetchMock.mock.calls[0][0]).toBe('https://example.test/v1/messages')
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.system[0].text).toContain('context compaction engine')
+    expect(body.messages.every((message: any) => ['user', 'assistant'].includes(message.role))).toBe(true)
+    expect(body.tools).toBeUndefined()
+    expect(body.stream).toBe(false)
+    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 350, cachedPromptTokens: 200, uncachedPromptTokens: 150, cacheCreationPromptTokens: 50, completionTokens: 20, totalTokens: 370 })
+  })
   it('does nothing below the pressure threshold', async () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
@@ -45,7 +61,9 @@ describe('maybeCompactAiContext', () => {
   it('summarizes old turns, persists the checkpoint, and reports pressure reduction', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       choices: [{ finish_reason: 'stop', message: { content: '## 用户目标与意图\n- 继续任务' } }],
+      usage: { prompt_tokens: 1000, completion_tokens: 100, prompt_tokens_details: { cached_tokens: 800 } },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    const onUsage = vi.fn()
     const events: AiChatStreamPayload[] = []
     const saved = vi.fn(async () => {})
     const result = await maybeCompactAiContext({
@@ -54,7 +72,10 @@ describe('maybeCompactAiContext', () => {
       signal: new AbortController().signal,
       emit: event => events.push(event),
       saveCheckpoint: saved,
+      onUsage,
     })
+    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 1000, cachedPromptTokens: 800, uncachedPromptTokens: 200, completionTokens: 100, totalTokens: 1100 })
+    expect(onUsage).toHaveBeenCalledTimes(1)
     expect(saved).toHaveBeenCalledOnce()
     expect(result.checkpoint?.throughMessageId).toBe('a1')
     expect(result.checkpoint?.compactionCount).toBe(1)

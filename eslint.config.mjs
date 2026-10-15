@@ -64,6 +64,23 @@ for (const peer of ['sftp', 'docker', 'terminal', 'ai', 'snippets', 'connections
 }
 
 const architectureZones = [
+  // Provider codecs sit below orchestration, execution, IPC and persistence.
+  {
+    target: './electron/ai/providers/**/*',
+    from: './electron/ai',
+    except: ['./providers'],
+    message: 'AI protocol adapters must not import orchestration, tools or persistence',
+  },
+  ...['ipc', 'store', 'mcp'].map(area => ({
+    target: './electron/ai/providers/**/*',
+    from: `./electron/${area}/**/*`,
+    message: 'AI protocol adapters operate on canonical messages, not application services',
+  })),
+  ...[['openai', 'anthropic'], ['anthropic', 'openai']].map(([target, from]) => ({
+    target: `./electron/ai/providers/${target}.ts`,
+    from: `./electron/ai/providers/${from}.ts`,
+    message: 'AI protocols must not serialize through another provider; share pure validation instead',
+  })),
   {
     target: './src/utils/**/*',
     from: './src/composables/**/*',

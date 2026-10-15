@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getAiModelsUrl, listAiProviderModels } from './providerHttp'
+import { getAiModelsUrl } from './providers/openai'
+import { listAiProviderModels } from './providerService'
 import { parseAiModels, resolveModelContextWindow, modelContextSource } from '../../shared/aiContext'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })

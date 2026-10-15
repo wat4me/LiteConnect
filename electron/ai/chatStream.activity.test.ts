@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { resolveToolApproval, runAiChatStream } from './chatStream'
+import { runAiChatStream } from './chatStream'
+import { resolveToolApproval } from './streamControl'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import type { AiChatStreamPayload } from '../../shared/types/ai'
 

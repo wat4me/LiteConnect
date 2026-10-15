@@ -246,6 +246,7 @@
 
 .message-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-height: 22px;
@@ -763,12 +764,15 @@
 }
 
 :deep(.usage-line) {
-  min-width: 0;
+  flex: 1;
+  min-width: min(180px, 100%);
   font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   color: var(--text-secondary);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.14s ease;
+  opacity: 0.78;
+  visibility: visible;
+  cursor: help;
 }
 
 .chat-row:hover :deep(.message-time),

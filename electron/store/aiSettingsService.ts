@@ -10,6 +10,8 @@ import {
 import { normalizeAiToolRounds, DEFAULT_AI_TOOL_ROUNDS } from '../../shared/aiToolLimits'
 import { sanitizeAiToolPermission, type AiToolPermissionMode } from '../../shared/aiToolPolicy'
 import { normalizeAiHistoryMaxMessages, normalizeAiHistoryMaxThreads } from '../../shared/aiHistoryLimits'
+import { defaultAiProviderBaseUrl, normalizeAiProviderProtocol } from '../../shared/aiProviderProtocol'
+import type { AiResolvedConfig } from '../../shared/types/ai'
 
 export type AiSettingsSnapshot = {
   maxToolRounds: number
@@ -25,17 +27,7 @@ export type AiSettingsSnapshot = {
   historyMaxMessages: number
 }
 
-export type AiResolvedSettings = {
-  supportsImages?: boolean
-  maxToolRounds: number
-  baseUrl: string
-  model: string
-  apiKey: string
-  systemPrompt: string
-  temperature: number
-  contextWindowTokens?: number
-  toolPermission: AiToolPermissionMode
-}
+export type AiResolvedSettings = AiResolvedConfig & { maxToolRounds: number; toolPermission: AiToolPermissionMode }
 
 type Secrets = {
   encrypt: (value: string) => string
@@ -89,6 +81,7 @@ export class AiSettingsService {
         id: typeof p.id === 'string' && p.id ? p.id : randomBytes(6).toString('hex'),
         name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
         baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl.trim() : '',
+        protocol: normalizeAiProviderProtocol(p.protocol),
         apiKey: this.secrets.encrypt(typeof p.apiKey === 'string' ? p.apiKey : ''),
         apiKeyEncrypted: this.secrets.encryptionAvailable() && !!p.apiKey,
         models: parseAiModels(p.models),
@@ -160,6 +153,7 @@ export class AiSettingsService {
     return {
       supportsImages: models.find(item => item.id === model)?.supportsImages === true,
       baseUrl: provider.baseUrl,
+      protocol: normalizeAiProviderProtocol(provider.protocol),
       model,
       apiKey: provider.apiKey,
       systemPrompt: settings.systemPrompt,
@@ -201,7 +195,8 @@ export class AiSettingsService {
     return {
       id: typeof p.id === 'string' && p.id ? p.id : randomBytes(6).toString('hex'),
       name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : t('common.unnamedProvider'),
-      baseUrl: typeof p.baseUrl === 'string' && p.baseUrl.trim() ? p.baseUrl.trim() : 'https://api.openai.com/v1',
+      baseUrl: typeof p.baseUrl === 'string' && p.baseUrl.trim() ? p.baseUrl.trim() : defaultAiProviderBaseUrl(normalizeAiProviderProtocol(p.protocol)),
+      protocol: normalizeAiProviderProtocol(p.protocol),
       apiKey,
       models: parseAiModels(p.models),
     }

@@ -3,7 +3,8 @@ import { routeWorkspaceTool, callWorkspaceTool } from './workspaceToolRouting'
 import { workspaceToolSystemAddendum, workspaceToolsForChat } from '../../shared/aiWorkspacePrompt'
 import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import type { SshMcpRuntime } from '../mcp/runtime'
-import { resolveToolApproval, runAiChatStream } from './chatStream'
+import { runAiChatStream } from './chatStream'
+import { resolveToolApproval } from './streamControl'
 
 const targets: AiWorkspaceTarget[] = ['a', 'b'].map(id => ({ connectionId: id, sessionId: `ssh-${id}`, name: `server-${id}`, host: `${id}.example`, port: 22, username: 'ops' }))
 function runtime() {

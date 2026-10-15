@@ -330,3 +330,29 @@ it('retains successful compaction count across reload, history pruning and check
   expect(pruned.threads[0].compactionCount).toBe(3)
   expect((await readAiSessionStore('count-session')).threads[0].compactionCount).toBe(3)
 })
+
+
+it('retains partial cache accounting and request totals after saving and reloading history', async () => {
+  const usage = { promptTokens: 3000, completionTokens: 300, totalTokens: 3300, cachedPromptTokens: 800, uncachedPromptTokens: 200, requestCount: 2, cacheUsageIncomplete: true }
+  await writeAiSessionStore('cache-usage-history', { version: 1, activeThreadId: 'usage-thread', threads: [{ id: 'usage-thread', title: '', createdAt: 1, updatedAt: 1, messages: [{ id: 'usage-message', role: 'assistant', content: 'result', createdAt: 1, usage }] }] })
+  const store = await readAiSessionStore('cache-usage-history')
+  expect(store.threads[0].messages[0].usage).toEqual(usage)
+})
+
+it('retains Claude content order, opaque signatures and cache writes after reloading', async () => {
+  const blocks: import('../../shared/types/ai').AiAnthropicContentBlock[] = [
+    { type: 'thinking', thinking: 'Inspect the host', signature: 'signature+/=='.repeat(400) },
+    { type: 'redacted_thinking', data: 'encrypted+/==' },
+    { type: 'tool_use', id: 'native-call', name: 'exec', input: { command: 'hostname' } },
+  ]
+  const apiMessages: AiChatMessage[] = [
+    { role: 'assistant', content: '', reasoningContent: 'Inspect the host', anthropicContent: blocks, toolCalls: [{ id: 'native-call', type: 'function', function: { name: 'exec', arguments: '{"command":"hostname"}' } }] },
+    { role: 'tool', toolCallId: 'native-call', content: 'host-a' },
+    { role: 'assistant', content: 'done', anthropicContent: [{ type: 'text', text: 'done' }] },
+  ]
+  const usage = { promptTokens: 130, cachedPromptTokens: 100, uncachedPromptTokens: 30, cacheCreationPromptTokens: 20, completionTokens: 9, totalTokens: 139 }
+  await writeAiSessionStore('claude-history', { version: 1, activeThreadId: 'claude-thread', threads: [{ id: 'claude-thread', title: '', createdAt: 1, updatedAt: 1, messages: [{ id: 'reply', role: 'assistant', content: 'done', createdAt: 1, apiMessages, usage }] }] })
+  const message = (await readAiSessionStore('claude-history')).threads[0].messages[0]
+  expect(message.apiMessages).toEqual(apiMessages)
+  expect(message.usage).toEqual(usage)
+})

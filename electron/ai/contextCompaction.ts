@@ -22,13 +22,10 @@ import type {
   AiContextCheckpoint,
   AiHistoryRecord,
   AiResolvedConfig,
+  AiUsage,
 } from '../../shared/types/ai'
-import {
-  getAiChatCompletionsUrl,
-  normalizeAiContent,
-  readHttpErrorMessage,
-  toApiChatMessages,
-} from './providerHttp'
+import { readHttpErrorMessage } from './providers/http'
+import { getAiProviderAdapter } from './providers/registry'
 
 const SUMMARY_INSTRUCTION = [
   '你现在是 AI 助手的上下文压缩器。请把上面的既有摘要和新增旧对话合并为一份可继续工作的检查点。',
@@ -63,6 +60,7 @@ type ContextCompactionOptions = {
   tools?: unknown
   signal: AbortSignal
   emit: (payload: AiChatStreamPayload) => void
+  onUsage?: (usage: AiUsage | undefined) => void
   saveCheckpoint: (checkpoint: AiContextCheckpoint) => Promise<void>
 }
 
@@ -101,32 +99,27 @@ async function requestSummary(
   messages: AiChatMessage[],
   maxTokens: number,
   signal: AbortSignal,
+  onUsage?: (usage: AiUsage | undefined) => void,
 ): Promise<string> {
-  const response = await fetch(getAiChatCompletionsUrl(settings.baseUrl), {
+  const provider = getAiProviderAdapter(settings.protocol)
+  const request = provider.buildRequest(settings, messages, { stream: false, maxTokens, temperature: 0.1 })
+  const response = await fetch(request.url, {
     method: 'POST',
     signal,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      temperature: 0.1,
-      max_tokens: maxTokens,
-      stream: false,
-      messages: toApiChatMessages(messages, false),
-    }),
+    headers: request.headers,
+    body: request.body,
   })
   if (!response.ok) {
     throw new Error(await readHttpErrorMessage(response, `AI compaction failed (${response.status})`))
   }
   const data = await response.json()
-  const choice = data?.choices?.[0]
-  const finish = String(choice?.finish_reason || '').toLowerCase()
+  const reply = provider.parseResponse(settings, data)
+  onUsage?.(reply.usage)
+  const finish = String(reply.finishReason || '').toLowerCase()
   if (finish === 'length' || finish === 'max_tokens') {
     throw new Error('AI compaction summary reached its output limit')
   }
-  const summary = normalizeAiContent(choice?.message?.content ?? choice?.text).trim()
+  const summary = reply.content.trim()
   if (!summary) throw new Error('AI compaction returned an empty summary')
   return summary
 }
@@ -198,7 +191,7 @@ async function summarizePlan(
     if (aiMessagesTokenCount(messages) > hardInputBudget) {
       throw new Error('Compaction input exceeded its bounded summary budget')
     }
-    rolling = await requestSummary(opts.settings, messages, outputTokens, opts.signal)
+    rolling = await requestSummary(opts.settings, messages, outputTokens, opts.signal, opts.onUsage)
   }
   return rolling
 }

@@ -46,6 +46,8 @@ it('recovers the full reply without stream events and never writes assistant sna
   const records: AiHistoryRecord[] = []
   const reply: AiChatResult = {
     content: 'complete', reasoningContent: 'plan',
+    apiMessages: [{ role: 'assistant', content: 'complete', anthropicContent: [{ type: 'thinking', thinking: 'plan', signature: 'opaque+/==' }, { type: 'text', text: 'complete' }] }],
+    usage: { promptTokens: 3000, completionTokens: 300, totalTokens: 3300, cachedPromptTokens: 800, uncachedPromptTokens: 200, requestCount: 2, cacheUsageIncomplete: true },
     toolRuns: [{ id: 't', name: 'grep', args: '{}', content: 'match', status: 'done', isError: false, diffSummary: 'changed', diffPreview: '-old\n+new' }],
     segments: [{ kind: 'reasoning', text: 'plan' }, { kind: 'tool', runId: 't' }, { kind: 'content', text: 'complete' }],
   }
