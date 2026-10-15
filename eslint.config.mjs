@@ -64,6 +64,53 @@ for (const peer of ['sftp', 'docker', 'terminal', 'ai', 'snippets', 'connections
 }
 
 const architectureZones = [
+  // History data rules and legacy decoding must remain independent of persistence.
+  {
+    target: './electron/ai/history/historyModel.ts',
+    from: './electron/ai/history/{historyStore,historyCodec,imageStore}.ts',
+    message: 'History model must not depend on persistence, migration or image files',
+  },
+  {
+    target: './electron/ai/history/historyCodec.ts',
+    from: './electron/ai/history/{historyStore,imageStore}.ts',
+    message: 'History decoding must not depend on persistence or image files',
+  },
+  ...['store', 'ipc'].map(area => ({
+    target: ['./electron/ai/history/historyModel.ts', './electron/ai/history/historyCodec.ts'],
+    from: `./electron/${area}`,
+    message: 'History model/codec must not depend on application storage or IPC',
+  })),
+  // AI leaf modules cannot reach back into orchestration or IPC adapters.
+  ...[
+    ['history', ['execution', 'tools', 'workspace', 'schedules', 'providers']],
+    ['workspace', ['execution', 'tools', 'schedules', 'providers']],
+    ['tools', ['execution', 'history', 'workspace', 'schedules', 'providers']],
+    ['schedules', ['execution', 'tools', 'history', 'workspace', 'providers']],
+  ].flatMap(([target, forbidden]) => forbidden.map(from => ({
+    target: `./electron/ai/${target}/**/!(*.test).ts`,
+    from: `./electron/ai/${from}/**/*`,
+    message: `AI ${target} must not import ${from}; compose through execution or IPC ports`,
+  }))),
+  ...['execution', 'tools', 'history', 'workspace', 'schedules'].map(area => ({
+    target: `./electron/ai/${area}/**/!(*.test).ts`,
+    from: './electron/ipc/**/*',
+    message: 'AI modules must not import their Electron IPC/window adapters',
+  })),
+  {
+    target: './src/composables/ai/chat/**/*',
+    from: './src/composables/ai/useAiChat.ts',
+    message: 'Chat state/history/settings must not depend on the public chat orchestrator',
+  },
+  {
+    target: './src/composables/ai/chat/sessionState.ts',
+    from: './src/composables/ai/chat/{history,settings}.ts',
+    message: 'Session state owns its lifecycle; it must not depend on history or model settings',
+  },
+  ...['components', 'views'].map(area => ({
+    target: `./src/${area}/**/*`,
+    from: './src/composables/ai/chat/**/*',
+    message: 'AI UI must use useAiChat and domain types, not private chat state/history modules',
+  })),
   // Provider codecs sit below orchestration, execution, IPC and persistence.
   {
     target: './electron/ai/providers/**/*',

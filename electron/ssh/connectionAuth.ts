@@ -1,4 +1,4 @@
-import type { Client, ConnectConfig } from 'ssh2'
+import type { Client, ConnectConfig, Prompt } from 'ssh2'
 import type { Duplex } from 'stream'
 import { v4 as uuidv4 } from 'uuid'
 import { buildAuthFields } from './auth'
@@ -44,7 +44,7 @@ export function attachKeyboardInteractive(
     name: string,
     instructions: string,
     _lang: string,
-    prompts: Array<{ prompt: string; echo: boolean }>,
+    prompts: Prompt[],
     finish: (responses: string[]) => void,
   ) => {
     const list = (prompts || []).map((p) => ({

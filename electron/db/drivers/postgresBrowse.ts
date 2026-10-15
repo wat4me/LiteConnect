@@ -63,7 +63,7 @@ export async function listTableInfos(
   )
 
   return res.rows
-    .map((r) => {
+    .map((r): DbTableInfo | null => {
       const schema = String(r.schema || 'public')
       const name = String(r.name || '')
       if (!name) return null

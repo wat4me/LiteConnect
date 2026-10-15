@@ -92,6 +92,8 @@ export default {
       '如果用户提供的是终端选中文本、日志或报错，请先概括关键信息，再给出排查步骤。',
     ].join('\n'),
     noStreamBody: 'AI 响应未包含流数据',
+    streamIncomplete: 'AI 响应流意外结束，未确认回复完整。本轮尚未执行的工具不会继续执行；已执行操作的状态请复查。',
+    responseIncomplete: 'AI 回复因输出限制或服务商拦截而未完成。本轮尚未执行的工具不会继续执行；已执行操作的状态请复查。',
     apiKeyRequired: '请先配置 AI API 密钥',
     markdownOnly: '只支持 .md 或 .markdown 文件',
     markdownSizeLimit: 'Markdown 文件不能超过 32 KB',

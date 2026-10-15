@@ -1,4 +1,4 @@
-import oracledb, { type Connection, type Result } from 'oracledb'
+import oracledb, { type Connection, type Pool, type Result } from 'oracledb'
 import { v4 as uuidv4 } from 'uuid'
 import {
   assertIdent,
@@ -155,8 +155,7 @@ export class OracleDriver implements DbDriver {
           `ALTER SESSION SET CURRENT_SCHEMA = ${quoteIdentOracle(useDb)}`,
         )
       }
-      // Oracle: implicit transaction starts on first DML when autoCommit is off
-      connection.autoCommit = false
+      // executeOnConn supplies autoCommit: false while this connection is pinned.
       this.pinnedClients.set(this.pinKey(sessionId, key), {
         sessionId,
         clientKey: key,
@@ -166,9 +165,6 @@ export class OracleDriver implements DbDriver {
       })
       return { clientKey: key, inTransaction: true, autocommit: false }
     } catch (err) {
-      try {
-        connection.autoCommit = true
-      } catch {}
       try {
         await connection.close()
       } catch {}
@@ -185,7 +181,6 @@ export class OracleDriver implements DbDriver {
     this.pinnedClients.delete(this.pinKey(sessionId, key))
     try {
       await pin.connection.commit()
-      pin.connection.autoCommit = true
       try {
         await pin.connection.close()
       } catch {}
@@ -211,7 +206,6 @@ export class OracleDriver implements DbDriver {
     this.pinnedClients.delete(this.pinKey(sessionId, key))
     try {
       await pin.connection.rollback()
-      pin.connection.autoCommit = true
       try {
         await pin.connection.close()
       } catch {}
@@ -238,7 +232,6 @@ export class OracleDriver implements DbDriver {
       if (pin.inTransaction) {
         await pin.connection.rollback()
       }
-      pin.connection.autoCommit = true
       ok = true
     } catch {
       ok = false
@@ -690,7 +683,6 @@ export class OracleDriver implements DbDriver {
   }): Promise<void> {
     const { sessionId, clientKey, conn, usePinned, endedInTx, database } = opts
     if (endedInTx) {
-      conn.autoCommit = false
       if (clientKey) {
         const existing = this.pinnedClients.get(this.pinKey(sessionId, clientKey))
         if (existing?.connection === conn) {
@@ -710,16 +702,10 @@ export class OracleDriver implements DbDriver {
       try {
         await conn.rollback()
       } catch {}
-      try {
-        conn.autoCommit = true
-      } catch {}
       return
     }
     if (usePinned && clientKey) {
       this.pinnedClients.delete(this.pinKey(sessionId, clientKey))
-      try {
-        conn.autoCommit = true
-      } catch {}
     }
   }
 

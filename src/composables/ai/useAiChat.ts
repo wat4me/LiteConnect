@@ -1,202 +1,45 @@
-import { normalizeAiUsage } from '@shared/aiUsage'
-import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
-  AiChatMessage,
-  AiChatResult,
-  AiChatSegment,
-  AiChatStreamPayload,
-  AiConversationThread,
-  AiConversationContextFile,
-  AiContextCheckpoint,
-  AiHistoryRecord,
-  AiSessionStore,
-  AiSettings,
-  AiThreadSummary,
-  AiToolRun,
-  AiUsage,
-} from '../../env.d'
-import { t } from '../../i18n'
-import { firstAiModelId, resolveModelContextWindow } from '@shared/aiContext'
+  AiChatStreamPayload, AiConversationThread, AiConversationContextFile,
+  AiSessionStore, AiToolRun, AiImageAttachment,
+} from '@shared/types/ai'
+import type { AiSessionState, ChatItem } from '@/domain/ai/chat'
+import { t } from '@/i18n'
 import { flattenConversationForApi } from '@shared/aiMessages'
+import { assertAiImageCapability, normalizeAiImages } from '@shared/aiImages'
+import { normalizeAiCompactionCount } from '@shared/aiCompaction'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
 import { syncAiApprovalPending } from './useAiApprovalHint'
 import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
-import { threadTitleFromMessages } from '@/utils/ai/threadTitle'
 import { getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
-import { AI_SESSION_OVERHEAD_BYTES, estimateAiTextBytes } from '@shared/appResourceStats'
-import { registerAiResourceProbe } from '@/composables/app/rendererResourceRegistry'
-import { advanceChatActivity, type AiChatActivity } from '@/utils/ai/chatActivity'
-import type { AiImageAttachment } from '@shared/types/ai'
-import { assertAiImageCapability, normalizeAiImages } from '@shared/aiImages'
-import { normalizeAiCompactionCount } from '@shared/aiCompaction'
+import { advanceChatActivity } from '@/utils/ai/chatActivity'
+import {
+  sanitizeAiErrorMessage, createMessage, plainUsage, toHistoryRecord, fromHistoryRecord,
+  plainToolRuns, plainSegments, plainApiMessages, cloneForIpc,
+} from '@/utils/ai/chatHistoryProjection'
+import {
+  getAiSessionState, findAiSessionState, releaseAiSessionState,
+  closeContextCompressionNotice, setContextCompressionNotice,
+} from './chat/sessionState'
+import { settings, refreshAiSettings, replaceAiSettings, useAiModelSelection } from './chat/settings'
+import {
+  createThreadId, pruneEmptyThreadsLocal, syncThreadSummaries, applyThreadMessages,
+  loadThreadImages, buildStoreFromState, persistActiveThread, persistMessage, loadHistory,
+} from './chat/history'
 
-export type ChatItem = {
-  backgroundNotice?: string
-  images?: AiImageAttachment[]
-  id: string
-  createdAt: number
-  completedAt?: number
-  role: 'user' | 'assistant'
-  content: string
-  error?: boolean
-  status?: 'running' | 'completed' | 'aborted' | 'error'
-  reasoningContent?: string
-  usage?: AiUsage
-  streaming?: boolean
-  activity?: AiChatActivity
-  toolRuns?: AiToolRun[]
-  /** True streaming order of reasoning / tool calls / content for display. */
-  segments?: AiChatSegment[]
-  /** Wire Chat Completions messages for this assistant turn (prefix cache). */
-  apiMessages?: AiChatMessage[]
-}
+export { disposeAiSessionState, listAiResourceUsage } from './chat/sessionState'
 
-type AiSessionState = {
-  compactionCount: number
-  draftImages: AiImageAttachment[]
-  messages: ChatItem[]
-  input: string
-  loading: boolean
-  persisting: boolean
-  activeThreadId: string
-  threads: AiThreadSummary[]
-  activeRequestId: string | null
-  loaded: boolean
-  disposeAfterReply: boolean
-  contextCheckpoint?: AiContextCheckpoint
-  contextFiles: AiConversationContextFile[]
-  defaultContextFiles: AiConversationContextFile[]
-}
-
-const aiSessionStates = new Map<string, AiSessionState>()
 const backgroundSubscriptions = new WeakSet<object>()
 const resolvingToolApprovals = new Set<string>()
-const contextCompressionNotices = new Map<string, { close: () => void }>()
 
-function closeContextCompressionNotice(sessionId: string): void {
-  contextCompressionNotices.get(sessionId)?.close()
-  contextCompressionNotices.delete(sessionId)
-}
-
-function createThreadId(): string {
-  return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-const historyLoads = new Map<string, Promise<ChatItem[]>>()
-
-function getAiSessionState(sessionId: string): AiSessionState {
-  let state = aiSessionStates.get(sessionId)
-  if (!state) {
-    state = reactive({
-      draftImages: [],
-      compactionCount: 0,
-      messages: reactive([]) as ChatItem[],
-      input: '',
-      loading: false,
-      persisting: false,
-      activeThreadId: '',
-      threads: reactive([]) as AiThreadSummary[],
-      activeRequestId: null,
-      loaded: false,
-      disposeAfterReply: false,
-      contextCheckpoint: undefined,
-      contextFiles: [],
-      defaultContextFiles: [],
-    })
-    aiSessionStates.set(sessionId, state)
-  }
-  return state
-}
-
-export function listAiResourceUsage(): { sessionCount: number; estimatedBytes: number } {
-  let estimatedBytes = 0
-  for (const state of aiSessionStates.values()) {
-    estimatedBytes += AI_SESSION_OVERHEAD_BYTES
-    estimatedBytes += estimateAiTextBytes(state.input?.length || 0)
-    estimatedBytes += state.draftImages.reduce((sum, image) => sum + estimateAiTextBytes(image.dataUrl?.length || 0), 0)
-    estimatedBytes += estimateAiTextBytes(state.contextFiles.reduce((total, file) => total + file.content.length, 0))
-    for (const message of state.messages) {
-      estimatedBytes += (message.images || []).reduce((sum, image) => sum + estimateAiTextBytes(image.dataUrl?.length || 0), 0)
-      estimatedBytes += estimateAiTextBytes(
-        (message.content?.length || 0) + (message.reasoningContent?.length || 0) + (message.backgroundNotice?.length || 0),
-      )
-    }
-  }
-  return { sessionCount: aiSessionStates.size, estimatedBytes }
-}
-
-registerAiResourceProbe(listAiResourceUsage)
-
-/** Stop background work and release renderer-only state when its terminal closes. */
-export function disposeAiSessionState(sessionId: string): void {
-  const state = aiSessionStates.get(sessionId)
-  if (!state) return
-  syncAiApprovalPending(sessionId, false)
-  closeContextCompressionNotice(sessionId)
-  state.input = ''
-  state.draftImages = []
-  if (state.loading) {
-    state.disposeAfterReply = true
-    if (state.activeRequestId) {
-      void window.LiteConnect.aiAbortChatStream(state.activeRequestId).catch(() => {})
-    }
-    return
-  }
-  aiSessionStates.delete(sessionId)
-}
-
-function emptyAiSettings(): AiSettings {
-  return {
-    providers: [],
-    activeProviderId: null,
-    activeModel: '',
-    systemPrompt: '',
-    toolPermission: 'ask',
-  }
-}
-
-/** One copy for every sidebar instance — providers are app-wide, not per SSH session. */
-const settings = ref<AiSettings>(emptyAiSettings())
-let settingsEpoch = 0
-
-function replaceAiSettings(next: AiSettings) {
-  settingsEpoch += 1
-  settings.value = next
-}
-
-async function refreshAiSettings(): Promise<AiSettings> {
-  const epoch = ++settingsEpoch
-  const next = await window.LiteConnect.getAiSettings()
-  if (epoch !== settingsEpoch) return settings.value
-  settings.value = next
-  return next
-}
-
+/** Public command facade; session ownership, persistence and IPC projection live below it. */
 export function useAiChat() {
+  const { activeProvider, displayModelName, activeContextWindowTokens } = useAiModelSelection()
   function cwdForSession(sessionId: string): string | undefined {
     const cwd = getSftpListedCwd(sessionId).trim()
     if (!cwd.startsWith('/') || cwd.length > 4096 || /[\0\r\n]/.test(cwd)) return undefined
     return cwd
   }
-
-  const activeProvider = computed(() =>
-    settings.value.providers.find((p) => p.id === settings.value.activeProviderId) || settings.value.providers[0] || null
-  )
-
-  const displayModelName = computed(() => {
-    if (!activeProvider.value) return ''
-    return settings.value.activeModel || firstAiModelId(activeProvider.value.models)
-  })
-
-  const activeContextWindowTokens = computed(() =>
-    resolveModelContextWindow({
-      model: displayModelName.value,
-      models: activeProvider.value?.models,
-      fallback: settings.value.contextWindowTokens,
-    }),
-  )
-
 
   function onReplyComplete(cb: (sessionId: string) => void): () => void {
     return onAiReplyComplete(cb)
@@ -242,137 +85,6 @@ export function useAiChat() {
     }
   }
 
-  function sanitizeAiErrorMessage(raw: string): string {
-    return String(raw || '')
-      .replace(/^Error invoking remote method '[^']+':\s*/i, '')
-      .replace(/^Error:\s*/i, '')
-      .trim()
-  }
-
-  function createMessage(
-    role: 'user' | 'assistant',
-    content: string,
-    error = false,
-    result?: Partial<AiChatResult> & { streaming?: boolean }
-  ): ChatItem {
-    return {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: Date.now(),
-      role,
-      content,
-      error,
-      reasoningContent: result?.reasoningContent,
-      usage: plainUsage(result?.usage),
-      streaming: result?.streaming,
-    }
-  }
-
-  /**
-   * Vue `reactive()` wraps nested objects (e.g. usage) in Proxies.
-   * Electron IPC uses structured clone and cannot clone Proxies —
-   * produces "An object could not be cloned". Always emit plain data.
-   */
-  function plainUsage(usage: AiUsage | undefined): AiUsage | undefined {
-    return normalizeAiUsage(usage)
-  }
-
-  function toHistoryRecord(message: ChatItem): AiHistoryRecord {
-    const record: AiHistoryRecord = {
-      id: String(message.id),
-      role: message.role as 'user' | 'assistant',
-      content: String(message.content ?? ''),
-      backgroundNotice: message.backgroundNotice,
-      createdAt: Number(message.createdAt) || Date.now(),
-    }
-    if (typeof message.completedAt === 'number' && Number.isFinite(message.completedAt)) {
-      record.completedAt = message.completedAt
-    }
-    if (message.role === 'user' && message.images?.length) record.images = JSON.parse(JSON.stringify(message.images))
-    if (message.reasoningContent != null && message.reasoningContent !== '') {
-      record.reasoningContent = String(message.reasoningContent)
-    }
-    const usage = plainUsage(message.usage)
-    if (usage) record.usage = usage
-    if (message.error === true) record.error = true
-    if (message.status) record.status = message.status
-    if (message.toolRuns?.length) record.toolRuns = plainToolRuns(message.toolRuns)
-    const segments = plainSegments(message.segments)
-    if (segments) record.segments = segments
-    const apiMessages = plainApiMessages(message.apiMessages)
-    if (apiMessages) record.apiMessages = apiMessages
-    return record
-  }
-
-  function fromHistoryRecord(record: AiHistoryRecord): ChatItem {
-    return {
-      id: record.id,
-      role: record.role,
-      content: record.content || (record.role === 'assistant' && record.status === 'aborted' ? t('ai.stopped') : ''),
-      backgroundNotice: record.backgroundNotice,
-      images: record.images,
-      reasoningContent: record.reasoningContent,
-      usage: record.usage,
-      error: record.error,
-      status: record.status,
-      createdAt: record.createdAt,
-      completedAt: record.completedAt,
-      toolRuns: record.toolRuns,
-      segments: record.segments,
-      apiMessages: record.apiMessages,
-    }
-  }
-
-  function plainToolRuns(runs: AiToolRun[] | undefined): AiToolRun[] | undefined {
-    if (!runs?.length) return undefined
-    return runs.map((run) => ({
-      id: String(run.id || ''),
-      name: String(run.name || ''),
-      args: String(run.args || ''),
-      content: String(run.content || ''),
-      isError: run.isError === true,
-      status: run.status,
-      risk: run.risk,
-      jobIds: run.jobIds ? [...run.jobIds] : undefined,
-      target: run.target,
-      reason: run.reason,
-      diffSummary: run.diffSummary,
-      diffPreview: run.diffPreview,
-    }))
-  }
-
-  function plainSegments(segments: AiChatSegment[] | undefined): AiChatSegment[] | undefined {
-    if (!segments?.length) return undefined
-    return segments.map((seg) =>
-      seg.kind === 'tool' ? { kind: 'tool' as const, runId: String(seg.runId) } : { kind: seg.kind, text: String(seg.text) },
-    )
-  }
-
-  function plainApiMessages(messages: AiChatMessage[] | undefined): AiChatMessage[] | undefined {
-    if (!messages?.length) return undefined
-    return messages.map((m) => {
-      if (m.role === 'tool') {
-        return { role: 'tool' as const, content: String(m.content ?? ''), toolCallId: String(m.toolCallId || '') }
-      }
-      if (m.role === 'user' || m.role === 'system') {
-        return { role: m.role, content: String(m.content ?? ''), ...(m.images?.length ? { images: JSON.parse(JSON.stringify(m.images)) } : {}) }
-      }
-      const row: AiChatMessage = { role: 'assistant', content: String(m.content ?? '') }
-      if (m.anthropicContent?.length) row.anthropicContent = JSON.parse(JSON.stringify(m.anthropicContent))
-      if (m.reasoningContent) row.reasoningContent = String(m.reasoningContent)
-      if (m.toolCalls?.length) {
-        row.toolCalls = m.toolCalls.map((c) => ({
-          id: String(c.id || ''),
-          type: 'function' as const,
-          function: {
-            name: String(c.function?.name || ''),
-            arguments: String(c.function?.arguments || ''),
-          },
-        }))
-      }
-      return row
-    })
-  }
-
   function refreshApprovalPending(sessionId: string) {
     const state = getAiSessionState(sessionId)
     const pending =
@@ -383,225 +95,72 @@ export function useAiChat() {
 
   function setSessionLoading(sessionId: string, value: boolean) {
     const state = getAiSessionState(sessionId)
+    if (value) state.contextPressure = undefined
     state.loading = value
     refreshApprovalPending(sessionId)
   }
 
-  /**
-   * Mirror main-process prune: keep conversations with messages + active draft.
-   * Avoids empty "新对话" shells piling up in local thread list / next persist.
-   */
-  function pruneEmptyThreadsLocal(store: AiSessionStore): void {
-    if (!Array.isArray(store.threads)) store.threads = []
-    store.threads = store.threads.filter(
-      (thread) =>
-        (Array.isArray(thread.messages) && thread.messages.length > 0) ||
-        thread.id === store.activeThreadId,
-    )
-    if (store.threads.length === 0) {
-      const id = createThreadId()
-      store.threads = [
-        {
-          id,
-          title: '',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          messages: [],
-          contextFiles: [...store.defaultContextFiles],
-        },
-      ]
-      store.activeThreadId = id
-      return
-    }
-    if (!store.threads.some((thread) => thread.id === store.activeThreadId)) {
-      store.activeThreadId = store.threads[0].id
-    }
-  }
-
-  function syncThreadSummaries(state: AiSessionState, store: AiSessionStore) {
-    pruneEmptyThreadsLocal(store)
-    state.defaultContextFiles = store.defaultContextFiles || []
-    const summaries: AiThreadSummary[] = store.threads
-      .map((thread) => ({
-        id: thread.id,
-        title: thread.title || t('ai.newConversationTitle'),
-        customTitle: thread.customTitle,
-        pinned: thread.pinned === true,
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-        messageCount: thread.messages.length,
-        contextFilePath: thread.contextFiles?.[0]?.path,
-        active: thread.id === store.activeThreadId,
-      }))
-      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
-
-    state.threads.splice(0, state.threads.length, ...summaries)
-    state.activeThreadId = store.activeThreadId
-  }
-
-  /**
-   * Thread titles are always the first user message, so they are re-derived
-   * on every persist instead of being frozen once (no model-written titles).
-   */
-  function resolveThreadTitle(
-    messages: Array<{ role: string; content: string }>,
-    existing?: { title?: string },
-  ): string {
-    return threadTitleFromMessages(messages) || existing?.title?.trim() || ''
-  }
-
-  function applyThreadMessages(state: AiSessionState, thread: AiConversationThread | undefined) {
-    const messages = (thread?.messages || []).map(fromHistoryRecord)
-    state.messages.splice(0, state.messages.length, ...messages)
-    state.contextCheckpoint = thread?.contextCheckpoint
-    state.compactionCount = normalizeAiCompactionCount(thread?.compactionCount) || normalizeAiCompactionCount(thread?.contextCheckpoint?.compactionCount)
-    state.contextFiles = thread?.contextFiles || []
-  }
-
-  async function loadThreadImages(sessionId: string, thread: AiConversationThread): Promise<AiConversationThread> {
-    if (!thread.messages.some(message => message.images?.some(image => !image.dataUrl && !image.missing))) return thread
-    const refreshed = await window.LiteConnect.getAiSessionStore(sessionId)
-    return refreshed.threads.find(item => item.id === thread.id) || thread
-  }
-
-  async function buildStoreFromState(
-    sessionId: string,
-    invalidateContextCheckpoint = false,
-  ): Promise<AiSessionStore> {
+  function handleContextCompaction(sessionId: string, payload: Extract<AiChatStreamPayload, { type: 'compaction' }>, manual = false) {
     const state = getAiSessionState(sessionId)
-    let store: AiSessionStore
-    try {
-      store = await window.LiteConnect.getAiSessionStore(sessionId)
-    } catch {
-      store = {
-        version: 1,
-        activeThreadId: state.activeThreadId || createThreadId(),
-        threads: [],
-        defaultContextFiles: [...state.defaultContextFiles],
+    const before = Math.max(0, Math.round(payload.value.beforeTokens / payload.value.budgetTokens * 100))
+    if (payload.value.phase === 'start') {
+      closeContextCompressionNotice(sessionId)
+      setContextCompressionNotice(sessionId, ElMessage.info({ message: t('ai.contextCompressionStarted', { before }), duration: 0, showClose: true }))
+    } else {
+      closeContextCompressionNotice(sessionId)
+      if (payload.value.phase === 'failed') ElMessage.warning(t(manual ? 'ai.contextManualCompressionFailed' : 'ai.contextCompressionFailed'))
+      else {
+        if (payload.value.compactionCount) state.compactionCount = Math.max(state.compactionCount, payload.value.compactionCount)
+        const after = Math.max(0, Math.round((payload.value.afterTokens || 0) / payload.value.budgetTokens * 100))
+        if (payload.value.afterTokens !== undefined && payload.value.afterTokens < payload.value.beforeTokens) ElMessage.success(t('ai.contextCompressionDone', { before, after }))
+        const threadId = state.activeThreadId
+        void window.LiteConnect.getAiSessionStore(sessionId).then(store => {
+          if (state.activeThreadId !== threadId) return
+          const thread = store.threads.find(item => item.id === threadId)
+          state.contextCheckpoint = thread?.contextCheckpoint
+          state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(thread?.compactionCount))
+        }).catch(() => {})
       }
     }
+  }
 
-    if (!Array.isArray(store.threads)) store.threads = []
-    if (store.threads.length === 0) {
-      const threadId = state.activeThreadId || createThreadId()
-      const local = state.threads.find((t) => t.id === threadId)
-      store.threads.push({
-        id: threadId,
-        title: resolveThreadTitle(state.messages, local),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        messages: [],
-        contextFiles: [...state.contextFiles],
+  async function compactContext(sessionId: string): Promise<boolean> {
+    const state = getAiSessionState(sessionId)
+    if (state.loading || !state.activeThreadId) return false
+    const threadId = state.activeThreadId
+    const requestId = `ai-compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    let failed = false
+    setSessionLoading(sessionId, true)
+    state.contextPressure = undefined
+    state.activeRequestId = requestId
+    const unsubscribe = window.LiteConnect.onAiChatStream(requestId, payload => {
+      if (payload.type === 'context-pressure') state.contextPressure = payload.value
+      if (payload.type === 'compaction') {
+        failed ||= payload.value.phase === 'failed'
+        handleContextCompaction(sessionId, payload, true)
+      }
+    })
+    try {
+      const result = await window.LiteConnect.aiChatStream(requestId, [], {
+        sessionId, threadId, compactOnly: true, assistantMessageId: requestId, createdAt: Date.now(), cwd: cwdForSession(sessionId),
       })
-      store.activeThreadId = threadId
-      state.activeThreadId = threadId
-    }
-
-    const activeId = state.activeThreadId || store.activeThreadId
-    let active = store.threads.find((t) => t.id === activeId)
-    if (!active) {
-      // Another SSH window may have pruned this window's empty draft.
-      // Recreate its own thread instead of overwriting a different conversation.
-      active = {
-        id: activeId, title: '', createdAt: Date.now(), updatedAt: Date.now(),
-        messages: [], contextFiles: [...state.contextFiles],
+      if (state.activeThreadId === threadId) {
+        state.contextCheckpoint = result.contextCheckpoint
+        state.contextPressure = result.contextPressure
+        state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(result.contextCheckpoint?.compactionCount))
       }
-      store.threads.push(active)
-    }
-    store.activeThreadId = active.id
-    state.activeThreadId = active.id
-
-    active.messages = state.messages
-      .filter((m) => !m.streaming)
-      .map(toHistoryRecord)
-    if (state.compactionCount) active.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(active.compactionCount))
-    if (invalidateContextCheckpoint) delete active.contextCheckpoint
-    const localSummary = state.threads.find((t) => t.id === active!.id)
-    active.title = active.customTitle || (active.messages.length
-      ? resolveThreadTitle(active.messages, { title: active.title || localSummary?.title })
-      : '')
-    active.updatedAt = Date.now()
-    pruneEmptyThreadsLocal(store)
-    return store
-  }
-
-  /** Deep-clone via JSON so Vue Proxies never cross Electron IPC. */
-  function cloneForIpc<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value)) as T
-  }
-
-  async function persistActiveThread(
-    sessionId: string,
-    invalidateContextCheckpoint = false,
-  ): Promise<boolean> {
-    const state = getAiSessionState(sessionId)
-    state.persisting = true
-    try {
-      const store = await buildStoreFromState(sessionId, invalidateContextCheckpoint)
-      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
-      syncThreadSummaries(state, store)
-      if (invalidateContextCheckpoint) state.contextCheckpoint = undefined
-      return true
-    } catch (err) {
-      console.warn('Failed to persist AI session store:', err)
+      if (!result.contextCompacted && !failed) ElMessage.info(t('ai.contextNothingToCompact'))
+      return result.contextCompacted === true
+    } catch (error: any) {
+      ElMessage.warning(sanitizeAiErrorMessage(error?.message || t('ai.requestFailed')))
       return false
     } finally {
-      state.persisting = false
+      unsubscribe()
+      closeContextCompressionNotice(sessionId)
+      state.activeRequestId = null
+      setSessionLoading(sessionId, false)
+      if (state.disposeAfterReply) releaseAiSessionState(sessionId)
     }
-  }
-
-  async function persistMessage(sessionId: string, message: ChatItem, threadId?: string) {
-    try {
-      const targetThreadId = threadId || getAiSessionState(sessionId).activeThreadId
-      await window.LiteConnect.appendAiSessionHistory(
-        sessionId,
-        cloneForIpc(toHistoryRecord(message)),
-        targetThreadId || undefined,
-      )
-      const state = getAiSessionState(sessionId)
-      // Keep local thread title/meta roughly in sync without full reload
-      const current = state.threads.find((t) => t.id === state.activeThreadId)
-      if (current) {
-        current.title = current.customTitle || threadTitleFromMessages(state.messages) || current.title
-        current.updatedAt = Date.now()
-        current.messageCount = state.messages.filter((m) => !m.streaming).length
-        current.active = true
-        state.threads.sort((a, b) => b.updatedAt - a.updatedAt)
-      }
-    } catch (err) {
-      console.warn('Failed to persist AI message:', err)
-      throw err
-    }
-  }
-
-
-  async function loadHistory(sessionId: string): Promise<ChatItem[]> {
-    const pending = historyLoads.get(sessionId)
-    if (pending) return pending
-    const state = getAiSessionState(sessionId)
-    const load = (async () => {
-      try {
-        // Host history is shared, but every new runtime SSH window starts its own
-        // draft. Reloads of an existing window keep its locally selected thread.
-        const store = state.loaded
-          ? await buildStoreFromState(sessionId)
-          : await window.LiteConnect.aiCreateConversation(sessionId, {})
-        syncThreadSummaries(state, store)
-        const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
-        state.activeThreadId = active?.id || ''
-        const messages = (active?.messages || []).map(fromHistoryRecord)
-        state.contextCheckpoint = active?.contextCheckpoint
-        state.compactionCount = normalizeAiCompactionCount(active?.compactionCount) || normalizeAiCompactionCount(active?.contextCheckpoint?.compactionCount)
-        state.contextFiles = active?.contextFiles || []
-        state.loaded = true
-        return messages
-      } catch (err: any) {
-        ElMessage.warning(err?.message || t('ai.loadHistoryFailed'))
-        return []
-      }
-    })()
-    historyLoads.set(sessionId, load)
-    try { return await load } finally { if (historyLoads.get(sessionId) === load) historyLoads.delete(sessionId) }
   }
 
   async function ensureAssistantReply(
@@ -655,29 +214,10 @@ export function useAiChat() {
           appendTextSegment(current.segments, 'reasoning', payload.value)
         } else if (payload.type === 'usage') {
           current.usage = plainUsage(payload.value)
+        } else if (payload.type === 'context-pressure') {
+          state.contextPressure = payload.value
         } else if (payload.type === 'compaction') {
-          const before = Math.max(0, Math.round((payload.value.beforeTokens / payload.value.budgetTokens) * 100))
-          if (payload.value.phase === 'start') {
-            closeContextCompressionNotice(sessionId)
-            contextCompressionNotices.set(sessionId, ElMessage.info({
-              message: t('ai.contextCompressionStarted', { before }),
-              duration: 0,
-              showClose: true,
-            }))
-          } else if (payload.value.phase === 'done') {
-            if (payload.value.compactionCount) state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(payload.value.compactionCount))
-            closeContextCompressionNotice(sessionId)
-            const after = Math.max(0, Math.round(((payload.value.afterTokens || 0) / payload.value.budgetTokens) * 100))
-            ElMessage.success(t('ai.contextCompressionDone', { before, after }))
-            void window.LiteConnect.getAiSessionStore(sessionId).then((store) => {
-              const thread = store.threads.find(item => item.id === state.activeThreadId)
-              state.contextCheckpoint = thread?.contextCheckpoint
-              state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(thread?.compactionCount))
-            }).catch(() => {})
-          } else {
-            closeContextCompressionNotice(sessionId)
-            ElMessage.warning(t('ai.contextCompressionFailed'))
-          }
+          handleContextCompaction(sessionId, payload)
         } else if (payload.type === 'tool') {
           const incoming = payload.value
           if (!current.toolRuns) current.toolRuns = []
@@ -779,7 +319,7 @@ export function useAiChat() {
         summary.messageCount = state.messages.length
         summary.updatedAt = Date.now()
       }
-      if (state.disposeAfterReply) aiSessionStates.delete(sessionId)
+      if (state.disposeAfterReply) releaseAiSessionState(sessionId)
     }
     notifyAiReplyComplete(sessionId)
     return true
@@ -1219,7 +759,7 @@ export function useAiChat() {
   if (api?.onAiBackgroundReply && !backgroundSubscriptions.has(api)) {
     backgroundSubscriptions.add(api)
     api.onAiBackgroundReply(event => {
-      const state = aiSessionStates.get(event.sessionId)
+      const state = findAiSessionState(event.sessionId)
       if (!state || state.activeThreadId !== event.threadId) return
       const message = fromHistoryRecord(event.record)
       message.streaming = event.record.status === 'running'
@@ -1236,7 +776,7 @@ export function useAiChat() {
       setSessionLoading(event.sessionId, !!message.streaming)
       if (!message.streaming) {
         if (state.disposeAfterReply) {
-          aiSessionStates.delete(event.sessionId)
+          releaseAiSessionState(event.sessionId)
           syncAiApprovalPending(event.sessionId, false)
           return
         }
@@ -1264,6 +804,7 @@ export function useAiChat() {
     sendText,
     resolveToolApproval,
     stopGeneration,
+    compactContext,
     clearMessages,
     loadHistory,
     getSessionState,

@@ -101,7 +101,7 @@ export function setupRemoteForwards(
   return handles
 }
 
-export function closeRemoteForwards(handles: RemoteForwardHandle[] | undefined): void {
+export function closeRemoteForwards(handles: ReadonlyArray<Pick<RemoteForwardHandle, 'close'>> | undefined): void {
   if (!handles) return
   for (const h of handles) {
     try {

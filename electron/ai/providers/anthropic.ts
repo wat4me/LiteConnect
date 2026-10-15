@@ -7,6 +7,7 @@ import type { AiAnthropicContentBlock, AiChatMessage, AiResolvedConfig, AiUsage 
 import { normalizeAiBaseUrl, readAiStream } from './http'
 import { parseProviderModels } from './modelMetadata'
 import type { AiProviderAdapter, AiProviderDelta } from './types'
+import { t } from '../../i18n'
 
 export function getAnthropicMessagesUrl(baseUrl: string): string {
   const url = normalizeAiBaseUrl(baseUrl)
@@ -127,8 +128,8 @@ async function readAnthropicStream(_settings: AiResolvedConfig, response: Respon
       }
     }
   }, true)
-  if (!started || !stopped || openBlocks.size) throw new Error('Claude stream ended before completion')
-  if (finishReason === 'max_tokens' && [...blocks.values()].some(block => block.type === 'tool_use')) throw new Error('Claude tool response reached its output limit; retry the request')
+  if (!started || !stopped || openBlocks.size) throw new Error(t('ai.streamIncomplete'))
+  if (finishReason === 'max_tokens') throw new Error(t('ai.responseIncomplete'))
   return parseAnthropicResponse({ content: [...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block) }).apiMessages[0]
 }
 

@@ -9,7 +9,7 @@
  */
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { Language, Parser } from 'web-tree-sitter'
+import { Language, Parser, type Tree } from 'web-tree-sitter'
 import {
   flattenBashCommand,
   type BashParseFn,
@@ -89,7 +89,7 @@ function describeGrammar(language: Language, path: string): string {
 
 function flatten(command: string): BashParseResult | null {
   if (!parser) return null
-  const trees: Parser.Tree[] = []
+  const trees: Tree[] = []
   const parse: BashParseFn = (source) => {
     const tree = parser?.parse(source)
     if (!tree) return null

@@ -1,4 +1,4 @@
-import { Client, Pool, type PoolClient } from 'pg'
+import { Client, Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 import { mapQueryResult as mapPostgresQueryResult, queryCursorCapped as runPostgresQueryCursorCapped } from './postgresQueryExecution'
 import {
@@ -262,7 +262,7 @@ export class PostgresDriver implements DbDriver {
     const extras = mapPostgresExtraOptions(conn.extraOptions)
     let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
     if (extras.sslEnabled === true && !ssl) ssl = { rejectUnauthorized: false } as any
-    if (extras.sslEnabled === false) ssl = undefined
+    if (extras.sslEnabled === false) ssl = false
     const pool = new Pool({
       host: conn.host,
       port: conn.port || 5432,
@@ -1016,7 +1016,7 @@ export class PostgresDriver implements DbDriver {
     )
     let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
     if (extras.sslEnabled === true && !ssl) ssl = { rejectUnauthorized: false } as any
-    if (extras.sslEnabled === false) ssl = undefined
+    if (extras.sslEnabled === false) ssl = false
     return new Pool({
       host: conn.host,
       port: conn.port || 5432,

@@ -9,6 +9,7 @@ import { estimateTokens, packAiMessages, type AiContextPack } from './aiContext'
 import { formatAiConversationContextFile } from './aiFixedContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
 import type { AiChatMessage, AiConversationContextFile } from './types/ai'
+import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget, type AiContextBudgetConfig } from './aiContextPressure'
 
 export function sanitizeTrackedCwd(raw: unknown): string {
   if (typeof raw !== 'string') return ''
@@ -39,6 +40,9 @@ export function sshToolSystemAddendum(session: {
     '改已存在的文件用 edit_file：它只传改动片段、其余内容原样不动，审批卡上给出的是小而可读的 diff。只有新建文件或整体重写才用 write_file。',
     'edit_file 的 oldString 必须逐字来自 read_file 返回的内容（含缩进与引号），不要带行号前缀；匹配不唯一时补上足够上下文，或明确用 replaceAll。行首的行号只是定位标记，任何时候都不要复制进 oldString / newString / write_file 的 content。',
     '工具结果已经显示在卡片里。回复只给简短结论和下一步，不要原样粘贴大段 stdout/JSON。能用工具拿到的信息，不要让用户去终端复制。',
+    '修改文件、部署、安装或重启后，须在同一台服务器上用只读工具复查用户要求的实际结果（如配置内容、服务状态、端口响应或近期日志）。命令返回成功、退出码为 0 或后台任务启动成功，都不等于用户目标已完成。只做与本次请求相关且必要的验证，不自行扩展修改范围。',
+    '最终说明已验证的结果、失败项和未验证项；没有复查依据时明确写「尚未验证」，不要声称已修复。多服务器分别验证和报告；一台失败不代表其他主机失败，也不能用其他主机成功的结果代替本机验证。',
+    '超时、断线或取消后，远端修改可能已经生效，也可能只完成了一部分；不要假定已回滚或直接重复执行。继续任务时先读取实际状态，再决定剩余操作；后台结果中的失败也要复核，不能只看任务状态 completed。',
     ...(cwd ? [`当前工作目录: ${cwd}。未写绝对路径时默认相对此目录。`] : []),
   ].join('\n')
 }
@@ -111,6 +115,7 @@ export function sshToolsForChat() {
 }
 
 export type SidebarAiRequestEstimate = AiContextPack & {
+  pressure: ReturnType<typeof measureAiContextPressure>
   /** OpenAI `tools[]` JSON, counted separately because packing does not reserve it. */
   toolSchemaTokens: number
   /** Packed prompt + tools schema — what the next sidebar request actually costs. */
@@ -122,7 +127,7 @@ let cachedToolSchemaTokens = 0
 /** Approximate tokens of the sidebar `tools[]` payload (stable; catalog is static). */
 export function sidebarToolSchemaTokens(): number {
   if (!cachedToolSchemaTokens) {
-    cachedToolSchemaTokens = estimateTokens(JSON.stringify(sshToolsForChat()))
+    cachedToolSchemaTokens = aiToolSchemaTokens(sshToolsForChat())
   }
   return cachedToolSchemaTokens
 }
@@ -131,7 +136,7 @@ export function sidebarToolSchemaTokens(): number {
  * Same packing as `packRequestMessages` in the main process (system + SSH addendum +
  * transcript), then add `tools[]`. Does not rewrite kept history.
  */
-export function estimateSidebarAiRequest(opts: {
+export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
   systemPrompt: string
   messages: AiChatMessage[]
   toolContext?: { system: string; schemaTokens: number }
@@ -150,23 +155,27 @@ export function estimateSidebarAiRequest(opts: {
     : '')
   const files = opts.contextFiles || []
   const fixedContext = files.map(formatAiConversationContextFile).join('\n\n')
+  const extra = [extraSystem, fixedContext].filter(text => text?.trim()).join('\n\n')
+  const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens() : 0)
+  const pressure = measureAiContextPressure({ ...opts, extraSystem: extra, toolSchemaTokens })
   const pack = packAiMessages({
     systemPrompt: [opts.systemPrompt, extraSystem, fixedContext].filter((s) => s && s.trim()).join('\n\n'),
     systemMaxTokens: files.length ? 40_000 : undefined,
     messages: opts.messages,
     model: opts.model,
     contextWindowTokens: opts.contextWindowTokens,
+    reserveOutputTokens: resolveAiContextBudget(opts).outputReserveTokens + toolSchemaTokens,
   })
-  const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens() : 0)
   return {
     ...pack,
     toolSchemaTokens,
     totalTokens: pack.promptTokens + toolSchemaTokens,
+    pressure,
   }
 }
 
 /** Match the main-process guard: every selected file body must survive system-message packing. */
-export function sidebarContextFilesFit(opts: {
+export function sidebarContextFilesFit(opts: AiContextBudgetConfig & {
   systemPrompt: string
   toolContext?: { system: string; schemaTokens: number }
   sessionId?: string

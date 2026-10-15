@@ -1,3 +1,5 @@
+import type { ExactEditFailureCode } from '../exactEdit'
+
 export const SSH_MCP_TOOL_NAMES = [
   'list_connections',
   'list_sessions',
@@ -84,6 +86,8 @@ export type SshMcpToolDefinition = {
 }
 
 export type SshMcpToolErrorCode =
+  | ExactEditFailureCode
+  | 'NOT_A_TEXT_FILE'
   | 'UNKNOWN_TOOL'
   | 'INVALID_ARGUMENTS'
   | 'INVALID_SESSION_ID'

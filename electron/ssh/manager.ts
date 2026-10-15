@@ -273,7 +273,7 @@ export class SSHManager {
     const channelP = this.openExecChannel(sessionId, command, generation, (opened) => {
       if (cancelled) {
         try {
-          opened.destroy?.()
+          if ('destroy' in opened && typeof opened.destroy === 'function') opened.destroy()
         } catch {}
         try {
           (opened as { close?: () => void }).close?.()
@@ -297,7 +297,7 @@ export class SSHManager {
       cancel: () => {
         cancelled = true
         try {
-          channel?.destroy?.()
+          if (channel && 'destroy' in channel && typeof channel.destroy === 'function') channel.destroy()
         } catch {}
         try {
           (channel as { close?: () => void } | undefined)?.close?.()

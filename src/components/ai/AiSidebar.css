@@ -840,7 +840,16 @@
 .composer { padding: 10px; gap: 8px; }
 .composer-actions-right { width: 100%; gap: 6px; min-width: 0; }
 .composer-permission-selector { display: flex; height: 34px; align-items: center; margin-left: auto; flex-shrink: 0; }
-.model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: 34px; align-items: center; }
+.model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: 34px; align-items: center; gap: 4px; }
+.composer-context-meter { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 34px; padding: 0; border: 0; background: transparent; border-radius: 6px; color: var(--accent); cursor: pointer; }
+.composer-context-meter:hover:not(:disabled) { background: var(--hover-bg); }
+.composer-context-meter:disabled { cursor: default; }
+.composer-context-meter.warn { color: var(--warning); }
+.composer-context-meter.danger { color: var(--danger); }
+.composer-context-meter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.composer-context-meter svg { width: 18px; height: 18px; fill: none; stroke-width: 3; }
+.context-meter-track { stroke: var(--border-color); }
+.context-meter-fill { stroke: currentColor; }
 .ai-model-switcher { height: 34px; min-height: 34px; width: auto; gap: 5px; font-family: inherit; font-size: 11px; line-height: 1.35; padding: 0 4px; justify-content: space-between; }
 .ai-model-switcher:disabled { cursor: not-allowed; opacity: .5; }
 .send-btn, .stop-btn { width: 38px; height: 38px; min-width: 38px; padding: 0; font-size: 11px; margin-left: 0; }
@@ -868,3 +877,113 @@
 
 .tool-approval-head:has(.tool-approval-target) { flex-wrap: wrap; }
 .tool-approval-target { flex-basis: 100%; overflow-wrap: anywhere; font-weight: 600; color: var(--accent); }
+
+/* LiteAI uses one desktop toolbar; the terminal's compact AI panel keeps its layout. */
+.is-workspace {
+  border: 0;
+}
+.is-workspace .ai-header {
+  display: flex;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  gap: 10px;
+  min-height: 56px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--workspace-line);
+  background: var(--workspace-toolbar);
+}
+.is-workspace .ai-header-title-area { flex: 0 1 auto; max-width: 180px; }
+.is-workspace .ai-header-context { flex: 1; min-width: 0; }
+.is-workspace .ai-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.is-workspace .ai-header-actions {
+  flex-shrink: 0;
+  gap: 4px;
+}
+.is-workspace .ai-header-actions .ui-icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--workspace-radius);
+  background: var(--bg-primary);
+}
+.is-workspace .ai-header-actions .ui-icon-btn:hover:not(:disabled) { background: var(--hover-bg); border-color: var(--border-color); }
+.is-workspace .ai-header :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.is-workspace .ai-body {
+  align-self: center;
+  width: 100%;
+  max-width: 1100px;
+}
+.is-workspace .composer-area {
+  left: max(18px, calc((100% - 1060px) / 2));
+  right: max(18px, calc((100% - 1060px) / 2));
+  bottom: 16px;
+}
+.is-workspace .composer {
+  padding: 10px 12px 8px;
+  gap: 7px;
+  border-color: var(--workspace-line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 50%, var(--bg-primary));
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--overlay-bg) 10%, transparent), var(--workspace-shadow);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.is-workspace .composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+  box-shadow: 0 0 0 3px var(--accent-bg), var(--workspace-shadow);
+}
+.is-workspace .composer-input {
+  padding: 2px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.is-workspace .composer-context-menu summary,
+.is-workspace .composer-add-image {
+  border-color: transparent;
+  background: transparent;
+}
+.is-workspace .composer-context-meter {
+  color: var(--text-secondary);
+}
+.is-workspace .composer-context-meter.warn { color: var(--warning); }
+.is-workspace .composer-context-meter.danger { color: var(--danger); }
+.is-workspace .send-btn,
+.is-workspace .stop-btn {
+  border-radius: 50%;
+}
+.is-workspace .send-btn:disabled {
+  opacity: 1;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+.is-workspace .model-switcher-dropdown,
+.is-workspace .ai-new-chat-dropdown,
+.is-workspace .composer-context-dropdown {
+  border-color: var(--workspace-line);
+  border-radius: var(--workspace-panel-radius);
+}
+.is-workspace .ai-new-chat-dropdown { font-size: 12px; }
+.is-workspace .ai-body :deep(.empty-example-chip) {
+  border-color: var(--workspace-line);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+.is-workspace .ai-body :deep(.empty-example-chip:hover) {
+  background: var(--workspace-selected);
+  color: var(--accent);
+}
+@container ai-sidebar (max-width: 580px) {
+  .is-workspace .composer-area { left: 12px; right: 12px; bottom: 12px; }
+}
+@container ai-sidebar (max-width: 700px) {
+  .is-workspace .ai-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; padding: 10px 12px; gap: 8px; }
+  .is-workspace .ai-header-title-area { max-width: none; }
+  .is-workspace .ai-header-context { grid-row: 2; grid-column: 1 / -1; }
+  .is-workspace .ai-header-actions { grid-row: 1; grid-column: 3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-workspace .composer { transition: none; }
+}

@@ -10,6 +10,7 @@ import type {
   AiDiscoveredModel,
 } from '@shared/types/ai'
 import type { AppResourceStats } from '@shared/appResourceStats'
+import type { AiHistoryLimits, AiHistoryPrunePreview } from '@shared/aiHistoryLimits'
 import type { UpdateStatus } from '@shared/types/app'
 import type {
   Connection,
@@ -191,6 +192,7 @@ export interface LiteConnectApi {
   setCredentialAutoFillEnabled: (enabled: boolean) => Promise<void>
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
+  previewAiHistoryPrune: (limits: AiHistoryLimits) => Promise<AiHistoryPrunePreview>
   switchAiModel: (providerId: string, model: string) => Promise<AiSettings>
   listAiModels: (provider: { baseUrl: string; apiKey: string; protocol?: import('../../shared/types/ai').AiProviderProtocol }) => Promise<AiDiscoveredModel[]>
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string; protocol?: import('../../shared/types/ai').AiProviderProtocol }) => Promise<{ ok: boolean }>

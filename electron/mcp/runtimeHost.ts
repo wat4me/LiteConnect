@@ -1,4 +1,4 @@
-import type { ApprovalMode, CommandClass, SshMcpErrorPayload, SshMcpToolErrorCode, SshMcpToolResult } from '../../shared/mcp/types'
+import type { ApprovalMode, CommandClass, CommandClassification, SshMcpErrorPayload, SshMcpToolErrorCode, SshMcpToolResult } from '../../shared/mcp/types'
 import type { McpJobStore } from './execJobs'
 import type { PtySessionStore } from './ptySessions'
 import type { SshMcpApprovalFn, SshMcpConnectionPort, SshMcpMetricsPort, SshMcpSessionPort } from './ports'
@@ -27,7 +27,7 @@ export type McpRuntimeHost = {
   assertGeneration(sessionId: string, generation: number): void
   withSftp<T>(sessionId: string, generation: number, fn: () => Promise<T>): Promise<T>
   ensureCommandAllowed(
-    classification: { class: CommandClass; reason: string },
+    classification: CommandClassification,
     sessionId: string,
     command: string,
     approvalMode?: ApprovalMode,

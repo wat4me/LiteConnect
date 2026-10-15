@@ -3,7 +3,8 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMoun
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiConversationContextFile, AiSettings, AiToolRun } from '../../env.d.ts'
-import { useAiChat, type ChatItem } from '../../composables/ai/useAiChat'
+import { useAiChat } from '../../composables/ai/useAiChat'
+import type { ChatItem } from '@/domain/ai/chat'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
 import {
   buildAiTerminalConfirmCopy,
@@ -14,19 +15,18 @@ import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 import AiImageStrip from './AiImageStrip.vue'
 import AiBackgroundTasks from './AiBackgroundTasks.vue'
-import { prepareAiImage } from '@/utils/ai/imageAttachment'
-import { AI_IMAGES_PER_MESSAGE } from '@shared/aiImages'
+import { useAiComposerImages } from '@/composables/ai/useAiComposerImages'
 import type { AiImageAttachment } from '@shared/types/ai'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiComposerSelector from './AiComposerSelector.vue'
 import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
-import { aiModelId, billedConversationTokens, formatTokenCount, lastBilledConversationUsage } from '@shared/aiContext'
+import { aiModelId, formatTokenCount } from '@shared/aiContext'
+import { aiToolSchemaTokens } from '@shared/aiContextPressure'
 import { flattenConversationForApi } from '@shared/aiMessages'
 import { projectAiHistoryForContext, AI_COMPACTION_NEW_THREAD_AT } from '@shared/aiCompaction'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 import { workspaceToolsForChat, workspaceToolSystemAddendum } from '@shared/aiWorkspacePrompt'
-import { estimateTokens } from '@shared/aiContext'
 import { estimateSidebarAiRequest, sidebarContextFilesFit } from '@shared/aiSidebarPrompt'
 import { isAiMarkdownFilePath } from '@shared/aiFixedContext'
 import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
@@ -70,6 +70,7 @@ const {
   activeContextWindowTokens,
   sendText,
   stopGeneration,
+  compactContext,
   loadHistory,
   getSessionState,
   saveSessionInput,
@@ -132,63 +133,12 @@ watch(contextFiles, (files) => {
   }
 })
 const input = ref('')
-const draftImages = computed(() => getSessionState(props.sessionId).draftImages)
 const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)
 const reminderKey = computed(() => `${props.sessionId}:${getSessionState(props.sessionId).activeThreadId}`)
 const dismissedCompactionCounts = reactive<Record<string, number>>({})
 const showLongSessionReminder = computed(() => messages.value.length > 0 && compactionCount.value >= AI_COMPACTION_NEW_THREAD_AT && compactionCount.value > (dismissedCompactionCounts[reminderKey.value] || 0))
 function continueLongSession() { dismissedCompactionCounts[reminderKey.value] = compactionCount.value }
 const supportsImages = computed(() => activeProvider.value?.models.find(model => model.id === displayModelName.value)?.supportsImages === true)
-const imageInputRef = ref<HTMLInputElement | null>(null)
-const imageBusy = ref(false)
-const imageDragOver = ref(false)
-
-async function addImages(files: File[]) {
-  if (loading.value || imageBusy.value || !files.length) return
-  if (!supportsImages.value) { ElMessage.warning(t('ai.imagesNotEnabled')); return }
-  const sessionId = props.sessionId
-  imageBusy.value = true
-  try {
-    await ensureInitialLoad(false)
-    if (sessionId !== props.sessionId) return
-    const state = getSessionState(sessionId)
-    const threadId = state.activeThreadId
-    if (state.draftImages.length + files.length > AI_IMAGES_PER_MESSAGE) { ElMessage.warning(t('ai.imageCountLimit')); return }
-    const prepared: AiImageAttachment[] = []
-    for (const file of files) prepared.push(await prepareAiImage(file))
-    if (state !== getSessionState(props.sessionId) || state.activeThreadId !== threadId) return
-    for (const image of prepared) if (!state.draftImages.some(existing => existing.id === image.id)) state.draftImages.push(image)
-  } catch (error: any) { ElMessage.warning(error?.message || t('ai.imageReadFailed')) }
-  finally { imageBusy.value = false }
-}
-function onImageSelection(event: Event) {
-  const element = event.target as HTMLInputElement
-  void addImages(Array.from(element.files || []))
-  element.value = ''
-}
-function onImagePaste(event: ClipboardEvent) {
-  const files = Array.from(event.clipboardData?.items || []).filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => !!file)
-  if (!files.length) return
-  event.preventDefault()
-  void addImages(files)
-}
-function onImageDragOver(event: DragEvent) {
-  if (!event.dataTransfer?.types.includes('Files')) return
-  event.preventDefault()
-  event.dataTransfer.dropEffect = supportsImages.value && !loading.value && !imageBusy.value && !showSettings.value && !showHistory.value ? 'copy' : 'none'
-  imageDragOver.value = !showSettings.value && !showHistory.value
-}
-function onImageDrop(event: DragEvent) {
-  if (!event.dataTransfer?.types.includes('Files')) return
-  event.preventDefault()
-  imageDragOver.value = false
-  if (showSettings.value || showHistory.value) return
-  void addImages(Array.from(event.dataTransfer.files))
-}
-function onImageDragLeave(event: DragEvent) {
-  if (event.relatedTarget instanceof Node && sidebarRef.value?.contains(event.relatedTarget)) return
-  imageDragOver.value = false
-}
 const loading = ref(false)
 watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
 const showSettings = ref(false)
@@ -306,6 +256,19 @@ const {
   closeModelSwitcher: () => { showModelSwitcher.value = false },
   closeSettings: () => { showSettings.value = false },
 })
+const {
+  draftImages, imageInputRef, imageBusy, imageDragOver,
+  onImageSelection, onImagePaste, onImageDragOver, onImageDrop, onImageDragLeave,
+} = useAiComposerImages({
+  sessionId: () => props.sessionId,
+  draft: () => getSessionState(props.sessionId),
+  loading: () => loading.value,
+  supportsImages: () => supportsImages.value,
+  blocked: () => showSettings.value || showHistory.value,
+  containsTarget: target => target instanceof Node && !!sidebarRef.value?.contains(target),
+  ensureLoaded: () => ensureInitialLoad(false),
+  t: key => t(key),
+})
 watch([input, showSettings, showHistory, contextFiles, showLongSessionReminder, () => draftImages.value.length], () => { void nextTick(resizeComposer) })
 
 const hasApiConfigured = computed(() => {
@@ -318,12 +281,13 @@ let openPreparationPromise: Promise<void> | null = null
 let handledOpenGeneration = 0
 const toolContext = computed(() => props.workspaceTargets ? {
   system: workspaceToolSystemAddendum(props.workspaceTargets),
-  schemaTokens: estimateTokens(JSON.stringify(workspaceToolsForChat())),
+  schemaTokens: aiToolSchemaTokens(workspaceToolsForChat()),
 } : undefined)
 const workspaceJobIds = computed(() => props.workspaceTargets ? messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => run.jobIds || [])) : undefined)
 const workspaceJobTargets = computed(() => Object.fromEntries(messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => (run.jobIds || []).map(id => [id, run.target || ''])))))
 const targetSessionIds = computed(() => props.workspaceTargets?.map(target => target.sessionId).filter(Boolean) || [props.sessionId])
 const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
+  ...activeProvider.value?.models.find(model => model.id === displayModelName.value),
   systemPrompt: settings.value.systemPrompt,
   toolContext: toolContext.value,
   sessionId: props.sessionId,
@@ -415,11 +379,20 @@ const contextDroppedCount = computed(() => {
   }).droppedCount
 })
 
-const contextUsedTokens = computed(() =>
-  billedConversationTokens(lastBilledConversationUsage(messages.value)),
-)
-
-const contextBudgetTokens = computed(() => activeContextWindowTokens.value)
+const contextModelConfig = computed(() => activeProvider.value?.models.find(model => model.id === displayModelName.value))
+const contextPressure = computed(() => {
+  const state = getSessionState(props.sessionId)
+  if (loading.value && state.contextPressure) return state.contextPressure
+  const projected = projectAiHistoryForContext(messages.value, state.contextCheckpoint)
+  if (input.value.trim() || draftImages.value.length) projected.push({ role: 'user', content: input.value, images: draftImages.value })
+  return estimateSidebarAiRequest({
+    ...contextModelConfig.value, model: displayModelName.value, contextWindowTokens: activeContextWindowTokens.value,
+    systemPrompt: settings.value.systemPrompt, messages: projected, contextFiles: contextFiles.value,
+    toolContext: toolContext.value, sessionId: props.sessionId, cwd: sftpListedCwdState()[props.sessionId],
+  }).pressure
+})
+const contextUsedTokens = computed(() => contextPressure.value.usedTokens)
+const contextBudgetTokens = computed(() => contextPressure.value.windowTokens)
 
 const contextRatio = computed(() => {
   const budget = contextBudgetTokens.value
@@ -433,7 +406,7 @@ const contextTone = computed<'ok' | 'warn' | 'danger'>(() => {
   return 'ok'
 })
 
-/** Last billed turn vs the model window. Composer draft is not counted. */
+/** Show the same next-request estimate the backend uses, including the draft. */
 const showContextMeter = computed(() => contextRatio.value >= 0.7)
 
 const contextMeterTitle = computed(() =>
@@ -442,6 +415,14 @@ const contextMeterTitle = computed(() =>
     budget: formatTokenCount(contextBudgetTokens.value),
   }),
 )
+const contextMeterDescription = computed(() =>
+  `${t('ai.contextAria')} · ${contextMeterTitle.value} · ${Math.round(contextRatio.value * 100)}%\n${t('ai.contextCompactAt', { tokens: formatTokenCount(contextPressure.value.thresholdTokens) })}\n${t('ai.contextMeterHint')}`,
+)
+
+async function handleCompactContext() {
+  if (loading.value || savingComposer.value || contextFileBusy.value || newConversationBusy.value || !props.executionAvailable) return
+  await compactContext(props.sessionId)
+}
 
 const modelSwitcherGroups = computed(() => {
   return (settings.value.providers || [])
@@ -873,6 +854,11 @@ async function handleSendText(text: string, images?: AiImageAttachment[]): Promi
 }
 
 async function sendMessage() {
+  if (input.value.trim() === '/compact' && !draftImages.value.length && !loading.value && !savingComposer.value && !contextFileBusy.value && !newConversationBusy.value && props.executionAvailable) {
+    input.value = ''
+    await handleCompactContext()
+    return
+  }
   if (!canSend.value) return
   const content = input.value.trim()
   const state = getSessionState(props.sessionId)
@@ -1014,11 +1000,13 @@ async function runCodeToTerminal(code: string) {
 </script>
 
 <template>
-  <div ref="sidebarRef" class="ai-sidebar" @dragover="onImageDragOver" @dragleave="onImageDragLeave" @drop="onImageDrop">
+  <div ref="sidebarRef" class="ai-sidebar" :class="{ 'is-workspace': workspace }" @dragover="onImageDragOver" @dragleave="onImageDragLeave" @drop="onImageDrop">
     <div v-show="!showSettings && !showHistory" class="ai-header">
+      <slot name="header-leading" />
       <div class="ai-header-title-area">
         <div class="ai-title" :title="currentThreadTitleTip">{{ currentThreadTitle }}</div>
       </div>
+      <div v-if="$slots['workspace-toolbar']" class="ai-header-context"><slot name="workspace-toolbar" /></div>
       <div class="ai-header-actions">
         <details
           v-if="workspace"
@@ -1060,6 +1048,7 @@ async function runCodeToTerminal(code: string) {
           <AppIcon name="close" size="sm" />
         </button>
       </div>
+      <slot name="header-trailing" />
     </div>
 
     <AiBackgroundTasks v-show="!showSettings && !showHistory" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
@@ -1217,6 +1206,22 @@ async function runCodeToTerminal(code: string) {
               <span class="ai-model-switcher-name">{{ composerModelLabel }}</span>
               <AppIcon name="chevron-down" size="xs" />
             </button>
+            <button
+              v-if="displayModelName"
+              type="button"
+              class="composer-context-meter"
+              :class="contextTone"
+              :disabled="loading || savingComposer || contextFileBusy || newConversationBusy || !messages.length || !props.executionAvailable"
+              :aria-label="t('ai.compactContext')"
+              :aria-description="contextMeterDescription"
+              :title="contextMeterDescription"
+              @click="handleCompactContext"
+            >
+              <svg viewBox="0 0 24 24" role="meter" :aria-label="t('ai.contextAria')" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="Math.round(contextRatio * 100)" :aria-valuetext="contextMeterDescription">
+                <circle class="context-meter-track" cx="12" cy="12" r="9" />
+                <circle class="context-meter-fill" cx="12" cy="12" r="9" pathLength="100" :stroke-dasharray="`${contextRatio * 100} 100`" transform="rotate(-90 12 12)" />
+              </svg>
+            </button>
           </div>
           <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
           <button
@@ -1282,6 +1287,7 @@ async function runCodeToTerminal(code: string) {
       <AiSettingsPanel
         ref="settingsPanelRef"
         :model-value="settings"
+        :layout="workspace ? 'page' : 'panel'"
         @saved="onSettingsSaved"
         @close="closeSettingsPanel"
       />

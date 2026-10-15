@@ -35,7 +35,7 @@ import { SessionLogManager } from './ssh/sessionLog'
 import { closeAppDatabase, initializeAppDatabase } from './store/appDatabase'
 import { configureDevelopmentUserDataPath } from './store/developmentUserData'
 import { createWindow } from './window/createWindow'
-import { aiHistoryIdForHost } from './ai/historyScope'
+import { aiHistoryIdForHost } from './ai/history/historyScope'
 import { installCloseToTray, markQuitting, showMainWindow, syncTrayFromSettings } from './window/tray'
 import { installSingleInstance } from './window/singleInstance'
 import { installUpdateGuard } from './window/updateGuard'
@@ -53,7 +53,7 @@ import {
   getPrimaryWindow,
 } from './window/windowRegistry'
 import type { McpHttpGateway } from './mcp/httpGateway'
-import type { AiExecutionService } from './ai/executionService'
+import type { AiExecutionService } from './ai/execution/executionService'
 
 configureDevelopmentUserDataPath()
 const isPrimaryInstance = installSingleInstance(showMainWindow)
@@ -75,7 +75,7 @@ const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
 let aiExecutionService: AiExecutionService | undefined
-let aiScheduler: import('./ai/scheduler').AiScheduler | undefined
+let aiScheduler: import('./ai/schedules/scheduler').AiScheduler | undefined
 let monitorAlerts: MonitorAlerts
 let backgroundMonitor: BackgroundMonitor
 const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, updated) => {
@@ -306,6 +306,24 @@ app.whenReady().then(async () => {
     console.error('[Main Tray Init]', err)
   })
 
+  app.on('window-all-closed', () => {
+    backgroundMonitor.stop()
+    clearLatencyTimers()
+    monitorCollector.stopAll()
+    dockerCloser?.closeAll()
+    sshManager.forceDisconnectAll()
+    dbManager.disconnectAll()
+    sessionLog.endAll()
+    void mcpHttpGateway?.stop()
+    if (process.platform !== 'darwin') {
+      app.quit()
+    } else {
+      void storesReady.then(() => backgroundMonitor.start()).catch((err) => {
+        console.error('[Background Monitor Restart]', err)
+      })
+    }
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       openMainWindow()
@@ -314,24 +332,6 @@ app.whenReady().then(async () => {
       showMainWindow()
     }
   })
-})
-
-app.on('window-all-closed', () => {
-  backgroundMonitor.stop()
-  clearLatencyTimers()
-  monitorCollector.stopAll()
-  dockerCloser?.closeAll()
-  sshManager.forceDisconnectAll()
-  dbManager.disconnectAll()
-  sessionLog.endAll()
-  void mcpHttpGateway?.stop()
-  if (process.platform !== 'darwin') {
-    app.quit()
-  } else {
-    void storesReady.then(() => backgroundMonitor.start()).catch((err) => {
-      console.error('[Background Monitor Restart]', err)
-    })
-  }
 })
 
 app.on('browser-window-blur', () => {

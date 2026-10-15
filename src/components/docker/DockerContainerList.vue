@@ -244,6 +244,7 @@ function onSearchInput(e: Event) {
 
 .list-column {
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -298,7 +299,6 @@ function onSearchInput(e: Event) {
   position: relative;
   flex: 1;
   min-width: 160px;
-  max-width: 280px;
 }
 
 .docker-list-search {
@@ -354,7 +354,7 @@ function onSearchInput(e: Event) {
 .list-head,
 .container-row {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  grid-template-columns: 76px minmax(0, 1.2fr) minmax(0, 1fr) 64px;
   gap: 8px;
   align-items: center;
   padding: 0 10px;
@@ -362,10 +362,12 @@ function onSearchInput(e: Event) {
 
 .list-table.no-actions .list-head,
 .list-table.no-actions .container-row {
-  grid-template-columns: 88px minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-columns: 76px minmax(0, 1.2fr) minmax(0, 1fr);
 }
 
 .list-head {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   flex-shrink: 0;
   height: 32px;
   font-size: 11px;
@@ -377,6 +379,7 @@ function onSearchInput(e: Event) {
 
 .container-list {
   overflow: auto;
+  scrollbar-gutter: stable;
   min-height: 0;
   flex: 1;
 }
@@ -424,6 +427,11 @@ function onSearchInput(e: Event) {
   display: inline-flex;
   gap: 4px;
   justify-content: flex-end;
+}
+
+.col-container,
+.col-runtime {
+  min-width: 0;
 }
 
 .action-btn {

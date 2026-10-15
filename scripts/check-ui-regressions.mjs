@@ -6,6 +6,7 @@ import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const docker = process.argv.includes('--docker')
 const server = await createServer({
   configFile: false,
   root,
@@ -18,10 +19,10 @@ const server = await createServer({
 try {
   await server.listen()
   const address = server.httpServer.address()
-  const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/index.html` }
+  const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/${docker ? 'docker' : 'index'}.html` }
   delete env.ELECTRON_RUN_AS_NODE
   const electron = createRequire(import.meta.url)('electron')
-  const child = spawn(electron, [resolve(root, 'scripts/ui-regression/runner.cjs')], {
+  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${docker ? 'docker-runner' : 'runner'}.cjs`)], {
     cwd: root, env, stdio: 'inherit', windowsHide: true,
   })
   process.exitCode = await new Promise((accept, reject) => {

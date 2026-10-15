@@ -31,6 +31,12 @@ function checkpoint(throughMessageId: string): AiContextCheckpoint {
 }
 
 describe('AI context compaction helpers', () => {
+  it('can summarize an oversized previous turn while retaining the new question', () => {
+    const records = [record('m1', 'user', 'inspect'), record('m2', 'assistant', 'x'.repeat(200000), { status: 'completed' }), record('m3', 'user', 'continue')]
+    const plan = selectAiCompactionPlan(records, undefined, 32000, 4000)
+    expect(plan?.throughMessageId).toBe('m2')
+    expect(plan?.recentMessages).toEqual([{ role: 'user', content: 'continue' }])
+  })
   it('keeps persisted history untouched while pruning only model-facing tool results', () => {
     const original = '头'.repeat(5_000) + '中'.repeat(5_000) + '尾'.repeat(2_000)
     const pruned = pruneAiToolResultText(original)
@@ -99,5 +105,20 @@ describe('AI context compaction helpers', () => {
     }), 1_000)
     expect(message?.content).toContain('final')
     expect(message?.content).not.toContain('private reasoning')
+  })
+
+  it('carries interrupted execution facts into both recent context and old-history summaries', () => {
+    const interrupted = record('m2', 'assistant', 'unverified success', { status: 'aborted', toolRuns: [
+      { id: 'done', name: 'exec', args: '{"command":"restart app"}', target: 'server-a', content: 'exit code 0', status: 'done', isError: false },
+      { id: 'unknown', name: 'exec', args: '{"command":"check app"}', target: 'server-b', content: '', status: 'aborted', isError: false },
+    ] })
+    for (const message of [projectAiHistoryForContext([interrupted], undefined)[0], aiHistoryRecordForSummary(interrupted, 4000)]) {
+      expect(message?.content).toContain('restart app')
+      expect(message?.content).toContain('server-a')
+      expect(message?.content).toContain('server-b')
+      expect(message?.content).toContain('execution-result-unknown')
+      expect(message?.content).not.toContain('unverified success')
+    }
+    expect(aiHistoryRecordForSummary(record('m3', 'assistant', 'unfinished', { status: 'aborted' }), 4000)).toBeNull()
   })
 })

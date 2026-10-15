@@ -221,6 +221,8 @@ export function resolveContextWindowTokens(model?: string, override?: number | n
 }
 
 export type AiModelSpec = {
+  maxOutputTokens?: number
+  compactionRetainTokens?: number
   supportsImages?: boolean
   displayName?: string
   id: string
@@ -234,7 +236,7 @@ export function parseAiModel(raw: unknown): AiModelSpec | null {
     return id ? { id } : null
   }
   if (!raw || typeof raw !== 'object') return null
-  const rec = raw as { id?: unknown; displayName?: unknown; name?: unknown; contextWindowTokens?: unknown; supportsImages?: unknown; contextMetadata?: AiModel['contextMetadata'] }
+  const rec = raw as { id?: unknown; displayName?: unknown; name?: unknown; contextWindowTokens?: unknown; supportsImages?: unknown; contextMetadata?: AiModel['contextMetadata']; maxOutputTokens?: unknown; compactionRetainTokens?: unknown }
   const id =
     typeof rec.id === 'string' && rec.id.trim()
       ? rec.id.trim()
@@ -244,6 +246,10 @@ export function parseAiModel(raw: unknown): AiModelSpec | null {
   if (!id) return null
   const contextWindowTokens = clampContextWindowTokens(rec.contextWindowTokens)
   const model: AiModelSpec = contextWindowTokens ? { id, contextWindowTokens } : { id }
+  for (const key of ['maxOutputTokens', 'compactionRetainTokens'] as const) {
+    const value = rec[key]
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) model[key] = Math.min(value, MAX_CONTEXT_WINDOW_TOKENS)
+  }
   if (typeof rec.displayName === 'string' && rec.displayName.trim()) model.displayName = rec.displayName.trim()
   if (typeof rec.supportsImages === 'boolean') model.supportsImages = rec.supportsImages
   const metadataTokens = clampContextWindowTokens(rec.contextMetadata?.tokens)

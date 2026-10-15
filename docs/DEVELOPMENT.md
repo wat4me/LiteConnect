@@ -26,7 +26,7 @@ LiteConnect/
 │   ├── db/                      # 数据库会话、驱动、SSH 隧道、查询与导出
 │   │   └── drivers/             # MySQL / PostgreSQL / Oracle 驱动
 │   ├── docker/                  # Docker API 传输、容器操作、日志与 exec
-│   ├── ai/                      # Chat Completions 流式请求、工具循环、会话历史
+│   ├── ai/                      # AI 服务域：execution / tools / providers / history / workspace / schedules
 │   ├── mcp/                     # SSH MCP runtime、HTTP 网关、工具实现
 │   ├── ipc/                     # renderer/main IPC 注册与输入校验
 │   ├── ssh/                     # SSH、SFTP、转发、监控和传输任务
@@ -38,7 +38,7 @@ LiteConnect/
 ├── shared/                      # main 与 renderer 共用的纯逻辑
 ├── src/                         # Vue renderer
 │   ├── components/              # 按域划分的 UI 组件
-│   │   ├── ai/                  # AI 侧栏与设置
+│   │   ├── ai/                  # AI 侧栏、聊天、巡检与设置组件
 │   │   ├── connections/         # 连接列表、表单与凭据
 │   │   ├── database/            # 数据库工作区
 │   │   ├── docker/              # Docker 工作区（含容器终端）
@@ -71,6 +71,8 @@ LiteConnect/
 - `src/components/` 和 `src/composables/` 负责界面及 renderer 状态。
 - SSH、数据库和 Docker 的 socket、stream、日志、exec 及连接资源由主进程持有。
 - 应用内 AI 与外部 MCP 客户端共用 `electron/mcp` 工具运行时；HTTP 网关仅绑定 loopback。
+
+LiteAI 的模块职责与依赖方向见 [架构说明](../ARCHITECTURE.md#liteai-modules)，执行和中断协议见 [AI 执行服务](AI-RUNTIME.md)。前端 `useAiChat` 是对话操作入口，`chat/` 管理会话状态、历史和配置；`workspace/useAiWorkspace` 管理独立工作区生命周期。跨模块 UI 类型放在 `src/domain/ai/`，不从 composable 导入类型。新增代码直接导入实际模块路径，避免根目录再建立转发文件。
 
 ## 开发
 
@@ -146,6 +148,10 @@ npm run typecheck
 npm test
 ```
 
+`typecheck` 同时检查 renderer/shared 与 Electron 主进程，CI 和 `build` 也执行这两部分。
+局部修改可单独运行 `npm run typecheck:renderer` 或 `npm run typecheck:main`。
+主进程检查只生成 `node_modules/.cache/litessh/` 下的增量缓存，不输出 JavaScript。
+
 构建应用：
 
 ```bash
@@ -188,7 +194,9 @@ git push origin v1.0.0
 |---|---|
 | `npm run dev` | 使用系统 `LiteConnect-Dev` 独立目录启动 Vite 和 Electron |
 | `npm run dev:isolated` | 使用仓库内 `.liteconnect-dev-data/` 启动一次性隔离环境 |
-| `npm run typecheck` | 运行 Vue/TypeScript 类型检查 |
+| `npm run typecheck` | 运行 renderer/shared 和 Electron 主进程的严格类型检查 |
+| `npm run typecheck:renderer` | 单独检查 Vue renderer/shared |
+| `npm run typecheck:main` | 单独检查 Electron 主进程/shared |
 | `npm test` | 运行 Vitest 测试 |
 | `npm run test:watch` | 以 watch 模式运行测试 |
 | `npm run build` | 类型检查并构建 renderer 和 Electron 代码 |

@@ -34,7 +34,8 @@ export interface PinnedClient {
 }
 
 export type MysqlControlConnection = {
-  query: (sql: string | { sql: string; timeout?: number }) => Promise<unknown>
+  query(sql: string): Promise<unknown>
+  query(options: { sql: string; timeout?: number }): Promise<unknown>
   end: () => Promise<void>
 }
 

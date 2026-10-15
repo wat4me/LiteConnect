@@ -152,6 +152,8 @@ export class AiSettingsService {
     if (!model) throw new Error('请先在 AI 设置中配置可用模型。')
     return {
       supportsImages: models.find(item => item.id === model)?.supportsImages === true,
+      maxOutputTokens: models.find(item => item.id === model)?.maxOutputTokens,
+      compactionRetainTokens: models.find(item => item.id === model)?.compactionRetainTokens,
       baseUrl: provider.baseUrl,
       protocol: normalizeAiProviderProtocol(provider.protocol),
       model,

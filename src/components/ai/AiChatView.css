@@ -33,30 +33,57 @@
 
 .empty-examples {
   margin-top: 16px;
+  width: min(360px, 100%);
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
 }
 
 .empty-example-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   max-width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
   cursor: pointer;
   text-align: left;
 }
+
+.empty-example-chip > span { min-width: 0; overflow-wrap: anywhere; }
+.empty-example-chip :deep(.app-icon) { flex-shrink: 0; color: var(--text-secondary); }
 
 .empty-example-chip:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
   color: var(--text-primary);
   background: var(--accent-bg);
 }
+
+.empty-model-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.empty-model-settings:hover { color: var(--text-primary); background: var(--hover-bg); }
+.empty-example-chip:focus-visible,
+.empty-model-settings:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .context-omit {
   align-self: center;
@@ -659,10 +686,6 @@
   gap: 6px;
   max-width: 100%;
 }
-
-.background-result-notice { margin: 4px 0; color: var(--text-secondary); font-size: 11px; }
-.background-result-notice summary { cursor: pointer; }
-.background-result-notice pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 
 .reasoning-box[open] > summary .details-chevron { transform: rotate(90deg); }
 .reasoning-box .details-chevron { flex-shrink: 0; color: var(--text-secondary); transition: transform 0.12s ease; }

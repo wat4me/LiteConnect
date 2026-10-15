@@ -7,8 +7,8 @@ vi.mock('electron', () => ({
   BrowserWindow: { fromWebContents: () => undefined },
   webContents: { fromId: () => mocks.sender },
 }))
-vi.mock('../ai/historyStore', () => ({ readAiSessionStore: mocks.read, upsertAiHistoryRecord: mocks.save, writeAiContextCheckpoint: vi.fn() }))
-vi.mock('../ai/chatStream', async importOriginal => ({ ...await importOriginal<typeof import('../ai/chatStream')>(), runAiChatStream: mocks.run }))
+vi.mock('../ai/history/historyStore', () => ({ readAiSessionStore: mocks.read, upsertAiHistoryRecord: mocks.save, writeAiContextCheckpoint: vi.fn() }))
+vi.mock('../ai/execution/chatStream', async importOriginal => ({ ...await importOriginal<typeof import('../ai/execution/chatStream')>(), runAiChatStream: mocks.run }))
 
 it('resumes the original conversation from a main-process completion without renderer polling', async () => {
   const sender = Object.assign(new EventEmitter(), { id: 7, send: vi.fn(), isDestroyed: () => false })

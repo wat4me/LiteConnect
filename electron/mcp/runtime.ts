@@ -3,6 +3,7 @@ import { SSH_MCP_TOOLS } from '../../shared/mcp/tools'
 import type {
   ApprovalMode,
   CommandClass,
+  CommandClassification,
   SshMcpErrorPayload,
   SshMcpToolDefinition,
   SshMcpToolErrorCode,
@@ -199,7 +200,7 @@ export class SshMcpRuntime {
   }
 
   private async ensureCommandAllowed(
-    classification: { class: CommandClass; reason: string },
+    classification: CommandClassification,
     sessionId: string,
     command: string,
     approvalMode = this.approvalMode,

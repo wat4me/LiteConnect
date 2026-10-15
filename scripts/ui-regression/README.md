@@ -2,6 +2,14 @@
 
 Run `npm run test:ui` after installing the project's existing dependencies.
 
+Run `npm run test:ui:docker` for the focused Docker checks. They cover toolbar
+alignment, list column alignment and overflow across three themes and widths,
+history reading without stopping reception, jumping to the latest logs, search
+navigation, copying while searching, independent receive/scroll controls,
+auto-scroll at buffer capacity, and clearing only the display. Docker IPC is
+mocked; no remote containers are changed. Screenshots are saved in the printed
+temporary artifact directory.
+
 The script starts a temporary Vite server without the application's Electron
 plugin, then opens an invisible Electron window with actual Vue components.
 It uses a temporary profile and mocked connection IPC; it never connects to a
@@ -25,3 +33,17 @@ printed at completion.
 
 These checks validate renderer interactions and layout. Real SSH/SFTP network
 operations, native OS dragging, and tooltips still need integration/manual QA.
+
+AI settings coverage includes category navigation, a searchable model dialog
+with focus trapping and Escape focus return, advanced parameter disclosure,
+provider-only saving while preserving other drafts, general saving without
+applying retention changes, and retention preview/cancel/confirmation flows.
+Settings and history IPC are mocked; the UI suite never prunes real history.
+Embedded LiteSSH settings use a separate category overview and child pages.
+Checks at 300px and 440px cover category visibility, child-page/footer overflow,
+back-navigation focus, and retaining unsaved drafts across categories.
+The LiteAI home model button opens settings without starting a connection or
+conversation, preserves host selection on return, and fits at 520–1050px.
+Background completion cards reuse tool-result rows, distinguish failed exit
+codes, timeouts and cancellation, and retain truncation notices. Collapsed and
+expanded layouts are checked at 300px/440px in light, dark and eyecare themes.

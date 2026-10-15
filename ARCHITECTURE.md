@@ -34,10 +34,10 @@ UI (components / views)
 | Persistence | `electron/store/` | credentials, settings, histories |
 | SSH MCP runtime | `electron/mcp/` | Tool runtime + policy over open `SSHManager` sessions |
 | SSH MCP HTTP | `electron/mcp/http*.ts` | Optional 127.0.0.1 Streamable HTTP gateway (Bearer, off by default) |
-| AI conversation | `electron/ai/chatStream.ts`, `chatCompletion.ts` | Request/turn orchestration and canonical transcripts |
+| AI conversation | `electron/ai/execution/chatStream.ts`, `chatCompletion.ts` | Request/turn orchestration and canonical transcripts |
 | AI protocols | `electron/ai/providers/` | Typed adapter contracts, registry, OpenAI/Anthropic codecs, SSE transport |
-| AI provider service | `electron/ai/providerService.ts` | Model discovery pagination, connection probes, timeouts |
-| AI tools | `electron/ai/toolExecution.ts`, `streamControl.ts` | Scope/policy/approval/execution and request ownership/cancellation |
+| AI provider service | `electron/ai/providers/providerService.ts` | Model discovery pagination, connection probes, timeouts |
+| AI tools | `electron/ai/tools/toolExecution.ts`, `streamControl.ts` | Scope/policy/approval/execution and request ownership/cancellation |
 
 Import the real subpath (e.g. `ssh/trust/knownHosts`, `db/tunnel/sshTunnel`). Root-level re-export shells were removed.
 
@@ -70,6 +70,11 @@ npm run lint   # architecture-focused ESLint (dependency zones)
 
 Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`).
 
+`npm run typecheck` checks both renderer/shared (`vue-tsc`) and Electron main/shared
+(`tsc -p tsconfig.node.json --noEmit`). CI and `build` run both checks; Vite bundling
+alone does not validate main-process types. Main-process incremental metadata stays
+under `node_modules/.cache/litessh/` rather than the runtime output directory.
+
 ## Renderer directory map
 
 | Area | Path | Owns |
@@ -89,6 +94,56 @@ Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`
 | Shared UI | `composables/shared`, `utils/shared` | Cross-cutting pure/UI helpers |
 
 ## Dependency rules
+
+### LiteAI modules
+
+```text
+electron/ai/
+  execution/       # Turn loop, checkpoints, context packing, background continuation
+  tools/           # Routing, policy, approval/cancellation, tool execution and diff
+  providers/       # Protocol adapters, HTTP/SSE, model discovery and connection probes
+  history/         # Host history identity, conversation persistence and image storage
+  workspace/       # Connection leases, immutable scopes and conversation index
+  schedules/       # Scheduler, multi-host inspection orchestration and Webhook delivery
+  tests/           # Cross-module provider/stream integration contracts
+  settingsValidation.ts  # Configuration normalization consumed by the settings boundary
+```
+
+`execution` composes tool and provider modules. Tool implementations do not import
+execution, history, workspace services or providers; routing consumes shared target
+types and MCP ports. History and workspace modules cannot call the turn loop.
+Within history, `historyModel.ts` owns normalization, retention and recovery rules;
+`historyCodec.ts` decodes stored values and migrates legacy JSON/JSONL;
+`historyStore.ts` owns serialized database writes and conversation operations.
+Model and codec cannot import database storage, image files or the history service.
+Idle write chains are released after their last task settles.
+Schedulers consume injected execution/persistence/notification ports rather than
+importing the execution service. IPC wires these services together; OS approval
+notifications belong to `electron/ipc/aiApprovalNotification.ts`. Tests stay next
+to their owning module; cross-module provider scenarios live in `tests/`.
+
+Renderer entry points are `useAiChat.ts` and `workspace/useAiWorkspace.ts`.
+`chat/sessionState.ts` alone owns the session map, disposal and resource probe;
+`chat/history.ts` owns history loading, deduplication and persistence;
+`chat/settings.ts` owns the app-wide settings epoch and model selection.
+`src/domain/ai/chat.ts` defines UI types, and
+`src/utils/ai/chatHistoryProjection.ts` converts reactive display records to plain
+IPC/history payloads. Components import domain types rather than the orchestrator
+for types, and use the public chat facade instead of its private state modules.
+`useAiComposerImages.ts` owns file/paste/drop input and attachment preparation,
+while draft images stay in the conversation state. Preparation verifies its host,
+thread and component lifetime before committing a batch.
+`AiWorkspaceView.vue` renders the workspace; its composable owns event subscriptions,
+connection lifetime, selection and navigation. Workspace host grouping lives in a
+pure helper used by both the browser and picker. Scoped styles remain beside the view.
+
+These directions are enforced in `eslint.config.mjs`, including the prohibition on
+private chat modules importing their public facade or IPC adapters being imported
+by main-process AI services. Existing IPC channels, history formats and shared type
+locations remain the cross-process contract; directory grouping does not introduce
+root re-export shells or a second session store.
+
+### General rules
 
 1. **`components` → `composables` → `domain` / `utils` → `shared`** only. Never reverse.
 2. **`utils/**` must not import `composables/**` or `components/**` (or `*.vue`).
@@ -127,7 +182,7 @@ Do not merge these — they have different lifecycles and security boundaries:
 
 Renderer `Window.LiteConnect` lives in `src/types/liteConnectApi.ts`. `src/env.d.ts` only declares `Window` and re-exports shared types.
 
-AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; it adapts Electron events to the transport-independent `electron/ai/executionService.ts`. The execution service owns request serialization, persistence, cancellation, approval routing and background-result continuation. Settings/history ports and optional observers allow unattended read-only execution without a renderer; explicit history/thread identities remain separate from SSH session and caller identities. Protocol codecs live in `electron/ai/providers/`, discovery/probing in `electron/ai/providerService.ts`, request packing in `electron/ai/requestContext.ts`, settings validation in `electron/ai/settingsValidation.ts`, and session persistence in `electron/ai/historyStore.ts`. The turn loop in `electron/ai/chatStream.ts` delegates individual calls to `toolExecution.ts`; `streamControl.ts` owns cancellation and pending approvals. See `docs/AI-RUNTIME.md` for the execution contract. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
+AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; it adapts Electron events to the transport-independent `electron/ai/execution/executionService.ts`. The execution service owns request serialization, persistence, cancellation, approval routing and background-result continuation. Settings/history ports and optional observers allow unattended read-only execution without a renderer; explicit history/thread identities remain separate from SSH session and caller identities. Protocol codecs live in `electron/ai/providers/`, discovery/probing in `electron/ai/providers/providerService.ts`, request packing in `electron/ai/execution/requestContext.ts`, settings validation in `electron/ai/settingsValidation.ts`, and session persistence in `electron/ai/history/historyStore.ts`. The turn loop in `electron/ai/execution/chatStream.ts` delegates individual calls to `toolExecution.ts`; `streamControl.ts` owns cancellation and pending approvals. See `docs/AI-RUNTIME.md` for the execution contract. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/tools/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
 
 All main-process application data is stored in `liteconnect.sqlite`, managed by `electron/store/appDatabase.ts`. The database uses WAL, foreign-key enforcement, full synchronous commits, schema versions, and transactional legacy migration. Collection rows are updated only when their order or payload changes. JSON/JSONL remains an import/export format and a one-time upgrade source, not a live application store.
 
@@ -149,9 +204,9 @@ MySQL streaming row caps and connection discard behavior live in `electron/db/dr
 
 AI sidebar context-file availability checks live in `src/composables/ai/useAiContextFileStatus.ts`; its scoped presentation rules live in `src/components/ai/AiSidebar.css`.
 AI sidebar history filtering and mutations live in `src/composables/ai/useAiSidebarHistory.ts`.
-`src/views/AiWorkspaceView.vue` reuses the chat sidebar in the standalone LiteAI module. `electron/ai/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
-`electron/ai/scheduler.ts` owns persisted interval/daily/weekly local plans and bounded, serialized inspection runs. `shared/aiSchedules.ts` validates timing and calculates the next local-calendar occurrence, including DST and timezone changes. `electron/ipc/aiScheduleExecutor.ts` creates a dedicated saved-profile SSH transport and temporary history for each read-only execution. `registerAiScheduleHandlers.ts` adapts persistence and renderer events; `components/ai/AiSchedulePanel.vue` configures plans and shows reports. The scheduler runs while the app is alive, skips catch-up bursts and aborts work at shutdown.
-`electron/ai/orchestrator.ts` runs selected-host inspections serially or with bounded parallelism and synthesizes reports through ports; each host retains its own context and transport. Plans may pin a provider/model or fall back to the active pair. `electron/ai/notifications.ts` handles opt-in generic JSON Webhooks with encrypted endpoint/token storage, bounded requests and delivery state independent of inspection results. Notification settings never enter model context. Windows window/taskbar icon lookup and separate development app identity live in `electron/window/appIcon.ts`.
+`src/views/AiWorkspaceView.vue` reuses the chat sidebar in the standalone LiteAI module. `electron/ai/workspace/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
+`electron/ai/schedules/scheduler.ts` owns persisted interval/daily/weekly local plans and bounded, serialized inspection runs. `shared/aiSchedules.ts` validates timing and calculates the next local-calendar occurrence, including DST and timezone changes. `electron/ipc/aiScheduleExecutor.ts` creates a dedicated saved-profile SSH transport and temporary history for each read-only execution. `registerAiScheduleHandlers.ts` adapts persistence and renderer events; `components/ai/AiSchedulePanel.vue` configures plans and shows reports. The scheduler runs while the app is alive, skips catch-up bursts and aborts work at shutdown.
+`electron/ai/schedules/orchestrator.ts` runs selected-host inspections serially or with bounded parallelism and synthesizes reports through ports; each host retains its own context and transport. Plans may pin a provider/model or fall back to the active pair. `electron/ai/schedules/notifications.ts` handles opt-in generic JSON Webhooks with encrypted endpoint/token storage, bounded requests and delivery state independent of inspection results. Notification settings never enter model context. Windows window/taskbar icon lookup and separate development app identity live in `electron/window/appIcon.ts`.
 AI chat message footer display and controls live in `src/components/ai/AiMessageFooter.vue`; `AiChatView.vue` keeps scroll and timeline coordination, with scoped rules in `AiChatView.css`.
 SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
 

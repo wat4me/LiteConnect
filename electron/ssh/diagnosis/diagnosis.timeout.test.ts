@@ -1,6 +1,7 @@
 import { createServer, type Socket } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { diagnoseSshConnection } from './diagnosis'
+import { loadSsh2 } from '../loadSsh2'
 
 const sockets = new Set<Socket>()
 
@@ -11,6 +12,9 @@ afterEach(() => {
 
 describe('diagnoseSshConnection timeout handling', () => {
   it('returns a wrapped failure when TCP connects but the SSH handshake stalls', async () => {
+    // The short deadline exercises handshake cleanup, not a cold native-module
+    // load blocking the TCP connect event while the full suite is busy.
+    await loadSsh2()
     const server = createServer((socket) => {
       sockets.add(socket)
       socket.once('close', () => sockets.delete(socket))

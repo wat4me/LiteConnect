@@ -40,6 +40,11 @@ export type AiHistoryLimits = {
   maxMessages: number
 }
 
+export type AiHistoryPrunePreview = {
+  conversations: number
+  messages: number
+}
+
 export function normalizeAiHistoryLimits(raw?: {
   maxThreads?: unknown
   maxMessages?: unknown

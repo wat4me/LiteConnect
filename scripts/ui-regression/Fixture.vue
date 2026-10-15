@@ -21,7 +21,7 @@ import DirectorySyncModal from '../../src/components/sftp/DirectorySyncModal.vue
 import SftpToolbar from '../../src/components/sftp/SftpToolbar.vue'
 import SftpDirTree from '../../src/components/sftp/SftpDirTree.vue'
 import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
-import type { ChatItem } from '../../src/composables/ai/useAiChat'
+import type { ChatItem } from '@/domain/ai/chat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
 import type { AiWorkspaceConversationItem } from '../../shared/aiWorkspaceConversations'
@@ -49,6 +49,9 @@ const synchronizedSessions = connections.map(conn => ({ id: conn.id, connectionN
 const connectionStages = ref<Record<string, SshConnectionStage>>({})
 const cancelledConnections: string[] = []
 const calls = { clipboardWrites: [] as string[], connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[], aiRequests: [] as any[], aiCreates: [] as string[] }
+const manualCompactions: string[] = []
+const settingsSaves: AiSettings[] = []
+const providerTests: string[] = []
 const imageSettings: AiSettings = { providers: [{ id: 'fixture', name: '测试接口', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'vision-fixture', supportsImages: true }] }], activeProviderId: 'fixture', activeModel: 'vision-fixture', systemPrompt: '' }
 let imageHistory: AiSessionStore = { version: 1, activeThreadId: 'image-thread', defaultContextFiles: [], threads: [{ id: 'image-thread', title: '旧窗口的对话', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [{ id: 'old-host-message', role: 'user', content: '旧窗口的历史消息', createdAt: 1 }] }] }
 const otherImageHistory: AiSessionStore = { version: 1, activeThreadId: 'other-thread', defaultContextFiles: [], threads: [{ id: 'other-thread', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
@@ -92,6 +95,9 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
 ;(window as any).LiteConnect = {
   clipboardWriteText: async (text: string) => { calls.clipboardWrites.push(text) },
   getAiSettings: async () => JSON.parse(JSON.stringify(imageSettings)),
+  setAiSettings: async (settings: AiSettings) => { settingsSaves.push(structuredClone(settings)); Object.assign(imageSettings, structuredClone(settings)) },
+  previewAiHistoryPrune: async (limits: { maxThreads: number; maxMessages: number }) => limits.maxThreads < 50 || limits.maxMessages < 200 ? { conversations: 1, messages: 6 } : { conversations: 0, messages: 0 },
+  testAiProvider: async (provider: any) => { providerTests.push(provider.model); return { ok: true } },
   aiGetNotificationSettings: async () => ({ ...notificationSettings }),
   aiSaveNotificationSettings: async (input: any) => { notificationSettings = { enabled: input.enabled, url: input.url, mode: input.mode, hasToken: input.token ? true : input.token === '' ? false : notificationSettings.hasToken }; return { ...notificationSettings } },
   aiTestNotification: async () => ({ status: notificationTestFails ? 'failed' : 'sent', error: notificationTestFails ? '通知服务不可用' : undefined }),
@@ -163,7 +169,7 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return { isError: false, content: '', structuredContent: { ...job, stdout: job.status === 'running' ? undefined : 'container restarted\nverification passed', stderr: job.status === 'failed' ? 'restart failed' : '', truncated: false } }
   },
   onMcpJobsChanged: (listener: (jobs: SshMcpJobSummary[]) => void) => { jobListeners.add(listener); return () => jobListeners.delete(listener) },
-  listAiModels: async () => [{ id: 'vision-fixture', contextWindowTokens: 64000 }],
+  listAiModels: async () => [{ id: 'vision-fixture', contextWindowTokens: 64000 }, { id: 'available-model', contextWindowTokens: 128000 }],
   getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(historyFor(id))),
   setAiSessionStore: async (id: string, store: AiSessionStore) => { if (id.startsWith('workspace:')) scopeStores.set(id, store); else imageHistory = store },
   appendAiSessionHistory: async (_id: string, record: any, threadId: string) => { historyFor(_id).threads.find(thread => thread.id === threadId)!.messages.push(record) },
@@ -178,7 +184,11 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return JSON.parse(JSON.stringify(history))
   },
   onAiChatStream: () => () => {},
-  aiChatStream: async (_id: string, messages: any[], options: any) => { calls.aiRequests.push(messages); return { content: (options?.sessionId?.startsWith('ai-workspace-') || options?.sessionId?.startsWith('workspace:')) ? '服务器磁盘和服务状态正常。\n\n```sh\ndf -h\n```' : '截图分析完成' } },
+  aiChatStream: async (_id: string, messages: any[], options: any) => {
+    if (options?.compactOnly) { manualCompactions.push(options.threadId); return { content: '', contextCompacted: false } }
+    calls.aiRequests.push(messages)
+    return { content: (options?.sessionId?.startsWith('ai-workspace-') || options?.sessionId?.startsWith('workspace:')) ? '服务器磁盘和服务状态正常。\n\n```sh\ndf -h\n```' : '截图分析完成' }
+  },
   getConnectionUsageStatsEnabled: async () => true,
   getAllSettings: async () => ({}),
   getConnections: async () => connections.map(conn => ({ ...conn })),
@@ -243,6 +253,9 @@ function renameBookmark(item: SftpPathBookmark) {
 onMounted(() => {
   (window as any).__uiRegression = {
     calls,
+    settingsSaves,
+    providerTests,
+    manualCompactions,
     workspaceOpens,
     workspaceScopes,
     async setWorkspaceActive(active: boolean) { liteAiActive.value = active; await nextTick() },
@@ -337,7 +350,7 @@ onMounted(() => {
       const event = { sessionId: imageComposerSession.value, threadId, requestId: 'fixture-background-request', record: {
         id: 'fixture-background-assistant', role: 'assistant', status, createdAt: Date.now(),
         content: status === 'completed' ? '后台命令已完成并验证结果。' : '',
-        backgroundNotice: 'Application completion\n' + JSON.stringify([{ command: 'verify-container', stdout: 'container healthy' }]),
+        backgroundNotice: 'Application completion\n' + JSON.stringify([{ jobId: 'verify', command: 'verify-container', status: 'completed', exitCode: 0, stdout: 'container healthy' }]),
       } }
       backgroundReplyListeners.forEach(listener => listener(event))
     },
@@ -361,6 +374,10 @@ onMounted(() => {
     async openSync() { syncOpen.value = true; await nextTick() },
     async aiUsage(usage: AiUsage) {
       aiMessages.value = [{ id: 'ai-usage', role: 'assistant', content: '多服务器检查完成。', createdAt: Date.now(), completedAt: Date.now(), usage }]
+      await nextTick()
+    },
+    async aiBackgroundResults(notice: string) {
+      aiMessages.value = [{ id: 'ai-background-result', role: 'assistant', content: '已收到统计结果，继续分析。', backgroundNotice: notice, createdAt: Date.now() }]
       await nextTick()
     },
     async aiPhase(phase: AiActivityPhase, quietMs = 0) {

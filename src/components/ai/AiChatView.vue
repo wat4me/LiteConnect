@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiChatSegment, AiToolRun } from '../../env.d.ts'
 import { useMarkdownRenderer, type MarkdownBlock } from '@/composables/ai/useMarkdownRenderer'
-import type { ChatItem } from '../../composables/ai/useAiChat'
+import type { ChatItem } from '@/domain/ai/chat'
 import {
   toolRunDefaultOpen,
 } from '@shared/aiToolRunDisplay'
@@ -17,6 +17,7 @@ import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
 import AiToolRunRow from './AiToolRun.vue'
 import AiWorkspaceResponse from './AiWorkspaceResponse.vue'
+import AiBackgroundResults from './AiBackgroundResults.vue'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 
 const props = defineProps<{
@@ -336,18 +337,6 @@ watch(
   { immediate: true },
 )
 
-function backgroundResultOutput(notice: string): string {
-  try {
-    const jobs: unknown = JSON.parse(notice.slice(notice.indexOf('\n') + 1))
-    if (!Array.isArray(jobs)) return ''
-    return jobs.map(job => {
-      if (!job || typeof job !== 'object') return ''
-      return [typeof job.command === 'string' ? job.command : '', ...(['stdout', 'stderr', 'error'] as const).map(field =>
-        typeof job[field] === 'string' && job[field] ? `${t(`ai.backgroundResult.${field}`)}\n${job[field]}` : '')].filter(Boolean).join('\n\n')
-    }).filter(Boolean).join('\n\n——\n\n')
-  } catch { return '' }
-}
-
 // Activity transitions can add lines without new stream text (for example the
 // delayed-response hint). Follow only those layout changes, not every timer tick.
 const activityLayoutSignature = computed(() => props.messages
@@ -514,11 +503,10 @@ async function copyText(text: string, key: string) {
         <div class="ui-empty-desc">
           {{ hasApiConfigured ? t(workspaceHostCount ? 'ai.workspace.emptyConfigured' : 'ai.emptyConfigured', { count: workspaceHostCount }) : t('ai.emptyNoKey') }}
         </div>
-        <div class="ui-empty-actions">
-          <button v-if="!hasApiConfigured" type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="emit('open-settings')">
+        <div v-if="!hasApiConfigured" class="ui-empty-actions">
+          <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="emit('open-settings')">
             {{ t('ai.openSettings') }}
           </button>
-          <button v-else type="button" class="ui-btn ui-btn-sm" @click="emit('open-settings')">{{ t('ai.manageModels') }}</button>
         </div>
         <div v-if="hasApiConfigured" class="empty-examples">
           <button
@@ -528,9 +516,13 @@ async function copyText(text: string, key: string) {
             class="empty-example-chip"
             @click="emit('use-example', example)"
           >
-            {{ example }}
+            <span>{{ example }}</span>
+            <AppIcon name="chevron-right" size="xs" aria-hidden="true" />
           </button>
         </div>
+        <button v-if="hasApiConfigured" type="button" class="empty-model-settings" @click="emit('open-settings')">
+          <AppIcon name="settings" size="xs" aria-hidden="true" />{{ t('ai.manageModels') }}
+        </button>
       </div>
       <div
         v-if="messages.length > 0 && (contextDroppedCount || 0) > 0"
@@ -548,10 +540,7 @@ async function copyText(text: string, key: string) {
         :data-role="message.role"
       >
       <div class="message-stack">
-      <details v-if="message.backgroundNotice" class="background-result-notice">
-        <summary>{{ t('ai.backgroundResultsReceived') }}</summary>
-        <pre>{{ backgroundResultOutput(message.backgroundNotice) }}</pre>
-      </details>
+      <AiBackgroundResults v-if="message.backgroundNotice" :notice="message.backgroundNotice" :targets="workspaceTargets" />
       <AiImageStrip v-if="message.images?.length" :images="message.images" />
       <div v-if="editingMessageId === message.id" class="message-edit-box">
         <textarea

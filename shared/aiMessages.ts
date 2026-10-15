@@ -1,8 +1,8 @@
-import type { AiChatMessage, AiFunctionToolCall } from './types/ai'
-import type { AiImageAttachment } from './types/ai'
+import type { AiChatMessage, AiFunctionToolCall, AiImageAttachment, AiToolRun } from './types/ai'
 import { normalizeAiImages } from './aiImages'
 import { normalizeAnthropicContent } from './anthropicContent'
 import { MAX_AI_TOOL_CALLS_PER_ROUND, MAX_AI_TURN_API_MESSAGES } from './aiToolLimits'
+import { interruptedAiExecutionEvidence } from './aiExecutionEvidence'
 
 export const AI_MESSAGE_CONTENT_MAX = 200_000
 export const AI_TURN_API_MESSAGES_MAX = MAX_AI_TURN_API_MESSAGES
@@ -166,6 +166,7 @@ export function flattenConversationForApi(
     streaming?: boolean
     reasoningContent?: string
     apiMessages?: AiChatMessage[]
+    toolRuns?: AiToolRun[]
   }>,
 ): AiChatMessage[] {
   const out: AiChatMessage[] = []
@@ -173,7 +174,13 @@ export function flattenConversationForApi(
     if (item.backgroundNotice && !item.streaming && item.status !== 'running') {
       out.push({ role: 'user', content: item.backgroundNotice })
     }
-    if (item.error || item.streaming) continue
+    if (item.streaming) continue
+    if (item.role === 'assistant' && (item.error || item.status === 'error' || item.status === 'aborted')) {
+      const evidence = interruptedAiExecutionEvidence(item.toolRuns || [])
+      if (evidence) out.push({ role: 'user', content: evidence })
+      continue
+    }
+    if (item.error) continue
     if (item.role === 'user') {
       const content = typeof item.content === 'string' ? item.content : ''
       const images = normalizeAiImages(item.images)

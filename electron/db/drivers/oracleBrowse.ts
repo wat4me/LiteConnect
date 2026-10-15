@@ -78,7 +78,7 @@ export async function listTableInfos(
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     )
     return (res.rows || [])
-      .map((raw) => {
+      .map((raw): DbTableInfo | null => {
         const r = raw as Record<string, unknown>
         const name = String(rowVal(r, 'name') || '').trim()
         if (!name) return null

@@ -15,8 +15,8 @@ import { KnownHostsStore } from '../ssh/trust/knownHosts'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
 import { CredentialStore } from '../store/credentialStore'
-import { configureWorkspaceTargets, workspaceScopes } from '../ai/workspaceScopes'
-import { AiWorkspaceConnections } from '../ai/workspaceConnections'
+import { configureWorkspaceTargets, workspaceScopes } from '../ai/workspace/workspaceScopes'
+import { AiWorkspaceConnections } from '../ai/workspace/workspaceConnections'
 import {
   broadcast,
   clearSessionOwner,

@@ -87,7 +87,7 @@ export async function openDbSshTunnel(
   }
 
   try {
-    await connectSshClient(client, ssh, knownHosts, (jc) => {
+    await connectSshClient(Client, client, ssh, knownHosts, (jc) => {
       jumpClient = jc
     })
   } catch (err) {
@@ -134,6 +134,7 @@ export async function openDbSshTunnel(
 }
 
 function connectSshClient(
+  ClientConstructor: typeof Client,
   client: Client,
   connection: Connection,
   knownHosts: KnownHostsStore,
@@ -206,7 +207,7 @@ function connectSshClient(
       return
     }
 
-    jumpClient = new Client()
+    jumpClient = new ClientConstructor()
     onJump(jumpClient)
     const jumpHost = connection.jumpHost!.trim()
     const jumpPort = connection.jumpPort || 22

@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
 import { threadTitleTooltip } from '@/utils/ai/threadTitle'
 import type { AiThreadSummary } from '@/env.d'
-import type { ChatItem } from './useAiChat'
+import type { ChatItem } from '@/domain/ai/chat'
 
 type HistoryOperation = (sessionId: string, sync: (messages: ChatItem[]) => void) => Promise<unknown>
 type ThreadOperation = (sessionId: string, threadId: string, sync: (messages: ChatItem[]) => void) => Promise<unknown>

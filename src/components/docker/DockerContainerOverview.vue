@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import AppIcon from '../icons/AppIcon.vue'
 import { formatCreated, formatInspectTime, formatPortChip } from './dockerUiHelpers'
 import type { DockerContainerInspectResult, DockerContainerSummary } from '../../env.d'
 
@@ -11,6 +13,16 @@ defineProps<{
 }>()
 
 const { t } = useI18n()
+
+async function copyMountPath(path: string) {
+  if (!path) return
+  try {
+    await window.LiteConnect.clipboardWriteText(path)
+    ElMessage.success(t('docker.detail.copied'))
+  } catch {
+    ElMessage.error(t('docker.detail.copyFailed'))
+  }
+}
 
 function stateLabel(state: string): string {
   const s = (state || '').toLowerCase()
@@ -119,12 +131,36 @@ function stateLabel(state: string): string {
             class="mount-item"
             :title="`${m.source || m.name || m.type || '—'} → ${m.destination || '—'}`"
           >
-            <span class="mount-src" :title="m.source || m.name || m.type || undefined">
-              {{ m.source || m.name || m.type || '—' }}
+            <span class="mount-path">
+              <span class="mount-src" :title="m.source || m.name || m.type || undefined">
+                {{ m.source || m.name || m.type || '—' }}
+              </span>
+              <button
+                type="button"
+                class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost mount-copy"
+                :disabled="!m.source"
+                :title="t('docker.detail.copyHostPath')"
+                :aria-label="t('docker.detail.copyHostPath')"
+                @click="copyMountPath(m.source)"
+              >
+                <AppIcon name="copy" size="xs" />
+              </button>
             </span>
             <span class="mount-arrow" aria-hidden="true">→</span>
-            <span class="mount-dst" :title="m.destination || undefined">
-              {{ m.destination || '—' }}
+            <span class="mount-path">
+              <span class="mount-dst" :title="m.destination || undefined">
+                {{ m.destination || '—' }}
+              </span>
+              <button
+                type="button"
+                class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost mount-copy"
+                :disabled="!m.destination"
+                :title="t('docker.detail.copyContainerPath')"
+                :aria-label="t('docker.detail.copyContainerPath')"
+                @click="copyMountPath(m.destination)"
+              >
+                <AppIcon name="copy" size="xs" />
+              </button>
             </span>
           </li>
         </ul>
@@ -303,10 +339,26 @@ function stateLabel(state: string): string {
 
 .mount-src,
 .mount-dst {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.mount-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mount-copy {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .mount-arrow {

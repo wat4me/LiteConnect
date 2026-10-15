@@ -1,13 +1,13 @@
 import { randomUUID } from 'crypto'
 import { aiScheduleHasToolFailure, type AiSchedule, type AiScheduleExecutionResult, type AiScheduleHostRun } from '../../shared/aiSchedules'
-import type { AiExecutionService } from '../ai/executionService'
+import type { AiExecutionService } from '../ai/execution/executionService'
 import type { SSHManager } from '../ssh/manager'
 import type { CredentialStore } from '../store/credentialStore'
-import { writeAiSessionStore } from '../ai/historyStore'
+import { writeAiSessionStore } from '../ai/history/historyStore'
 import { aiSessionKey, getAppDatabase } from '../store/appDatabase'
 import { formatToolRunDisplay, parseJsonValue } from '../../shared/aiToolRunDisplay'
-import { orchestrateInspection, scheduleHealth } from '../ai/orchestrator'
-import { runAiChatCompletion } from '../ai/chatCompletion'
+import { orchestrateInspection, scheduleHealth } from '../ai/schedules/orchestrator'
+import { runAiChatCompletion } from '../ai/execution/chatCompletion'
 import type { AiResolvedConfig } from '../../shared/types/ai'
 
 export function createScheduleExecutor(service: AiExecutionService, ssh: SSHManager, credentials: CredentialStore, config?: (plan?: AiSchedule) => AiResolvedConfig) {

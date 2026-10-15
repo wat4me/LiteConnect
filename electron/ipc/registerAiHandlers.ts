@@ -1,11 +1,11 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
-import { workspaceScopes, workspaceHistoryId } from '../ai/workspaceScopes'
-import { AiExecutionService } from '../ai/executionService'
+import { workspaceScopes, workspaceHistoryId } from '../ai/workspace/workspaceScopes'
+import { AiExecutionService } from '../ai/execution/executionService'
 import { readFile, stat } from 'fs/promises'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
 import type { SshMcpRuntime } from '../mcp/runtime'
-import { listAiProviderModels, testAiProviderConfig } from '../ai/providerService'
+import { listAiProviderModels, testAiProviderConfig } from '../ai/providers/providerService'
 import { validateAiSettings } from '../ai/settingsValidation'
 import {
   createNewConversationAtomic,
@@ -13,6 +13,7 @@ import {
   getActiveThread,
   normalizeAiContextFile,
   pruneAllAiHistoryStores,
+  previewAiHistoryPrune,
   readAiSessionStore,
   readAiSessionStoreAndGc,
   removeAiConversationContextFile,
@@ -22,14 +23,15 @@ import {
   writeAiHistoryRecords,
   writeAiContextCheckpoint,
   writeAiSessionStore,
-} from '../ai/historyStore'
+} from '../ai/history/historyStore'
 import type { AiChatStreamOptions } from '../../shared/types/ai'
-import { runAiChatCompletion } from '../ai/chatCompletion'
+import { runAiChatCompletion } from '../ai/execution/chatCompletion'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
-import { showAiApprovalNotification } from '../ai/approvalNotification'
-import { hydrateAiImages } from '../ai/imageStore'
-import { listAiWorkspaceConversations } from '../ai/workspaceConversations'
+import { showAiApprovalNotification } from './aiApprovalNotification'
+import { hydrateAiImages } from '../ai/history/imageStore'
+import { listAiWorkspaceConversations } from '../ai/workspace/workspaceConversations'
 import { AI_WORKSPACE_HISTORY_LIMIT } from '../../shared/aiWorkspaceConversations'
+import { normalizeAiHistoryLimits } from '../../shared/aiHistoryLimits'
 
 export function registerAiHandlers(
   settingsStore: SettingsStore,
@@ -81,6 +83,11 @@ export function registerAiHandlers(
   ipcMain.handle('settings:getAiSettings', async () => {
     await ensureSettingsReady()
     return settingsStore.getAiSettings()
+  })
+
+  ipcMain.handle('ai:previewHistoryPrune', async (_event, limits: unknown) => {
+    await ensureSettingsReady()
+    return previewAiHistoryPrune(normalizeAiHistoryLimits(limits && typeof limits === 'object' ? limits : {}))
   })
 
   ipcMain.handle('settings:setAiSettings', async (_event, settings: any) => {

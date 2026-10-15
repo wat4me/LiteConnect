@@ -335,7 +335,7 @@ function writeProxyOpenError(socket: net.Socket, err: DockerTransportError): voi
 
 function destroyStream(stream: NodeJS.ReadWriteStream): void {
   try {
-    stream.destroy?.()
+    if ('destroy' in stream && typeof stream.destroy === 'function') stream.destroy()
   } catch {}
   try {
     ;(stream as ClientChannel).close?.()

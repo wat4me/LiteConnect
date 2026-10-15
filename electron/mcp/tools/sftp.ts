@@ -11,7 +11,7 @@ import {
   MCP_TAIL_MAX_BYTES,
 } from '../../../shared/mcp/limits'
 import { applyExactEdit } from '../../../shared/exactEdit'
-import type { SshMcpDirEntry, SshMcpToolResult } from '../../../shared/mcp/types'
+import type { SshMcpDirEntry, SshMcpToolErrorCode, SshMcpToolResult } from '../../../shared/mcp/types'
 import { clampLength, clampLines, clampOffset, parseEncoding, requireLocalPath, requireRemotePath } from '../args'
 import type { McpRuntimeHost } from '../runtimeHost'
 import { clampReadLimit, clampReadStartLine, createLineCollector, prefixLineNumbers, READ_CHUNK_BYTES } from './fileWindow'
@@ -112,7 +112,7 @@ async function readWholeTextFile(
   host: McpRuntimeHost,
   session: { sessionId: string; generation: number },
   path: string,
-): Promise<{ ok: true; text: string } | { ok: false; code: string; message: string }> {
+): Promise<{ ok: true; text: string } | { ok: false; code: SshMcpToolErrorCode; message: string }> {
   const chunks: Buffer[] = []
   let bytePos = 0
   let tooLarge = false

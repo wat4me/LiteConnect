@@ -3,6 +3,10 @@ import type { AiToolPermissionMode, AiToolRisk, AiToolRunStatus } from '../aiToo
 export type { AiToolPermissionMode, AiToolRisk, AiToolRunStatus }
 
 export interface AiModel {
+  /** Requested output cap; also reserved when budgeting this model's context. */
+  maxOutputTokens?: number
+  /** Recent verbatim history budget. Unset uses a capacity-scaled default. */
+  compactionRetainTokens?: number
   id: string
   /** Explicit capability override for custom models / compatible gateways. */
   supportsImages?: boolean
@@ -59,6 +63,8 @@ export interface AiSettings {
 }
 
 export interface AiResolvedConfig {
+  maxOutputTokens?: number
+  compactionRetainTokens?: number
   protocol?: AiProviderProtocol
   supportsImages?: boolean
   maxToolRounds?: number
@@ -127,6 +133,8 @@ export interface AiToolRun {
 }
 
 export interface AiChatResult {
+  contextCompacted?: boolean
+  contextPressure?: AiContextPressure
   content: string
   backgroundNotice?: string
   /** Wall-clock time when this assistant turn finished. */
@@ -144,6 +152,8 @@ export interface AiChatResult {
 }
 
 export interface AiChatStreamOptions {
+  /** Idle-session maintenance; creates no user or assistant history record. */
+  compactOnly?: boolean
   sessionId: string
   threadId: string
   assistantMessageId: string
@@ -258,7 +268,17 @@ export interface AiThreadSummary {
   active: boolean
 }
 
+export interface AiContextPressure {
+  usedTokens: number
+  windowTokens: number
+  outputReserveTokens: number
+  inputBudgetTokens: number
+  thresholdTokens: number
+  retainTokens: number
+}
+
 export type AiChatStreamPayload =
+  | { type: 'context-pressure'; value: AiContextPressure }
   | { type: 'model-status'; value: 'requesting' | 'waiting' | 'tool-input' | 'tool-prepare' }
   | { type: 'content'; value: string }
   | { type: 'reasoning'; value: string }

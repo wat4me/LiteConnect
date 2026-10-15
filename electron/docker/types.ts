@@ -176,9 +176,9 @@ export const DOCKER_DAEMON_EXEC_ID_RE = /^[a-f0-9]{8,64}$/
 
 export const DOCKER_EXEC_RESIZE_MIN = 1 as const
 export const DOCKER_EXEC_RESIZE_MAX = 1000 as const
-export const DOCKER_EXEC_WRITE_MAX_BYTES = 64 * 1024 as const
-export const DOCKER_EXEC_OUTPUT_QUEUE_MAX_BYTES = 2 * 1024 * 1024 as const
-export const DOCKER_EXEC_INPUT_QUEUE_MAX_BYTES = 256 * 1024 as const
+export const DOCKER_EXEC_WRITE_MAX_BYTES = 64 * 1024
+export const DOCKER_EXEC_OUTPUT_QUEUE_MAX_BYTES = 2 * 1024 * 1024
+export const DOCKER_EXEC_INPUT_QUEUE_MAX_BYTES = 256 * 1024
 export const DOCKER_EXEC_BATCH_FLUSH_MS = 16 as const
 export const DOCKER_EXEC_START_TIMEOUT_MS = 20_000 as const
 export const DOCKER_EXEC_RESIZE_TIMEOUT_MS = 5_000 as const

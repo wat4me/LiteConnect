@@ -5,6 +5,7 @@ import type { AiChatMessage, AiUsage } from '../../../shared/types/ai'
 import { normalizeAiBaseUrl, readAiStream } from './http'
 import { parseProviderModels } from './modelMetadata'
 import type { AiProviderAdapter } from './types'
+import { t } from '../../i18n'
 
 export function getAiChatCompletionsUrl(baseUrl: string): string {
   const normalized = normalizeAiBaseUrl(baseUrl)
@@ -138,16 +139,20 @@ export const openaiProvider: AiProviderAdapter = {
   },
   async readStream(_settings, response, onDelta) {
     const message: AiChatMessage = { role: 'assistant', content: '' }
-    await readAiStream(response, chunk => {
+    let finishReason = ''
+    const stopped = await readAiStream(response, chunk => {
       const choice = chunk?.choices?.[0]
       const delta = choice?.delta || {}
       if (chunk?.error) throw new Error(chunk.error.message || 'AI stream failed')
+      if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason || finishReason
       const content = normalizeAiContent(delta.content ?? choice?.text)
       const reasoning = extractAiReasoningFromChoice(choice)
       message.content += content
       if (reasoning) message.reasoningContent = (message.reasoningContent || '') + reasoning
       onDelta({ content, reasoning, usage: extractAiUsage(chunk?.usage), toolCalls: delta.tool_calls || choice?.message?.tool_calls })
     })
+    if (!stopped && !finishReason) throw new Error(t('ai.streamIncomplete'))
+    if (finishReason === 'length' || finishReason === 'content_filter') throw new Error(t('ai.responseIncomplete'))
     return message
   },
   modelsRequest(provider) {

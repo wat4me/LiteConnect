@@ -28,7 +28,7 @@ export async function readHttpErrorMessage(response: Response, fallback: string)
   }
 }
 
-export async function readAiStream(response: Response, onEvent: (event: any) => void, strictJson = false): Promise<void> {
+export async function readAiStream(response: Response, onEvent: (event: any) => void, strictJson = false): Promise<boolean> {
   if (!response.body) throw new Error(t('ai.noStreamBody'))
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -66,10 +66,10 @@ export async function readAiStream(response: Response, onEvent: (event: any) => 
       buffer = events.pop() || ''
 
       for (const event of events) {
-        if (processEvent(event)) return
+        if (processEvent(event)) return true
       }
     }
-    if (buffer.trim()) processEvent(buffer)
+    return buffer.trim() ? processEvent(buffer) : false
   } finally {
     await reader.cancel().catch(() => {})
     reader.releaseLock()

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { interruptedAiExecutionEvidence } from './aiExecutionEvidence'
+import type { AiToolRun } from './types/ai'
 import {
   appendFinalAssistantTurn,
   flattenConversationForApi,
@@ -153,5 +155,57 @@ describe('appendFinalAssistantTurn', () => {
       content: 'done',
       reasoningContent: 'wrap',
     })
+  })
+})
+
+describe('interrupted execution evidence', () => {
+  const run = (status: AiToolRun['status'], extra: Partial<AiToolRun> = {}): AiToolRun => ({
+    id: 'call', name: 'exec', args: '{"command":"restart app"}', content: 'result', isError: false, status, target: 'server-a', ...extra,
+  })
+
+  it.each(['error', 'aborted'] as const)('preserves actual operations after %s without replaying unfinished claims', status => {
+    const projected = flattenConversationForApi([{ role: 'assistant', status, content: 'unsupported claim that everything is fixed',
+      reasoningContent: 'unfinished reasoning', toolRuns: [run('done'), run('aborted'), run('denied'), run('done', { jobIds: ['job-a'] })],
+      apiMessages: [{ role: 'assistant', content: 'partial', toolCalls: [{ id: 'unanswered', type: 'function', function: { name: 'exec', arguments: '{}' } }] }],
+    }])
+    expect(projected).toHaveLength(1)
+    expect(projected[0].role).toBe('user')
+    expect(projected[0].content).not.toContain('unsupported claim')
+    expect(projected[0].content).not.toContain('unfinished reasoning')
+    const data = JSON.parse(projected[0].content.split('\n').slice(1).join('\n'))
+    expect(data.tools.map((tool: { executionState: string }) => tool.executionState)).toEqual(['tool-returned-result', 'execution-result-unknown', 'not-executed', 'background-started'])
+    expect(data.tools.every((tool: { target: string }) => tool.target === 'server-a')).toBe(true)
+    expect(data.tools.at(-1).jobIds).toEqual(['job-a'])
+  })
+
+  it('does not leak live execution into another request or duplicate completed-turn evidence', () => {
+    for (const state of [{ status: 'running' as const }, { streaming: true, status: 'aborted' as const }]) {
+      expect(flattenConversationForApi([{ role: 'assistant', content: 'pending', toolRuns: [run('running')], ...state }])).toEqual([])
+    }
+    expect(flattenConversationForApi([{ role: 'assistant', status: 'completed', content: 'verified', toolRuns: [run('done')] }])).toEqual([{ role: 'assistant', content: 'verified' }])
+  })
+
+  it('bounds escaped large histories and labels omitted or truncated evidence explicitly', () => {
+    const notice = interruptedAiExecutionEvidence(Array.from({ length: 100 }, (_, index) => run('done', {
+      name: 'x'.repeat(64), target: '\0'.repeat(300), args: '\0'.repeat(4000), content: '\0'.repeat(20000), jobIds: Array.from({ length: 6 }, () => '\0'.repeat(200)), id: String(index),
+    })))
+    expect(notice.length).toBeLessThan(25_000)
+    const data = JSON.parse(notice.slice(notice.indexOf('\n') + 1))
+    expect(data.omittedToolCount).toBe(84)
+    expect(data.tools).toHaveLength(16)
+    expect(data.tools.every((tool: { truncated: boolean }) => tool.truncated)).toBe(true)
+    expect(interruptedAiExecutionEvidence([])).toBe('')
+  })
+
+  it('retains an early modification ahead of many later read-only checks', () => {
+    const notice = interruptedAiExecutionEvidence([
+      run('done', { risk: 'write', args: '{"command":"restart app"}' }),
+      ...Array.from({ length: 30 }, (_, index) => run('done', { risk: 'read', args: JSON.stringify({ command: `check ${index}` }) })),
+    ])
+    const data = JSON.parse(notice.slice(notice.indexOf('\n') + 1))
+    expect(data.tools[0].args).toContain('restart app')
+    expect(data.tools.at(-1).args).toContain('check 29')
+    expect(data.omittedPotentialChangeCount).toBe(0)
+    expect(data.omittedToolCount).toBe(15)
   })
 })

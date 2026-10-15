@@ -3,7 +3,7 @@ import { createScheduleExecutor } from './aiScheduleExecutor'
 import type { AiSchedule } from '../../shared/aiSchedules'
 
 const mocks = vi.hoisted(() => ({ write: vi.fn(async (_id?: string, _store?: unknown) => {}), remove: vi.fn() }))
-vi.mock('../ai/historyStore', () => ({ writeAiSessionStore: mocks.write }))
+vi.mock('../ai/history/historyStore', () => ({ writeAiSessionStore: mocks.write }))
 vi.mock('../store/appDatabase', () => ({ aiSessionKey: (id: string) => `ai-session:${id}`, getAppDatabase: () => ({ deleteSingleton: mocks.remove }) }))
 beforeEach(() => vi.clearAllMocks())
 const plan: AiSchedule = { id: 'plan', name: '巡检', connectionId: 'host', prompt: 'inspect', intervalMinutes: 60, enabled: true, nextRunAt: 1, createdAt: 1, updatedAt: 1 }

@@ -7,6 +7,7 @@ import { join } from 'path'
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
   readStore: vi.fn(async () => ({ activeThreadId: 'thread', threads: [] })),
+  previewPrune: vi.fn(async () => ({ conversations: 2, messages: 12 })),
 }))
 
 vi.mock('electron', () => ({
@@ -15,11 +16,12 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('../ai/historyStore', () => ({
+vi.mock('../ai/history/historyStore', () => ({
   createNewConversationAtomic: vi.fn(),
   getActiveThread: vi.fn(() => ({ messages: [] })),
   normalizeSessionStore: vi.fn((store) => store),
   pruneAllAiHistoryStores: vi.fn(),
+  previewAiHistoryPrune: mocks.previewPrune,
   readAiSessionStore: vi.fn(),
   readAiSessionStoreAndGc: mocks.readStore,
   upsertAiHistoryRecord: vi.fn(),
@@ -31,6 +33,15 @@ vi.mock('../ai/historyStore', () => ({
 beforeEach(() => {
   mocks.handlers.clear()
   mocks.readStore.mockClear()
+  mocks.previewPrune.mockClear()
+})
+
+it('normalizes retention preview limits without invoking a history write', async () => {
+  const { registerAiHandlers } = await import('./registerAiHandlers')
+  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any)
+  const preview = mocks.handlers.get('ai:previewHistoryPrune')!
+  await expect(preview({}, { maxThreads: -5, maxMessages: 99999 })).resolves.toEqual({ conversations: 2, messages: 12 })
+  expect(mocks.previewPrune).toHaveBeenCalledWith({ maxThreads: 1, maxMessages: 2000 })
 })
 
 it('loads two runtime terminals from the same stable host history', async () => {
@@ -77,7 +88,7 @@ it('opens a manually selected workspace under independent history and rejects an
   const storage = vi.spyOn(database, 'getAppDatabase').mockReturnValue({
     getSingleton: (key: string) => docs.get(key), setSingleton: (key: string, value: unknown) => docs.set(key, value),
   } as any)
-  const { configureWorkspaceTargets, workspaceHistoryId, workspaceScopes } = await import('../ai/workspaceScopes')
+  const { configureWorkspaceTargets, workspaceHistoryId, workspaceScopes } = await import('../ai/workspace/workspaceScopes')
   const id = randomUUID()
   configureWorkspaceTargets((owner, connectionId) => owner === 1 && connectionId === id
     ? { connectionId, sessionId: randomUUID(), name: 'selected', host: 'selected.example', port: 22, username: 'ops' } : undefined)

@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   setCredentialAutoFillEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setCredentialAutoFillEnabled', enabled),
   getAiSettings: () => ipcRenderer.invoke('settings:getAiSettings'),
   setAiSettings: (settings: any) => ipcRenderer.invoke('settings:setAiSettings', settings),
+  previewAiHistoryPrune: (limits: { maxThreads: number; maxMessages: number }) => ipcRenderer.invoke('ai:previewHistoryPrune', limits),
   switchAiModel: (providerId: string, model: string) => ipcRenderer.invoke('settings:switchAiModel', providerId, model),
   listAiModels: (provider: { baseUrl: string; apiKey: string; protocol?: AiProviderProtocol }) => ipcRenderer.invoke('ai:listModels', provider),
   testAiProvider: (provider: { baseUrl: string; apiKey: string; model: string; protocol?: AiProviderProtocol }) => ipcRenderer.invoke('ai:testProvider', provider),

@@ -11,7 +11,7 @@ export type McpAuditEvent = {
   commandPreview?: string
 }
 
-export function createMcpAuditLog(): (event: McpAuditEvent) => void {
+export function createMcpAuditLog(): (event: Omit<McpAuditEvent, 'ts'> & { ts?: number }) => void {
   return (event) => {
     const normalized = { ...event, ts: event.ts || Date.now() }
     try {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { AiUsage } from '../../env.d.ts'
-import type { ChatItem } from '@/composables/ai/useAiChat'
+import type { ChatItem } from '@/domain/ai/chat'
 import { formatMessageTime, formatMessageTimeDetail, messageDisplayTimestamp } from '@/utils/ai/messageTime'
 import { formatCompactTokenCount } from '@/utils/ai/tokenCount'
 import { normalizeAiUsage } from '@shared/aiUsage'

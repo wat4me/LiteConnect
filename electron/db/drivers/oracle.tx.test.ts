@@ -9,9 +9,8 @@ describe('OracleDriver transaction pin', () => {
     const executes: string[] = []
 
     const connection = {
-      autoCommit: true,
       callTimeout: 0,
-      execute: vi.fn(async (sql: string) => {
+      execute: vi.fn(async (sql: string, _binds?: unknown[], _options?: { autoCommit?: boolean }) => {
         executes.push(sql)
         if (/SELECT/i.test(sql) && !/DUAL|SYS_CONTEXT/i.test(sql)) {
           return {
@@ -60,20 +59,20 @@ describe('OracleDriver transaction pin', () => {
     const { connection, closed, commits } = installSession(driver)
     const st = await driver.beginTransaction('s1', 'tab-a', 'HR')
     expect(st.inTransaction).toBe(true)
-    expect(connection.autoCommit).toBe(false)
     expect(closed).toEqual([])
 
     await driver.query('s1', 'SELECT 1 AS ok FROM dual', {
       clientKey: 'tab-a',
       maxRows: 10,
     })
+    expect(connection.execute).toHaveBeenLastCalledWith(expect.any(String), [], expect.objectContaining({ autoCommit: false }))
     expect(closed).toEqual([])
 
     const after = await driver.commitTransaction('s1', 'tab-a')
     expect(after.inTransaction).toBe(false)
     expect(commits).toContain('commit')
     expect(closed).toContain('close')
-    expect(connection.autoCommit).toBe(true)
+    expect(driver.getTransactionState('s1', 'tab-a').autocommit).toBe(true)
   })
 
   it('releaseClient rolls back open TX', async () => {
@@ -93,7 +92,6 @@ describe('OracleDriver transaction pin', () => {
     const pool = {
       getConnection: async () => {
         const c = {
-          autoCommit: true,
           callTimeout: 0,
           execute: async () => ({ rows: [], metaData: [] }),
           commit: async () => {},
@@ -130,10 +128,11 @@ describe('OracleDriver transaction pin', () => {
 
   it('query outside TX autoCommits and closes', async () => {
     const driver = new OracleDriver()
-    const { closed, executes } = installSession(driver)
+    const { connection, closed, executes } = installSession(driver)
     const res = await driver.query('s1', 'SELECT * FROM employees', { maxRows: 50 })
     expect(res.hasResultSet).toBe(true)
     expect(executes.some((s) => /FETCH FIRST 51 ROWS ONLY/i.test(s))).toBe(true)
+    expect(connection.execute).toHaveBeenLastCalledWith(expect.any(String), [], expect.objectContaining({ autoCommit: true }))
     expect(closed).toContain('close')
   })
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   buildInspectSegments,
@@ -40,7 +40,8 @@ const logActiveMatch = ref(0)
 const logCopyFeedback = ref<'idle' | 'ok' | 'fail'>('idle')
 const logTailOptions: DockerLogTail[] = [100, 200, 500, 1000]
 let logCopyTimer: ReturnType<typeof setTimeout> | null = null
-let logScrollRaf = 0
+let logViewportWidth = 0
+let logViewportHeight = 0
 
 const logStatusLabel = computed(() =>
   t(dockerLogStateI18nKey(props.streamState, props.streamErrorCode)),
@@ -120,14 +121,19 @@ function scrollToActiveLogMatch() {
 }
 
 watch(
-  () => [logSearch.value, props.entries.length] as const,
+  logSearch,
   () => {
     logActiveMatch.value = 0
+    if (hasLogQuery.value) emit('set-auto-scroll', false)
   },
 )
 
+watch(logMatchLineIndexes, (indexes) => {
+  logActiveMatch.value = Math.min(logActiveMatch.value, Math.max(0, indexes.length - 1))
+})
+
 watch(
-  () => [logActiveMatch.value, logMatchLineIndexes.value.length, props.active] as const,
+  () => [logSearch.value, logActiveLineIndex.value, logMatchLineIndexes.value.length, props.active] as const,
   async () => {
     if (!props.active) return
     if (!logMatchLineIndexes.value.length) return
@@ -137,24 +143,36 @@ watch(
 )
 
 watch(
-  () => props.entries.length,
+  () => [props.entries[props.entries.length - 1]?.sequence, props.droppedCount, props.autoScroll, props.active] as const,
   async () => {
+    await nextTick()
     if (!props.active) return
     if (!props.autoScroll) return
     if (hasLogQuery.value) return
-    await nextTick()
-    if (logScrollRaf) cancelAnimationFrame(logScrollRaf)
-    logScrollRaf = requestAnimationFrame(() => {
-      logScrollRaf = 0
-      const el = logScrollEl.value
-      if (el) el.scrollTop = el.scrollHeight
-    })
+    scrollLogsToBottom()
   },
+  { immediate: true },
 )
+
+function scrollLogsToBottom() {
+  const el = logScrollEl.value
+  if (!el) return
+  logViewportWidth = el.clientWidth
+  logViewportHeight = el.clientHeight
+  el.scrollTop = el.scrollHeight
+}
 
 function onLogScroll() {
   const el = logScrollEl.value
-  if (!el || !props.follow) return
+  if (!el) return
+  // Resizing the pane can dispatch a scroll event without user scrolling.
+  const resized = el.clientWidth !== logViewportWidth || el.clientHeight !== logViewportHeight
+  logViewportWidth = el.clientWidth
+  logViewportHeight = el.clientHeight
+  if (resized && props.autoScroll && !hasLogQuery.value) {
+    scrollLogsToBottom()
+    return
+  }
   const dist = el.scrollHeight - el.scrollTop - el.clientHeight
   if (dist > 48) {
     if (props.autoScroll) emit('set-auto-scroll', false)
@@ -172,15 +190,15 @@ function onLogFollowChange(e: Event) {
   emit('set-follow', (e.target as HTMLInputElement).checked)
 }
 
-function toggleLogAutoScroll() {
-  const next = !props.autoScroll
-  emit('set-auto-scroll', next)
-  if (next) {
-    void nextTick(() => {
-      const el = logScrollEl.value
-      if (el) el.scrollTop = el.scrollHeight
-    })
-  }
+function onLogAutoScrollChange(e: Event) {
+  if ((e.target as HTMLInputElement).checked) jumpToLatest()
+  else emit('set-auto-scroll', false)
+}
+
+function jumpToLatest() {
+  resetSearch()
+  emit('set-auto-scroll', true)
+  void nextTick(scrollLogsToBottom)
 }
 
 async function copyLogsAll() {
@@ -205,12 +223,16 @@ function resetSearch() {
 }
 
 defineExpose({ resetSearch })
+
+onBeforeUnmount(() => {
+  if (logCopyTimer) clearTimeout(logCopyTimer)
+})
 </script>
 
 <template>
   <div class="detail-body logs-body">
     <div class="logs-toolbar">
-      <label class="logs-field">
+      <label class="logs-field" :title="t('docker.logs.tailHint')">
         <span class="logs-field-label">{{ t('docker.logs.tailLabel') }}</span>
         <select
           class="ui-select ui-input-sm logs-select"
@@ -221,36 +243,15 @@ defineExpose({ resetSearch })
           <option v-for="n in logTailOptions" :key="n" :value="String(n)">{{ n }}</option>
         </select>
       </label>
-      <label class="logs-check">
+      <label class="logs-check" :title="t('docker.logs.followHint')">
         <input type="checkbox" :checked="follow" @change="onLogFollowChange" />
         <span>{{ t('docker.logs.follow') }}</span>
       </label>
-      <button
-        type="button"
-        class="ui-btn ui-btn-sm ui-btn-ghost"
-        :disabled="!follow"
-        @click="toggleLogAutoScroll"
-      >
-        {{ autoScroll ? t('docker.logs.pauseScroll') : t('docker.logs.resumeScroll') }}
-      </button>
-      <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" @click="emit('clear')">
-        {{ t('docker.logs.clear') }}
-      </button>
-      <button
-        type="button"
-        class="ui-btn ui-btn-sm ui-btn-ghost"
-        :disabled="!entries.length"
-        @click="copyLogsAll"
-      >
-        {{
-          logCopyFeedback === 'ok'
-            ? t('docker.logs.copied')
-            : logCopyFeedback === 'fail'
-              ? t('docker.logs.copyFailed')
-              : t('docker.logs.copyAll')
-        }}
-      </button>
-      <span class="status-pill logs-status" :class="`tone-${logStatusTone}`">
+      <label class="logs-check" :title="t('docker.logs.autoScrollHint')">
+        <input type="checkbox" :checked="autoScroll" @change="onLogAutoScrollChange" />
+        <span>{{ t('docker.logs.autoScroll') }}</span>
+      </label>
+      <span class="status-pill logs-status" :class="`tone-${logStatusTone}`" role="status">
         <span class="status-dot" aria-hidden="true"></span>
         {{ logStatusLabel }}
       </span>
@@ -263,6 +264,9 @@ defineExpose({ resetSearch })
           type="text"
           :placeholder="t('docker.logs.search')"
           :aria-label="t('docker.logs.search')"
+          @keydown.enter.exact.prevent="goNextLogMatch"
+          @keydown.shift.enter.prevent="goPrevLogMatch"
+          @keydown.esc="resetSearch"
         />
         <button
           v-if="logSearch"
@@ -307,33 +311,75 @@ defineExpose({ resetSearch })
           <AppIcon name="chevron-down" size="xs" />
         </button>
       </div>
+      <div class="logs-actions">
+        <button
+          type="button"
+          class="ui-btn ui-btn-sm ui-btn-ghost"
+          :disabled="!entries.length"
+          :title="t('docker.logs.clearHint')"
+          @click="emit('clear')"
+        >
+          <AppIcon name="clear" size="xs" />
+          {{ t('docker.logs.clear') }}
+        </button>
+        <button
+          type="button"
+          class="ui-btn ui-btn-sm ui-btn-ghost"
+          :disabled="!entries.length"
+          :title="t('docker.logs.copyAllHint')"
+          @click="copyLogsAll"
+        >
+          <AppIcon name="copy" size="xs" />
+          {{
+            logCopyFeedback === 'ok'
+              ? t('docker.logs.copied')
+              : logCopyFeedback === 'fail'
+                ? t('docker.logs.copyFailed')
+                : t('docker.logs.copyAll')
+          }}
+        </button>
+      </div>
     </div>
     <div v-if="droppedCount > 0" class="logs-dropped" aria-live="polite">
       {{ t('docker.logs.dropped', { count: droppedCount }) }}
     </div>
-    <div
-      ref="logScrollEl"
-      class="logs-scroll"
-      role="log"
-      aria-live="polite"
-      @scroll="onLogScroll"
-    >
-      <div v-if="!entries.length" class="logs-empty">
-        {{ t('docker.logs.empty') }}
-      </div>
+    <div class="logs-viewport">
       <div
-        v-for="(line, idx) in entries"
-        :key="`${line.sequence}-${idx}`"
-        class="log-line"
-        :class="{
-          'log-line-hit': hasLogQuery && logMatchLineSet.has(idx),
-          'log-line-active': hasLogQuery && logActiveLineIndex === idx,
-        }"
-        :data-log-line="idx"
-      ><template v-for="(seg, si) in logLineSegments(idx)" :key="si"><span
-          v-if="seg.kind === 'match'"
-          class="log-hit"
-        >{{ seg.text }}</span><span v-else>{{ seg.text }}</span></template></div>
+        ref="logScrollEl"
+        class="logs-scroll"
+        role="log"
+        aria-live="off"
+        tabindex="0"
+        :aria-label="t('docker.detail.logs')"
+        @scroll="onLogScroll"
+      >
+        <div v-if="!entries.length" class="logs-empty">
+          {{ t('docker.logs.empty') }}
+        </div>
+        <div
+          v-for="(line, idx) in entries"
+          :key="line.sequence"
+          class="log-line"
+          :class="{
+            'log-line-hit': hasLogQuery && logMatchLineSet.has(idx),
+            'log-line-active': hasLogQuery && logActiveLineIndex === idx,
+          }"
+          :data-log-line="idx"
+        ><template v-for="(seg, si) in logLineSegments(idx)" :key="si"><span
+            v-if="seg.kind === 'match'"
+            class="log-hit"
+          >{{ seg.text }}</span><span v-else>{{ seg.text }}</span></template></div>
+      </div>
+      <button
+        v-if="!autoScroll && entries.length"
+        type="button"
+        class="ui-btn ui-btn-sm logs-jump-latest"
+        :title="t('docker.logs.jumpToLatestHint')"
+        @click="jumpToLatest"
+      >
+        <AppIcon name="chevron-down" size="xs" />
+        {{ t('docker.logs.jumpToLatest') }}
+      </button>
     </div>
   </div>
 </template>
@@ -349,21 +395,28 @@ defineExpose({ resetSearch })
   overflow: hidden;
   padding: 10px 12px;
   gap: 8px;
+  --logs-control-height: var(--control-h-sm);
+  --logs-font-size: var(--font-ui-sm);
 }
 
 .logs-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 14px;
+  flex-shrink: 0;
 }
 
-.logs-field {
+.logs-field,
+.logs-check {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  min-height: var(--logs-control-height);
+  font-size: var(--logs-font-size);
+  line-height: 1.25;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .logs-select {
@@ -372,23 +425,36 @@ defineExpose({ resetSearch })
 }
 
 .logs-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.logs-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.logs-status {
+  margin-left: auto;
+  font-size: var(--logs-font-size);
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .logs-search-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .logs-search-field {
   position: relative;
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 140px;
+  min-width: 100px;
 }
 
 .logs-search {
@@ -414,6 +480,35 @@ defineExpose({ resetSearch })
   flex-shrink: 0;
 }
 
+.logs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.logs-actions .ui-btn {
+  font-weight: 500;
+}
+
+.logs-viewport {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.logs-jump-latest {
+  position: absolute;
+  bottom: 12px;
+  right: 20px;
+  color: var(--accent);
+  background: var(--bg-primary);
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
 .logs-match-count {
   font-size: 11px;
   color: var(--text-secondary);
@@ -428,6 +523,7 @@ defineExpose({ resetSearch })
 .logs-scroll {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -436,6 +532,8 @@ defineExpose({ resetSearch })
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   line-height: 1.45;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .logs-empty {

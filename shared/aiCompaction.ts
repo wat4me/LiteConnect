@@ -4,6 +4,7 @@ import {
   truncateToTokenBudget,
 } from './aiContext'
 import { flattenConversationForApi } from './aiMessages'
+import { interruptedAiExecutionEvidence } from './aiExecutionEvidence'
 import type {
   AiChatMessage,
   AiContextCheckpoint,
@@ -11,8 +12,8 @@ import type {
   AiToolRun,
 } from './types/ai'
 
-export const AI_COMPACTION_THRESHOLD_RATIO = 0.8
-export const AI_COMPACTION_RETAIN_RATIO = 0.2
+import { AI_COMPACTION_RETAIN_RATIO } from './aiContextPressure'
+export { AI_COMPACTION_THRESHOLD_RATIO, AI_COMPACTION_RETAIN_RATIO } from './aiContextPressure'
 export const AI_COMPACTION_NEW_THREAD_AT = 3
 
 export function normalizeAiCompactionCount(value: unknown): number {
@@ -25,7 +26,7 @@ export const AI_COMPACTION_TOOL_TAIL_CHARS = 1_024
 const TOOL_PRUNE_MARKER = '\n\n[... 工具结果中段已由上下文压缩移除 ...]\n\n'
 const CHECKPOINT_PREAMBLE = [
   '以下是系统自动生成的早期会话检查点，用于释放上下文空间。',
-  '请把其中内容视为已经确认的背景，直接继续后面的近期对话，不要复述或评价这份检查点。',
+  '请把其中内容视为历史背景，保留失败、未验证和执行结果未知的状态；不要将这些状态改成已完成。直接继续后面的近期对话，不要复述或评价这份检查点。',
 ].join('')
 
 export type AiCompactionPlan = {
@@ -106,18 +107,25 @@ export function selectAiCompactionPlan(
   records: readonly AiHistoryRecord[],
   checkpoint: AiContextCheckpoint | undefined,
   promptBudgetTokens: number,
+  retainedTokenBudget = Math.max(256, Math.floor(promptBudgetTokens * AI_COMPACTION_RETAIN_RATIO)),
 ): AiCompactionPlan | null {
   const checkpointIndex = findAiCheckpointIndex(records, checkpoint)
   const firstCandidate = checkpointIndex >= 0 ? checkpointIndex + 1 : 0
   if (firstCandidate >= records.length) return null
 
-  const retainTokens = Math.max(256, Math.floor(promptBudgetTokens * AI_COMPACTION_RETAIN_RATIO))
+  const retainTokens = retainedTokenBudget
+  const turns: Array<{ start: number; tokens: number }> = []
+  for (let index = firstCandidate; index < records.length; index += 1) {
+    if (records[index].role === 'user' || !turns.length) turns.push({ start: index, tokens: 0 })
+    turns[turns.length - 1].tokens += recordTokenCount(records[index])
+  }
   let retained = 0
   let keepFrom = records.length
-  for (let index = records.length - 1; index >= firstCandidate; index -= 1) {
-    retained += recordTokenCount(records[index])
-    keepFrom = index
-    if (retained >= retainTokens) break
+  for (const turn of turns.reverse()) {
+    // Keep the newest whole turn, then add older turns only while they fit.
+    if (retained && retained + turn.tokens > retainTokens) break
+    retained += turn.tokens
+    keepFrom = turn.start
   }
 
   // A user record starts a whole conversational turn. Move left rather than
@@ -146,7 +154,10 @@ export function selectAiCompactionPlan(
 function toolRunText(run: AiToolRun): string {
   const args = run.args ? `\n参数：${run.args.slice(0, 4_000)}` : ''
   const result = pruneAiToolResultText(run.content || '')
-  return `工具 ${run.name}${args}\n结果（${run.isError ? '失败' : '成功'}）：${result || '(empty)'}`
+  const state = ['ask', 'denied', 'blocked', 'reclassify'].includes(run.status || '') ? '未执行'
+    : run.status !== 'done' || run.content.startsWith('TOOL_RESULT_UNKNOWN:') ? '执行结果未知'
+      : run.isError ? '工具返回错误' : run.jobIds?.length ? '后台任务已启动，尚未确认完成' : '工具已返回，目标需另行验证'
+  return `工具 ${run.name}${run.target ? `（${run.target}）` : ''}${args}\n结果（${state}）：${result || '(empty)'}`
 }
 
 /** Text-only, bounded source for the private summarizer request. */
@@ -154,7 +165,12 @@ export function aiHistoryRecordForSummary(
   record: AiHistoryRecord,
   maxTokens: number,
 ): AiChatMessage | null {
-  if (record.status === 'running' || ((record.error || record.status === 'aborted') && !record.backgroundNotice)) return null
+  if (record.status === 'running') return null
+  if (record.role === 'assistant' && (record.error || record.status === 'error' || record.status === 'aborted')) {
+    const evidence = interruptedAiExecutionEvidence(record.toolRuns || [])
+    const content = truncateToTokenBudget([record.backgroundNotice, evidence].filter(Boolean).join('\n\n'), maxTokens)
+    return content.trim() ? { role: 'user', content } : null
+  }
   if (record.role === 'user') {
     const imageNote = record.images?.length ? `\n[用户附带图片：${record.images.map(image => image.name).join('、')}；图片将随本条消息提供，请保留识别结论和关键细节。]` : ''
     const content = truncateToTokenBudget((record.content || '') + imageNote, maxTokens)

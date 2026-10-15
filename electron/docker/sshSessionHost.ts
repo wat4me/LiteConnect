@@ -17,7 +17,7 @@ import {
 } from './ncFallback'
 
 function destroyChannel(channel: NodeJS.ReadWriteStream | null | undefined): void {
-  try { channel?.destroy?.() } catch {}
+  try { if (channel && 'destroy' in channel && typeof channel.destroy === 'function') channel.destroy() } catch {}
   try { (channel as any)?.close?.() } catch {}
   try { (channel as any)?.end?.() } catch {}
 }
@@ -135,9 +135,9 @@ export class DockerSshSessionHost implements DockerSessionHost {
         const attach = (opened: NodeJS.ReadWriteStream) => {
           channel = opened as ClientChannel
           try { channel.stderr?.on('data', onStderr) } catch {}
-          channel.once('exit', (code, sig) => { exitCode = code; signal = sig ?? null; fail() })
+          channel.once('exit', (code?: number | null, sig?: string) => { exitCode = code; signal = sig ?? null; fail() })
           channel.once('close', () => { earlyClose = true; fail() })
-          channel.once('error', (error) => fail(error))
+          channel.once('error', (error: Error) => fail(error))
           setTimeout(succeed, DOCKER_NC_EXEC_SETTLE_MS)
         }
         this.ssh.openExecChannel(sessionId, DOCKER_NC_EXEC_COMMAND, generation, attach).catch((error) => {

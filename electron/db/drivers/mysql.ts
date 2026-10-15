@@ -78,7 +78,7 @@ export class MySqlDriver implements DbDriver {
     if (extras.sslEnabled === true && !ssl) {
       ssl = { rejectUnauthorized: false }
     }
-    if (extras.sslEnabled === false) ssl = undefined
+    if (extras.sslEnabled === false) ssl = false
     const password = conn.password || ''
     const pool = mysql.createPool({
       host: conn.host,
@@ -155,7 +155,7 @@ export class MySqlDriver implements DbDriver {
       const extras = mapMysqlExtraOptions(conn.extraOptions)
       let ssl = resolveSslConfig(conn.ssl, conn.sslOptions)
       if (extras.sslEnabled === true && !ssl) ssl = { rejectUnauthorized: false }
-      if (extras.sslEnabled === false) ssl = undefined
+      if (extras.sslEnabled === false) ssl = false
       connection = await mysql.createConnection({
         host: conn.host,
         port: conn.port || 3306,
