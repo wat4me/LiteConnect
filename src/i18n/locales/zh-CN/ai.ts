@@ -2,9 +2,11 @@ export default {
   ai: {
     question: {
       title: 'AI 需要你补充信息', hint: '回答后 AI 会继续处理；你也可以直接填写自己的答案。',
-      multiple: '可多选', clearSelection: '清除选择', customAnswer: '补充说明，或直接输入其他答案…', answerPlaceholder: '请输入你的回答…',
-      skip: '暂不回答', submit: '提交回答', sending: '正在提交…', sendFailed: '提交未成功，请重试；问题可能已结束。',
+      multiple: '可多选', clearSelection: '清除选择', otherAnswer: '其他／自己填写', answerOrNote: '自己的回答或补充说明', yourAnswer: '你的回答', answerPlaceholder: '请输入你的回答…',
+      skip: '暂不回答', skipAll: '跳过本组', submit: '提交回答', sending: '正在提交…', sendFailed: '提交未成功，请重试；问题可能已结束。',
       invalid: '问题无法显示，可以跳过或停止本次回复。', waiting: '等待你回答', answered: '已回答', skipped: '已跳过',
+      progress: '问题 {current} / {total}', navigation: '切换问题', answerCount: '已回答 {count} / {total}',
+      previous: '上一题', next: '下一题', missingAnswers: '还有 {count} 题未回答。', completeAnswers: '去补充',
     },
     providerProtocol: '接口协议',
     protocolOpenai: 'OpenAI 兼容',

@@ -835,6 +835,8 @@
   container-type: inline-size;
   container-name: ai-composer;
 }
+.composer-area.has-question { display: flex; flex-direction: column; max-height: var(--ai-question-max-height, calc(100% - 80px)); }
+.composer-area.has-question :deep(.ai-question-card) { margin: 0; }
 .composer-permission:hover { color: var(--text-primary); }
 .send-btn, .stop-btn { flex-shrink: 0; }
 .composer { padding: 10px; gap: 8px; }

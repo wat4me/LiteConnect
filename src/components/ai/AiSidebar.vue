@@ -168,6 +168,8 @@ function attachSidebarDomListeners() {
     documentKeydownActive = true
   }
   if (sidebarRef.value) composerObserver?.observe(sidebarRef.value)
+  const body = sidebarRef.value?.querySelector('.ai-body')
+  if (body) composerObserver?.observe(body)
   if (composerAreaRef.value) composerObserver?.observe(composerAreaRef.value)
 }
 
@@ -206,6 +208,13 @@ function updateComposerOverlayInset() {
   const panel = sidebarRef.value
   const area = composerAreaRef.value
   if (!panel || !area || !area.getClientRects().length) return
+  const body = panel.querySelector('.ai-body')
+  if (body?.getClientRects().length) {
+    // The workspace toolbar can wrap onto two rows. Bound questions by the
+    // actual chat viewport rather than a fixed header-height assumption.
+    const available = panel.getBoundingClientRect().bottom - body.getBoundingClientRect().top - (parseFloat(getComputedStyle(area).bottom) || 0) - 8
+    panel.style.setProperty('--ai-question-max-height', `${Math.max(0, Math.floor(available))}px`)
+  }
   // Composer floats over the full-height chat scroller. Reserve its measured
   // height plus the visual bottom/gap so the latest message remains visible.
   const inset = Math.ceil(area.getBoundingClientRect().height + 20)
@@ -1076,8 +1085,6 @@ async function runCodeToTerminal(code: string) {
       />
     </div>
 
-    <AiUserQuestion v-for="run in pendingQuestions" :key="run.id" v-show="!showSettings && !showHistory" :run="run" :submit="answer => answerQuestion(sessionId, run.id, answer)" />
-
     <div v-if="pendingApprovals.length && !showSettings && !showHistory" class="tool-approval-stack">
       <div
         v-for="run in visibleApprovals"
@@ -1128,8 +1135,9 @@ async function runCodeToTerminal(code: string) {
       </div>
     </div>
 
-    <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area">
-    <form class="composer" :class="{ 'image-drag-over': imageDragOver }" @submit.prevent="sendMessage">
+    <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area" :class="{ 'has-question': pendingQuestions.length }">
+    <AiUserQuestion v-for="run in pendingQuestions" :key="run.id" :run="run" :submit="answer => answerQuestion(sessionId, run.id, answer)" allow-stop @stop="handleStop" />
+    <form v-show="!pendingQuestions.length" class="composer" :class="{ 'image-drag-over': imageDragOver }" @submit.prevent="sendMessage">
       <div v-if="showLongSessionReminder" class="composer-long-session" role="status">
         <p>{{ t('ai.longSessionReminder', { n: compactionCount }) }}</p>
         <div class="long-session-actions">

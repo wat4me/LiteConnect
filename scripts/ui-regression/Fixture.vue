@@ -196,6 +196,8 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return JSON.parse(JSON.stringify(history))
   },
   onAiChatStream: () => () => {},
+  aiAnswerQuestion: async (_requestId: string, _runId: string, answer: AiUserAnswer) => submitQuestion(answer),
+  aiAbortChatStream: async () => { questionStops++ },
   aiChatStream: async (_id: string, messages: any[], options: any) => {
     if (options?.compactOnly) { manualCompactions.push(options.threadId); return { content: '', contextCompacted: false } }
     calls.aiRequests.push(messages)
@@ -247,6 +249,8 @@ const liteAiOpen = ref(false)
 const liteAiActive = ref(true)
 const liteAiMode = ref<'ssh' | 'ai'>('ssh')
 const imageComposerSession = ref('image-fixture')
+const imageComposerWorkspace = ref(false)
+let questionStops = 0
 const { runningCount: backgroundTaskCount } = useAiBackgroundJobs(() => imageComposerSession.value)
 const imageOpenGeneration = ref(1)
 const renameText = ref('重命名后的服务器日志 Production logs ' + '很长的名称'.repeat(12))
@@ -264,15 +268,36 @@ function renameBookmark(item: SftpPathBookmark) {
 
 onMounted(() => {
   (window as any).__uiRegression = {
-    resetQuestion(batch = true, reject = false) {
+    resetQuestion(batch = true, reject = false, long = false) {
       rejectQuestionAnswer = reject
       questionAnswers.length = 0
       const questions = [{ id: 'scope', question: '请选择本次检查的环境，确认目标后 AI 会继续查询服务器状态。', options: [{ label: '测试环境', description: '仅检查测试服务，不影响生产环境。' }, { label: '生产环境 Production', description: '先读取状态，再根据结果决定下一步。' }] },
         ...(batch ? [{ id: 'checks', question: '需要检查哪些项目？', multiple: true, options: [{ label: '服务状态' }, { label: '日志异常' }, { label: '资源使用' }] }, { id: 'note', question: '还有哪些需要特别关注的信息？' }] : []),
       ]
+      if (long) {
+        questions[0].question = '请确认目标服务与本次检查范围。'.repeat(40)
+        questions[0].options?.forEach(option => { option.description = '详细说明'.repeat(90) })
+      }
       questionRun.value = { ...questionRun.value, id: `question-${++questionVersion}`, args: JSON.stringify({ questions }) }
     },
     getQuestionAnswers() { return questionAnswers },
+    setQuestionSubmissionRejected(reject: boolean) { rejectQuestionAnswer = reject },
+    async showIntegratedQuestion(workspace: boolean) {
+      imageComposerWorkspace.value = workspace
+      const state = useAiChat().getSessionState(imageComposerSession.value)
+      backgroundReplyListeners.forEach(listener => listener({ sessionId: imageComposerSession.value, threadId: state.activeThreadId, requestId: 'fixture-question-request', record: {
+        id: 'fixture-question-message', role: 'assistant', status: 'running', createdAt: Date.now(), content: '请确认本次检查范围。', toolRuns: [JSON.parse(JSON.stringify(questionRun.value))],
+      } }))
+      await nextTick()
+    },
+    async finishIntegratedQuestion() {
+      const state = useAiChat().getSessionState(imageComposerSession.value)
+      backgroundReplyListeners.forEach(listener => listener({ sessionId: imageComposerSession.value, threadId: state.activeThreadId, requestId: 'fixture-question-request', record: {
+        id: 'fixture-question-message', role: 'assistant', status: 'completed', createdAt: Date.now(), content: '已读取回答，继续检查。',
+      } }))
+      await nextTick()
+    },
+    getQuestionStops() { return questionStops },
     calls,
     settingsSaves,
     providerTests,
@@ -483,7 +508,7 @@ onMounted(() => {
       <InlineLabel text="很长的中文与英文数据库名称 Production database"><span class="fixture-count">123456</span></InlineLabel>
     </section>
     <section class="ai-fixture"><AiChatView :messages="aiMessages" :has-api-configured="true" /></section>
-    <section v-if="imageComposerOpen" class="ai-image-composer-fixture"><AiSidebar :session-id="imageComposerSession" :open-generation="imageOpenGeneration" /></section>
+    <section v-if="imageComposerOpen" class="ai-image-composer-fixture"><AiSidebar :session-id="imageComposerSession" :open-generation="imageOpenGeneration" :workspace="imageComposerWorkspace"><template v-if="imageComposerWorkspace" #workspace-toolbar><span>本会话管理 3 台 · 已连接 3 / 3</span></template></AiSidebar></section>
     <section class="background-toolbar-fixture"><LeftToolbar :ai-active="imageComposerOpen" :files-active="false" :monitor-active="false" :batch-active="false" :snippets-active="false" :show-ai-unread="false" :background-task-count="backgroundTaskCount" /></section>
     <FileEditorModal :visible="editorOpen" session-id="ui-fixture" remote-path="/tmp/config" file-name="config" @close="editorOpen = false" />
     <DirectorySyncModal :visible="syncOpen" session-id="ui-fixture" remote-path="/tmp" @close="syncOpen = false" />
