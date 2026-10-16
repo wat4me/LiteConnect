@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { routeWorkspaceTool, callWorkspaceTool } from './workspaceToolRouting'
 import { workspaceToolSystemAddendum, workspaceToolsForChat } from '../../../shared/aiWorkspacePrompt'
+import { AI_QUESTION_TOOL, aiUserQuestionTool } from '../../../shared/aiQuestions'
 import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import { runAiChatStream } from '../execution/chatStream'
@@ -42,7 +43,7 @@ it('checks job and PTY handles against the requested host and scopes global list
   }
 })
 
-it('exposes a credential-free scope and requires target selection in every tool schema', () => {
+it('exposes a credential-free scope, scopes server tools and leaves user questions local', () => {
   const system = workspaceToolSystemAddendum(targets.map(target => ({ ...target, group: 'Deployment', note: 'nginx frontend', password: 'secret-password', privateKey: 'secret-key' })))
   expect(system).toContain('a.example')
   expect(system).toContain('nginx frontend')
@@ -51,7 +52,9 @@ it('exposes a credential-free scope and requires target selection in every tool 
   expect(system).not.toContain('secret-key')
   expect(system).not.toContain('ssh-a')
   expect(system).not.toContain('不要切换到其它主机')
-  for (const tool of workspaceToolsForChat()) {
+  const tools = workspaceToolsForChat()
+  expect(tools.find(tool => tool.function.name === AI_QUESTION_TOOL)).toEqual(aiUserQuestionTool)
+  for (const tool of tools.filter(tool => tool.function.name !== AI_QUESTION_TOOL)) {
     expect(tool.function.parameters.required).toContain('connectionId')
     expect(tool.function.parameters.properties).not.toHaveProperty('sessionId')
   }
