@@ -18,6 +18,7 @@
     "test:watch": "vitest",
     "test:ui": "node scripts/check-ui-regressions.mjs",
     "test:ui:docker": "node scripts/check-ui-regressions.mjs --docker",
+    "test:ui:questions": "node scripts/check-ui-regressions.mjs --questions",
     "clean:electron": "node scripts/clean-electron-out.mjs",
     "build": "npm run typecheck && npm run clean:electron && vite build && node scripts/copy-bash-wasm.mjs",
     "preview": "vite preview",

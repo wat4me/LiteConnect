@@ -11,7 +11,7 @@ export function isAwaitingModelReply(message: {
 }): boolean {
   if (!message.streaming) return false
   if (message.toolRuns?.some(run =>
-    run.status === 'ask' || run.status === 'running' || (!run.status && !run.content),
+    run.status === 'ask' || run.status === 'question' || run.status === 'running' || (!run.status && !run.content),
   )) return false
   const segments = message.segments
   const lastSegment = segments?.length ? segments[segments.length - 1] : undefined

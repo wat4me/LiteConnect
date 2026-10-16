@@ -5,7 +5,7 @@ export default {
     aiShortcut: 'AI 助手 (Ctrl+Shift+A)',
     aiSplitDisabled: '分屏时已关闭 AI 助手；退出分屏后恢复',
     aiUnread: '有未读 AI 回复',
-    aiApproval: 'AI 等待允许操作',
+    aiApproval: 'AI 等待你回答或确认操作',
     sftp: 'SFTP 文件 (Ctrl+B)',
     sftpActive: 'SFTP 文件 (Ctrl+B) · 传输中 {count}',
     sftpCrossHostSplitDisabled: '跨 SSH 分屏时已隐藏 SFTP；退出分屏后恢复',

@@ -1,4 +1,5 @@
 import { AI_TOOL_APPROVAL_TIMEOUT_MS } from '../../../shared/aiToolPolicy'
+import { validateAiUserAnswer, type AiUserAnswer, type AiUserQuestion } from '../../../shared/aiQuestions'
 
 type ActiveAiStream = { controller: AbortController; ownerId?: number }
 const activeAiStreams = new Map<string, ActiveAiStream>()
@@ -13,7 +14,10 @@ export function createAiStreamControl(requestId: string, ownerId?: number) {
   return {
     controller,
     cleanup: () => {
-      if (activeAiStreams.get(requestId) === active) activeAiStreams.delete(requestId)
+      if (activeAiStreams.get(requestId) === active) {
+        activeAiStreams.delete(requestId)
+        clearPendingUserQuestions(requestId)
+      }
     },
   }
 }
@@ -70,4 +74,36 @@ export function clearPendingToolApprovals(requestId: string): void {
   for (const [key, pending] of pendingToolApprovals) {
     if (key.startsWith(`${requestId}::`)) pending.finish(false)
   }
+}
+
+type PendingQuestion = { requestId: string; ownerId?: number; questions: AiUserQuestion[]; finish: (answer?: AiUserAnswer) => void }
+const pendingQuestions = new Map<string, PendingQuestion>()
+const questionKey = (requestId: string, callId: string) => JSON.stringify([requestId, callId])
+
+export function waitForUserAnswer(requestId: string, callId: string, questions: AiUserQuestion[], signal: AbortSignal): Promise<AiUserAnswer | undefined> {
+  const key = questionKey(requestId, callId)
+  if (pendingQuestions.has(key)) throw new Error('Question is already pending')
+  return new Promise(resolve => {
+    const finish = (answer?: AiUserAnswer) => {
+      if (!pendingQuestions.has(key)) return
+      pendingQuestions.delete(key)
+      signal.removeEventListener('abort', onAbort)
+      resolve(answer)
+    }
+    const onAbort = () => finish()
+    pendingQuestions.set(key, { requestId, ownerId: activeAiStreams.get(requestId)?.ownerId, questions: structuredClone(questions), finish })
+    signal.addEventListener('abort', onAbort)
+    if (signal.aborted) finish()
+  })
+}
+
+export function resolveUserAnswer(requestId: string, callId: string, raw: unknown, ownerId?: number): boolean {
+  if (typeof requestId !== 'string' || typeof callId !== 'string') return false
+  const pending = pendingQuestions.get(questionKey(requestId, callId))
+  if (!pending || (ownerId !== undefined && ownerId !== pending.ownerId)) return false
+  try { pending.finish(validateAiUserAnswer(raw, pending.questions)); return true } catch { return false }
+}
+
+export function clearPendingUserQuestions(requestId: string): void {
+  for (const pending of [...pendingQuestions.values()]) if (pending.requestId === requestId) pending.finish()
 }

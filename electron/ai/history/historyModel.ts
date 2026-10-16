@@ -1,4 +1,5 @@
 import { AI_TOOL_DIFF_MAX_CHARS } from '../../../shared/aiToolDiff'
+import { AI_QUESTION_ARGS_MAX, AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { normalizeAiImages } from '../../../shared/aiImages'
 import { normalizeAiCompactionCount } from '../../../shared/aiCompaction'
 import { isAiMarkdownFilePath } from '../../../shared/aiFixedContext'
@@ -110,6 +111,7 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
     if (!name) continue
     const status =
       rec.status === 'ask' ||
+      rec.status === 'question' ||
       rec.status === 'running' ||
       rec.status === 'done' ||
       rec.status === 'denied' ||
@@ -129,7 +131,7 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
     out.push({
       id: typeof rec.id === 'string' && rec.id ? rec.id : `${Date.now()}-${out.length}`,
       name,
-      args: typeof rec.args === 'string' ? rec.args.slice(0, 4000) : '',
+      args: typeof rec.args === 'string' ? rec.args.slice(0, name === AI_QUESTION_TOOL ? AI_QUESTION_ARGS_MAX : 4000) : '',
       content: typeof rec.content === 'string' ? rec.content.slice(0, 20000) : '',
       isError: rec.isError === true,
       status,
@@ -327,7 +329,11 @@ export function recoverInterruptedAiSessionStore(store: AiSessionStore): boolean
         changed = true
       }
       for (const run of message.toolRuns || []) {
-        if (run.status === 'ask' || run.status === 'running') {
+        if (run.status === 'question') {
+          run.status = 'aborted'
+          run.content = 'QUESTION_CANCELLED: The application restarted before the user answered. No answer or approval was given.'
+          changed = true
+        } else if (run.status === 'ask' || run.status === 'running') {
           run.status = 'aborted'
           changed = true
         }

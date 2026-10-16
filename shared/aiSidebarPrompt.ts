@@ -8,6 +8,7 @@ import {
 import { estimateTokens, packAiMessages, type AiContextPack } from './aiContext'
 import { formatAiConversationContextFile } from './aiFixedContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
+import { aiUserQuestionTool, AI_QUESTION_GUIDANCE } from './aiQuestions'
 import type { AiChatMessage, AiConversationContextFile } from './types/ai'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget, type AiContextBudgetConfig } from './aiContextPressure'
 
@@ -32,9 +33,10 @@ export function sshToolSystemAddendum(session: {
   return [
     '你可以使用 SSH 工具查看和操作当前对话绑定的这台主机，不要空口猜测磁盘、进程、日志或配置。',
     'exec / read_file / grep / glob / write_file / edit_file / list_dir 默认就在这台机上执行，不要传 sessionId，也不要切换到其它主机。',
-    '工具权限按你在 JSON 中声明的级别和用户设置处理；需要确认的调用会暂停，等待用户在对话里点「允许」。',
-    AI_DECLARED_RISK_PROMPT_ZH,
-    '长任务用 exec(background=true)。任务完成后应用会自动将结果送回当前对话并继续处理，无需反复 get_job 或 sleep 等待。后台执行期间可处理独立工作，不要重复执行同一任务；仅在需要主动查看进度或更多输出时使用 get_job。不要去连其它主机或结束用户正在用的终端。',
+    '服务器操作工具的权限按你在 JSON 中声明的级别和用户设置处理；需要确认的调用会暂停，等待用户在对话里点「允许」。',
+    `服务器操作工具的申报要求：${AI_DECLARED_RISK_PROMPT_ZH}`,
+    AI_QUESTION_GUIDANCE,
+    '长任务用 exec(background=true)。任务完成后应用会自动将状态和标准输出/错误送回当前对话并继续处理，收到后直接分析，不要再用 get_job 确认完成。后台执行期间可处理独立工作，或结束本次回复等待自动续接；不要轮询 get_job / list_jobs、sleep 等待或重复执行同一任务。仅在用户要求查看进度，或推送输出被截断且确需补读时使用 get_job。不要去连其它主机或结束用户正在用的终端。',
     '需要安装向导、菜单、方向键时用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端。exec 仍是非交互命令。大文件用 upload_file / download_file。',
     '查日志和配置不要整文件 read_file。先 glob 找路径、grep 定位行号，再 read_file(startLine, limit) 读附近几十行。read_file 默认只返回前 200 行（约 50KiB）。',
     '改已存在的文件用 edit_file：它只传改动片段、其余内容原样不动，审批卡上给出的是小而可读的 diff。只有新建文件或整体重写才用 write_file。',
@@ -78,7 +80,18 @@ const SIDEBAR_HIDDEN_TOOLS = new Set([
 ])
 
 const EXEC_CHAT_DESCRIPTION =
-  'Run a non-interactive command on the current sidebar host (separate exec channel, not the user terminal). Not for TTY prompts. Use stdin for a one-shot answer. Foreground timeout 1s–10min (default 30s). Longer work: background=true. Completion results are delivered automatically to this conversation; do not poll get_job or sleep while waiting. Use get_job only for requested progress or additional output. Include risk and explanation; the application applies the user permission mode.'
+  'Run a non-interactive command on the current sidebar host (separate exec channel, not the user terminal). Not for TTY prompts. Use stdin for a one-shot answer. Foreground timeout 1s–10min (default 30s). Longer work: background=true. Completion status and stdout/stderr are delivered automatically to this conversation. Analyze the delivered result directly; do not call get_job to reconfirm completion or poll get_job / list_jobs or sleep while waiting. Use get_job only for user-requested progress or necessary output omitted by truncation. Include risk and explanation; the application applies the user permission mode.'
+
+const BACKGROUND_CHAT_DESCRIPTION =
+  'If true, return jobId(s) immediately. Completion status and stdout/stderr are delivered automatically to this conversation. Continue independent work or end your response while waiting. Do not poll get_job / list_jobs or sleep, or fetch an already delivered result again. Use get_job only for user-requested progress or necessary output omitted by truncation; cancel with cancel_job.'
+
+// External MCP clients do not receive the application's completion delivery.
+// Override their polling guidance only in the model-facing chat catalog.
+const CHAT_TOOL_DESCRIPTIONS: Record<string, string> = {
+  exec: EXEC_CHAT_DESCRIPTION,
+  get_job: 'Inspect a background exec job only for user-requested progress or necessary output omitted from the automatic completion delivery by truncation. Completion status and stdout/stderr are delivered automatically; analyze that result directly. Do not use this tool to wait, poll, or reconfirm completion.',
+  list_jobs: 'List recent background exec jobs when the user requests an overview or a job id must be recovered. Completion status and stdout/stderr are delivered automatically to this conversation. Do not poll this tool while waiting or routinely follow it with get_job to collect completed results.',
+}
 
 function omitSessionRoutingFromChatParameters(schema: Record<string, unknown>): Record<string, unknown> {
   const properties =
@@ -98,11 +111,18 @@ function omitSessionRoutingFromChatParameters(schema: Record<string, unknown>): 
 }
 
 export function sshToolsForChat() {
-  return sshMcpToolsAsOpenAiFunctions()
+  const tools = sshMcpToolsAsOpenAiFunctions()
     .filter((tool) => !SIDEBAR_HIDDEN_TOOLS.has(tool.function.name))
     .map((tool) => {
       const parameters = withDeclaredRiskParameter(omitSessionRoutingFromChatParameters(tool.function.parameters))
-      const description = tool.function.name === 'exec' ? EXEC_CHAT_DESCRIPTION : tool.function.description
+      if (tool.function.name === 'exec') {
+        const properties = parameters.properties as Record<string, unknown>
+        parameters.properties = {
+          ...properties,
+          background: { ...(properties.background as Record<string, unknown>), description: BACKGROUND_CHAT_DESCRIPTION },
+        }
+      }
+      const description = CHAT_TOOL_DESCRIPTIONS[tool.function.name] ?? tool.function.description
       return {
         ...tool,
         function: {
@@ -112,6 +132,7 @@ export function sshToolsForChat() {
         },
       }
     })
+  return [...tools, aiUserQuestionTool]
 }
 
 export type SidebarAiRequestEstimate = AiContextPack & {

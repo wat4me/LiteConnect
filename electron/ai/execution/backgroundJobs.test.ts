@@ -37,6 +37,43 @@ it('queues while busy, then wakes on the reply-finished event', async () => {
   expect(deliver).toHaveBeenCalledOnce()
 })
 
+it('lets the active owner persist and acknowledge a batch without an idle wake or polling', async () => {
+  const { start, queue, deliver, busy } = setup()
+  busy.mockReturnValue(true)
+  start('one'); start('two')
+  queue.settled(job('one', 'completed')); queue.settled(job('two', 'failed'))
+  expect(queue.pendingFor({ ...owner, ownerId: 2 })).toEqual([])
+  expect(queue.pendingFor({ ...owner, threadId: 'other' })).toEqual([])
+  expect(queue.pendingFor({ ...owner, historyId: 'other' })).toEqual([])
+  const batch = queue.pendingFor(owner)
+  expect(batch.map(item => item.jobId)).toEqual(['one', 'two'])
+  // Peeking does not lose results if persistence fails before acknowledgement.
+  expect(queue.pendingFor(owner)).toEqual(batch)
+  queue.collected('one', owner)
+  start('later'); queue.settled(job('later', 'completed'))
+  queue.collected('two', owner)
+  expect(queue.pendingFor(owner).map(item => item.jobId)).toEqual(['later'])
+  queue.collected('later', owner)
+  busy.mockReturnValue(false); queue.flush()
+  await vi.advanceTimersByTimeAsync(100)
+  expect(deliver).not.toHaveBeenCalled()
+})
+
+it('does not offer suppressed, unavailable or disposed results to an active turn', () => {
+  const { start, queue, available } = setup()
+  start('one'); queue.settled(job('one', 'completed'))
+  available.mockReturnValue(false)
+  expect(queue.pendingFor(owner)).toEqual([])
+  available.mockReturnValue(true)
+  expect(queue.pendingFor(owner)).toHaveLength(1)
+  queue.suppress(owner.sessionId, owner.threadId, owner.ownerId)
+  expect(queue.pendingFor(owner)).toEqual([])
+  queue.resume(owner)
+  start('two'); queue.settled(job('two', 'completed'))
+  queue.disposeOwner(owner.ownerId)
+  expect(queue.pendingFor(owner)).toEqual([])
+})
+
 it('does not wake AI for an interrupted job and still delivers other jobs in the same conversation', async () => {
   const { start, queue, deliver } = setup()
   start('interrupted'); start('other')

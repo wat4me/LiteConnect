@@ -6,6 +6,7 @@ import type {
 import type { AiSessionState, ChatItem } from '@/domain/ai/chat'
 import { t } from '@/i18n'
 import { flattenConversationForApi } from '@shared/aiMessages'
+import type { AiUserAnswer } from '@shared/aiQuestions'
 import { assertAiImageCapability, normalizeAiImages } from '@shared/aiImages'
 import { normalizeAiCompactionCount } from '@shared/aiCompaction'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
@@ -31,6 +32,7 @@ export { disposeAiSessionState, listAiResourceUsage } from './chat/sessionState'
 
 const backgroundSubscriptions = new WeakSet<object>()
 const resolvingToolApprovals = new Set<string>()
+const resolvingQuestions = new Set<string>()
 
 /** Public command facade; session ownership, persistence and IPC projection live below it. */
 export function useAiChat() {
@@ -85,11 +87,32 @@ export function useAiChat() {
     }
   }
 
+  async function answerQuestion(sessionId: string, runId: string, answer: AiUserAnswer): Promise<boolean> {
+    const state = getAiSessionState(sessionId)
+    const requestId = state.activeRequestId
+    if (!requestId || !state.loading || !state.messages.some(message => message.streaming && message.toolRuns?.some(run => run.id === runId && run.status === 'question'))) return false
+    const key = JSON.stringify([requestId, runId])
+    if (resolvingQuestions.has(key)) return false
+    resolvingQuestions.add(key)
+    try {
+      const resolved = await window.LiteConnect.aiAnswerQuestion(requestId, runId, cloneForIpc(answer))
+      if (resolved) {
+        for (const message of state.messages) {
+          const run = message.toolRuns?.find(item => item.id === runId && item.status === 'question')
+          if (run) run.status = 'running'
+        }
+        refreshApprovalPending(sessionId)
+      }
+      return resolved
+    } catch { return false }
+    finally { resolvingQuestions.delete(key) }
+  }
+
   function refreshApprovalPending(sessionId: string) {
     const state = getAiSessionState(sessionId)
     const pending =
       state.loading &&
-      state.messages.some((message) => message.streaming && (message.toolRuns || []).some((run) => run.status === 'ask'))
+      state.messages.some((message) => message.streaming && (message.toolRuns || []).some((run) => run.status === 'ask' || run.status === 'question'))
     syncAiApprovalPending(sessionId, pending)
   }
 
@@ -273,6 +296,7 @@ export function useAiChat() {
         state.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(reply.contextCheckpoint?.compactionCount))
         updateAssistantMessage({
           content: reply.content || current.content || (aborted ? t('ai.stopped') : ''),
+          backgroundNotice: reply.backgroundNotice || current.backgroundNotice,
           completedAt: reply.completedAt || Date.now(),
           reasoningContent: reply.reasoningContent || current.reasoningContent,
           usage: plainUsage(reply.usage || current.usage),
@@ -307,7 +331,10 @@ export function useAiChat() {
       state.activeRequestId = null
       const finalAssistant = getAssistantMessage()
       for (const run of finalAssistant.toolRuns || []) {
-        if (run.status === 'ask' || (run.status === 'running' && finalAssistant.status === 'aborted')) {
+        if (run.status === 'question') {
+          run.status = 'aborted'
+          run.content = 'QUESTION_CANCELLED: The request ended without a user answer.'
+        } else if (run.status === 'ask' || (run.status === 'running' && finalAssistant.status === 'aborted')) {
           run.status = finalAssistant.status === 'aborted' ? 'aborted' : 'denied'
           run.isError = true
         }
@@ -765,7 +792,7 @@ export function useAiChat() {
       message.streaming = event.record.status === 'running'
       const previous = state.messages.find(item => item.id === message.id)
       if (message.streaming) {
-        const phase = message.toolRuns?.some(run => run.status === 'ask') ? 'approval'
+        const phase = message.toolRuns?.some(run => run.status === 'question') ? 'question' : message.toolRuns?.some(run => run.status === 'ask') ? 'approval'
           : message.toolRuns?.some(run => run.status === 'running') ? 'tool'
             : message.content ? 'responding' : message.reasoningContent ? 'reasoning' : 'waiting'
         message.activity = { phase, phaseStartedAt: previous?.activity?.phase === phase ? previous.activity.phaseStartedAt : Date.now(), lastActivityAt: Date.now() }
@@ -803,6 +830,7 @@ export function useAiChat() {
     createMessage,
     sendText,
     resolveToolApproval,
+    answerQuestion,
     stopGeneration,
     compactContext,
     clearMessages,

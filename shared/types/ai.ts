@@ -145,7 +145,7 @@ export interface AiChatResult {
   usage?: AiUsage
   toolRuns?: AiToolRun[]
   aborted?: boolean
-  /** This turn's Chat Completions messages (assistant / tool / final assistant). */
+  /** This turn's API transcript, including application results injected between steps. */
   apiMessages?: AiChatMessage[]
   /** Active hidden projection after this request, when one exists. */
   contextCheckpoint?: AiContextCheckpoint
@@ -297,7 +297,7 @@ export type AiChatStreamPayload =
   | {
       type: 'tool'
       value: {
-        phase: 'start' | 'ask' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify' | 'aborted'
+        phase: 'start' | 'ask' | 'question' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify' | 'aborted'
         id: string
         name: string
         args?: string

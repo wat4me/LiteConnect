@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { estimateTokens, packAiMessages } from './aiContext'
+import { workspaceToolsForChat } from './aiWorkspacePrompt'
+import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
 import {
   estimateSidebarAiRequest,
   sidebarContextFilesFit,
@@ -95,5 +97,35 @@ describe('sshToolsForChat', () => {
     expect(names).not.toContain('connect')
     expect(names).toContain('exec')
     expect(names).toContain('grep')
+  })
+
+  it.each([
+    ['sidebar', sshToolsForChat],
+    ['workspace', workspaceToolsForChat],
+  ] as const)('uses automatic result delivery throughout the %s tool catalog', (_name, catalog) => {
+    const tools = catalog()
+    const exec = tools.find(tool => tool.function.name === 'exec')!.function
+    const properties = exec.parameters.properties as Record<string, Record<string, unknown>>
+    expect(exec.description).toContain('Completion status and stdout/stderr are delivered automatically')
+    expect(properties.background.type).toBe('boolean')
+    expect(properties.background.description).toContain('Completion status and stdout/stderr are delivered automatically')
+    expect(properties.background.description).not.toContain('Poll get_job / list_jobs')
+    expect(properties.background.description).toContain('end your response while waiting')
+    const getJob = tools.find(tool => tool.function.name === 'get_job')!.function
+    expect(getJob.description).toContain('user-requested progress')
+    expect(getJob.description).toContain('truncation')
+    expect(getJob.description).toContain('Do not use this tool to wait, poll, or reconfirm completion')
+    expect(tools.find(tool => tool.function.name === 'list_jobs')!.function.description).toContain('Do not poll')
+  })
+
+  it('preserves the external MCP contract when adapting chat parameter descriptions', () => {
+    const before = sshMcpToolsAsOpenAiFunctions()
+    const snapshot = JSON.parse(JSON.stringify(before))
+    const background = (before.find(tool => tool.function.name === 'exec')!.function.parameters.properties as Record<string, Record<string, unknown>>).background
+    expect(background.description).toContain('Poll get_job / list_jobs')
+    sshToolsForChat()
+    workspaceToolsForChat()
+    expect(before).toEqual(snapshot)
+    expect(sshMcpToolsAsOpenAiFunctions()).toEqual(snapshot)
   })
 })

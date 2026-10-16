@@ -5,7 +5,7 @@ export const AI_TOOL_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000
 
 // Legacy risk/status values remain readable in existing conversation history.
 export type AiToolRisk = 'read' | 'write' | 'destructive' | 'privileged' | 'forbidden'
-export type AiToolRunStatus = 'ask' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify' | 'aborted'
+export type AiToolRunStatus = 'ask' | 'question' | 'running' | 'done' | 'denied' | 'blocked' | 'reclassify' | 'aborted'
 export const AI_DECLARED_RISKS = ['read', 'write', 'privileged'] as const
 export type AiDeclaredRisk = (typeof AI_DECLARED_RISKS)[number]
 export const AI_TOOL_EXPLANATION_MAX_CHARS = 500

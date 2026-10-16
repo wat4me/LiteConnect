@@ -3,6 +3,7 @@ import type { AiResolvedConfig, AiSessionStore } from '../../../shared/types/ai'
 import type { SshMcpJobResult } from '../../../shared/mcp/types'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import { AiExecutionService, type AiExecutionRequest } from './executionService'
+import { waitForUserAnswer } from '../tools/streamControl'
 
 const mocks = vi.hoisted(() => ({ run: vi.fn() }))
 vi.mock('./chatStream', async importOriginal => ({ ...await importOriginal<typeof import('./chatStream')>(), runAiChatStream: mocks.run }))
@@ -48,6 +49,7 @@ it('runs and persists with no UI observer and enforces unattended read-only perm
   const { service, request, store, config } = setup()
   mocks.run.mockImplementationOnce(async opts => {
     expect(opts.getToolPermission()).toBe('readonly')
+    expect(opts.allowQuestions).toBe(false)
     expect(opts.settings.toolPermission).toBe('readonly')
     expect(opts.onToolApprovalRequested).toBeUndefined()
     config.toolPermission = 'auto'
@@ -83,6 +85,24 @@ it('manual compaction shares the execution lock and creates no chat record', asy
   expect(save).not.toHaveBeenCalled()
   expect(mocks.run).not.toHaveBeenCalled()
   expect(store.threads[0].messages).toEqual(original)
+})
+
+it('accepts a question answer only from its active interactive owner', async () => {
+  const { service, request } = setup()
+  request.owner = { id: 7, kind: 'interactive' }
+  mocks.run.mockImplementationOnce(async opts => {
+    expect(opts.allowQuestions).toBe(true)
+    const answer = await waitForUserAnswer(request.requestId, 'question', [{ id: 'scope', question: '哪个环境？' }], opts.abortController.signal)
+    return { content: JSON.stringify(answer) }
+  })
+  const pending = service.run(request)
+  await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledOnce())
+  const answer = { cancelled: false, answers: [{ id: 'scope', selected: [], text: '测试环境' }] }
+  expect(service.answerQuestion(8, request.requestId, 'question', answer)).toBe(false)
+  expect(service.answerQuestion(7, request.requestId, 'other', answer)).toBe(false)
+  expect(service.answerQuestion(7, request.requestId, 'question', answer)).toBe(true)
+  expect((await pending).content).toContain('测试环境')
+  expect(service.answerQuestion(7, request.requestId, 'question', answer)).toBe(false)
 })
 
 it('forwards the bounded foreground-only contract for scheduled runs', async () => {

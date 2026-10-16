@@ -9,6 +9,8 @@ import { bindSessionArgs, parseToolCallArguments } from './sshToolChat'
 import { applyCommandFloor, commandContentRisk } from './commandFloor'
 import { buildFileChangeDiffPreview } from './toolDiffPreview'
 import { waitForToolApproval } from './streamControl'
+import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
+import { executeUserQuestion } from './userQuestion'
 
 export type AiToolApprovalObserver = (input: { requestId: string; callId: string; sessionId: string; toolName: string }) => void | (() => void)
 export type AiToolExecutionContext = {
@@ -21,6 +23,7 @@ export type AiToolExecutionContext = {
   getToolPermission: () => AiToolPermissionMode
   checkpoint?: () => Promise<void>
   foregroundOnly?: boolean
+  allowQuestions?: boolean
   onToolApprovalRequested?: AiToolApprovalObserver
   onBackgroundJobsStarted?: (jobIds: string[]) => void
   onBackgroundJobCollected?: (jobId: string) => void
@@ -30,6 +33,7 @@ export type AiToolExecutionContext = {
 export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolExecutionContext): Promise<{ run: AiToolRun; message: AiChatMessage } | undefined> {
   const { requestId, boundSessionId, workspaceTargets, sshMcpRuntime, signal, send } = opts
   if (signal.aborted) return undefined
+  if (call.function.name === AI_QUESTION_TOOL) return executeUserQuestion(call, opts)
   const rawArgs = parseToolCallArguments(call.function.arguments)
   let targetLabel: string | undefined
   let boundArgs: Record<string, unknown>

@@ -1,5 +1,11 @@
 export default {
   ai: {
+    question: {
+      title: 'AI 需要你补充信息', hint: '回答后 AI 会继续处理；你也可以直接填写自己的答案。',
+      multiple: '可多选', clearSelection: '清除选择', customAnswer: '补充说明，或直接输入其他答案…', answerPlaceholder: '请输入你的回答…',
+      skip: '暂不回答', submit: '提交回答', sending: '正在提交…', sendFailed: '提交未成功，请重试；问题可能已结束。',
+      invalid: '问题无法显示，可以跳过或停止本次回复。', waiting: '等待你回答', answered: '已回答', skipped: '已跳过',
+    },
     providerProtocol: '接口协议',
     protocolOpenai: 'OpenAI 兼容',
     protocolOpenaiHint: '适用于 OpenAI Chat Completions 格式的服务。',
@@ -327,6 +333,7 @@ export default {
     toolSummaryEntries: '{n} 项',
     toolSummaryPtys: '{n} 个 PTY',
     toolName: {
+      ask_user: '向你提问',
       exec: '执行命令',
       read_file: '读取文件',
       grep: '搜索文件内容',
@@ -372,6 +379,7 @@ export default {
       'tool-prepare': '正在读取远端文件并准备变更预览…',
       tool: '正在执行工具…',
       approval: '等待你确认操作',
+      question: '等待你回答问题',
       compacting: '正在整理对话上下文…',
     },
     activityElapsed: '{seconds} 秒',

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AiChatStreamOptions, AiProviderProtocol } from '../shared/types/ai'
+import type { AiUserAnswer } from '../shared/aiQuestions'
 
 contextBridge.exposeInMainWorld('LiteConnect', {
   getAppBootstrap: () => ipcRenderer.invoke('app:getBootstrap'),
@@ -133,6 +134,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   aiAbortChatStream: (requestId: string) => ipcRenderer.invoke('ai:abortChatStream', requestId),
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) =>
     ipcRenderer.invoke('ai:resolveToolApproval', requestId, callId, approved),
+  aiAnswerQuestion: (requestId: string, callId: string, answer: AiUserAnswer) =>
+    ipcRenderer.invoke('ai:answerQuestion', requestId, callId, answer),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
   aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => ipcRenderer.invoke('ai:suppressBackgroundReplies', sessionId, threadId),

@@ -4,6 +4,10 @@ import { advanceChatActivity, chatActivityDisplay, type AiChatActivity } from '.
 const initial: AiChatActivity = { phase: 'requesting', phaseStartedAt: 1000, lastActivityAt: 1000 }
 
 describe('AI activity from real stream events', () => {
+  it('shows a pending question without a false model-delay warning', () => {
+    const question = advanceChatActivity(initial, { type: 'tool', value: { id: 'q', name: 'ask_user', phase: 'question' } }, 2000, [{ status: 'question' }])
+    expect(chatActivityDisplay(question, 120000)).toMatchObject({ phase: 'question', delayed: false })
+  })
   it('distinguishes request, accepted stream, actual thought and answer deltas', () => {
     let state = advanceChatActivity(initial, { type: 'model-status', value: 'waiting' }, 2000)
     expect(state.phase).toBe('waiting')

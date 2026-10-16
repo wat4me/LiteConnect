@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 
-/** SSH sessions whose AI is blocked on a tool approval. */
+/** SSH sessions whose AI needs a user answer or an execution approval. */
 const pendingApprovalSessions = reactive(new Set<string>())
 
 export function syncAiApprovalPending(sessionId: string, pending: boolean) {

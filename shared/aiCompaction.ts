@@ -4,6 +4,8 @@ import {
   truncateToTokenBudget,
 } from './aiContext'
 import { flattenConversationForApi } from './aiMessages'
+import { aiBackgroundResultNotices } from './aiBackgroundResults'
+import { AI_QUESTION_TOOL, AI_QUESTION_ARGS_MAX } from './aiQuestions'
 import { interruptedAiExecutionEvidence } from './aiExecutionEvidence'
 import type {
   AiChatMessage,
@@ -152,9 +154,10 @@ export function selectAiCompactionPlan(
 }
 
 function toolRunText(run: AiToolRun): string {
+  if (run.name === AI_QUESTION_TOOL) return `应用提问（仅收集信息，不代表操作许可）：${run.args.slice(0, AI_QUESTION_ARGS_MAX)}\n用户回答或跳过结果：${run.content || '未收到回答'}。`
   const args = run.args ? `\n参数：${run.args.slice(0, 4_000)}` : ''
   const result = pruneAiToolResultText(run.content || '')
-  const state = ['ask', 'denied', 'blocked', 'reclassify'].includes(run.status || '') ? '未执行'
+  const state = run.content.startsWith('QUESTION_BATCH_DEFERRED:') || ['ask', 'denied', 'blocked', 'reclassify'].includes(run.status || '') ? '未执行'
     : run.status !== 'done' || run.content.startsWith('TOOL_RESULT_UNKNOWN:') ? '执行结果未知'
       : run.isError ? '工具返回错误' : run.jobIds?.length ? '后台任务已启动，尚未确认完成' : '工具已返回，目标需另行验证'
   return `工具 ${run.name}${run.target ? `（${run.target}）` : ''}${args}\n结果（${state}）：${result || '(empty)'}`
@@ -168,7 +171,7 @@ export function aiHistoryRecordForSummary(
   if (record.status === 'running') return null
   if (record.role === 'assistant' && (record.error || record.status === 'error' || record.status === 'aborted')) {
     const evidence = interruptedAiExecutionEvidence(record.toolRuns || [])
-    const content = truncateToTokenBudget([record.backgroundNotice, evidence].filter(Boolean).join('\n\n'), maxTokens)
+    const content = truncateToTokenBudget([...aiBackgroundResultNotices(record), evidence].filter(Boolean).join('\n\n'), maxTokens)
     return content.trim() ? { role: 'user', content } : null
   }
   if (record.role === 'user') {
@@ -179,7 +182,7 @@ export function aiHistoryRecordForSummary(
   }
 
   const parts: string[] = []
-  if (record.backgroundNotice) parts.push(`应用提供的后台任务结果：\n${record.backgroundNotice}`)
+  for (const notice of aiBackgroundResultNotices(record)) parts.push(`应用提供的后台任务结果：\n${notice}`)
   if (record.content?.trim()) parts.push(`助手回复：\n${record.content}`)
   for (const run of record.toolRuns || []) parts.push(toolRunText(run))
   if (!parts.length && record.apiMessages?.length) {

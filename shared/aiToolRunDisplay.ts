@@ -1,3 +1,5 @@
+import { AI_QUESTION_ARGS_MAX, AI_QUESTION_TOOL, validateAiQuestions, validateAiUserAnswer } from './aiQuestions'
+
 export const AI_TOOL_RUN_CONTENT_MAX = 20_000
 export const AI_TOOL_RUN_ARGS_MAX = 4_000
 
@@ -325,6 +327,15 @@ export function formatToolRunDisplay(input: {
   const args = input.args || ''
   const content = input.content || ''
   const argsObj = asRecord(parseJsonValue(args))
+  if (input.name === AI_QUESTION_TOOL && !input.isError) {
+    try {
+      const questions = validateAiQuestions(argsObj)
+      const hint = questions.map(question => [question.question, ...(question.options || []).map(option => `• ${option.label}${option.description ? `：${option.description}` : ''}`)].join('\n')).join('\n\n')
+      const answer = content ? validateAiUserAnswer(parseJsonValue(content), questions) : undefined
+      const body = !answer ? '' : answer.cancelled ? '用户暂不回答；未提供答案或操作许可。' : answer.answers.map(item => `${questions.find(question => question.id === item.id)!.question}\n${[...item.selected, item.text].filter(Boolean).join('\n')}`).join('\n\n')
+      return { summary: { kind: 'ok' }, hint, body }
+    } catch { /* Malformed legacy records retain the generic display. */ }
+  }
   const hint = hintFromArgs(args, argsObj)
 
   if (input.isError) {
@@ -412,8 +423,9 @@ export function serializeToolRunForHistory(input: {
   isError: boolean
   structured?: unknown
 }): { args: string; content: string } {
+  if (input.name === AI_QUESTION_TOOL) return { args: input.args.slice(0, AI_QUESTION_ARGS_MAX), content: input.content.slice(0, AI_TOOL_RUN_CONTENT_MAX) }
   const view = formatToolRunDisplay(input)
-  const args = input.args.slice(0, AI_TOOL_RUN_ARGS_MAX)
+  const args = input.args.slice(0, input.name === AI_QUESTION_TOOL ? AI_QUESTION_ARGS_MAX : AI_TOOL_RUN_ARGS_MAX)
   if (input.isError) {
     return { args, content: (view.body || input.content).slice(0, AI_TOOL_RUN_CONTENT_MAX) }
   }

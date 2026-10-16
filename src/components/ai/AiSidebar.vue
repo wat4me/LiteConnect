@@ -15,6 +15,7 @@ import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 import AiImageStrip from './AiImageStrip.vue'
 import AiBackgroundTasks from './AiBackgroundTasks.vue'
+import AiUserQuestion from './AiUserQuestion.vue'
 import { useAiComposerImages } from '@/composables/ai/useAiComposerImages'
 import type { AiImageAttachment } from '@shared/types/ai'
 import AiSettingsPanel from './AiSettingsPanel.vue'
@@ -86,6 +87,7 @@ const {
   editUserMessageAndResend,
   deleteMessage,
   resolveToolApproval,
+  answerQuestion,
 } = useAiChat()
 
 const messages = ref<ChatItem[]>([])
@@ -311,6 +313,7 @@ const pendingApprovals = computed(() => {
   return runs
 })
 const visibleApprovals = computed(() => pendingApprovals.value.slice(0, 1))
+const pendingQuestions = computed(() => messages.value.filter(message => message.streaming).flatMap(message => (message.toolRuns || []).filter(run => run.status === 'question')))
 
 const resolvingApprovalIds = ref<Set<string>>(new Set())
 
@@ -1072,6 +1075,8 @@ async function runCodeToTerminal(code: string) {
         @use-example="(text) => { input = text }"
       />
     </div>
+
+    <AiUserQuestion v-for="run in pendingQuestions" :key="run.id" v-show="!showSettings && !showHistory" :run="run" :submit="answer => answerQuestion(sessionId, run.id, answer)" />
 
     <div v-if="pendingApprovals.length && !showSettings && !showHistory" class="tool-approval-stack">
       <div

@@ -171,11 +171,15 @@ export function flattenConversationForApi(
 ): AiChatMessage[] {
   const out: AiChatMessage[] = []
   for (const item of items) {
-    if (item.backgroundNotice && !item.streaming && item.status !== 'running') {
+    // Busy-turn events are already stored in order inside apiMessages. Legacy
+    // idle wakeups still carry their initial event separately.
+    const applicationEvents = item.apiMessages?.filter(message => message.role === 'user') || []
+    if (item.backgroundNotice && !applicationEvents.some(message => message.content === item.backgroundNotice) && !item.streaming && item.status !== 'running') {
       out.push({ role: 'user', content: item.backgroundNotice })
     }
     if (item.streaming) continue
     if (item.role === 'assistant' && (item.error || item.status === 'error' || item.status === 'aborted')) {
+      out.push(...applicationEvents)
       const evidence = interruptedAiExecutionEvidence(item.toolRuns || [])
       if (evidence) out.push({ role: 'user', content: evidence })
       continue

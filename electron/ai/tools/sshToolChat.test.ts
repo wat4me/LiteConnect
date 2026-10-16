@@ -71,7 +71,7 @@ describe('sshToolChat helpers', () => {
     expect(sanitizeTrackedCwd('v/v5-automation-servers')).toBe('')
   })
 
-  it('requires a declared risk and explanation on every sidebar tool', () => {
+  it('requires a declared risk and explanation on every SSH tool in the sidebar', () => {
     const tools = sshToolsForChat()
     const exec = tools.find((t) => t.function.name === 'exec')
     expect(exec?.function.parameters.required).toEqual(expect.arrayContaining(['command', 'risk']))
@@ -85,6 +85,7 @@ describe('sshToolChat helpers', () => {
     expect(exec?.function.parameters.properties).not.toHaveProperty('group')
     expect(exec?.function.description).not.toMatch(/list_sessions|connect/)
     for (const tool of tools) {
+      if (tool.function.name === 'ask_user') continue
       expect(tool.function.parameters.required).toEqual(expect.arrayContaining(['risk', 'explanation']))
       expect(tool.function.parameters.properties).toHaveProperty('explanation', expect.objectContaining({ type: 'string', minLength: 1, maxLength: 500 }))
     }

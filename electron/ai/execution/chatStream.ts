@@ -1,7 +1,7 @@
 import { accumulateToolCallDeltas, type AccumulatedToolCall } from './toolCallDeltas'
 import { aggregateAiUsage } from '../../../shared/aiUsage'
 import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
-import { normalizeAiToolRounds } from '../../../shared/aiToolLimits'
+import { MAX_AI_BACKGROUND_CONTINUATIONS, normalizeAiToolRounds } from '../../../shared/aiToolLimits'
 import { assertAiImageCapability } from '../../../shared/aiImages'
 import { formatAiConversationContextFile } from '../../../shared/aiFixedContext'
 import { t } from '../../i18n/index'
@@ -19,7 +19,7 @@ import { appendFinalAssistantTurn, validateAiMessages } from '../../../shared/ai
 import { compactAiLiveMessages, maybeCompactAiContext } from './contextCompaction'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget } from '../../../shared/aiContextPressure'
 import { getAiProviderAdapter } from '../providers/registry'
-import { createAiStreamControl, clearPendingToolApprovals } from '../tools/streamControl'
+import { createAiStreamControl, clearPendingToolApprovals, clearPendingUserQuestions } from '../tools/streamControl'
 import { executeAiToolCall, type AiToolApprovalObserver } from '../tools/toolExecution'
 import type {
   AiChatMessage,
@@ -34,6 +34,7 @@ import type {
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import { readHttpErrorMessage } from '../providers/http'
 import { buildAiRequestEnvironment, packRequestMessages } from './requestContext'
+import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 
 export async function runAiChatStream(opts: {
   emit: (payload: AiChatStreamPayload) => void
@@ -49,7 +50,10 @@ export async function runAiChatStream(opts: {
   sshMcpRuntime?: SshMcpRuntime
   onBackgroundJobsStarted?: (jobIds: string[]) => void
   onBackgroundJobCollected?: (jobId: string) => void
+  pendingBackgroundResults?: () => { notice: string; acknowledge: () => void } | undefined
+  persistBackgroundResults?: (notice: string, apiMessages: AiChatMessage[]) => Promise<void>
   foregroundOnly?: boolean
+  allowQuestions?: boolean
   getToolPermission?: () => AiToolPermissionMode
   onToolApprovalRequested?: AiToolApprovalObserver
   contextHistory?: {
@@ -89,7 +93,8 @@ export async function runAiChatStream(opts: {
 
   const workspaceTargets = opts.workspaceTargets
   const contextFiles = opts.contextFiles || []
-  const { boundSessionId, useTools, extraSystem, tools } = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, contextFiles, sshMcpRuntime })
+  const allowQuestions = opts.allowQuestions !== false && !opts.foregroundOnly
+  const { boundSessionId, useTools, extraSystem, tools } = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, contextFiles, sshMcpRuntime, allowQuestions })
 
   const control = opts.abortController ? undefined : createAiStreamControl(requestId)
   const abortController = opts.abortController || control!.controller
@@ -157,6 +162,7 @@ export async function runAiChatStream(opts: {
   }
 
   let streamAccepted = false
+  const receivedBackgroundMessages: AiChatMessage[] = []
   try {
     let apiMessages: AiChatMessage[] = packedMessages
     const contentParts: string[] = []
@@ -185,10 +191,37 @@ export async function runAiChatStream(opts: {
       return generated.length ? generated : undefined
     }
 
+    const receiveBackgroundResults = async (appendRound = false) => {
+      if (abortController.signal.aborted) return false
+      const pending = opts.pendingBackgroundResults?.()
+      if (!pending) return false
+      if (appendRound) {
+        const intermediate = appendFinalAssistantTurn([], lastRoundMessage)
+        apiMessages.push(...intermediate)
+        generatedMessages.push(...intermediate)
+        lastRoundMessage = { role: 'assistant', content: '' }
+      }
+      const message: AiChatMessage = { role: 'user', content: pending.notice }
+      apiMessages.push(message)
+      generatedMessages.push(message)
+      receivedBackgroundMessages.push(message)
+      // Persist the original transcript, not its potentially compacted API projection.
+      await opts.persistBackgroundResults?.(pending.notice, generatedMessages)
+      pending.acknowledge()
+      return true
+    }
+
     const maxToolRounds = normalizeAiToolRounds(settings.maxToolRounds)
-    for (let round = 0; round < (toolsEnabled ? maxToolRounds : 1); round++) {
+    let toolRounds = 0
+    let continuations = 0
+    let receivedAtEnd = false
+    for (let round = 0; round < maxToolRounds + MAX_AI_BACKGROUND_CONTINUATIONS; round++) {
+      if (abortController.signal.aborted) break
+      if (!receivedAtEnd) await receiveBackgroundResults()
+      receivedAtEnd = false
       if (abortController.signal.aborted) break
       if (round > 0) apiMessages = packMessages(await compactStep(apiMessages))
+      else apiMessages = packMessages(apiMessages)
       reportPressure(apiMessages)
 
       streamAccepted = false
@@ -253,7 +286,16 @@ export async function runAiChatStream(opts: {
       if (!abortController.signal.aborted && (!calls.length || !toolsEnabled) && !roundContent.trim()) {
         throw new Error(t('ai.noMessageContent'))
       }
-      if (!calls.length || !toolsEnabled || !sshMcpRuntime || abortController.signal.aborted) break
+      if (abortController.signal.aborted) break
+      if (!calls.length || !toolsEnabled || !sshMcpRuntime) {
+        if (continuations < MAX_AI_BACKGROUND_CONTINUATIONS && await receiveBackgroundResults(true)) {
+          continuations++
+          receivedAtEnd = true
+          if (roundContent.trim()) send({ type: 'content', value: '\n\n' })
+          continue
+        }
+        break
+      }
 
       const assistantToolCalls = calls.map((c, i) => ({
         id: c.id || `call_${round}_${i}`,
@@ -270,12 +312,27 @@ export async function runAiChatStream(opts: {
       apiMessages.push(assistantExchange)
       generatedMessages.push(assistantExchange)
 
+      const questionCall = allowQuestions ? assistantToolCalls.find(call => call.function.name === AI_QUESTION_TOOL) : undefined
       for (const call of assistantToolCalls) {
         if (abortController.signal.aborted) break
+        // A preplanned command cannot depend on an answer the model has not read.
+        // Complete the declared protocol with a non-execution result instead.
+        if (questionCall && call !== questionCall) {
+          const content = 'QUESTION_BATCH_DEFERRED: This tool was not executed. Interpret the user answer or cancellation from ask_user before planning further tool calls. Call ask_user alone.'
+          const run: AiToolRun = { id: call.id, name: call.function.name, args: call.function.arguments, content, isError: true, status: 'done' }
+          send({ type: 'tool', value: { ...run, phase: 'done' } })
+          toolRuns.push(run)
+          const message: AiChatMessage = { role: 'tool', toolCallId: call.id, content }
+          apiMessages.push(message)
+          generatedMessages.push(message)
+          await opts.checkpoint?.()
+          continue
+        }
         const result = await executeAiToolCall(call, {
           requestId, boundSessionId, workspaceTargets, sshMcpRuntime,
           signal: abortController.signal, send, getToolPermission: currentToolPermission,
           checkpoint: opts.checkpoint, foregroundOnly: opts.foregroundOnly,
+          allowQuestions,
           onToolApprovalRequested: opts.onToolApprovalRequested,
           onBackgroundJobsStarted: opts.onBackgroundJobsStarted,
           onBackgroundJobCollected: opts.onBackgroundJobCollected,
@@ -286,12 +343,14 @@ export async function runAiChatStream(opts: {
         generatedMessages.push(result.message)
         await opts.checkpoint?.()
       }
-      if (round + 1 === maxToolRounds && !abortController.signal.aborted) {
+      toolRounds++
+      if (toolRounds === maxToolRounds && !abortController.signal.aborted) {
         const notice = t('ai.toolRoundLimitReached', { count: maxToolRounds })
         contentParts.push(notice)
         lastRoundMessage = { role: 'assistant', content: notice }
         send({ type: 'content', value: `\n\n${notice}` })
         await opts.checkpoint?.()
+        break
       }
     }
 
@@ -329,7 +388,7 @@ export async function runAiChatStream(opts: {
     }
     if (!receivedText && !receivedToolCall && streamAccepted && provider.allowsCompletionFallback) {
       const reply = await runAiChatCompletion(
-        settings, contextMessages, abortController.signal, extraSystem,
+        settings, [...contextMessages, ...receivedBackgroundMessages], abortController.signal, extraSystem,
         contextFiles.length ? 40_000 : undefined, contextFiles.length ? contextFiles.map(formatAiConversationContextFile).join('\n\n') : undefined,
       )
       if (reply.reasoningContent) send({ type: 'reasoning', value: reply.reasoningContent })
@@ -340,13 +399,14 @@ export async function runAiChatStream(opts: {
       return {
         ...reply,
         usage,
-        apiMessages: reply.apiMessages || [{ role: 'assistant', content: reply.content, reasoningContent: reply.reasoningContent }],
+        apiMessages: [...receivedBackgroundMessages, ...(reply.apiMessages || [{ role: 'assistant', content: reply.content, reasoningContent: reply.reasoningContent }])],
         contextCheckpoint: activeContextCheckpoint,
       }
     }
     throw err
   } finally {
     clearPendingToolApprovals(requestId)
+    clearPendingUserQuestions(requestId)
     cleanupStream()
   }
 }

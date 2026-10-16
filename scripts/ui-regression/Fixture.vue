@@ -6,6 +6,8 @@ import ConnectionsView from '../../src/views/ConnectionsView.vue'
 import SftpBookmarkMenu from '../../src/components/sftp/SftpBookmarkMenu.vue'
 import InlineLabel from '../../src/components/common/InlineLabel.vue'
 import AiChatView from '../../src/components/ai/AiChatView.vue'
+import AiUserQuestion from '../../src/components/ai/AiUserQuestion.vue'
+import type { AiUserAnswer } from '../../shared/aiQuestions'
 import AiSidebar from '../../src/components/ai/AiSidebar.vue'
 import AiWorkspaceView from '../../src/views/AiWorkspaceView.vue'
 import AppTitlebar from '../../src/components/app/AppTitlebar.vue'
@@ -32,6 +34,16 @@ const groups: Group[] = [
   { id: 'dev', name: '默认分组', order: 0, isDefault: true },
   { id: 'prod', name: '生产环境 Production', order: 1, isDefault: false },
 ]
+const showQuestions = new URLSearchParams(location.search).has('questions')
+let questionVersion = 0
+const questionRun = ref<AiToolRun>({ id: 'question-initial', name: 'ask_user', args: '{"questions":[{"id":"scope","question":"检查哪个环境？"}]}', content: '', status: 'question', isError: false })
+const questionAnswers: AiUserAnswer[] = []
+let rejectQuestionAnswer = false
+async function submitQuestion(answer: AiUserAnswer) {
+  if (rejectQuestionAnswer) return false
+  questionAnswers.push(JSON.parse(JSON.stringify(answer)))
+  return true
+}
 let connections: Connection[] = [
   { id: 'one', name: '服务器一 Server one', group: 'dev', host: 'dev.example.test', port: 22, username: 'tester', password: '', colorTag: 'orange', createdAt: 1, updatedAt: 1 },
   { id: 'two', name: '服务器二 Server two', group: 'prod', host: 'prod.example.test', port: 22, username: 'tester', password: '', createdAt: 2, updatedAt: 2 },
@@ -252,6 +264,15 @@ function renameBookmark(item: SftpPathBookmark) {
 
 onMounted(() => {
   (window as any).__uiRegression = {
+    resetQuestion(batch = true, reject = false) {
+      rejectQuestionAnswer = reject
+      questionAnswers.length = 0
+      const questions = [{ id: 'scope', question: '请选择本次检查的环境，确认目标后 AI 会继续查询服务器状态。', options: [{ label: '测试环境', description: '仅检查测试服务，不影响生产环境。' }, { label: '生产环境 Production', description: '先读取状态，再根据结果决定下一步。' }] },
+        ...(batch ? [{ id: 'checks', question: '需要检查哪些项目？', multiple: true, options: [{ label: '服务状态' }, { label: '日志异常' }, { label: '资源使用' }] }, { id: 'note', question: '还有哪些需要特别关注的信息？' }] : []),
+      ]
+      questionRun.value = { ...questionRun.value, id: `question-${++questionVersion}`, args: JSON.stringify({ questions }) }
+    },
+    getQuestionAnswers() { return questionAnswers },
     calls,
     settingsSaves,
     providerTests,
@@ -437,6 +458,7 @@ onMounted(() => {
 
 <template>
   <main class="regression-root">
+    <section v-if="showQuestions" class="ai-question-fixture" style="width: 440px"><AiUserQuestion :key="questionRun.id" :run="questionRun" :submit="submitQuestion" /></section>
     <section class="synchronized-input-fixture"><SynchronizedInputBar :sessions="synchronizedSessions" :open="true" /></section>
     <section class="connection-fixture">
       <ConnectionsView :initial-data="initialData" :connection-stages="connectionStages" :connecting-connection-ids="new Set(Object.keys(connectionStages))" @connect="calls.connects.push($event)" @cancel-connect="cancelledConnections.push($event)" />

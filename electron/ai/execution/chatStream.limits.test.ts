@@ -45,7 +45,7 @@ it('normalizes limits and carries them through settings validation', () => {
   expect(normalizeAiToolRounds(12.8)).toBe(12)
   expect(validateAiSettings({ maxToolRounds: 30 }).maxToolRounds).toBe(30)
   expect(MAX_AI_TOOL_CALLS_PER_TURN).toBe(6_400)
-  expect(MAX_AI_TURN_API_MESSAGES).toBe(6_601)
+  expect(MAX_AI_TURN_API_MESSAGES).toBe(6_807)
 })
 
 it('includes a fixed context file in every reply request without adding it to chat history', async () => {

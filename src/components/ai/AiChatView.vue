@@ -6,6 +6,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiChatSegment, AiToolRun } from '../../env.d.ts'
 import { useMarkdownRenderer, type MarkdownBlock } from '@/composables/ai/useMarkdownRenderer'
 import type { ChatItem } from '@/domain/ai/chat'
+import { aiBackgroundResultNotices } from '@shared/aiBackgroundResults'
 import {
   toolRunDefaultOpen,
 } from '@shared/aiToolRunDisplay'
@@ -540,7 +541,7 @@ async function copyText(text: string, key: string) {
         :data-role="message.role"
       >
       <div class="message-stack">
-      <AiBackgroundResults v-if="message.backgroundNotice" :notice="message.backgroundNotice" :targets="workspaceTargets" />
+      <AiBackgroundResults v-for="(notice, noticeIndex) in aiBackgroundResultNotices(message)" :key="noticeIndex" :notice="notice" :targets="workspaceTargets" />
       <AiImageStrip v-if="message.images?.length" :images="message.images" />
       <div v-if="editingMessageId === message.id" class="message-edit-box">
         <textarea

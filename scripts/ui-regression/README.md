@@ -2,6 +2,11 @@
 
 Run `npm run test:ui` after installing the project's existing dependencies.
 
+Run `npm run test:ui:questions` for AI question-card checks: single choice,
+multiple choice, free text, explicit skip, failed-submit draft retention, and
+300px/440px layouts across light, dark and eyecare themes. Answers are mocked;
+the suite never sends an answer to a real conversation or runs SSH commands.
+
 Run `npm run test:ui:docker` for the focused Docker checks. They cover toolbar
 alignment, list column alignment and overflow across three themes and widths,
 history reading without stopping reception, jumping to the latest logs, search

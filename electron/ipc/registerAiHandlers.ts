@@ -282,6 +282,8 @@ export function registerAiHandlers(
 
   ipcMain.handle('ai:resolveToolApproval', async (event, requestId: string, callId: string, approved: boolean) =>
     execution.resolveApproval(event.sender.id, requestId, callId, approved))
+  ipcMain.handle('ai:answerQuestion', async (event, requestId: string, callId: string, answer: unknown) =>
+    execution.answerQuestion(event.sender.id, requestId, callId, answer))
 
   ipcMain.handle('ai:listWorkspaceConversations', (_event, hosts: unknown, limit?: unknown) => {
     if (!Array.isArray(hosts)) return []

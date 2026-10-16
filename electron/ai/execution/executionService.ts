@@ -7,7 +7,7 @@ import type { SshMcpRuntime } from '../../mcp/runtime'
 import { t } from '../../i18n/index'
 import { AiBackgroundJobs, backgroundJobNotice, type AiJobOwner } from './backgroundJobs'
 import { runAiChatStream } from './chatStream'
-import { abortAiChatStream, createAiStreamControl, resolveToolApproval } from '../tools/streamControl'
+import { abortAiChatStream, createAiStreamControl, resolveToolApproval, resolveUserAnswer } from '../tools/streamControl'
 import { runPersistedAiReply } from './streamPersistence'
 import { createStreamPublisher } from './streamPublisher'
 import { buildAiRequestEnvironment } from './requestContext'
@@ -198,7 +198,7 @@ export class AiExecutionService {
           try { observer?.onRecord?.({ ...event, record }) } catch { /* Observers cannot break persistence. */ }
         },
         publish: publisher.publish,
-        run: async (emit, checkpoint) => {
+        run: async (emit, checkpoint, persistBackgroundResults) => {
           control.controller.signal.throwIfAborted()
           await this.ports.settings.ready()
           control.controller.signal.throwIfAborted()
@@ -219,10 +219,20 @@ export class AiExecutionService {
             workspaceTargets,
             sessionId: target.sessionId, cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
             settings: { ...settings, toolPermission: permission() }, sshMcpRuntime: this.ports.runtime, foregroundOnly: request.foregroundOnly,
+            allowQuestions: owner.kind === 'interactive' && !request.foregroundOnly,
             onBackgroundJobsStarted: ids => {
               if (!this.disposed && this.owners.has(owner.id)) this.jobs.bind(this.jobOwner(request, workspaceTargets), ids)
             },
             onBackgroundJobCollected: id => this.jobs.collected(id, this.jobOwner(request, workspaceTargets)),
+            pendingBackgroundResults: () => {
+              const jobOwner = this.jobOwner(request, workspaceTargets)
+              const jobs = this.jobs.pendingFor(jobOwner)
+              return jobs.length ? {
+                notice: backgroundJobNotice(jobs, jobOwner.targets),
+                acknowledge: () => { for (const job of jobs) this.jobs.collected(job.jobId, jobOwner) },
+              } : undefined
+            },
+            persistBackgroundResults,
             contextFiles: thread.contextFiles, getToolPermission: permission,
             onToolApprovalRequested: owner.kind === 'interactive' ? observer?.onApproval : undefined,
             contextHistory: {
@@ -257,6 +267,12 @@ export class AiExecutionService {
     const active = this.active.get(requestId)
     return active?.owner.kind === 'interactive' && active.owner.id === ownerId
       ? resolveToolApproval(requestId, callId, approved, ownerId) : false
+  }
+
+  answerQuestion(ownerId: number, requestId: string, callId: string, answer: unknown) {
+    const active = this.active.get(requestId)
+    return active?.owner.kind === 'interactive' && active.owner.id === ownerId
+      ? resolveUserAnswer(requestId, callId, answer, ownerId) : false
   }
 
   async suppressBackground(ownerId: number | string, sessionId: string, threadId: string) {

@@ -10,6 +10,7 @@ import type {
   AiDiscoveredModel,
 } from '@shared/types/ai'
 import type { AppResourceStats } from '@shared/appResourceStats'
+import type { AiUserAnswer } from '@shared/aiQuestions'
 import type { AiHistoryLimits, AiHistoryPrunePreview } from '@shared/aiHistoryLimits'
 import type { UpdateStatus } from '@shared/types/app'
 import type {
@@ -204,6 +205,7 @@ export interface LiteConnectApi {
   ) => Promise<AiChatResult>
   aiAbortChatStream: (requestId: string) => Promise<boolean>
   aiResolveToolApproval: (requestId: string, callId: string, approved: boolean) => Promise<boolean>
+  aiAnswerQuestion: (requestId: string, callId: string, answer: AiUserAnswer) => Promise<boolean>
   getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
   aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => Promise<void>

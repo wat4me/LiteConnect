@@ -1,6 +1,6 @@
 import type { AiChatStreamPayload } from '@shared/types/ai'
 
-export type AiActivityPhase = 'requesting' | 'waiting' | 'reasoning' | 'responding' | 'tool-input' | 'tool-prepare' | 'tool' | 'approval' | 'compacting'
+export type AiActivityPhase = 'requesting' | 'waiting' | 'reasoning' | 'responding' | 'tool-input' | 'tool-prepare' | 'tool' | 'approval' | 'question' | 'compacting'
 export type AiChatActivity = {
   phase: AiActivityPhase
   phaseStartedAt: number
@@ -27,7 +27,7 @@ export function advanceChatActivity(
       break
     case 'compaction': phase = payload.value.phase === 'start' ? 'compacting' : 'requesting'; break
     case 'tool':
-      phase = runs.some(run => run.status === 'ask') ? 'approval'
+      phase = runs.some(run => run.status === 'question') ? 'question' : runs.some(run => run.status === 'ask') ? 'approval'
         : runs.some(run => run.status === 'running') ? 'tool' : 'waiting'
       break
     default: return activity

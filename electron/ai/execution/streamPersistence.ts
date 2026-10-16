@@ -1,6 +1,7 @@
-import type { AiChatResult, AiChatStreamOptions, AiChatStreamPayload, AiHistoryRecord } from '../../../shared/types/ai'
+import type { AiChatMessage, AiChatResult, AiChatStreamOptions, AiChatStreamPayload, AiHistoryRecord } from '../../../shared/types/ai'
 import { createAssistantCheckpoint } from './assistantCheckpoint'
 import { t } from '../../i18n/index'
+import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 
 /** The main process owns the reply. Publishing is only a best-effort UI projection. */
 export async function runPersistedAiReply(opts: {
@@ -8,7 +9,7 @@ export async function runPersistedAiReply(opts: {
   backgroundNotice?: string
   save: (record: AiHistoryRecord) => Promise<void>
   publish: (payload: AiChatStreamPayload) => void
-  run: (emit: (payload: AiChatStreamPayload) => void, checkpoint: () => Promise<void>) => Promise<AiChatResult>
+  run: (emit: (payload: AiChatStreamPayload) => void, checkpoint: () => Promise<void>, persistBackgroundResults: (notice: string, messages: AiChatMessage[]) => Promise<void>) => Promise<AiChatResult>
 }): Promise<AiChatResult> {
   const record: AiHistoryRecord = {
     id: opts.target.assistantMessageId,
@@ -68,7 +69,12 @@ export async function runPersistedAiReply(opts: {
   let contextCheckpoint: AiChatResult['contextCheckpoint']
   try {
     await save()
-    const reply = await opts.run(emit, checkpoint.flush)
+    const reply = await opts.run(emit, checkpoint.flush, async (notice, messages) => {
+      record.backgroundNotice ||= notice
+      record.apiMessages = structuredClone(messages)
+      checkpoint.schedule(true)
+      await checkpoint.flush()
+    })
     contextCheckpoint = reply.contextCheckpoint
     aborted = reply.aborted === true
     const content = reply.content || record.content || (aborted ? t('ai.stopped') : '')
@@ -76,7 +82,7 @@ export async function runPersistedAiReply(opts: {
     record.content = content
     record.reasoningContent = reply.reasoningContent || record.reasoningContent
     record.usage = reply.usage || record.usage
-    record.apiMessages = reply.apiMessages
+    record.apiMessages = reply.apiMessages || record.apiMessages
     record.error = reply.error === true
     record.status = aborted ? 'aborted' : record.error ? 'error' : 'completed'
   } catch (err) {
@@ -98,7 +104,9 @@ export async function runPersistedAiReply(opts: {
   } finally {
     // A terminated request can no longer receive approval, including checkpoint failures.
     for (const run of record.toolRuns || []) {
-      if (run.status === 'ask') {
+      if (run.name === AI_QUESTION_TOOL && run.status === 'question') {
+        emit({ type: 'tool', value: { id: run.id, name: run.name, phase: 'aborted', status: 'aborted', isError: false, content: 'QUESTION_CANCELLED: The request ended before the user answered. No answer or approval was given.' } })
+      } else if (run.status === 'ask') {
         emit({ type: 'tool', value: {
           id: run.id, name: run.name, phase: 'denied',
           content: 'REQUEST_ENDED: The request ended before this tool was approved; it was not executed.',
