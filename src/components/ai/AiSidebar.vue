@@ -1063,7 +1063,7 @@ async function runCodeToTerminal(code: string) {
       <slot name="header-trailing" />
     </div>
 
-    <AiBackgroundTasks v-show="!showSettings && !showHistory" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
+    <AiBackgroundTasks v-show="!showSettings && !showHistory" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
         :terminal-actions="!workspace"

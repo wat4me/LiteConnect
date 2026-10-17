@@ -64,6 +64,7 @@ export default {
       scopeDisconnected: '管理范围内有服务器未连接，请重新连接后继续。',
       scopeTrustHint: '请完成服务器验证，然后点击开始会话重试。',
       scopeBusyHint: '请先停止生成，再关闭会话。', closeScope: '关闭会话', newInScope: '在当前范围新建', newScope: '选择服务器新建',
+      closeHint: '关闭会话（保留 SSH 连接和历史记录）', closeNamed: '关闭会话：{name}', closeFailed: '关闭会话失败，请重试。',
 
       allHosts: '全部服务器', filterHosts: '筛选服务器', clearSearch: '清空搜索', resetFilters: '查看全部服务器',
       serverName: '服务器', connectionAddress: '连接地址', connectionStatus: '连接状态', actions: '操作',
@@ -412,6 +413,10 @@ export default {
     backgroundRecentTasks: '最近的后台任务',
     backgroundStartedAt: '开始时间',
     backgroundFinishedAt: '结束时间',
+    backgroundElapsed: '已运行 {time}',
+    backgroundDuration: '用时 {time}',
+    backgroundLongestElapsed: '最长 {time}',
+    backgroundElapsedHint: '显示当前运行最久的后台任务耗时；每个任务的耗时可展开查看。',
     backgroundDetailUnavailable: '无法读取任务详情。',
     backgroundReload: '重新加载',
     backgroundStop: '中断',

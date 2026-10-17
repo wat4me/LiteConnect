@@ -291,7 +291,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function openScope(input: { connectionIds?: string[]; id?: string }, threadId = '') {
-    if (scopeBusy.value || connectingId.value) return
+    if (scopeBusy.value || connectingId.value || closing.value) return
     // Snapshot reactive picker data before awaits; Vue proxies cannot cross Electron IPC.
     const request: { connectionIds?: string[]; id?: string } = input.id
       ? { id: input.id }
@@ -342,15 +342,37 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   async function closeScope() {
     const scope = activeScope.value
     if (!scope) return
-    const state = getSessionState(scope.id)
+    await closeConversation({ sessionId: scope.id, connectionId: scope.id })
+  }
+
+  async function closeConversation(item: { sessionId: string; connectionId: string }) {
+    if (closing.value || scopeBusy.value || connectingId.value) return
+    const scope = scopes.value[item.sessionId]
+    if (!scope && (!singleChatIds.value.includes(item.connectionId) || sessions.value[item.connectionId] !== item.sessionId)) return
+    const state = getSessionState(item.sessionId)
     if (state.loading) { ElMessage.warning(t('ai.workspace.scopeBusyHint')); return }
-    await window.LiteConnect.aiSuppressBackgroundReplies(scope.id, state.activeThreadId)
-    const next = { ...scopes.value }
-    delete next[scope.id]
-    scopes.value = next
-    selectedScopeId.value = ''
-    browsing.value = true
-    await refreshRecent()
+    closing.value = true
+    try {
+      await window.LiteConnect.aiSuppressBackgroundReplies(item.sessionId, state.activeThreadId)
+      if (disposed) return
+      if (scope) {
+        const next = { ...scopes.value }
+        delete next[scope.id]
+        scopes.value = next
+        if (selectedScopeId.value === scope.id) {
+          selectedScopeId.value = ''
+          browsing.value = true
+        }
+      } else {
+        singleChatIds.value = singleChatIds.value.filter(id => id !== item.connectionId)
+        if (!selectedScopeId.value && selectedId.value === item.connectionId) {
+          selectedId.value = ''
+          browsing.value = true
+        }
+      }
+      await refreshRecent()
+    } catch { ElMessage.warning(t('ai.workspace.closeFailed')) }
+    finally { closing.value = false }
   }
 
   function setSession(connectionId: string, id: string) {
@@ -429,6 +451,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function openCurrent(item: { connectionId: string; sessionId: string }) {
+    if (closing.value) return
     if (scopes.value[item.sessionId]) {
       selectedScopeId.value = item.sessionId
       selectedId.value = ''
@@ -587,6 +610,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     pickHost,
     openScope,
     closeScope,
+    closeConversation,
     startChat,
     openCurrent,
     openHistory,

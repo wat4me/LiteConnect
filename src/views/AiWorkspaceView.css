@@ -67,6 +67,12 @@
 .rail-item { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--workspace-radius); background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; }
 .rail-item:hover { background: var(--hover-bg); }
 .rail-item.active { background: var(--workspace-selected); color: var(--accent); }
+.rail-current-item { display: flex; align-items: center; min-width: 0; border-radius: var(--workspace-radius); }
+.rail-current-item:hover, .rail-current-item:focus-within { background: var(--hover-bg); }
+.rail-current-item.active { background: var(--workspace-selected); }
+.rail-current-item .rail-item { flex: 1; min-width: 0; padding-right: 6px; }
+.rail-close-chat { flex-shrink: 0; width: 24px; height: 24px; margin-right: 6px; border: 1px solid var(--workspace-line); background: var(--bg-primary); color: var(--text-secondary); }
+.rail-close-chat:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .rail-item-title { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; }
 .rail-title-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-host-count { flex-shrink: 0; padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, var(--text-secondary) 7%, transparent); color: var(--text-secondary); font-size: 10px; }

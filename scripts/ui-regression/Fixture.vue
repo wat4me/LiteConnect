@@ -27,6 +27,7 @@ import type { ChatItem } from '@/domain/ai/chat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
 import type { AiWorkspaceConversationItem } from '../../shared/aiWorkspaceConversations'
+import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import type { SshConnectionStage } from '../../shared/sshConnectionProgress'
 import type { FileEntry, SftpPathBookmark } from '../../shared/types/sftp'
 
@@ -71,12 +72,16 @@ let remoteContent = 'original content'
 let remoteRevision = 'a'.repeat(64)
 let previewFails = false
 let backgroundJobs: SshMcpJobSummary[] = []
+const backgroundNetworkCalls = { list: 0, tools: 0 }
 let cancelJobFails = false
 const jobListeners = new Set<(jobs: SshMcpJobSummary[]) => void>()
 const backgroundReplyListeners = new Set<(event: any) => void>()
 const workspaceListeners = new Set<(event: any) => void>()
 const workspaceSessions = new Map<string, string>()
 const workspaceOpens: string[] = []
+const workspaceCloses: string[] = []
+const suppressedReplies: Array<{ sessionId: string; threadId: string }> = []
+let suppressReplyFails = false
 const scheduleState: AiScheduleSnapshot = { plans: [], runs: [] }
 const scheduleListeners = new Set<(state: AiScheduleSnapshot) => void>()
 const scheduleResolvers = new Map<string, (run: AiScheduleRun) => void>()
@@ -160,15 +165,20 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
   },
   aiCancelWorkspaceConnection: async () => {},
   aiCloseWorkspaceConnection: async (sessionId: string) => {
+    workspaceCloses.push(sessionId)
     for (const [connectionId, id] of workspaceSessions) if (id === sessionId) {
       workspaceSessions.delete(connectionId)
       workspaceListeners.forEach(listener => listener({ connectionId, sessionId, status: 'closed' }))
     }
   },
-  mcpListJobs: async () => backgroundJobs,
-  aiSuppressBackgroundReplies: async () => {},
+  mcpListJobs: async () => { backgroundNetworkCalls.list++; return backgroundJobs },
+  aiSuppressBackgroundReplies: async (sessionId: string, threadId: string) => {
+    if (suppressReplyFails) throw new Error('fixture suppression failed')
+    suppressedReplies.push({ sessionId, threadId })
+  },
   onAiBackgroundReply: (listener: (event: any) => void) => { backgroundReplyListeners.add(listener); return () => backgroundReplyListeners.delete(listener) },
   mcpCallTool: async (name: string, args: { jobId: string }) => {
+    backgroundNetworkCalls.tools++
     if (name !== 'get_job' && name !== 'cancel_job') throw new Error('Unexpected tool in background task details')
     const job = backgroundJobs.find(item => item.jobId === args.jobId)
     if (!job) return { isError: true, content: 'JOB_NOT_FOUND', structuredContent: {} }
@@ -250,6 +260,8 @@ const liteAiActive = ref(true)
 const liteAiMode = ref<'ssh' | 'ai'>('ssh')
 const imageComposerSession = ref('image-fixture')
 const imageComposerWorkspace = ref(false)
+const imageComposerActive = ref(true)
+const backgroundFixtureTargets = ref<AiWorkspaceTarget[]>()
 let questionStops = 0
 const { runningCount: backgroundTaskCount } = useAiBackgroundJobs(() => imageComposerSession.value)
 const imageOpenGeneration = ref(1)
@@ -303,6 +315,23 @@ onMounted(() => {
     providerTests,
     manualCompactions,
     workspaceOpens,
+    workspaceCloses,
+    suppressedReplies,
+    setSuppressReplyFailure(value: boolean) { suppressReplyFails = value },
+    setWorkspaceChatLoading(id: string, value: boolean) { useAiChat().getSessionState(id).loading = value },
+    seedCloseableWorkspaceChat(id: string) {
+      const state = useAiChat().getSessionState(id)
+      const message = { id: `close-test-${id}`, role: 'user' as const, content: '关闭后保留的历史内容', createdAt: Date.now() }
+      state.messages.push(message)
+      const store = scopeStores.get(id)!
+      let thread = store.threads.find(item => item.id === state.activeThreadId)
+      if (!thread) {
+        thread = { id: state.activeThreadId, title: '', createdAt: Date.now(), updatedAt: Date.now(), messages: [] }
+        store.threads.push(thread)
+      }
+      store.activeThreadId = thread.id
+      thread.messages.push(message)
+    },
     workspaceScopes,
     async setWorkspaceActive(active: boolean) { liteAiActive.value = active; await nextTick() },
     setWorkspacePreview(hosts: Connection[], history: AiWorkspaceConversationItem[]) {
@@ -369,6 +398,20 @@ onMounted(() => {
     },
     scopedJobStatus: () => backgroundJobs.map(job => [job.jobId, job.status]),
     setBackgroundJobs(jobs: SshMcpJobSummary[]) { backgroundJobs = jobs; jobListeners.forEach(listener => listener(jobs)) },
+    backgroundNetworkCalls,
+    async setBackgroundLayout(workspace: boolean, active = true) {
+      imageComposerWorkspace.value = workspace
+      imageComposerActive.value = active
+      backgroundFixtureTargets.value = workspace ? ['image-fixture', 'other-fixture'].map((sessionId, index) => ({ connectionId: `background-${index}`, sessionId, name: `生产环境服务器 ${index + 1} · 很长的主机显示名称`, host: `server-${index}.test`, username: 'ops', port: 22 })) : undefined
+      if (workspace) {
+        const state = useAiChat().getSessionState(imageComposerSession.value)
+        backgroundReplyListeners.forEach(listener => listener({ sessionId: imageComposerSession.value, threadId: state.activeThreadId, requestId: 'fixture-timing', record: {
+          id: 'fixture-timing-message', role: 'assistant', status: 'completed', content: '后台任务已启动。', createdAt: Date.now(),
+          toolRuns: backgroundJobs.map(job => ({ id: `tool-${job.jobId}`, name: 'exec', args: '{}', content: 'started', status: 'done', isError: false, jobIds: [job.jobId] })),
+        } }))
+      }
+      await nextTick()
+    },
     setCancelJobFailure(value: boolean) { cancelJobFails = value },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },
     async closeImageComposer() { imageComposerOpen.value = false; await nextTick() },
@@ -508,7 +551,7 @@ onMounted(() => {
       <InlineLabel text="很长的中文与英文数据库名称 Production database"><span class="fixture-count">123456</span></InlineLabel>
     </section>
     <section class="ai-fixture"><AiChatView :messages="aiMessages" :has-api-configured="true" /></section>
-    <section v-if="imageComposerOpen" class="ai-image-composer-fixture"><AiSidebar :session-id="imageComposerSession" :open-generation="imageOpenGeneration" :workspace="imageComposerWorkspace"><template v-if="imageComposerWorkspace" #workspace-toolbar><span>本会话管理 3 台 · 已连接 3 / 3</span></template></AiSidebar></section>
+    <section v-if="imageComposerOpen" class="ai-image-composer-fixture"><AiSidebar :session-id="imageComposerSession" :open-generation="imageOpenGeneration" :workspace="imageComposerWorkspace" :active="imageComposerActive" :workspace-targets="backgroundFixtureTargets"><template v-if="imageComposerWorkspace" #workspace-toolbar><span>本会话管理 3 台 · 已连接 3 / 3</span></template></AiSidebar></section>
     <section class="background-toolbar-fixture"><LeftToolbar :ai-active="imageComposerOpen" :files-active="false" :monitor-active="false" :batch-active="false" :snippets-active="false" :show-ai-unread="false" :background-task-count="backgroundTaskCount" /></section>
     <FileEditorModal :visible="editorOpen" session-id="ui-fixture" remote-path="/tmp/config" file-name="config" @close="editorOpen = false" />
     <DirectorySyncModal :visible="syncOpen" session-id="ui-fixture" remote-path="/tmp" @close="syncOpen = false" />

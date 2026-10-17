@@ -94,6 +94,7 @@ const {
   pickHost,
   openScope,
   closeScope,
+  closeConversation,
   startChat,
   openCurrent,
   openHistory,
@@ -144,11 +145,16 @@ function openHostChat(connectionId: string) {
           </div>
           <div class="rail-list rail-current-list" role="region" :aria-label="t('ai.workspace.currentChats')" tabindex="0">
             <p v-if="!currentConversations.length" class="rail-empty">{{ t('ai.workspace.noCurrentChats') }}</p>
-            <button
+            <div
               v-for="item in currentConversations"
               :key="item.sessionId"
+              class="rail-current-item"
+              :class="{ active: item.viewing && !showSchedules && !browsing }"
+            >
+            <button
               type="button"
               class="rail-item"
+              :disabled="closing"
               :data-connection-id="item.connectionId"
               :class="{ active: item.viewing && !showSchedules && !browsing }"
               :title="`${item.title}\n${item.hostLabel}`"
@@ -158,6 +164,8 @@ function openHostChat(connectionId: string) {
               <span class="rail-item-title"><span class="connection-dot" :class="{ connected: item.connected }" /><span class="rail-title-text">{{ item.title }}</span><span class="rail-host-count">{{ t('ai.workspace.hostCountBadge', { count: item.hostCount }) }}</span></span>
               <span class="rail-item-meta">{{ item.hostLabel }}</span>
             </button>
+            <button type="button" class="ui-icon-btn rail-close-chat" :disabled="selectionLocked" :title="t('ai.workspace.closeHint')" :aria-label="t('ai.workspace.closeNamed', { name: item.title })" @click="closeConversation(item)"><AppIcon name="close" size="xs" /></button>
+            </div>
           </div>
         </section>
 
@@ -250,7 +258,7 @@ function openHostChat(connectionId: string) {
               </header>
             </template>
             <template #header-trailing>
-              <button v-if="activeScope" type="button" class="ui-btn ui-btn-xs workspace-session-action workspace-close-session" :disabled="scopeBusy" @click="closeScope"><AppIcon name="close" size="sm" />{{ t('ai.workspace.closeScope') }}</button>
+              <button v-if="activeScope" type="button" class="ui-btn ui-btn-xs workspace-session-action workspace-close-session" :disabled="scopeBusy || closing" @click="closeScope"><AppIcon name="close" size="sm" />{{ t('ai.workspace.closeScope') }}</button>
               <button v-else-if="selected && connectingId === selected.id" type="button" class="ui-btn ui-btn-xs workspace-session-action" @click="cancelConnect"><AppIcon name="close" size="sm" />{{ t('common.cancel') }}</button>
               <button v-else-if="sessionId" type="button" class="ui-btn ui-btn-xs workspace-session-action workspace-disconnect" :disabled="closing" @click="disconnect()"><AppIcon name="close" size="sm" />{{ t('ai.workspace.disconnect') }}</button>
             </template>

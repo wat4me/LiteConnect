@@ -1,6 +1,11 @@
 # UI regression checks
 
 Run `npm run test:ui` after installing the project's existing dependencies.
+Run `npm run test:ui -- --background-timing` for background task elapsed-time
+checks: sidebar/LiteAI layouts across three themes, collapsed live overview,
+terminal duration freezing, pause/resume, and updates without IPC polling.
+The LiteAI rail checks cover direct close buttons, closing from home or another
+conversation, preservation of SSH connections/history, and busy/failure handling.
 
 Run `npm run test:ui:questions` for AI question-card checks: single choice,
 multiple choice, free text, explicit custom answers, compact arrow pager, unanswered

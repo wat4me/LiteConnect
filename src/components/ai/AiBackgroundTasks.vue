@@ -4,13 +4,23 @@ import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 import type { SshMcpJobResult, SshMcpJobSummary } from '@shared/mcp/types'
 import { useI18n } from 'vue-i18n'
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
+import { useBackgroundJobClock } from '@/composables/ai/useBackgroundJobClock'
+import { backgroundJobElapsedSeconds, formatBackgroundJobDuration } from '@/utils/ai/backgroundJobDuration'
 import { backgroundJobState, toolStateKeys } from '@/utils/ai/toolRunPresentation'
 import AppIcon from '../icons/AppIcon.vue'
 
-const props = defineProps<{ sessionId: string; targets?: AiWorkspaceTarget[]; jobIds?: string[]; jobTargets?: Record<string, string> }>()
+const props = withDefaults(defineProps<{ sessionId: string; targets?: AiWorkspaceTarget[]; jobIds?: string[]; jobTargets?: Record<string, string>; active?: boolean; layout?: 'sidebar' | 'workspace' }>(), { active: true, layout: 'sidebar' })
 const { t } = useI18n()
 const { sessionJobs } = useAiBackgroundJobs(() => props.targets?.map(target => target.sessionId) || props.sessionId, () => props.jobIds)
 const runningCount = computed(() => sessionJobs.value.filter(job => job.status === 'running').length)
+const now = useBackgroundJobClock(() => props.active && runningCount.value > 0)
+const longestElapsed = computed(() => {
+  const seconds = sessionJobs.value.filter(job => job.status === 'running').map(job => backgroundJobElapsedSeconds(job, now.value)).filter((value): value is number => value != null)
+  return seconds.length ? formatBackgroundJobDuration(Math.max(...seconds)) : null
+})
+function durationLabel(job: SshMcpJobSummary) {
+  return t(job.status === 'running' ? 'ai.backgroundElapsed' : 'ai.backgroundDuration', { time: formatBackgroundJobDuration(backgroundJobElapsedSeconds(job, now.value)) })
+}
 const displayedJobs = computed(() => [
   ...sessionJobs.value.filter(job => job.status === 'running'),
   ...sessionJobs.value.filter(job => job.status !== 'running').slice(0, 5),
@@ -79,6 +89,7 @@ watch(() => props.sessionId, () => {
   stopErrors.value = {}
 })
 watch(sessionJobs, (jobs, previous) => {
+  now.value = Date.now()
   for (const job of jobs) {
     const old = previous?.find(item => item.jobId === job.jobId)
     if (opened.value.has(job.jobId) && (!old || old.status !== job.status || old.finishedAt !== job.finishedAt || old.exitCode !== job.exitCode)) void loadDetail(job)
@@ -99,10 +110,11 @@ function fullTimeRange(job: SshMcpJobSummary) {
 </script>
 
 <template>
-  <details v-if="sessionJobs.length" class="ai-background-tasks" :class="{ running: runningCount > 0 }">
+  <details v-if="sessionJobs.length" class="ai-background-tasks" :class="{ running: runningCount > 0, 'is-workspace': layout === 'workspace' }" :data-layout="layout">
     <summary class="background-heading" :title="t('ai.backgroundTaskHint')">
       <AppIcon name="activity" size="sm" />
       <span>{{ runningCount ? t('ai.backgroundTaskCount', { count: runningCount }) : t('ai.backgroundRecentTasks') }}</span>
+      <span v-if="longestElapsed" class="background-heading-elapsed" :title="t('ai.backgroundElapsedHint')">{{ t(runningCount > 1 ? 'ai.backgroundLongestElapsed' : 'ai.backgroundElapsed', { time: longestElapsed }) }}</span>
       <AppIcon name="chevron-down" size="xs" />
     </summary>
     <div class="background-task-body">
@@ -111,13 +123,16 @@ function fullTimeRange(job: SshMcpJobSummary) {
         <details class="background-job tool-run" @toggle="onToggle(job, $event)">
           <summary class="tool-run-head">
             <AppIcon name="chevron-right" size="xs" class="details-chevron" />
-            <span v-if="targets" class="tool-run-name">{{ jobTargets?.[job.jobId] || targets.find(target => target.sessionId === job.sessionId)?.name }}</span>
-            <span class="tool-run-name">{{ t('ai.toolName.exec') }}</span>
-            <code class="tool-run-desc" :title="job.command">{{ job.command }}</code>
+            <span class="background-job-main">
+              <span v-if="targets" class="tool-run-name background-job-host" :title="jobTargets?.[job.jobId] || targets.find(target => target.sessionId === job.sessionId)?.name">{{ jobTargets?.[job.jobId] || targets.find(target => target.sessionId === job.sessionId)?.name }}</span>
+              <span class="background-job-kind" role="img" :title="t('ai.toolName.exec')" :aria-label="t('ai.toolName.exec')"><AppIcon name="terminal" size="sm" /></span>
+              <code class="tool-run-desc" :title="job.command">{{ job.command }}</code>
+            </span>
             <span class="tool-run-outcome">
               <span class="tool-run-state">{{ t(toolStateKeys[backgroundJobState(job.status, job.exitCode)]) }}</span>
+              <span class="background-job-elapsed" :title="fullTimeRange(job)">{{ durationLabel(job) }}</span>
             </span>
-            <button v-if="job.status === 'running'" type="button" class="background-job-stop" :disabled="stopping[job.jobId]" :title="t('ai.backgroundStopHint')" :aria-label="t('ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)">{{ t(stopping[job.jobId] ? 'ai.backgroundStopping' : 'ai.backgroundStop') }}</button>
+            <button v-if="job.status === 'running'" type="button" class="ui-icon-btn background-job-stop" :disabled="stopping[job.jobId]" :aria-busy="stopping[job.jobId] || undefined" :title="t(stopping[job.jobId] ? 'ai.backgroundStopping' : 'ai.backgroundStopHint')" :aria-label="stopping[job.jobId] ? t('ai.backgroundStopping') : t('ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)"><AppIcon :name="stopping[job.jobId] ? 'refresh' : 'stop'" size="sm" /></button>
           </summary>
           <div v-if="opened.has(job.jobId)" class="background-job-detail">
             <div class="tool-run-section-label">{{ t('ai.toolCommand') }}</div>
@@ -126,7 +141,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
             <p v-if="loading[job.jobId]" role="status">{{ t('common.loading') }}</p>
             <div v-else-if="errors[job.jobId]" role="alert" class="background-job-error">
               {{ t('ai.backgroundDetailUnavailable') }} {{ errors[job.jobId] }}
-              <button type="button" @click="loadDetail(job)">{{ t('ai.backgroundReload') }}</button>
+              <button type="button" class="ui-icon-btn background-job-reload" :title="t('ai.backgroundReload')" :aria-label="t('ai.backgroundReload')" @click="loadDetail(job)"><AppIcon name="refresh" size="sm" /></button>
             </div>
             <template v-else-if="results[job.jobId]">
               <p v-if="job.status === 'running'">{{ t('ai.backgroundOutputPending') }}</p>
@@ -154,26 +169,43 @@ function fullTimeRange(job: SshMcpJobSummary) {
 summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; line-height: 1.4; }
 summary::-webkit-details-marker { display: none; }
 .background-heading > span { flex: 1; min-width: 0; }
+.background-heading > .background-heading-elapsed { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-variant-numeric: tabular-nums; }
 .background-task-body { margin-top: 4px; max-height: min(220px, 25vh); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; }
 ul { list-style: none; padding: 0; margin: 0; }
 li { min-width: 0; color: var(--text-secondary); }
-.tool-run-head { min-height: 24px; padding: 1px 4px; font-weight: 500; }
+.tool-run-head { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; min-height: 24px; padding: 4px; font-weight: 500; column-gap: 6px; row-gap: 2px; }
+.tool-run-head > .details-chevron { grid-column: 1; grid-row: 1; }
+.background-job-main { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.background-job-kind { display: inline-flex; flex-shrink: 0; align-items: center; color: var(--text-secondary); }
+.background-job-main .background-job-host { flex: 0 1 auto; min-width: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-chevron { flex-shrink: 0; transition: transform .12s ease; }
 .background-job[open] > summary .details-chevron { transform: rotate(90deg); }
 .tool-run-name { flex-shrink: 0; line-height: 20px; }
 .tool-run-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
-.tool-run-outcome { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 6px; line-height: 20px; font-weight: 400; }
+.tool-run-outcome { grid-column: 2; grid-row: 2; display: flex; flex-wrap: wrap; column-gap: 8px; line-height: 20px; font-weight: 400; min-width: 0; }
+.background-job-elapsed { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-secondary); }
 .tool-run-state { flex-shrink: 0; white-space: nowrap; }
-.background-job-stop { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font: inherit; cursor: pointer; }
+.background-job-stop { grid-column: 3; grid-row: 2; }
+.background-job-stop, .background-job-reload { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-width: 28px; padding: 0; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; }
 .background-job-stop:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 .background-job-stop:disabled { cursor: wait; opacity: .6; }
+.background-job-stop[aria-busy="true"] :deep(svg) { animation: background-job-spin 1s linear infinite; }
+@keyframes background-job-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .background-job-stop[aria-busy="true"] :deep(svg) { animation: none; } }
 .background-job-detail { margin: 2px 0 6px 20px; min-width: 0; }
 .tool-run-section-label { margin: 4px 0 2px; font-size: 10px; font-weight: 600; }
 .tool-run-args, .tool-run-out { margin: 0; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 .background-job-times { margin-top: 4px; line-height: 1.4; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .background-job-detail p { line-height: 1.5; }
 .background-job-error { color: var(--danger); overflow-wrap: anywhere; }
-.background-job-error button { margin: 4px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; }
+.background-job-reload { margin: 4px; vertical-align: middle; }
+.background-job-reload:hover { color: var(--accent); border-color: var(--accent); }
 li[data-status="running"] .tool-run-state { color: var(--accent); }
 li[data-status="failed"] .tool-run-state, li[data-status="timeout"] .tool-run-state { color: var(--danger); }
+@container ai-sidebar (min-width: 600px) {
+  .is-workspace .tool-run-head { grid-template-columns: 12px minmax(0, 1fr) auto auto; }
+  .is-workspace .background-job-main { grid-column: 2; }
+  .is-workspace .tool-run-outcome { grid-column: 3; grid-row: 1; justify-content: flex-end; }
+  .is-workspace .background-job-stop { grid-column: 4; grid-row: 1; }
+}
 </style>
