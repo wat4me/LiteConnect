@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
  * Unified stroke icons (Feather/Lucide style, viewBox 0 0 24 24).
+ * Imported Lucide SVG sources and pinned revision: docs/ICONS.md.
+ * Upstream ISC / Feather MIT notices: public/third-party/Lucide-LICENSE.txt.
  *
  * Sizing:
  * - Prefer semantic tokens: xs | sm | md | lg | xl | 2xl | hero
@@ -192,22 +194,26 @@ const iconStyle = computed(() => {
   >
     <!-- close -->
     <template v-if="name === 'close'">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
+      <!-- Lucide: x; source and license: docs/ICONS.md -->
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </template>
     <!-- plus -->
     <template v-else-if="name === 'plus'">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
+      <!-- Lucide: plus; source and license: docs/ICONS.md -->
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
     </template>
     <!-- minus -->
     <template v-else-if="name === 'minus'">
-      <line x1="5" y1="12" x2="19" y2="12" />
+      <!-- Lucide: minus; source and license: docs/ICONS.md -->
+      <path d="M5 12h14" />
     </template>
     <!-- search -->
     <template v-else-if="name === 'search'">
+      <!-- Lucide: search; source and license: docs/ICONS.md -->
+      <path d="m21 21-4.34-4.34" />
       <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </template>
     <!-- download -->
     <template v-else-if="name === 'download'">
@@ -223,16 +229,18 @@ const iconStyle = computed(() => {
     </template>
     <!-- edit -->
     <template v-else-if="name === 'edit'">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      <!-- Lucide: pencil; source and license: docs/ICONS.md -->
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+      <path d="m15 5 4 4" />
     </template>
     <!-- delete / trash -->
     <template v-else-if="name === 'delete' || name === 'trash'">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14H6L5 6" />
+      <!-- Lucide: trash; source and license: docs/ICONS.md -->
       <path d="M10 11v6" />
       <path d="M14 11v6" />
-      <path d="M9 6V4h6v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </template>
     <!-- link -->
     <template v-else-if="name === 'link'">
@@ -241,8 +249,9 @@ const iconStyle = computed(() => {
     </template>
     <!-- copy -->
     <template v-else-if="name === 'copy'">
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      <!-- Lucide: copy; source and license: docs/ICONS.md -->
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
     </template>
     <!-- more (horizontal) -->
     <template v-else-if="name === 'more'">
@@ -273,21 +282,26 @@ const iconStyle = computed(() => {
     </template>
     <!-- refresh -->
     <template v-else-if="name === 'refresh'">
-      <polyline points="23 4 23 10 17 10" />
-      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+      <!-- Lucide: rotate-cw; source and license: docs/ICONS.md -->
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
     </template>
     <!-- chevrons -->
     <template v-else-if="name === 'chevron-right'">
-      <polyline points="9 18 15 12 9 6" />
+      <!-- Lucide: chevron-right; source and license: docs/ICONS.md -->
+      <path d="m9 18 6-6-6-6" />
     </template>
     <template v-else-if="name === 'chevron-left'">
-      <polyline points="15 18 9 12 15 6" />
+      <!-- Lucide: chevron-left; source and license: docs/ICONS.md -->
+      <path d="m15 18-6-6 6-6" />
     </template>
     <template v-else-if="name === 'chevron-down'">
-      <polyline points="6 9 12 15 18 9" />
+      <!-- Lucide: chevron-down; source and license: docs/ICONS.md -->
+      <path d="m6 9 6 6 6-6" />
     </template>
     <template v-else-if="name === 'chevron-up'">
-      <polyline points="18 15 12 9 6 15" />
+      <!-- Lucide: chevron-up; source and license: docs/ICONS.md -->
+      <path d="m18 15-6-6-6 6" />
     </template>
     <!-- home grid (sessions) -->
     <template v-else-if="name === 'home-grid'">
@@ -411,8 +425,9 @@ const iconStyle = computed(() => {
     </template>
     <!-- settings gear -->
     <template v-else-if="name === 'settings'">
+      <!-- Lucide: settings; source and license: docs/ICONS.md -->
+      <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
       <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </template>
     <!-- history -->
     <template v-else-if="name === 'history'">
