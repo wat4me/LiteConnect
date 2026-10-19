@@ -29,6 +29,7 @@ const props = defineProps<{
   usedColorTags?: { id: string; color: string; label: string }[]
   connections: Connection[]
   connectingConnectionIds?: Set<string>
+  connectionErrors?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -640,12 +641,15 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               ></span>
               <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
               <span v-if="connectingConnectionIds?.has(conn.id)" class="sidebar-conn-spinner" :title="t('connections.connectingTitle')"></span>
+              <button v-else-if="connectionErrors?.[conn.id]" type="button" class="ui-icon-btn ui-icon-btn-ghost sidebar-conn-action" :title="connectionErrors[conn.id]" :aria-label="`${t('terminal.retryConnection')}：${connectionErrors[conn.id]}`" @click.stop="requestConnection(conn.id)" @dblclick.stop><AppIcon name="alert-circle" size="xs" :style="{ color: 'var(--danger)' }" /></button>
               <button
                 v-if="connectingConnectionIds?.has(conn.id)"
                 type="button"
-                class="ui-icon-btn"
+                class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-close sidebar-conn-action"
                 :title="t('common.cancel')"
+                :aria-label="t('common.cancel')"
                 @click.stop="emit('cancel-connect', conn.id)"
+                @dblclick.stop
               >
                 <AppIcon name="close" size="xs" />
               </button>
@@ -759,7 +763,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
             :disabled="connectingConnectionIds?.has(ctxMenu.conn.id)"
             @click="onConnMenuAction('connect', ctxMenu.conn)"
           >
-            <AppIcon name="link" size="sm" class="group-ctx-icon" />
+            <AppIcon name="plug" size="sm" class="group-ctx-icon" />
             {{ connectingConnectionIds?.has(ctxMenu.conn.id) ? t('connections.connecting') : t('connections.connect') }}
           </button>
           <button
@@ -1213,6 +1217,11 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: sidebar-conn-spin 0.75s linear infinite;
+}
+
+.sidebar-conn-action {
+  --icon-btn-md: calc(24px * var(--ui-scale));
+  border-radius: var(--radius-sm);
 }
 
 @keyframes sidebar-conn-spin {

@@ -1,18 +1,18 @@
 /* Shared settings chrome. Shell layout lives in SettingsView. */
 
-.settings-content {
+:where(.settings-page) .settings-content {
   container-type: inline-size;
   container-name: settings-panel;
   min-width: 0;
 }
 
-.settings-content [data-setting] {
+:where(.settings-page) .settings-content [data-setting] {
   scroll-margin-top: 16px;
   scroll-margin-bottom: 16px;
 }
 
-.settings-content [data-setting].settings-anchor-hit {
-  border-radius: 8px;
+:where(.settings-page) .settings-content [data-setting].settings-anchor-hit {
+  border-radius: var(--radius-md);
   animation: settings-anchor-flash 1.4s ease;
 }
 
@@ -28,29 +28,29 @@
   }
 }
 
-.settings-content .content-header {
+:where(.settings-page) .settings-content .content-header {
   margin-bottom: 20px;
   max-width: 720px;
 }
 
-.settings-content .content-header h3 {
+:where(.settings-page) .settings-content .content-header h3 {
   margin: 0 0 6px;
-  font-size: 20px;
+  font-size: var(--font-title);
   color: var(--text-primary);
 }
 
-.settings-content .content-header p {
+:where(.settings-page) .settings-content .content-header p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-ui);
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
-.settings-content .content-header-extra {
+:where(.settings-page) .settings-content .content-header-extra {
   margin-top: 6px !important;
 }
 
-.settings-content .content-grid {
+:where(.settings-page) .settings-content .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
   gap: 20px;
@@ -58,129 +58,117 @@
   max-width: 960px;
 }
 
-.settings-content .settings-card {
+:where(.settings-page) .settings-content .settings-card {
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-secondary);
-  padding: 16px;
+  padding: var(--space-4);
   min-width: 0;
 }
 
-.settings-content > .settings-card {
+:where(.settings-page) .settings-content > .settings-card {
   max-width: min(720px, 100%);
 }
 
-.settings-content .settings-card.narrow {
+:where(.settings-page) .settings-content .settings-card.narrow {
   max-width: min(560px, 100%);
 }
 
-.settings-content .settings-card + .settings-card {
+:where(.settings-page) .settings-content .settings-card + .settings-card {
   margin-top: 16px;
 }
 
-.settings-content .settings-label {
-  font-size: 12px;
+:where(.settings-page) .settings-content .settings-label {
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
-.settings-content .settings-card-title {
+:where(.settings-page) .settings-content .settings-card-title {
   margin-bottom: 16px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-section);
   font-weight: 700;
 }
 
-.settings-content .settings-label-sub {
-  font-size: 12px;
+:where(.settings-page) .settings-content .settings-label-sub {
+  font-size: var(--font-ui-sm);
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
-.settings-content .settings-hint {
+:where(.settings-page) .settings-content .settings-hint {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.45;
 }
 
-.settings-content .settings-hint.warn {
+:where(.settings-page) .settings-content .settings-hint.warn {
   color: var(--warning);
 }
 
-.settings-content .settings-option {
+:where(.settings-page) .settings-content .settings-option {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  gap: var(--space-5);
   padding: 16px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
 }
 
-.settings-content .settings-option:last-child {
+:where(.settings-page) .settings-content .settings-option:last-child {
   padding-bottom: 0;
   border-bottom: 0;
 }
 
-.settings-content .settings-option-copy {
+:where(.settings-page) .settings-content .settings-option-copy {
   min-width: 0;
 }
 
-.settings-content .settings-option-title {
+:where(.settings-page) .settings-content .settings-option-title {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
 }
 
-.settings-content .settings-option .settings-hint {
+:where(.settings-page) .settings-content .settings-option .settings-hint {
   margin-top: 5px;
 }
 
-.settings-content .settings-input {
-  width: 100%;
-  box-sizing: border-box;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.settings-content .path-row .settings-input {
+:where(.settings-page) .settings-content .path-row .settings-input {
   width: auto;
   flex: 1 1 160px;
   min-width: 0;
 }
 
-.settings-content .settings-check {
+:where(.settings-page) .settings-content .settings-check {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-ui);
   color: var(--text-primary);
   cursor: pointer;
   user-select: none;
 }
 
-.settings-content .settings-check input {
+:where(.settings-page) .settings-content .settings-check input {
   margin: 0;
   cursor: pointer;
 }
 
-.settings-content .toggle-row {
+:where(.settings-page) .settings-content .toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--space-3);
+  font-size: var(--font-ui);
   color: var(--text-primary);
 }
 
-.settings-content .toggle-btn {
+:where(.settings-page) .settings-content .toggle-btn {
   position: relative;
   width: 40px;
   height: 22px;
@@ -193,17 +181,17 @@
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.settings-content .toggle-btn:disabled {
+:where(.settings-page) .settings-content .toggle-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.settings-content .toggle-btn.active {
+:where(.settings-page) .settings-content .toggle-btn.active {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.settings-content .toggle-knob {
+:where(.settings-page) .settings-content .toggle-knob {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -214,81 +202,60 @@
   transition: transform 0.15s ease, background 0.15s ease;
 }
 
-.settings-content .toggle-btn.active .toggle-knob {
+:where(.settings-page) .settings-content .toggle-btn.active .toggle-knob {
   transform: translateX(18px);
   background: #fff;
 }
 
-.settings-content .font-size-row,
-.settings-content .interval-row {
+:where(.settings-page) .settings-content .font-size-row,
+:where(.settings-page) .settings-content .interval-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--font-ui);
   color: var(--text-primary);
 }
 
-.settings-content .interval-row {
+:where(.settings-page) .settings-content .interval-row {
   margin-bottom: 4px;
 }
 
-.settings-content .font-size-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 16px;
-  cursor: pointer;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.settings-content .font-size-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.settings-content .font-size-value {
+:where(.settings-page) .settings-content .font-size-value {
   min-width: 48px;
   text-align: center;
-  font-size: 14px;
+  font-size: var(--font-section);
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.settings-content .path-row,
-.settings-content .download-path-row {
+:where(.settings-page) .settings-content .path-row,
+:where(.settings-page) .settings-content .download-path-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
-.settings-content .preview-card {
+:where(.settings-page) .settings-content .preview-card {
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   padding: 14px;
   min-width: 0;
 }
 
-.settings-content .preview-label {
+:where(.settings-page) .settings-content .preview-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-2);
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 10px;
 }
 
-.settings-content .preview-badge {
-  font-size: 10px;
+:where(.settings-page) .settings-content .preview-badge {
+  font-size: var(--font-caption);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 999px;
@@ -296,45 +263,45 @@
   color: var(--accent);
 }
 
-.settings-content .session-log-btn {
+:where(.settings-page) .settings-content .session-log-btn {
   margin-top: 10px;
 }
 
 @container settings-panel (max-width: 760px) {
-  .content-grid {
+  :where(.settings-page) .content-grid {
     grid-template-columns: 1fr;
   }
 
-  .cursor-style-grid {
+  :where(.settings-page) .cursor-style-grid {
     grid-template-columns: 1fr;
   }
 
-  .mcp-facts > div {
+  :where(.settings-page) .mcp-facts > div {
     grid-template-columns: 1fr;
   }
 
-  .x11-install-help,
-  .tips-card,
-  .known-host-item {
+  :where(.settings-page) .x11-install-help,
+  :where(.settings-page) .tips-card,
+  :where(.settings-page) .known-host-item {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .shortcut-row {
+  :where(.settings-page) .shortcut-row {
     flex-direction: column;
     gap: 6px;
   }
 
-  .shortcut-keys {
+  :where(.settings-page) .shortcut-keys {
     min-width: 0;
     width: fit-content;
   }
 
-  .ui-preview-body {
+  :where(.settings-page) .ui-preview-body {
     flex-direction: column;
   }
 
-  .ui-preview-side {
+  :where(.settings-page) .ui-preview-side {
     width: auto;
     border-right: none;
     border-bottom: 1px solid;
@@ -344,18 +311,18 @@
 }
 
 @container settings-panel (max-width: 520px) {
-  .theme-options {
+  :where(.settings-page) .theme-options {
     grid-template-columns: 1fr;
   }
 
-  .db-preview-row {
+  :where(.settings-page) .db-preview-row {
     grid-template-columns: 36px 1fr 1fr;
     gap: 6px;
     padding: 6px 10px;
   }
 
-  .color-row,
-  .about-meta-row {
+  :where(.settings-page) .color-row,
+  :where(.settings-page) .about-meta-row {
     flex-wrap: wrap;
   }
 }

@@ -206,7 +206,7 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
         <p>{{ t('ai.schedule.hint') }}</p>
       </div>
       <div class="schedule-header-actions">
-        <button type="button" class="ui-btn ui-btn-sm" :class="{ active: showNotify }" :aria-pressed="showNotify" @click="showNotify = !showNotify; editing = false"><AppIcon name="settings" size="sm" />{{ t('ai.notification.settings') }}</button>
+        <button type="button" class="ui-btn ui-btn-sm" :class="{ active: showNotify }" :aria-pressed="showNotify" @click="showNotify = !showNotify; editing = false"><AppIcon name="bell" size="sm" />{{ t('ai.notification.settings') }}</button>
         <button type="button" class="ui-icon-btn" :aria-label="t('ai.schedule.runtimeTitle')" :aria-expanded="showRuntime" @click="showRuntime = !showRuntime"><AppIcon name="help-circle" size="sm" /></button>
         <button type="button" class="ui-btn ui-btn-sm" @click="emit('close')">{{ t(returnToChat ? 'ai.schedule.exit' : 'ai.workspace.backToHosts') }}</button>
       </div>

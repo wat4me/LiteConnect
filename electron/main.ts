@@ -17,6 +17,7 @@
  */
 import { app, BrowserWindow, dialog } from 'electron'
 import { windowAppId } from './window/appIcon'
+import { registerDevelopmentTaskbarShortcut } from './window/developmentTaskbar'
 import { registerAppBackgroundScheme, installAppBackgroundProtocol } from './window/appBackgroundProtocol'
 
 registerAppBackgroundScheme()
@@ -61,6 +62,7 @@ const isPrimaryInstance = installSingleInstance(showMainWindow)
 // Keep development windows grouped under LiteConnect instead of electron.exe;
 // Windows also uses this identity when resolving the taskbar icon.
 if (process.platform === 'win32') {
+  if (!app.isPackaged) app.setName('LiteConnect Dev')
   app.setAppUserModelId(windowAppId(app.isPackaged))
 }
 
@@ -215,6 +217,7 @@ async function loadDeferredMain(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (!isPrimaryInstance) return
+  registerDevelopmentTaskbarShortcut()
   // This is deliberately the first data operation. Existing JSON/JSONL files are
   // migrated transactionally before any store can read or write the new database.
   try {

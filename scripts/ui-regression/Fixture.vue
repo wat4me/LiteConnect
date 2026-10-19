@@ -10,6 +10,9 @@ import AiUserQuestion from '../../src/components/ai/AiUserQuestion.vue'
 import type { AiUserAnswer } from '../../shared/aiQuestions'
 import AiSidebar from '../../src/components/ai/AiSidebar.vue'
 import AiWorkspaceView from '../../src/views/AiWorkspaceView.vue'
+import SettingsFiles from '../../src/components/settings/SettingsFiles.vue'
+import FileTypeIcon from '../../src/components/sftp/FileTypeIcon.vue'
+import type { SettingsDraft } from '../../src/composables/settings/useSettingsDraft'
 import AppTitlebar from '../../src/components/app/AppTitlebar.vue'
 import LeftToolbar from '../../src/components/workspace/LeftToolbar.vue'
 import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJobs'
@@ -35,6 +38,12 @@ const groups: Group[] = [
   { id: 'dev', name: '默认分组', order: 0, isDefault: true },
   { id: 'prod', name: '生产环境 Production', order: 1, isDefault: false },
 ]
+const stylePreviewOpen = ref(false)
+const styleDraft = ref({
+  sftpFontSize: 12, downloadPath: 'D:/Downloads/很长的下载目录 Production files',
+  useSystemDownloadPath: true, downloadConflictStrategy: 'rename',
+  dirTransferConcurrency: 3, dirTransferFailPolicy: 'stop',
+} as SettingsDraft)
 const showQuestions = new URLSearchParams(location.search).has('questions')
 let questionVersion = 0
 const questionRun = ref<AiToolRun>({ id: 'question-initial', name: 'ask_user', args: '{"questions":[{"id":"scope","question":"检查哪个环境？"}]}', content: '', status: 'question', isError: false })
@@ -60,6 +69,8 @@ const synchronizedWrites: string[] = []
 for (const id of ['one', 'two']) synchronizedInput.register(id, { writable: () => true, receive: data => synchronizedWrites.push(`${id}:${data}`) })
 const synchronizedSessions = connections.map(conn => ({ id: conn.id, connectionName: conn.name, sshAddress: conn.host, tabNumber: 1, terminalLabel: '终端 1', displayName: `${conn.name} / 终端 1` }))
 const connectionStages = ref<Record<string, SshConnectionStage>>({})
+const connectionErrors = ref<Record<string, string>>({})
+let failWorkspaceConnect = false
 const cancelledConnections: string[] = []
 const calls = { clipboardWrites: [] as string[], connects: [] as string[], moves: [] as string[], reorders: 0, editorSaves: [] as any[], uploads: [] as any[], sftpActions: [] as string[], aiRequests: [] as any[], aiCreates: [] as string[] }
 const manualCompactions: string[] = []
@@ -157,6 +168,7 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
   },
   onAiWorkspaceConnection: (listener: (event: any) => void) => { workspaceListeners.add(listener); return () => workspaceListeners.delete(listener) },
   aiOpenWorkspaceConnection: async (id: string) => {
+    if (failWorkspaceConnect) throw new Error('Connection error: Timed out while waiting for handshake')
     workspaceOpens.push(id)
     const sessionId = workspaceSessions.get(id) || `ai-workspace-${id}-${workspaceOpens.length}`
     workspaceSessions.set(id, sessionId)
@@ -280,6 +292,7 @@ function renameBookmark(item: SftpPathBookmark) {
 
 onMounted(() => {
   (window as any).__uiRegression = {
+    async showStylePreview() { stylePreviewOpen.value = true; await nextTick() },
     resetQuestion(batch = true, reject = false, long = false) {
       rejectQuestionAnswer = reject
       questionAnswers.length = 0
@@ -379,6 +392,8 @@ onMounted(() => {
     sendSynchronizedInput(data: string) { synchronizedInput.forward('one', data) },
     cancelledConnections,
     async setConnectionStage(stage?: SshConnectionStage) { connectionStages.value = stage ? { one: stage } : {}; await nextTick() },
+    async setConnectionFailure(failed: boolean) { connectionErrors.value = failed ? { one: '连接超时，服务器未完成响应。请检查服务器是否开机、网络是否可达，以及 SSH 端口或防火墙配置' } : {}; await nextTick() },
+    failWorkspaceConnection(failed: boolean) { failWorkspaceConnect = failed },
     async seedScopedJobs() {
       const scope = workspaceScopes[0]
       const state = useAiChat().getSessionState(scope.id)
@@ -529,7 +544,7 @@ onMounted(() => {
     <section v-if="showQuestions" class="ai-question-fixture" style="width: 440px"><AiUserQuestion :key="questionRun.id" :run="questionRun" :submit="submitQuestion" /></section>
     <section class="synchronized-input-fixture"><SynchronizedInputBar :sessions="synchronizedSessions" :open="true" /></section>
     <section class="connection-fixture">
-      <ConnectionsView :initial-data="initialData" :connection-stages="connectionStages" :connecting-connection-ids="new Set(Object.keys(connectionStages))" @connect="calls.connects.push($event)" @cancel-connect="cancelledConnections.push($event)" />
+      <ConnectionsView :initial-data="initialData" :connection-stages="connectionStages" :connection-errors="connectionErrors" :connecting-connection-ids="new Set(Object.keys(connectionStages))" @connect="calls.connects.push($event)" @cancel-connect="cancelledConnections.push($event)" />
     </section>
     <section class="file-sidebar">
       <button ref="bookmarkAnchor" @click="bookmarksOpen = true">书签布局验证</button>
@@ -560,6 +575,12 @@ onMounted(() => {
       <AppTitlebar :app-mode="liteAiMode" :show-settings-page="false" @enter-ai="liteAiMode = 'ai'" @enter-ssh="liteAiMode = 'ssh'" />
       <AiWorkspaceView v-if="liteAiMode === 'ai'" :active="liteAiActive" />
     </section>
+    <section v-if="stylePreviewOpen" class="style-system-fixture settings-page">
+      <SettingsFiles :draft="styleDraft" :recent-download-paths="[]" system-default-download-path="D:/Downloads" />
+      <div class="style-file-colors">
+        <span v-for="name in ['nginx.conf', 'main.ts', 'backup.zip', 'photo.png', 'notes.txt']" :key="name"><FileTypeIcon :name="name" />{{ name }}</span>
+      </div>
+    </section>
   </main>
 </template>
 
@@ -577,4 +598,7 @@ onMounted(() => {
 .ai-image-composer-fixture { position: relative; display: flex; width: 440px; height: 620px; margin-top: 12px; }
 .lite-ai-workspace-fixture { width: min(1050px, 100%); height: 680px; display: flex; flex-direction: column; margin-top: 12px; }
 .lite-ai-workspace-fixture > .ai-workspace { flex: 1; height: auto; }
+.style-system-fixture { width: 600px; margin-top: 16px; padding: var(--space-4); background: var(--bg-primary); }
+.style-file-colors { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
+.style-file-colors > span { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-ui-sm); }
 </style>

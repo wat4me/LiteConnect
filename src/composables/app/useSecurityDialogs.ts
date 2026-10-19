@@ -4,7 +4,7 @@ import type { DecryptionFailedData, HostKeyMismatchData } from '@/domain/app/sec
 import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
-import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
+import { sshConnectFailureKey } from '@/utils/session/sshDisconnectReason'
 import { isSshConnectionCancelled } from '@shared/sshConnectionProgress'
 
 export type { DecryptionFailedData, HostKeyMismatchData }
@@ -64,12 +64,12 @@ export function useSecurityDialogs(deps: {
       if (isSshHostKeyConfirmationRequired(err) || isSshConnectionCancelled(err)) return
       console.error('Failed to confirm host key:', err)
       const raw = err?.message || ''
-      const detailKey = sshDisconnectDetailKey(raw)
+      const detailKey = sshConnectFailureKey(raw)
       const reason = detailKey ? t(detailKey) : (raw || t('terminal.connectFailureHint'))
       const connection = deps.connections.value.find((item) => item.id === connectionId)
-      ElMessage.error(connection
+      ElMessage.error({ message: connection
         ? t('terminal.connectFailedWithTarget', { name: connection.name, host: connection.host, reason })
-        : reason)
+        : reason, duration: 0, showClose: true, grouping: true })
     }
   }
 

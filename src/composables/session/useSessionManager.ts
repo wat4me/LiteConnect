@@ -4,7 +4,7 @@ import type { Connection } from '../../env.d'
 import { t } from '../../i18n'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import { clearAutoReconnectAttempts } from './useAutoReconnectBudget'
-import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
+import { sshConnectFailureKey } from '@/utils/session/sshDisconnectReason'
 import { clearSftpListedCwd, getSftpListedCwd, setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 import type { Session, ConnectionGroup } from '@/domain/session/types'
 import { createConnectionAttemptGate } from '@/utils/connections/connectionAttemptGate'
@@ -35,6 +35,15 @@ export function useSessionManager(deps: {
   const activeGroupId = ref<string>(HOME_ID)
   const pendingConnectionIds = ref<Set<string>>(new Set())
   const connectionStages = ref<Record<string, SshConnectionStage>>({})
+  const connectionErrors = ref<Record<string, string>>({})
+  const connectionFailureMessages = new Map<string, { close: () => void }>()
+  function clearConnectionError(connectionId: string) {
+    connectionFailureMessages.get(connectionId)?.close()
+    connectionFailureMessages.delete(connectionId)
+    const next = { ...connectionErrors.value }
+    delete next[connectionId]
+    connectionErrors.value = next
+  }
   const connectingConnectionIds = computed(() => new Set([...pendingConnectionIds.value, ...Object.keys(connectionStages.value)]))
   let unsubProgress: (() => void) | undefined
 
@@ -222,6 +231,7 @@ export function useSessionManager(deps: {
   onMounted(() => {
     window.addEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
     unsubProgress = window.LiteConnect.onSshConnectionProgress?.(({ connectionId, stage }) => {
+      if (stage === 'connected' || stage === 'connecting') clearConnectionError(connectionId)
       const next = { ...connectionStages.value }
       if (['failed', 'cancelled', 'connected'].includes(stage)) delete next[connectionId]
       else next[connectionId] = stage
@@ -230,6 +240,8 @@ export function useSessionManager(deps: {
   })
   onBeforeUnmount(() => {
     unsubProgress?.()
+    connectionFailureMessages.forEach(message => message.close())
+    connectionFailureMessages.clear()
     window.removeEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
   })
 
@@ -257,6 +269,7 @@ export function useSessionManager(deps: {
     connectTail.set(connectionId, chained)
 
     await prev.catch(() => {})
+    clearConnectionError(connectionId)
     try {
       let conn = connections.value.find((c) => c.id === connectionId)
       if (!conn) {
@@ -335,13 +348,18 @@ export function useSessionManager(deps: {
       if (isSshHostKeyConfirmationRequired(err) || isSshConnectionCancelled(err)) return null
       console.error('SSH connection failed:', err)
       const raw = err?.message || ''
-      const detailKey = sshDisconnectDetailKey(raw)
+      const detailKey = sshConnectFailureKey(raw)
       const reason = detailKey ? t(detailKey) : (raw || t('terminal.connectFailureHint'))
+      connectionErrors.value = { ...connectionErrors.value, [connectionId]: reason }
       const connection = connections.value.find((item) => item.id === connectionId)
         || recentConnections.value.find((item) => item.id === connectionId)
-      ElMessage.error(connection
-        ? t('terminal.connectFailedWithTarget', { name: connection.name, host: connection.host, reason })
-        : (raw ? reason : t('terminal.connectFailed')))
+      const message = ElMessage.error({
+        message: connection
+          ? t('terminal.connectFailedWithTarget', { name: connection.name, host: connection.host, reason })
+          : (raw ? reason : t('terminal.connectFailed')),
+        duration: 0, showClose: true, grouping: true,
+      })
+      if (message) connectionFailureMessages.set(connectionId, message)
       return null
     } finally {
       release()
@@ -549,6 +567,7 @@ export function useSessionManager(deps: {
     recentConnections,
     connectingConnectionIds,
     connectionStages,
+    connectionErrors,
     cancelConnection,
     activeGroupId,
     isHomeActive,

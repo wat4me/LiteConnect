@@ -56,9 +56,9 @@ async function addRecentPath() {
     <div class="settings-card narrow">
       <div class="settings-label" data-setting="files.sftpFontSize">{{ t('settingsFiles.sftpFontSize') }}</div>
       <div class="font-size-row">
-        <button type="button" class="font-size-btn" :disabled="draft.sftpFontSize <= MIN_SFTP_FONT_SIZE" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateSftpFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
+        <button type="button" class="ui-icon-btn font-size-btn" :disabled="draft.sftpFontSize <= MIN_SFTP_FONT_SIZE" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateSftpFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
         <span class="font-size-value">{{ draft.sftpFontSize }}px</span>
-        <button type="button" class="font-size-btn" :disabled="draft.sftpFontSize >= MAX_SFTP_FONT_SIZE" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateSftpFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+        <button type="button" class="ui-icon-btn font-size-btn" :disabled="draft.sftpFontSize >= MAX_SFTP_FONT_SIZE" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateSftpFontSize(1)"><AppIcon name="plus" size="xs" /></button>
       </div>
       <div class="settings-hint">{{ t('settingsFiles.sftpFontSizeHint') }}</div>
 

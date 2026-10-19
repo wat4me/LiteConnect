@@ -96,6 +96,7 @@ const {
   closeScope,
   closeConversation,
   startChat,
+  retryConnect,
   openCurrent,
   openHistory,
   cancelConnect,
@@ -135,7 +136,7 @@ function openHostChat(connectionId: string) {
       </div>
       <nav class="workspace-primary-nav" :aria-label="t('ai.workspace.navigation')">
         <button type="button" class="workspace-manage workspace-host-entry" :class="{ active: browsing && !showSchedules }" :aria-current="browsing && !showSchedules ? 'page' : undefined" :title="t('ai.schedule.host')" @click="backToHosts"><AppIcon name="server" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.host') }}</span></button>
-        <button type="button" class="workspace-manage workspace-schedule-entry" :class="{ active: showSchedules }" :aria-current="showSchedules ? 'page' : undefined" :title="t('ai.schedule.title')" @click="openSchedules()"><AppIcon name="activity" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.title') }}</span></button>
+        <button type="button" class="workspace-manage workspace-schedule-entry" :class="{ active: showSchedules }" :aria-current="showSchedules ? 'page' : undefined" :title="t('ai.schedule.title')" @click="openSchedules()"><AppIcon name="calendar-clock" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.title') }}</span></button>
       </nav>
       <div v-show="!railCollapsed" class="rail-conversations">
         <section class="rail-section rail-current">
@@ -260,7 +261,7 @@ function openHostChat(connectionId: string) {
             <template #header-trailing>
               <button v-if="activeScope" type="button" class="ui-btn ui-btn-xs workspace-session-action workspace-close-session" :disabled="scopeBusy || closing" @click="closeScope"><AppIcon name="close" size="sm" />{{ t('ai.workspace.closeScope') }}</button>
               <button v-else-if="selected && connectingId === selected.id" type="button" class="ui-btn ui-btn-xs workspace-session-action" @click="cancelConnect"><AppIcon name="close" size="sm" />{{ t('common.cancel') }}</button>
-              <button v-else-if="sessionId" type="button" class="ui-btn ui-btn-xs workspace-session-action workspace-disconnect" :disabled="closing" @click="disconnect()"><AppIcon name="close" size="sm" />{{ t('ai.workspace.disconnect') }}</button>
+              <button v-else-if="sessionId" type="button" class="ui-btn ui-btn-xs workspace-session-action workspace-disconnect" :disabled="closing" @click="disconnect()"><AppIcon name="unplug" size="sm" />{{ t('ai.workspace.disconnect') }}</button>
             </template>
           </AiSidebar>
         </div>
@@ -272,7 +273,7 @@ function openHostChat(connectionId: string) {
             <button type="button" class="ui-btn ui-btn-sm" @click="cancelConnect">{{ t('common.cancel') }}</button>
           </div>
           <div v-if="connectingId !== selectedId" class="workspace-connect-actions">
-            <button type="button" class="ui-btn ui-btn-primary ui-btn-sm" :disabled="closing || !!connectingId" @click="startChat(selected)">{{ t('ai.workspace.retryConnect') }}</button>
+            <button type="button" class="ui-btn ui-btn-primary ui-btn-sm" :disabled="closing || !!connectingId" @click="retryConnect">{{ t('ai.workspace.retryConnect') }}</button>
             <button type="button" class="ui-btn ui-btn-sm" :disabled="closing || !!connectingId" @click="openHostPicker('switch')">{{ t('ai.workspace.switchHost') }}</button>
             <button type="button" class="ui-btn ui-btn-sm" @click="backToHosts">{{ t('ai.workspace.backToHosts') }}</button>
           </div>
@@ -298,7 +299,7 @@ function openHostChat(connectionId: string) {
           </div>
           <div class="workspace-toolbar-actions">
             <button type="button" class="ui-icon-btn" :title="t('ai.workspace.refresh')" :aria-label="t('ai.workspace.refresh')" :disabled="loading" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
-            <button ref="modelSettingsButton" type="button" class="ui-btn ui-btn-sm workspace-models-button" :disabled="loadingModelSettings" @click="openModelSettings"><AppIcon name="server" size="sm" />{{ t('ai.manageModels') }}</button>
+            <button ref="modelSettingsButton" type="button" class="ui-btn ui-btn-sm workspace-models-button" :disabled="loadingModelSettings" @click="openModelSettings"><AppIcon name="models" size="sm" />{{ t('ai.manageModels') }}</button>
             <button type="button" class="ui-btn ui-btn-sm workspace-manage-button" :title="t('ai.workspace.manageConnections')" :aria-label="t('ai.workspace.manageConnections')" @click="emit('open-connections')"><AppIcon name="settings" size="sm" /><span class="workspace-manage-label">{{ t('ai.workspace.manageConnections') }}</span></button>
           </div>
         </div>

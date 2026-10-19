@@ -10,10 +10,18 @@ import { isSshConnectionCancelled } from '@shared/sshConnectionProgress'
 import { disposeAiSessionState, useAiChat } from '@/composables/ai/useAiChat'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import { ElMessage } from 'element-plus/es/components/message/index'
+import { sshConnectFailureKey } from '@/utils/session/sshDisconnectReason'
 
 /** Owns workspace connection leases, conversation selection and UI lifecycle. */
 export function useAiWorkspace(options: { active: () => boolean }) {
   const { t } = useI18n()
+  function connectionFailure(failure: unknown, connectionId: string) {
+    const raw = failure instanceof Error ? failure.message : String(failure || '')
+    const key = sshConnectFailureKey(raw)
+    const reason = key ? t(key) : raw || t('terminal.connectFailureHint')
+    const host = connections.value.find(item => item.id === connectionId)
+    return host ? t('terminal.connectFailedWithTarget', { name: host.name, host: host.host, reason }) : reason
+  }
   const { getSessionState, switchConversation, loadHistory, startNewConversation, onReplyComplete } = useAiChat()
   const connections = ref<Connection[]>([])
   const groups = ref<Group[]>([])
@@ -327,7 +335,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
       await refreshRecent()
     } catch (failure: any) {
       if (!isSshHostKeyConfirmationRequired(failure) && !isSshConnectionCancelled(failure)) {
-        pickerError.value = failure?.message || t('ai.workspace.connectFailed')
+        pickerError.value = connectionFailure(failure, connectingId.value)
         error.value = pickerError.value
       } else {
         waitingForTrust = isSshHostKeyConfirmationRequired(failure)
@@ -440,14 +448,20 @@ export function useAiWorkspace(options: { active: () => boolean }) {
       const id = await window.LiteConnect.aiOpenWorkspaceConnection(connection.id)
       if (!disposed) onConnection({ connectionId: connection.id, sessionId: id, status: 'connected' })
     } catch (failure: any) {
-      pendingThreadId.value = ''
-      pendingNewConversation.value = false
       if (isSshHostKeyConfirmationRequired(failure)) waitingForTrust = true
-      else if (!isSshConnectionCancelled(failure)) error.value = failure?.message || t('ai.workspace.connectFailed')
-      else if (!sessions.value[connection.id]) browsing.value = true
+      else if (!isSshConnectionCancelled(failure)) error.value = connectionFailure(failure, connection.id)
+      else {
+        pendingThreadId.value = ''
+        pendingNewConversation.value = false
+        if (!sessions.value[connection.id]) browsing.value = true
+      }
     } finally {
       if (!waitingForTrust && connectingId.value === connection.id) connectingId.value = ''
     }
+  }
+
+  function retryConnect() {
+    return startChat(selected.value, pendingThreadId.value, pendingNewConversation.value)
   }
 
   async function openCurrent(item: { connectionId: string; sessionId: string }) {
@@ -612,6 +626,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     closeScope,
     closeConversation,
     startChat,
+    retryConnect,
     openCurrent,
     openHistory,
     cancelConnect,

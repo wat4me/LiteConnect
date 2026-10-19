@@ -60,20 +60,20 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
   </Teleport>
 </template>
 <style scoped>
-.selector-wrap { display: inline-flex; align-items: center; min-width: 0; height: 34px; }
-.composer-selector { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 34px; box-sizing: border-box; padding: 0 6px; border: 1px solid transparent; border-radius: 8px; color: var(--text-secondary); background: transparent; font: inherit; font-size: 11px; line-height: 1; white-space: nowrap; cursor: pointer; }
+.selector-wrap { display: inline-flex; align-items: center; min-width: 0; height: var(--control-h-sm); }
+.composer-selector { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); height: var(--control-h-sm); box-sizing: border-box; padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-md); color: var(--text-secondary); background: transparent; font: inherit; font-size: var(--font-ui-sm); line-height: var(--line-ui); white-space: nowrap; cursor: pointer; }
 .composer-selector :deep(.app-icon) { flex-shrink: 0; }
 .composer-selector:hover:not(:disabled), .composer-selector.active { background: var(--hover-bg); color: var(--text-primary); border-color: var(--border-color); }
 .composer-selector:disabled { opacity: .45; cursor: not-allowed; }
 .composer-selector:focus-visible, .composer-selector-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.selector-label { display: inline-flex; align-items: center; line-height: 1; }
-.composer-selector-menu { position: fixed; z-index: 10001; padding: 6px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 8px 24px #0003; overflow-y: auto; box-sizing: border-box; }
-.selector-title { padding: 6px 8px; font-size: 11px; color: var(--text-secondary); }
-.composer-selector-menu button { display: flex; width: 100%; gap: 8px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.selector-label { display: inline-flex; align-items: center; line-height: var(--line-ui); }
+.composer-selector-menu { position: fixed; z-index: var(--z-menu); padding: 6px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-menu); overflow-y: auto; box-sizing: border-box; }
+.selector-title { padding: 6px 8px; font-size: var(--font-caption); color: var(--text-secondary); }
+.composer-selector-menu button { display: flex; width: 100%; gap: var(--space-2); padding: var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .composer-selector-menu button:hover { background: var(--hover-bg); }
 .composer-selector-menu button[aria-checked="true"] { background: var(--accent-bg); color: var(--accent); }
 .option-dot { display: inline-flex; align-items: center; justify-content: center; width: var(--icon-xs); min-width: var(--icon-xs); height: var(--icon-xs); margin-top: 1px; }
-.composer-selector-menu strong { font-size: 12px; font-weight: 500; }
-.composer-selector-menu small { display: block; margin-top: 4px; font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+.composer-selector-menu strong { font-size: var(--font-ui-sm); font-weight: 500; }
+.composer-selector-menu small { display: block; margin-top: 4px; font-size: var(--font-caption); line-height: 1.5; color: var(--text-secondary); }
 @container ai-composer (max-width: 360px) { .composer-selector { padding: 0 4px; gap: 3px; } }
 </style>

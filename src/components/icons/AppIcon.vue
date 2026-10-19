@@ -14,6 +14,24 @@ import { computed } from 'vue'
 
 export type AppIconName =
   | 'shield'
+  | 'lock-open'
+  | 'split-left'
+  | 'split-right'
+  | 'split-top'
+  | 'split-bottom'
+  | 'split-exit-v'
+  | 'background-tasks'
+  | 'file'
+  | 'file-cog'
+  | 'file-code'
+  | 'file-archive'
+  | 'bell'
+  | 'calendar-clock'
+  | 'models'
+  | 'plug'
+  | 'unplug'
+  | 'broadcast'
+  | 'skip'
   | 'close'
   | 'plus'
   | 'minus'
@@ -479,17 +497,164 @@ const iconStyle = computed(() => {
       <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
       <rect x="8" y="2" width="8" height="4" rx="1" />
     </template>
-    <!-- select-all -->
-    <template v-else-if="name === 'select-all'">
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
+    <template v-else-if="name === 'bell'">
+      <!-- Lucide: bell; source and license: docs/ICONS.md -->
+      <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+      <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
     </template>
-    <!-- clear / ban -->
-    <template v-else-if="name === 'clear'">
+    <template v-else-if="name === 'calendar-clock'">
+      <!-- Lucide: calendar-clock; source and license: docs/ICONS.md -->
+      <path d="M16 14v2.2l1.6 1" />
+      <path d="M16 2v3" />
+      <path d="M21 7.338V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h2.338" />
+      <path d="M3 9h5.859" />
+      <path d="M8 2v3" />
+      <circle cx="16" cy="16" r="6" />
+    </template>
+    <template v-else-if="name === 'models'">
+      <!-- Lucide: boxes; source and license: docs/ICONS.md -->
+      <path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z" />
+      <path d="m7 16.5-4.74-2.85" />
+      <path d="m7 16.5 5-3" />
+      <path d="M7 16.5v5.17" />
+      <path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z" />
+      <path d="m17 16.5-5-3" />
+      <path d="m17 16.5 4.74-2.85" />
+      <path d="M17 16.5v5.17" />
+      <path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z" />
+      <path d="M12 8 7.26 5.15" />
+      <path d="m12 8 4.74-2.85" />
+      <path d="M12 13.5V8" />
+    </template>
+    <template v-else-if="name === 'plug'">
+      <!-- Lucide: plug; source and license: docs/ICONS.md -->
+      <path d="M12 22v-5" />
+      <path d="M15 8V2" />
+      <path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z" />
+      <path d="M9 8V2" />
+    </template>
+    <template v-else-if="name === 'unplug'">
+      <!-- Lucide: unplug; source and license: docs/ICONS.md -->
+      <path d="m19 5 3-3" />
+      <path d="m2 22 3-3" />
+      <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+      <path d="M7.5 13.5 10 11" />
+      <path d="M10.5 16.5 13 14" />
+      <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+    </template>
+    <template v-else-if="name === 'broadcast'">
+      <!-- Lucide: radio-tower; source and license: docs/ICONS.md -->
+      <path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9" />
+      <path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5" />
+      <circle cx="12" cy="9" r="2" />
+      <path d="M16.2 4.8c2 2 2.26 5.11.8 7.47" />
+      <path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1" />
+      <path d="M9.5 18h5" />
+      <path d="m8 22 4-11 4 11" />
+    </template>
+    <template v-else-if="name === 'skip'">
+      <!-- Lucide: circle-slash; source and license: docs/ICONS.md -->
       <circle cx="12" cy="12" r="10" />
-      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+      <line x1="9" x2="15" y1="15" y2="9" />
+    </template>
+    <template v-else-if="name === 'select-all'">
+      <!-- Lucide: square-dashed; source and license: docs/ICONS.md -->
+      <path d="M5 3a2 2 0 0 0-2 2" />
+      <path d="M19 3a2 2 0 0 1 2 2" />
+      <path d="M21 19a2 2 0 0 1-2 2" />
+      <path d="M5 21a2 2 0 0 1-2-2" />
+      <path d="M9 3h1" />
+      <path d="M9 21h1" />
+      <path d="M14 3h1" />
+      <path d="M14 21h1" />
+      <path d="M3 9v1" />
+      <path d="M21 9v1" />
+      <path d="M3 14v1" />
+      <path d="M21 14v1" />
+    </template>
+    <template v-else-if="name === 'clear'">
+      <!-- Lucide: eraser; source and license: docs/ICONS.md -->
+      <path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21" />
+      <path d="m5.082 11.09 8.828 8.828" />
+    </template>
+    <template v-else-if="name === 'lock-open'">
+      <!-- Lucide: lock-open; source and license: docs/ICONS.md -->
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </template>
+    <template v-else-if="name === 'split-left'">
+      <!-- Lucide: panel-left; source and license: docs/ICONS.md -->
+      <rect x="3" y="3" width="6" height="18" rx="2" fill="currentColor" fill-opacity=".14" stroke="none" />
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+    </template>
+    <template v-else-if="name === 'split-right'">
+      <!-- Lucide: panel-right; source and license: docs/ICONS.md -->
+      <rect x="15" y="3" width="6" height="18" rx="2" fill="currentColor" fill-opacity=".14" stroke="none" />
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M15 3v18" />
+    </template>
+    <template v-else-if="name === 'split-top'">
+      <!-- Lucide: panel-top; source and license: docs/ICONS.md -->
+      <rect x="3" y="3" width="18" height="6" rx="2" fill="currentColor" fill-opacity=".14" stroke="none" />
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 9h18" />
+    </template>
+    <template v-else-if="name === 'split-bottom'">
+      <!-- Lucide: panel-bottom; source and license: docs/ICONS.md -->
+      <rect x="3" y="15" width="18" height="6" rx="2" fill="currentColor" fill-opacity=".14" stroke="none" />
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 15h18" />
+    </template>
+    <template v-else-if="name === 'split-exit-v'">
+      <!-- Lucide: panel-left-close; source and license: docs/ICONS.md -->
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m16 15-3-3 3-3" />
+    </template>
+    <template v-else-if="name === 'background-tasks'">
+      <!-- Lucide: list-todo; source and license: docs/ICONS.md -->
+      <path d="M13 5h8" />
+      <path d="M13 12h8" />
+      <path d="M13 19h8" />
+      <path d="m3 17 2 2 4-4" />
+      <rect x="3" y="4" width="6" height="6" rx="1" />
+    </template>
+    <template v-else-if="name === 'file-cog'">
+      <!-- Lucide: file-cog; source and license: docs/ICONS.md -->
+      <path d="M15 8a1 1 0 0 1-1-1V2a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8z" />
+      <path d="M20 8v12a2 2 0 0 1-2 2h-4.182" />
+      <path d="m3.305 19.53.923-.382" />
+      <path d="M4 10.592V4a2 2 0 0 1 2-2h8" />
+      <path d="m4.228 16.852-.924-.383" />
+      <path d="m5.852 15.228-.383-.923" />
+      <path d="m5.852 20.772-.383.924" />
+      <path d="m8.148 15.228.383-.923" />
+      <path d="m8.53 21.696-.382-.924" />
+      <path d="m9.773 16.852.922-.383" />
+      <path d="m9.773 19.148.922.383" />
+      <circle cx="7" cy="18" r="3" />
+    </template>
+    <template v-else-if="name === 'file-code'">
+      <!-- Lucide: file-code; source and license: docs/ICONS.md -->
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M10 12.5 8 15l2 2.5" />
+      <path d="m14 12.5 2 2.5-2 2.5" />
+    </template>
+    <template v-else-if="name === 'file-archive'">
+      <!-- Lucide: file-archive; source and license: docs/ICONS.md -->
+      <path d="M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M8 12v-1" />
+      <path d="M8 18v-2" />
+      <path d="M8 7V6" />
+      <circle cx="8" cy="20" r="2" />
+    </template>
+    <template v-else-if="name === 'file'">
+      <!-- Lucide: file; source and license: docs/ICONS.md -->
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
     </template>
     <!-- eye -->
     <template v-else-if="name === 'eye'">
@@ -561,9 +726,10 @@ const iconStyle = computed(() => {
     </template>
     <!-- exit split layout without closing either terminal -->
     <template v-else-if="name === 'split-exit'">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <line x1="7" y1="17" x2="17" y2="7" />
+      <!-- Lucide: panel-top-close; source and license: docs/ICONS.md -->
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M3 9h18" />
+      <path d="m9 16 3-3 3 3" />
     </template>
     <!-- lucide: arrow-left-right -->
     <template v-else-if="name === 'swap'">

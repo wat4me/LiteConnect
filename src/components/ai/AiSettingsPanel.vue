@@ -129,11 +129,11 @@ const isPanel = computed(() => props.layout === 'panel')
 const panelOverview = ref(true)
 const showingOverview = computed(() => isPanel.value && panelOverview.value && !editingProvider.value)
 const settingsRoot = ref<HTMLElement | null>(null)
-const sections: Array<{ id: SettingsSection; icon: 'server' | 'history' | 'shield' | 'activity'; label: string }> = [
-  { id: 'providers', icon: 'server', label: t('ai.settingsUi.modelsAndApi') },
+const sections: Array<{ id: SettingsSection; icon: 'models' | 'history' | 'shield' | 'bell'; label: string }> = [
+  { id: 'providers', icon: 'models', label: t('ai.settingsUi.modelsAndApi') },
   { id: 'conversation', icon: 'history', label: t('ai.settingsUi.conversation') },
   { id: 'permissions', icon: 'shield', label: t('ai.settingsUi.execution') },
-  { id: 'notifications', icon: 'activity', label: t('ai.settingsUi.notifications') },
+  { id: 'notifications', icon: 'bell', label: t('ai.settingsUi.notifications') },
 ]
 const editingProvider = computed(() => providerDraft.value)
 const providerDefaultChanged = ref(false)
@@ -456,7 +456,7 @@ defineExpose({ applyExternal })
         class="provider-item"
         :class="{ active: provider.id === draftSettings.activeProviderId }"
       >
-        <AppIcon name="server" size="md" class="provider-symbol" />
+        <AppIcon name="plug" size="md" class="provider-symbol" />
         <button type="button" class="provider-item-info" @click="openProvider(provider)">
           <span class="provider-item-name">{{ provider.name }}</span>
           <span class="provider-item-meta">
@@ -566,7 +566,7 @@ defineExpose({ applyExternal })
     </div>
     <footer v-if="!showingOverview || generalDirty" class="provider-edit-actions">
       <div class="settings-save-scope"><span>{{ t(`ai.settingsUi.${editingProvider ? 'provider' : section === 'conversation' ? 'history' : 'general'}SaveScope${isPanel ? 'Compact' : ''}`) }}</span><small v-if="historyDirty && section !== 'conversation'">{{ t('ai.settingsUi.pendingHistory') }}</small></div>
-      <button v-if="editingProvider" type="button" class="ui-btn ui-btn-sm" :disabled="testingProvider || saving" @click="testProvider"><AppIcon name="link" size="sm" />{{ testingProvider ? t('ai.testingProvider') : t('ai.testProvider') }}</button>
+      <button v-if="editingProvider" type="button" class="ui-btn ui-btn-sm" :disabled="testingProvider || saving" @click="testProvider"><AppIcon name="circle-check" size="sm" />{{ testingProvider ? t('ai.testingProvider') : t('ai.testProvider') }}</button>
       <button type="button" class="ui-btn ui-btn-sm ui-btn-primary settings-save" :disabled="saving || testingProvider || !hasChanges || (!editingProvider && section === 'conversation' && (previewBusy || !!previewError))" @click="saveSettings"><AppIcon name="check" size="sm" />{{ saving ? t('common.saving') : editingProvider ? t('ai.settingsUi.saveProvider') : section === 'conversation' ? t('ai.settingsUi.applyHistory') : t('ai.saveSettings') }}</button>
     </footer>
     <AiModelPicker :open="showModelPicker" :provider-name="editingProvider?.name || ''" :models="fetchedModels" :added="editingProvider?.models.map(model => model.id.trim()) || []" :loading="fetchingModels" :error="fetchError" :return-focus="modelFetchButton" @close="showModelPicker = false" @retry="fetchModels" @add="addSelectedModels" />

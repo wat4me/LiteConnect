@@ -4,6 +4,7 @@ import type { Connection } from '@/env.d'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import type { HostKeyMismatchData } from '@/domain/app/security'
 import { SSH_HOST_KEY_CONFIRMATION_REQUIRED } from '@shared/sshHostKeyConfirmation'
+import { SSH_CONNECTION_CANCELLED } from '@shared/sshConnectionProgress'
 
 vi.mock('vue', async (original) => ({ ...await original<typeof import('vue')>(), onMounted: (fn: () => void) => fn(), onBeforeUnmount: vi.fn() }))
 vi.mock('../../i18n', () => ({ t: (key: string) => key }))
@@ -124,5 +125,26 @@ describe('first SSH connection host-key confirmation', () => {
     await dialogs.handleHostKeyAccept()
     expect(ElMessage.error).toHaveBeenCalledTimes(2)
     expect(sessions.groups.value).toHaveLength(0)
+  })
+
+  it('retains an offline failure after progress ends and clears it on retry', async () => {
+    const s = setup()
+    s.api.sshConnect.mockImplementationOnce(async () => {
+      s.reportProgress('c1', 'connecting')
+      s.reportProgress('c1', 'failed')
+      throw new Error('Connection error: Timed out while waiting for handshake')
+    })
+    await s.sessions.onConnect('c1')
+    expect(s.sessions.connectionErrors.value.c1).toBe('terminal.connectTimeoutHint')
+    expect(s.sessions.connectingConnectionIds.value.size).toBe(0)
+    expect(s.sessions.groups.value).toHaveLength(0)
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.objectContaining({ duration: 0, showClose: true }))
+    s.api.sshConnect.mockImplementationOnce(async () => {
+      expect(s.sessions.connectionErrors.value.c1).toBeUndefined()
+      throw new Error(SSH_CONNECTION_CANCELLED)
+    })
+    await s.sessions.onConnect('c1')
+    expect(s.sessions.connectionErrors.value).toEqual({})
+    expect(ElMessage.error).toHaveBeenCalledTimes(1)
   })
 })

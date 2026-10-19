@@ -19,7 +19,7 @@ import {
   focusPrimaryTerminalTab,
   type FocusableTerminalTab,
 } from '@/utils/terminal/workspaceTerminalFocus'
-import AppIcon from '../icons/AppIcon.vue'
+import AppIcon, { type AppIconName } from '../icons/AppIcon.vue'
 import { getSessionPaneStyle as resolveSessionPaneStyle, getDividerStyle as resolveDividerStyle } from '@/utils/terminal/splitPaneLayout'
 import { useTerminalSplitKeyboard } from '@/composables/terminal/useTerminalSplitKeyboard'
 
@@ -406,7 +406,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
               :aria-label="t('terminal.exitSplit')"
               @click="closeSplit"
             >
-              <AppIcon name="split-exit" size="sm" />
+              <AppIcon :name="splitMode === 'horizontal' ? 'split-exit' : 'split-exit-v'" size="sm" />
             </button>
             <span class="terminal-layout-separator"></span>
           </template>
@@ -451,16 +451,16 @@ function onSplitDividerMousedown(e: MouseEvent) {
       <div v-if="previewActive" class="split-preview-overlay">
         <div
           v-for="target in [
-            { side: 'left', label: t('terminal.sideLeft'), icon: 'split-v' },
-            { side: 'right', label: t('terminal.sideRight'), icon: 'split-v' },
-            { side: 'top', label: t('terminal.sideTop'), icon: 'split-h' },
-            { side: 'bottom', label: t('terminal.sideBottom'), icon: 'split-h' },
+            { side: 'left', label: t('terminal.sideLeft'), icon: 'split-left' },
+            { side: 'right', label: t('terminal.sideRight'), icon: 'split-right' },
+            { side: 'top', label: t('terminal.sideTop'), icon: 'split-top' },
+            { side: 'bottom', label: t('terminal.sideBottom'), icon: 'split-bottom' },
           ]"
           :key="target.side"
           class="split-preview-zone"
           :class="[`drop-${target.side}`, { 'is-active': previewSide === target.side }]"
         >
-          <AppIcon :name="target.icon as 'split-h' | 'split-v'" size="lg" />
+          <AppIcon :name="target.icon as AppIconName" size="lg" />
           <span>{{ target.label }}</span>
         </div>
         <div class="split-preview-cancel" :class="{ 'is-active': previewMode === 'none' }">

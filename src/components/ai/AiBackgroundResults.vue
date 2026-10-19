@@ -50,7 +50,7 @@ const runs = computed<AiToolRun[]>(() => jobs.value.map((job, index) => {
 <template>
   <details class="background-result-notice">
     <summary class="background-result-heading" :title="t('ai.backgroundResultsReceived')">
-      <AppIcon name="activity" size="sm" />
+      <AppIcon name="background-tasks" size="sm" />
       <span class="background-result-title">{{ t('ai.backgroundResultsTitle') }}</span>
       <span v-if="jobs.length" class="background-result-counts">
         <span v-if="jobs.length > counts[summaryState]" class="background-result-total">{{ t('ai.backgroundResultCount', { count: jobs.length }) }}</span>
@@ -69,8 +69,8 @@ const runs = computed<AiToolRun[]>(() => jobs.value.map((job, index) => {
 </template>
 
 <style scoped>
-.background-result-notice { min-width: 0; margin: 4px 0; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-secondary); background: color-mix(in srgb, var(--bg-secondary) 55%, transparent); font-size: 11px; }
-.background-result-heading { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 8px 10px; list-style: none; cursor: pointer; line-height: 1.4; border-radius: 7px; }
+.background-result-notice { min-width: 0; margin: 4px 0; border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-secondary); background: color-mix(in srgb, var(--bg-secondary) 55%, transparent); font-size: var(--font-ui-sm); }
+.background-result-heading { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 8px 10px; list-style: none; cursor: pointer; line-height: 1.4; border-radius: var(--radius-md); }
 .background-result-heading::-webkit-details-marker, .background-result-heading::marker { display: none; content: ''; }
 .background-result-heading:hover { background: var(--hover-bg); }
 .background-result-heading:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

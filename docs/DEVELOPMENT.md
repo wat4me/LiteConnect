@@ -90,6 +90,8 @@ npm install
 npm run dev
 ```
 
+Windows 开发版以 `LiteConnect Dev` 注册独立的开始菜单入口与任务栏标识，使用项目图标。启动时会迁移旧版误注册的 `Electron.lnk`：只有 AppID 属于 LiteConnect 开发版，且目标位于当前项目的 `node_modules` 内时才会处理；其他应用的 Electron 快捷方式保持不变。
+
 开发版默认使用独立数据目录，不会读取或修改已安装正式版的连接、凭据、设置、AI 历史、日志和数据库。默认位置为：
 
 - Windows：`%APPDATA%\LiteConnect-Dev\`

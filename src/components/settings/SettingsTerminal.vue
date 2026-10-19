@@ -114,9 +114,9 @@ async function clearCommandHistory() {
 
         <div class="settings-label" style="margin-top: 14px" data-setting="terminal.fontSize">{{ t('settingsTerminal.fontSize') }}</div>
         <div class="font-size-row">
-          <button type="button" class="font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
+          <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
           <span class="font-size-value">{{ draft.terminalFontSize }}px</span>
-          <button type="button" class="font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+          <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateFontSize(1)"><AppIcon name="plus" size="xs" /></button>
         </div>
         <div class="settings-hint">{{ t('settingsTerminal.fontSizeHint') }}</div>
 

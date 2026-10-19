@@ -22,6 +22,23 @@ describe('ConnectionService cancellation', () => {
   beforeEach(() => { clients.length = 0; vi.useFakeTimers() })
   afterEach(() => { vi.useRealTimers() })
 
+  it('rejects an offline host after the handshake deadline and reports the error', async () => {
+    const sessions = new Map<string, Session>()
+    const service = new ConnectionService({
+      sessions, decoders: new Map(), pendingHostKeys: new Map(), knownHosts: {} as any,
+      cleanupSession: vi.fn(), bumpSessionEpoch: () => 1, getSessionEpoch: () => 1,
+    })
+    const callbacks: SSHCallbacks = { onData: vi.fn(), onError: vi.fn(), onClose: vi.fn() }
+    const result = service.connect({ id: 'offline', name: 'Offline', host: '10.2.5.223', port: 22, username: 'root' } as Connection, callbacks)
+    const rejection = expect(result).rejects.toThrow('Timed out while waiting for handshake')
+    await vi.advanceTimersByTimeAsync(20_000)
+    await rejection
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('Timed out'))
+    expect(clients[0].destroy).toHaveBeenCalled()
+    expect(sessions.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each([false, true])('destroys the client and rejects late shell results (shell started: %s)', async (ready) => {
     const sessions = new Map<string, Session>()
     const service = new ConnectionService({

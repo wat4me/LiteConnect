@@ -30,6 +30,7 @@ const props = withDefaults(defineProps<{
   showUsageStats?: boolean
   connecting?: boolean
   connectionStage?: import('@shared/sshConnectionProgress').SshConnectionStage
+  connectionError?: string
   groupName?: string
 }>(), {
   reorderDisabled: false,
@@ -382,6 +383,7 @@ function onMenuAction(action: MenuAction) {
             <span class="conn-note" :title="connection.note">{{ connection.note }}</span>
           </template>
         </span>
+        <span v-if="connectionError && !connecting" class="conn-error" role="alert"><AppIcon name="alert-circle" size="xs" />{{ connectionError }}</span>
       </div>
     </div>
 
@@ -394,6 +396,7 @@ function onMenuAction(action: MenuAction) {
         <span class="spinner" aria-hidden="true"></span>
         {{ connectingLabel }}
       </span>
+      <span v-else-if="connectionError" class="test-badge error">{{ t('connections.failed') }}</span>
       <span
         v-else-if="testStatus.state === 'testing'"
         class="test-badge testing"
@@ -417,16 +420,16 @@ function onMenuAction(action: MenuAction) {
         <span class="test-badge error">{{ t('connections.failed') }}</span>
       </el-tooltip>
 
-      <el-tooltip :content="connecting ? t('common.cancel') : t('connections.connectTooltip')" placement="bottom">
+      <el-tooltip :content="connecting ? t('common.cancel') : connectionError ? t('terminal.retryConnection') : t('connections.connectTooltip')" placement="bottom">
         <button
           class="action-btn connect"
           type="button"
-          :aria-label="connecting ? t('common.cancel') : t('connections.connect')"
+          :aria-label="connecting ? t('common.cancel') : connectionError ? t('terminal.retryConnection') : t('connections.connect')"
           @click.stop="connecting ? emit('cancel-connect', connection.id) : requestConnect()"
           @dblclick.stop
         >
-          <AppIcon :name="connecting ? 'close' : 'link'" size="sm" />
-          <span class="connect-label">{{ connecting ? t('common.cancel') : t('connections.connect') }}</span>
+          <AppIcon :name="connecting ? 'close' : connectionError ? 'refresh' : 'link'" size="sm" />
+          <span class="connect-label">{{ connecting ? t('common.cancel') : connectionError ? t('terminal.retryConnection') : t('connections.connect') }}</span>
         </button>
       </el-tooltip>
 
@@ -498,7 +501,7 @@ function onMenuAction(action: MenuAction) {
               :disabled="connecting"
               @click="onMenuAction('connect')"
             >
-              <AppIcon name="link" size="sm" class="more-item-icon" />
+              <AppIcon name="plug" size="sm" class="more-item-icon" />
               {{ connecting ? t('connections.connecting') : t('connections.connect') }}
             </button>
             <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('window')">
@@ -671,6 +674,17 @@ function onMenuAction(action: MenuAction) {
   gap: 4px;
   min-width: 0;
 }
+
+.conn-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-ui);
+  overflow-wrap: anywhere;
+}
+.conn-error :deep(svg) { flex-shrink: 0; }
 
 .conn-name {
   display: inline-flex;

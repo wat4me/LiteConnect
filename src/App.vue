@@ -111,6 +111,7 @@ const {
   recentConnections,
   connectingConnectionIds,
   connectionStages,
+  connectionErrors,
   cancelConnection,
   activeGroupId,
   isHomeActive,
@@ -892,6 +893,7 @@ onBeforeUnmount(() => {
             :initial-data-pending="bootstrapPending"
             :connecting-connection-ids="connectingConnectionIds"
             :connection-stages="connectionStages"
+            :connection-errors="connectionErrors"
             @cancel-connect="cancelConnection"
             @connect="onConnect"
             @connection-saved="syncConnectionName"

@@ -54,7 +54,7 @@ app.whenReady().then(async () => {
     await window.webContents.capturePage()
     await new Promise(resolve => setTimeout(resolve, 100))
     const zoom = window.webContents.getZoomFactor()
-    const cropSelector = name.startsWith('lite-ai-') ? '.lite-ai-workspace-fixture' : name.startsWith('ai-settings-panel-') ? '.ai-image-composer-fixture' : name.startsWith('ai-background-result-') ? '.ai-fixture' : null
+    const cropSelector = name.startsWith('style-system-') ? '.style-system-fixture' : name.startsWith('lite-ai-') ? '.lite-ai-workspace-fixture' : name.startsWith('ai-settings-panel-') ? '.ai-image-composer-fixture' : name.startsWith('ai-background-result-') ? '.ai-fixture' : null
     const rect = cropSelector ? await run(`(() => {
       const r=document.querySelector('${cropSelector}').getBoundingClientRect();
       const x=Math.max(0,Math.floor(r.left)),y=Math.max(0,Math.floor(r.top));
@@ -107,6 +107,13 @@ app.whenReady().then(async () => {
   assert.deepEqual(await run('window.__uiRegression.cancelledConnections'), ['one'], 'Pending connection exposes a direct cancel action')
   assert.deepEqual(await run('window.__uiRegression.calls.connects'), [], 'Cancel does not start another connection')
   await run('window.__uiRegression.setConnectionStage()')
+  await run('window.__uiRegression.setConnectionFailure(true)')
+  await waitFor('document.querySelector(".connection-row .conn-error")?.textContent.includes("检查服务器是否开机")')
+  assert.equal(await run('document.querySelector(".connection-row .action-btn.connect").getAttribute("aria-label")'), '重试连接')
+  assert.ok(await run('document.querySelector(".sidebar-conn button[aria-label^=重试连接]")'), 'The compact connection tree also exposes the retained failure')
+  assert.ok(await run('(() => {const row=document.querySelector(".connection-row"),error=row.querySelector(".conn-error");return error.getBoundingClientRect().bottom<=row.getBoundingClientRect().bottom && error.scrollWidth<=error.clientWidth+1})()'), 'The failure text stays inside the row and wraps')
+  await saveScreenshot('ssh-offline-failure.png')
+  await run('window.__uiRegression.setConnectionFailure(false)')
   for (const zoom of [0.92, 1, 1.08]) {
     window.webContents.setZoomFactor(zoom)
     await window.webContents.capturePage()
@@ -688,7 +695,7 @@ app.whenReady().then(async () => {
   await waitFor('document.querySelectorAll(".background-job-stop").length === 2')
   const requestsBeforeStop = await run('window.__uiRegression.calls.aiRequests.length')
   await run(`document.querySelector('.background-job-stop').click()`)
-  await waitFor('document.querySelector(".ai-background-tasks [role=alert]")?.textContent.includes("中断任务失败")')
+  await waitFor('document.querySelector(".ai-background-tasks [role=alert]")?.textContent.includes("停止任务失败")')
   assert.equal(await run('document.querySelectorAll(".background-job-stop").length'), 2, 'Failed interruption retains running state and permits retry')
   await run(`(() => { window.__uiRegression.setCancelJobFailure(false); document.querySelector('.background-job-stop').click() })()`)
   await waitFor('document.querySelectorAll(".background-job-stop").length === 1 && document.querySelector(".ai-background-tasks li[data-status=stopped]")')
@@ -838,13 +845,20 @@ app.whenReady().then(async () => {
   assert.deepEqual(await run('Array.from(document.querySelectorAll(".workspace-host-checkbox:checked")).map(input=>input.closest(".workspace-card").dataset.connectionId)'), homeSelection, 'Returning from model settings retains the home server selection')
   await run(`document.querySelectorAll('.workspace-host-checkbox')[1].click()`)
   const firstAiHostId = await run('document.querySelector(".workspace-card").dataset.connectionId')
+  const firstAiHost = await run('document.querySelector(".workspace-card .workspace-host-address").textContent.split("@").pop().replace(/:\\d+$/, "").trim()')
   const terminalConnectsBeforeAi = await run('window.__uiRegression.calls.connects.length')
   await run(`document.querySelector('.workspace-card').click()`)
   assert.equal(await run('window.__uiRegression.workspaceOpens.length'), 0, 'Single-click only selects a server')
   await run(`window.__uiRegression.seedLegacyWorkspaceHistory(${JSON.stringify(firstAiHostId)})`)
   await run(`document.querySelector('.workspace-toolbar-actions .ui-icon-btn').click()`)
   await waitFor('document.querySelector(".rail-history .rail-item")?.textContent.includes("旧版单机会话")')
+  await run('window.__uiRegression.failWorkspaceConnection(true)')
   await run(`document.querySelector('.rail-history .rail-item').click()`)
+  await waitFor('document.querySelector(".workspace-connect-panel")?.textContent.includes("检查服务器是否开机")')
+  assert.ok(await run(`document.querySelector(".workspace-connect-panel").textContent.includes(${JSON.stringify(firstAiHost)})`), 'LiteAI identifies the failed target')
+  await saveScreenshot('lite-ai-offline-failure.png')
+  await run('window.__uiRegression.failWorkspaceConnection(false)')
+  await run('document.querySelector(".workspace-connect-panel .ui-btn-primary").click()')
 
   await waitFor('document.querySelector(".lite-ai-chat .composer-input")')
   assert.equal(await run('window.__uiRegression.calls.connects.length'), terminalConnectsBeforeAi, 'LiteAI does not create an SSH terminal tab')
@@ -1285,6 +1299,30 @@ app.whenReady().then(async () => {
   await saveScreenshot('lite-ai-sidebar-close-chat.png')
   await run(`document.querySelector('.rail-collapse').click()`)
   await saveScreenshot('lite-ai-redesign-collapsed.png')
+  await run('window.__uiRegression.showStylePreview()')
+  await waitFor('document.querySelector(".style-system-fixture .settings-select")')
+  const initialFont = await run('document.querySelector(".style-system-fixture .font-size-value").textContent')
+  await run('document.querySelector(".style-system-fixture .font-size-row button:last-child").click()')
+  await waitFor('document.querySelector(".style-system-fixture .font-size-value").textContent !== ' + JSON.stringify(initialFont))
+  await run(`(() => {const select=document.querySelector('.style-system-fixture .settings-select');select.value='skip';select.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+  assert.equal(await run('document.querySelector(".style-system-fixture .settings-select").value'), 'skip', 'Shared settings controls retain their editing behavior')
+  const styleCases = []
+  for (const theme of ['light', 'dark', 'eyecare']) {
+    await run(`window.__uiRegression.setTheme('${theme}')`)
+    for (const width of [300, 600]) {
+      await run(`(() => {const root=document.querySelector('.style-system-fixture');root.style.width='${width}px';root.scrollIntoView({block:'start'})})()`)
+      const state = await run(`(() => {const root=document.querySelector('.style-system-fixture'),bounds=root.getBoundingClientRect();return {fits:root.scrollWidth<=root.clientWidth+1,controlsFit:[...root.querySelectorAll('button,select')].every(node=>{const box=node.getBoundingClientRect();return box.left>=bounds.left-1&&box.right<=bounds.right+1}),scoped:getComputedStyle(root.querySelector('.settings-content')).containerName,colors:[...root.querySelectorAll('.file-type-icon')].map(node=>getComputedStyle(node).color)}})()`)
+      assert.ok(state.fits && state.controlsFit, `Shared settings fit ${theme}/${width}: ${JSON.stringify(state)}`)
+      assert.equal(state.scoped, 'settings-panel', 'General settings retain their own layout container')
+      styleCases.push({ theme, width, colors: state.colors })
+      await saveScreenshot(`style-system-${theme}-${width}.png`)
+    }
+  }
+  assert.notDeepEqual(styleCases[0].colors, styleCases[2].colors, 'File type colors adapt between light and dark themes')
+  await run("document.querySelector('.workspace-models-button').click()")
+  await waitFor('document.querySelector(".lite-ai-workspace-fixture .settings-box")')
+  assert.notEqual(await run("getComputedStyle(document.querySelector('.lite-ai-workspace-fixture .settings-content')).containerName"), 'settings-panel', 'General settings styles do not leak into AI settings')
+  await run('document.querySelector(".lite-ai-workspace-fixture .settings-panel-header > button").click()')
   await run('window.__uiRegression.setWidth(320)')
   await saveScreenshot('ui-regression.png')
   console.log(JSON.stringify({passed:true,layoutCases,themeCases:themeCases.length,flows:['current group expansion and manual collapse','toolbar menu and Escape','sidebar pointer and keyboard resize','narrow window layout','theme selection and color tags','global search','keyboard connection','whole-card drag','button protection','bookmark rename','AI stages and stalled output','SFTP conflict and confirmed backup','directory upload selection'],artifacts}))

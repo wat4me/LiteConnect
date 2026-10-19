@@ -73,7 +73,7 @@ const { t } = useI18n()
         :title="t('terminal.readOnlyTitle')"
         @click="emit('toggle-read-only')"
       >
-        <AppIcon :name="readOnly ? 'lock' : 'eye'" size="sm" />
+        <AppIcon :name="readOnly ? 'lock-open' : 'lock'" size="sm" />
         <span>{{ readOnly ? t('terminal.readOnlyOffMenu') : t('terminal.readOnlyOnMenu') }}</span>
       </button>
       <template v-if="selectedText">

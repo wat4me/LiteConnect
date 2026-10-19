@@ -1,5 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppIcon, { type AppIconName } from '../icons/AppIcon.vue'
+
+const iconNames = {
+  folder: 'folder',
+  link: 'link',
+  archive: 'file-archive',
+  image: 'image',
+  code: 'file-code',
+  config: 'file-cog',
+  text: 'file-text',
+  database: 'database',
+  file: 'file',
+} as const satisfies Record<string, AppIconName>
 
 const props = defineProps<{
   name: string
@@ -23,55 +36,11 @@ const iconKind = computed(() => {
 </script>
 
 <template>
-  <svg
+  <AppIcon
+    :name="iconNames[iconKind]"
     class="file-type-icon"
     :class="`is-${iconKind}`"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.8"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <template v-if="iconKind === 'folder'">
-      <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2.5h7.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
-    </template>
-    <template v-else-if="iconKind === 'link'">
-      <path d="M10 13a5 5 0 0 0 7.54.54l2-2a5 5 0 0 0-7.07-7.07l-1.15 1.15" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-2 2a5 5 0 0 0 7.07 7.07l1.14-1.14" />
-    </template>
-    <template v-else-if="iconKind === 'archive'">
-      <path d="M6 3h12v18H6z" />
-      <path d="M10 3v4h4V3M10 11h4M10 15h4" />
-    </template>
-    <template v-else-if="iconKind === 'image'">
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <circle cx="8.5" cy="9" r="1.5" />
-      <path d="m21 15-4.5-4.5L7 20" />
-    </template>
-    <template v-else-if="iconKind === 'code'">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6M9 13l-2 2 2 2M15 13l2 2-2 2" />
-    </template>
-    <template v-else-if="iconKind === 'config'">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6M8 13h8M8 17h5" />
-    </template>
-    <template v-else-if="iconKind === 'database'">
-      <ellipse cx="12" cy="5" rx="7" ry="3" />
-      <path d="M5 5v7c0 1.66 3.13 3 7 3s7-1.34 7-3V5" />
-      <path d="M5 12v7c0 1.66 3.13 3 7 3s7-1.34 7-3v-7" />
-    </template>
-    <template v-else-if="iconKind === 'text'">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6M8 13h8M8 17h8" />
-    </template>
-    <template v-else>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </template>
-  </svg>
+  />
 </template>
 
 <style scoped>
@@ -88,12 +57,11 @@ const iconKind = computed(() => {
   shape-rendering: geometricPrecision;
 }
 
-.is-folder { color: #d6a84f; }
-.is-link { color: #58a6ff; }
-.is-archive { color: #c792ea; }
-.is-image { color: #56b6c2; }
-.is-code { color: #61afef; }
-.is-config { color: #abb2bf; }
-.is-text { color: #9aa5b1; }
-.is-database { color: #e5c07b; }
+.is-folder { color: var(--file-folder); }
+.is-link { color: var(--accent); }
+.is-archive { color: var(--file-archive); }
+.is-image { color: var(--file-image); }
+.is-code { color: var(--file-code); }
+.is-config, .is-text { color: var(--text-secondary); }
+.is-database { color: var(--file-database); }
 </style>

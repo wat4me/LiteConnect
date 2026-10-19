@@ -54,6 +54,11 @@ html:not([data-theme]),
   --danger: #f85149;
   --success: #3fb950;
   --warning: #d29922;
+  --file-folder: #d6a84f;
+  --file-archive: #c792ea;
+  --file-image: #56b6c2;
+  --file-code: #61afef;
+  --file-database: #e5c07b;
   --scrollbar-thumb: #30363d;
   --scrollbar-thumb-hover: #484f58;
   --overlay-bg: rgba(0, 0, 0, 0.6);
@@ -79,6 +84,11 @@ html:not([data-theme]),
   --danger: #cf222e;
   --success: #1a7f37;
   --warning: #9a6700;
+  --file-folder: #9a6700;
+  --file-archive: #8250df;
+  --file-image: #087f8c;
+  --file-code: #0969da;
+  --file-database: #9a6700;
   --scrollbar-thumb: #d0d7de;
   --scrollbar-thumb-hover: #afb8c1;
   --overlay-bg: rgba(0, 0, 0, 0.4);
@@ -103,6 +113,11 @@ html:not([data-theme]),
   --danger: #b54a4a;
   --success: #5b8c5a;
   --warning: #b58c5a;
+  --file-folder: #886b25;
+  --file-archive: #7555a1;
+  --file-image: #377d7d;
+  --file-code: #3d6f98;
+  --file-database: #886b25;
   --scrollbar-thumb: #cdc3ae;
   --scrollbar-thumb-hover: #b8ab94;
   --overlay-bg: rgba(92, 83, 70, 0.45);
@@ -139,6 +154,7 @@ html, body, #app {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: var(--font-ui);
   background-color: var(--bg-primary);
   color: var(--text-primary);
   /* Enough for Latin descenders (y, g, p, q, j) under mixed CJK fonts */
@@ -344,6 +360,34 @@ pre.ddl,
   backdrop-filter: blur(10px);
 }
 
+/* Keep toasts clear of the native window controls; long messages wrap in content. */
+.el-message.el-message {
+  max-width: min(calc(560px * var(--ui-scale)), calc(100vw - 32px));
+  min-width: 0;
+  align-items: flex-start;
+  padding: 12px 16px;
+}
+
+.el-message:not(.is-bottom) {
+  margin-top: max(env(titlebar-area-height, 0px), var(--titlebar-height, 36px));
+}
+
+/* Enter from the content side so the animation also avoids the titlebar. */
+.el-message:not(.is-bottom).el-message-fade-enter-from,
+.el-message:not(.is-bottom).el-message-fade-leave-to {
+  transform: translateY(var(--space-2));
+}
+
+.el-message.is-center:not(.is-bottom).el-message-fade-enter-from,
+.el-message.is-center:not(.is-bottom).el-message-fade-leave-to {
+  transform: translate(-50%, var(--space-2));
+}
+
+.el-message > .el-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 .el-message--success {
   --el-message-bg-color: color-mix(in srgb, var(--success) 14%, var(--bg-secondary)) !important;
   --el-message-border-color: color-mix(in srgb, var(--success) 42%, var(--border-color)) !important;
@@ -370,6 +414,12 @@ pre.ddl,
 }
 
 .el-message .el-message__content {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui);
+  line-height: var(--line-reading);
   color: var(--el-message-text-color) !important;
   font-weight: 500;
 }
@@ -403,10 +453,30 @@ html:not([data-theme]),
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  --control-h: 36px;
-  --control-h-sm: 32px;
-  --font-ui: 13px;
-  --font-ui-sm: 12px;
+  --control-h: calc(36px * var(--ui-scale));
+  --control-h-sm: calc(32px * var(--ui-scale));
+  --control-h-xs: calc(26px * var(--ui-scale));
+  --font-ui: calc(13px * var(--ui-scale));
+  --font-ui-sm: calc(12px * var(--ui-scale));
+  --font-caption: calc(11px * var(--ui-scale));
+  --font-section: calc(14px * var(--ui-scale));
+  --font-title: calc(20px * var(--ui-scale));
+  --line-ui: 1.4;
+  --line-reading: 1.6;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-dialog: 16px;
+  --menu-padding: 6px;
+  --menu-item-padding: 8px;
+  --shadow-menu: 0 8px 24px color-mix(in srgb, var(--overlay-bg) 55%, transparent);
+  --shadow-dialog: 0 20px 60px color-mix(in srgb, var(--overlay-bg) 70%, transparent);
+  --z-menu-backdrop: 9998;
+  --z-menu: 10000;
+  --z-dialog: 1000;
+  --z-dialog-blocking: 11000;
   --font-mono: 'Cascadia Code', 'Fira Code', Consolas, ui-monospace, monospace;
   /* SFTP file icons: rem tracks OS/app zoom; slot is touch target around glyph */
   --sftp-icon-size: 1.125rem;
@@ -517,9 +587,9 @@ select:focus:not(:focus-visible) {
 }
 
 .ui-btn-xs {
-  height: 26px;
+  height: var(--control-h-xs);
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   border-radius: var(--radius-sm);
   font-weight: 500;
 }
@@ -555,7 +625,7 @@ select:focus:not(:focus-visible) {
 .ui-icon-btn-sm {
   width: var(--icon-btn-sm);
   height: var(--icon-btn-sm);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .ui-icon-btn-ghost {
@@ -597,7 +667,8 @@ select:focus:not(:focus-visible) {
 .ui-input,
 .ui-textarea,
 .ui-select,
-.settings-select {
+.settings-select,
+:where(.settings-page) .settings-input {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -655,7 +726,8 @@ select.ui-select option,
 .ui-input:focus,
 .ui-textarea:focus,
 .ui-select:focus,
-.settings-select:focus {
+.settings-select:focus,
+:where(.settings-page) .settings-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-bg);
 }
@@ -663,13 +735,15 @@ select.ui-select option,
 .ui-input:disabled,
 .ui-textarea:disabled,
 .ui-select:disabled,
-.settings-select:disabled {
+.settings-select:disabled,
+:where(.settings-page) .settings-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
 .ui-input::placeholder,
-.ui-textarea::placeholder {
+.ui-textarea::placeholder,
+:where(.settings-page) .settings-input::placeholder {
   color: var(--text-secondary);
 }
 
@@ -678,10 +752,37 @@ select.ui-select option,
 select.ui-input.ui-input-sm,
 .settings-select.ui-input-sm {
   height: var(--control-h-sm);
-  padding: 0 28px 0 10px;
+  padding: 0 10px;
   font-size: var(--font-ui-sm);
   border-radius: var(--radius-sm);
+  line-height: calc(var(--control-h-sm) - 2px);
   background-position: right 8px center;
+}
+
+select.ui-input-sm,
+.ui-select.ui-input-sm,
+.settings-select.ui-input-sm {
+  padding-right: 28px;
+}
+
+input:is([type="checkbox"], [type="radio"]) {
+  accent-color: var(--accent);
+}
+
+.ui-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+
+.ui-form-hint {
+  color: var(--text-secondary);
+  font-size: var(--font-ui-sm);
+  line-height: var(--line-reading);
+  overflow-wrap: anywhere;
 }
 
 .ui-textarea.ui-input-sm {
@@ -776,15 +877,15 @@ select.ui-input.ui-input-sm,
 /* Floating / anchored menus (context + overflow) */
 .ui-menu {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-menu);
   min-width: 160px;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--menu-padding);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -956,7 +1057,7 @@ select.ui-input.ui-input-sm,
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-dialog);
   backdrop-filter: blur(4px);
   animation: ui-fade-in 0.15s ease;
   -webkit-app-region: no-drag;
@@ -970,10 +1071,10 @@ select.ui-input.ui-input-sm,
   overflow: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-dialog);
   padding: 22px;
   position: relative;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-dialog);
   animation: ui-scale-in 0.18s ease;
   -webkit-app-region: no-drag;
 }

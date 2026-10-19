@@ -34,3 +34,15 @@ export function sshDisconnectDetailKey(message?: string | null): string | null {
   }
   return null
 }
+
+/** Initial connection failures need actionable reasons, distinct from a dropped session. */
+export function sshConnectFailureKey(message?: string | null): string | null {
+  const m = (message || '').toLowerCase()
+  if (m.includes('authentication prompt timed out')) return 'terminal.connectPromptTimeoutHint'
+  if (/timed out|timeout|etimedout/.test(m)) return 'terminal.connectTimeoutHint'
+  if (/econnrefused|connection refused/.test(m)) return 'terminal.connectRefusedHint'
+  if (/enotfound|eai_again|getaddrinfo/.test(m)) return 'terminal.connectDnsHint'
+  if (/ehostunreach|enetunreach/.test(m)) return 'terminal.connectUnreachableHint'
+  if (/authentication.*failed|all configured authentication methods failed/.test(m)) return 'terminal.connectAuthHint'
+  return sshDisconnectDetailKey(message)
+}

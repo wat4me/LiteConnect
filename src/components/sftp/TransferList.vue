@@ -48,7 +48,7 @@ function getProgress(item: TransferItem): number {
     >
       <div class="transfer-info">
         <AppIcon v-if="item.status === 'completed'" name="check" size="xs" class="transfer-done-icon" />
-        <AppIcon v-else-if="item.status === 'skipped'" name="clear" size="xs" class="transfer-skip-icon" />
+        <AppIcon v-else-if="item.status === 'skipped'" name="skip" size="xs" class="transfer-skip-icon" />
         <AppIcon v-else-if="item.status === 'uploading'" name="upload" size="xs" class="transfer-direction-icon" />
         <AppIcon v-else name="download" size="xs" class="transfer-file-icon" />
         <div class="transfer-text">

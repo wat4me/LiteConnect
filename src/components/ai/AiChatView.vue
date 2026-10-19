@@ -522,7 +522,7 @@ async function copyText(text: string, key: string) {
           </button>
         </div>
         <button v-if="hasApiConfigured" type="button" class="empty-model-settings" @click="emit('open-settings')">
-          <AppIcon name="settings" size="xs" aria-hidden="true" />{{ t('ai.manageModels') }}
+          <AppIcon name="models" size="xs" aria-hidden="true" />{{ t('ai.manageModels') }}
         </button>
       </div>
       <div

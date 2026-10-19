@@ -133,7 +133,7 @@ const sftpTooltip = computed(() => {
 
     <el-tooltip :content="t('terminal.syncTitle')" placement="right" :show-after="300">
       <button class="toolbar-icon-btn" type="button" :class="{ active: syncActive }" :aria-label="t('terminal.syncTitle')" :aria-pressed="!!syncActive" :disabled="sidePanelsDisabled" @click="emit('toggle-sync')">
-        <AppIcon name="link" size="lg" />
+        <AppIcon name="broadcast" size="lg" />
       </button>
     </el-tooltip>
     <el-tooltip :content="t('toolbar.snippetsShortcut')" placement="right" :show-after="300">

@@ -33,6 +33,7 @@ const props = withDefaults(defineProps<{
   initialDataPending?: boolean
   connectingConnectionIds?: Set<string>
   connectionStages?: Record<string, import('@shared/sshConnectionProgress').SshConnectionStage>
+  connectionErrors?: Record<string, string>
 }>(), {
   initialData: null,
   initialDataPending: false,
@@ -294,6 +295,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       :used-color-tags="usedColorTags"
       :connections="connections"
       :connecting-connection-ids="connectingConnectionIds"
+      :connection-errors="connectionErrors"
       @cancel-connect="emit('cancel-connect', $event)"
       @select="onSelectGroup"
       @select-smart="onSelectSmartView"
@@ -435,6 +437,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
             :show-usage-stats="usageStatsEnabled"
             :connecting="connectingConnectionIds.has(conn.id)"
             :connection-stage="connectionStages?.[conn.id]"
+            :connection-error="connectionErrors?.[conn.id]"
             @cancel-connect="emit('cancel-connect', $event)"
             @connect="onConnectFromRow"
             @test="onTestConnection"

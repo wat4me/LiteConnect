@@ -38,26 +38,26 @@ onMounted(() => { if (props.open !== false) void load() })
     </header>
     <form v-if="loaded" @submit.prevent="save()">
       <p>{{ t('ai.notification.hint') }}</p>
-      <label><input v-model="form.enabled" type="checkbox" :disabled="working" />{{ t('ai.notification.enable') }}</label>
-      <label>{{ t('ai.notification.endpoint') }}<input v-model="form.url" class="notification-url" type="url" :required="form.enabled" autocomplete="off" :disabled="working" placeholder="https://example.com/webhook" /></label>
-      <label>{{ t('ai.notification.mode') }}<select v-model="form.mode" :disabled="working"><option value="issues">{{ t('ai.notification.issues') }}</option><option value="all">{{ t('ai.notification.all') }}</option></select></label>
-      <label>{{ t('ai.notification.token') }}<input v-model="form.token" type="password" autocomplete="new-password" :disabled="working" :placeholder="t(form.hasToken ? 'ai.notification.tokenStored' : 'ai.notification.tokenOptional')" /></label>
-      <label v-if="form.hasToken"><input v-model="form.clearToken" type="checkbox" :disabled="working" />{{ t('ai.notification.clearToken') }}</label>
+      <label class="notification-check"><input v-model="form.enabled" type="checkbox" :disabled="working" />{{ t('ai.notification.enable') }}</label>
+      <label class="ui-form-field">{{ t('ai.notification.endpoint') }}<input v-model="form.url" class="ui-input notification-url" type="url" :required="form.enabled" autocomplete="off" :disabled="working" placeholder="https://example.com/webhook" /></label>
+      <label class="ui-form-field">{{ t('ai.notification.mode') }}<select v-model="form.mode" class="ui-select" :disabled="working"><option value="issues">{{ t('ai.notification.issues') }}</option><option value="all">{{ t('ai.notification.all') }}</option></select></label>
+      <label class="ui-form-field">{{ t('ai.notification.token') }}<input v-model="form.token" class="ui-input" type="password" autocomplete="new-password" :disabled="working" :placeholder="t(form.hasToken ? 'ai.notification.tokenStored' : 'ai.notification.tokenOptional')" /></label>
+      <label v-if="form.hasToken" class="notification-check"><input v-model="form.clearToken" type="checkbox" :disabled="working" />{{ t('ai.notification.clearToken') }}</label>
       <p>{{ t('ai.notification.tokenHint') }}</p>
       <p v-if="error" role="alert" class="notification-error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
-      <div class="notification-actions"><button type="submit" class="ui-btn ui-btn-sm" :disabled="working">{{ t('common.save') }}</button><button type="button" class="ui-btn ui-btn-sm notification-test" :disabled="working || !form.url" @click="save(true)">{{ t('ai.notification.test') }}</button></div>
+      <div class="notification-actions"><button type="button" class="ui-btn ui-btn-sm notification-test" :disabled="working || !form.url" @click="save(true)">{{ t('ai.notification.test') }}</button><button type="submit" class="ui-btn ui-btn-sm ui-btn-primary" :disabled="working">{{ t('common.save') }}</button></div>
     </form>
     <p v-else>{{ t('common.loading') }}</p>
   </section>
 </template>
 <style scoped>
-.ai-notification-settings { font-size: 12px; }
-.ai-notification-settings.panel { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 14px; background: var(--bg-secondary); }
+.ai-notification-settings { min-width: 0; font-size: var(--font-ui); }
+.ai-notification-settings.panel { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--bg-secondary); }
 .notification-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-form { display: flex; flex-direction: column; gap: 10px; }
-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-input:not([type=checkbox]), select { flex: 1; min-width: 100px; padding: 7px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); }
-p { margin: 0; line-height: 1.6; color: var(--text-secondary); }
+form { display: flex; flex-direction: column; gap: var(--space-4); }
+.notification-check { display: flex; align-items: flex-start; gap: var(--space-2); line-height: var(--line-ui); }
+.notification-check input { flex-shrink: 0; margin-top: 3px; }
+p { margin: 0; font-size: var(--font-ui-sm); line-height: var(--line-reading); color: var(--text-secondary); overflow-wrap: anywhere; }
 .notification-error { color: var(--danger); }
-.notification-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.notification-actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
 </style>
