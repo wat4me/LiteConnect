@@ -41,7 +41,7 @@ export function omitDeclaredRiskArg(args: Record<string, unknown>): Record<strin
 }
 
 export const AI_DECLARED_RISK_PROMPT_ZH = [
-  '每次工具调用都必须在 JSON 参数中提供 risk 和 explanation，不能只在聊天正文中说明。',
+  '每次服务器操作工具调用都必须在 JSON 参数中提供 risk 和 explanation，不能只在聊天正文中说明。',
   '- read（只读）：只查看，不改变文件、配置、进程或服务',
   '- write（修改）：会创建、改写、删除、移动，或改变进程/服务/配置',
   '- privileged（提权）：需要提升权限才能执行',
@@ -51,9 +51,9 @@ export const AI_DECLARED_RISK_PROMPT_ZH = [
 ].join('\n')
 
 export const AI_DECLARED_RISK_PARAM_DESCRIPTION =
-  'Required on every call. Declare read (inspect only, no state change), write (create/change/delete/move or change services/processes/config), or privileged (requires elevated privileges). exec/service_control targets are classified independently. Understated commands require approval in ask mode; auto mode promotes the displayed risk and continues, except for forbidden commands, which still require approval.'
+  'Declare actual risk; follow the shared system permission rules.'
 export const AI_TOOL_EXPLANATION_DESCRIPTION =
-  'Required, 1–500 characters. Write one concise Chinese sentence describing the action, purpose, target and concrete impact. Start directly with the action; omit headings such as “操作说明” or “只读排查” and do not repeat the risk label. State the impact of changes. Do not include passwords or secrets.'
+  'Concise Chinese action, purpose, target and impact; no secrets.'
 
 export function formatAiRiskReclassifyContent(gate: Extract<AiToolGate, { action: 'reclassify' }>): string {
   return [

@@ -1,6 +1,6 @@
 # AI 执行服务
 
-`electron/ai/execution/executionService.ts` 提供统一的 `AiExecutionService`，供侧栏、LiteAI 工作区和后续运维计划调用。它不接收 `WebContents`、窗口或 Vue 组件，页面事件由 IPC 适配层转换成可选监听器。
+`electron/ai/execution/executionService.ts` 提供统一的 `AiExecutionService`，供侧栏、LiteAI 工作区和定时巡检调用。它不接收 `WebContents`、窗口或 Vue 组件，页面事件由 IPC 适配层转换成可选监听器。
 
 ## 运行入口
 

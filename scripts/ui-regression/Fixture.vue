@@ -428,6 +428,20 @@ onMounted(() => {
       await nextTick()
     },
     setCancelJobFailure(value: boolean) { cancelJobFails = value },
+    async setContextLayout(workspace: boolean) { imageComposerWorkspace.value = workspace; await nextTick() },
+    async setContextModelWindow(tokens?: number, providerTokens?: number) {
+      const model = imageSettings.providers[0].models[0]
+      model.contextWindowTokens = tokens
+      model.contextMetadata = providerTokens ? { modelId: model.id, tokens: providerTokens } : undefined
+      useAiChat().replaceSettings(JSON.parse(JSON.stringify(imageSettings)))
+      await nextTick()
+    },
+    async setLiveContextPressure(pressure?: { usedTokens: number; windowTokens: number; outputReserveTokens: number; inputBudgetTokens: number; thresholdTokens: number; retainTokens: number }) {
+      const state = useAiChat().getSessionState(imageComposerSession.value)
+      state.contextPressure = pressure
+      state.loading = !!pressure
+      await nextTick()
+    },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },
     async closeImageComposer() { imageComposerOpen.value = false; await nextTick() },
     async switchImageSession(id: string) { imageComposerSession.value = id; await nextTick() },

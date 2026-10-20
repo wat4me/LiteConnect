@@ -5,10 +5,11 @@ import {
   AI_TOOL_EXPLANATION_DESCRIPTION,
   AI_TOOL_EXPLANATION_MAX_CHARS,
 } from './aiToolPolicy'
-import { estimateTokens, packAiMessages, type AiContextPack } from './aiContext'
+import { packAiMessages, type AiContextPack } from './aiContext'
 import { formatAiConversationContextFile } from './aiFixedContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
 import { aiUserQuestionTool, AI_QUESTION_GUIDANCE } from './aiQuestions'
+import { aiChatServerToolNames, aiLoadToolsDefinition, normalizeAiToolGroups, type AiToolGroup } from './aiToolCatalog'
 import type { AiChatMessage, AiConversationContextFile } from './types/ai'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget, type AiContextBudgetConfig } from './aiContextPressure'
 
@@ -32,13 +33,14 @@ export function sshToolSystemAddendum(session: {
   const cwd = sanitizeTrackedCwd(session.cwd)
   return [
     '你可以使用 SSH 工具查看和操作当前对话绑定的这台主机，不要空口猜测磁盘、进程、日志或配置。',
-    'exec / read_file / grep / glob / write_file / edit_file / list_dir 默认就在这台机上执行，不要传 sessionId，也不要切换到其它主机。',
+    'exec / read_file / grep / write_file / edit_file 默认就在这台机上执行，不要传 sessionId，也不要切换到其它主机。',
     '服务器操作工具的权限按你在 JSON 中声明的级别和用户设置处理；需要确认的调用会暂停，等待用户在对话里点「允许」。',
     `服务器操作工具的申报要求：${AI_DECLARED_RISK_PROMPT_ZH}`,
     AI_QUESTION_GUIDANCE,
     '长任务用 exec(background=true)。任务完成后应用会自动将状态和标准输出/错误送回当前对话并继续处理，收到后直接分析，不要再用 get_job 确认完成。后台执行期间可处理独立工作，或结束本次回复等待自动续接；不要轮询 get_job / list_jobs、sleep 等待或重复执行同一任务。仅在用户要求查看进度，或推送输出被截断且确需补读时使用 get_job。不要去连其它主机或结束用户正在用的终端。',
-    '需要安装向导、菜单、方向键时用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端。exec 仍是非交互命令。大文件用 upload_file / download_file。',
-    '查日志和配置不要整文件 read_file。先 glob 找路径、grep 定位行号，再 read_file(startLine, limit) 读附近几十行。read_file 默认只返回前 200 行（约 50KiB）。',
+    '默认提供常用工具；需要文件传输、交互式终端或后台任务总览时，先单独调用 load_tools，仅传 groups 加载 file_transfer / interactive_terminal / job_overview，不需要 risk / explanation。加载只增加本会话可用工具，不是执行授权；返回后再规划操作。已加载能力在本会话持续有效。',
+    '交互式终端加载后，用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端，用完关闭。exec 仍是非交互命令。文件传输加载后用 upload_file / download_file。',
+    '目录、文件属性、查找路径、日志尾部、服务管理和资源状态通过 exec 调用目标系统的命令。查日志和配置不要整文件 read_file；先找到路径、grep 定位行号，再 read_file(startLine, limit) 读附近几十行。read_file 默认只返回前 200 行（约 50KiB）。',
     '改已存在的文件用 edit_file：它只传改动片段、其余内容原样不动，审批卡上给出的是小而可读的 diff。只有新建文件或整体重写才用 write_file。',
     'edit_file 的 oldString 必须逐字来自 read_file 返回的内容（含缩进与引号），不要带行号前缀；匹配不唯一时补上足够上下文，或明确用 replaceAll。行首的行号只是定位标记，任何时候都不要复制进 oldString / newString / write_file 的 content。',
     '工具结果已经显示在卡片里。回复只给简短结论和下一步，不要原样粘贴大段 stdout/JSON。能用工具拿到的信息，不要让用户去终端复制。',
@@ -70,15 +72,6 @@ function withDeclaredRiskParameter(schema: Record<string, unknown>): Record<stri
   return { ...schema, properties, required }
 }
 
-const SIDEBAR_HIDDEN_TOOLS = new Set([
-  'list_connections',
-  'list_sessions',
-  'list_groups',
-  'connect',
-  'save_connection',
-  'disconnect',
-])
-
 const EXEC_CHAT_DESCRIPTION =
   'Run a non-interactive command on the current sidebar host (separate exec channel, not the user terminal). Not for TTY prompts. Use stdin for a one-shot answer. Foreground timeout 1s–10min (default 30s). Longer work: background=true. Completion status and stdout/stderr are delivered automatically to this conversation. Analyze the delivered result directly; do not call get_job to reconfirm completion or poll get_job / list_jobs or sleep while waiting. Use get_job only for user-requested progress or necessary output omitted by truncation. Include risk and explanation; the application applies the user permission mode.'
 
@@ -102,17 +95,21 @@ function omitSessionRoutingFromChatParameters(schema: Record<string, unknown>): 
   delete properties.sessionIds
   delete properties.group
   delete properties.connectMissing
+  // Chat owns approval, and a bound call never fans out; these are MCP-only knobs.
+  delete properties.confirmed
+  delete properties.concurrency
   const required = Array.isArray(schema.required)
     ? schema.required.map(String).filter(
-        (key) => key !== 'sessionId' && key !== 'sessionIds' && key !== 'group' && key !== 'connectMissing',
+        (key) => !['sessionId', 'sessionIds', 'group', 'connectMissing', 'confirmed', 'concurrency'].includes(key),
       )
     : []
   return { ...schema, properties, required }
 }
 
-export function sshToolsForChat() {
+export function sshToolsForChat(groups: readonly AiToolGroup[] = []) {
+  const allowed = aiChatServerToolNames(groups)
   const tools = sshMcpToolsAsOpenAiFunctions()
-    .filter((tool) => !SIDEBAR_HIDDEN_TOOLS.has(tool.function.name))
+    .filter((tool) => allowed.has(tool.function.name))
     .map((tool) => {
       const parameters = withDeclaredRiskParameter(omitSessionRoutingFromChatParameters(tool.function.parameters))
       if (tool.function.name === 'exec') {
@@ -132,7 +129,7 @@ export function sshToolsForChat() {
         },
       }
     })
-  return [...tools, aiUserQuestionTool]
+  return [...tools, aiUserQuestionTool, aiLoadToolsDefinition]
 }
 
 export type SidebarAiRequestEstimate = AiContextPack & {
@@ -143,14 +140,13 @@ export type SidebarAiRequestEstimate = AiContextPack & {
   totalTokens: number
 }
 
-let cachedToolSchemaTokens = 0
+const cachedToolSchemaTokens = new Map<string, number>()
 
-/** Approximate tokens of the sidebar `tools[]` payload (stable; catalog is static). */
-export function sidebarToolSchemaTokens(): number {
-  if (!cachedToolSchemaTokens) {
-    cachedToolSchemaTokens = aiToolSchemaTokens(sshToolsForChat())
-  }
-  return cachedToolSchemaTokens
+/** Approximate sidebar `tools[]` tokens, cached per selected capability set. */
+export function sidebarToolSchemaTokens(groups: readonly AiToolGroup[] = []): number {
+  const key = normalizeAiToolGroups(groups).join(',')
+  if (!cachedToolSchemaTokens.has(key)) cachedToolSchemaTokens.set(key, aiToolSchemaTokens(sshToolsForChat(groups)))
+  return cachedToolSchemaTokens.get(key)!
 }
 
 /**
@@ -166,6 +162,7 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
   model?: string
   contextWindowTokens?: number
   contextFiles?: AiConversationContextFile[]
+  toolGroups?: readonly AiToolGroup[]
 }): SidebarAiRequestEstimate {
   const bound = Boolean(opts.sessionId)
   const extraSystem = opts.toolContext?.system ?? (bound
@@ -177,7 +174,7 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
   const files = opts.contextFiles || []
   const fixedContext = files.map(formatAiConversationContextFile).join('\n\n')
   const extra = [extraSystem, fixedContext].filter(text => text?.trim()).join('\n\n')
-  const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens() : 0)
+  const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens(opts.toolGroups) : 0)
   const pressure = measureAiContextPressure({ ...opts, extraSystem: extra, toolSchemaTokens })
   const pack = packAiMessages({
     systemPrompt: [opts.systemPrompt, extraSystem, fixedContext].filter((s) => s && s.trim()).join('\n\n'),
@@ -204,6 +201,7 @@ export function sidebarContextFilesFit(opts: AiContextBudgetConfig & {
   model?: string
   contextWindowTokens?: number
   contextFiles: AiConversationContextFile[]
+  toolGroups?: readonly AiToolGroup[]
 }): boolean {
   if (!opts.contextFiles.length) return true
   const system = estimateSidebarAiRequest({ ...opts, messages: [] }).messages[0]?.content || ''

@@ -84,3 +84,20 @@ it('initializes a fresh thread before sending without a mounted sidebar', async 
     [{ role: 'user', content: 'new question' }], expect.objectContaining({ threadId: 'fresh-1' }),
   ]))
 })
+
+it('restores conversation capabilities and resets them when starting a new conversation', async () => {
+  const { chat, store } = setup()
+  store().threads[0].toolGroups = ['file_transfer']
+  await chat.loadHistory('lifecycle-a')
+  const state = chat.getSessionState('lifecycle-a')
+  expect(state.toolGroups).toEqual([])
+  await chat.switchConversation('lifecycle-a', 'old', () => {})
+  expect(state.toolGroups).toEqual(['file_transfer'])
+  await chat.startNewConversation('lifecycle-a', () => {})
+  expect(state.toolGroups).toEqual([])
+  expect(store().threads.find(thread => thread.id === 'old')?.toolGroups).toEqual(['file_transfer'])
+  await chat.switchConversation('lifecycle-a', 'old', () => {})
+  expect(state.toolGroups).toEqual(['file_transfer'])
+  await chat.clearAllConversations('lifecycle-a', () => {})
+  expect(state.toolGroups).toEqual([])
+})

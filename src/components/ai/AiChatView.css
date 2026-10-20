@@ -786,22 +786,13 @@
   color: var(--text-secondary);
 }
 
-:deep(.usage-line) {
-  flex: 1;
-  min-width: min(180px, 100%);
-  font-size: var(--font-caption);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  color: var(--text-secondary);
-  opacity: 0.78;
+.chat-row:hover :deep(.message-time),
+.chat-row:focus-within :deep(.message-time) {
+  opacity: 0.72;
   visibility: visible;
-  cursor: help;
 }
 
-.chat-row:hover :deep(.message-time),
-.chat-row:focus-within :deep(.message-time),
-.chat-row:hover :deep(.usage-line),
-.chat-row:focus-within :deep(.usage-line) {
+.chat-row.assistant :deep(.message-time) {
   opacity: 0.72;
   visibility: visible;
 }

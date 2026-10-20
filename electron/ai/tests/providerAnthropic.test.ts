@@ -40,6 +40,20 @@ function stream(blocks: AiAnthropicContentBlock[], stopReason = 'end_turn', stop
 const useTool = (id = 'call-one', command = 'hostname', connectionId?: string): AiAnthropicContentBlock => ({ type: 'tool_use', id, name: 'exec', input: { command, risk: 'read', explanation: 'Inspect selected host', ...(connectionId ? { connectionId } : {}) } })
 
 describe('Anthropic Messages protocol', () => {
+  it('loads optional schemas between Claude tool rounds without rewriting signed blocks', async () => {
+    const loading: AiAnthropicContentBlock = { type: 'tool_use', id: 'load-claude', name: 'load_tools', input: { groups: ['interactive_terminal'] } }
+    const fetcher = vi.fn().mockResolvedValueOnce(stream([thinking, loading], 'tool_use'))
+      .mockResolvedValueOnce(stream([{ type: 'text', text: '已加载交互终端。' }]))
+    vi.stubGlobal('fetch', fetcher)
+    const call = vi.fn(async (_name: string, _args: Record<string, unknown>) => ({ isError: false, content: '{}', structuredContent: { sessions: [] } }))
+    await runAiChatStream({ settings, sessionId, messages: [{ role: 'user', content: '准备交互终端' }], requestId: 'claude-load-tools', emit: () => {}, sshMcpRuntime: { call } as unknown as SshMcpRuntime })
+    const first = JSON.parse(fetcher.mock.calls[0][1].body)
+    const next = JSON.parse(fetcher.mock.calls[1][1].body)
+    expect(first.tools.some((tool: { name: string }) => tool.name === 'pty_open')).toBe(false)
+    expect(next.tools.some((tool: { name: string }) => tool.name === 'pty_open')).toBe(true)
+    expect(next.messages.find((message: { role: string }) => message.role === 'assistant').content).toEqual([thinking, loading])
+    expect(call.mock.calls.some(([name]) => name === 'load_tools')).toBe(false)
+  })
   it('normalizes old settings to OpenAI and explicitly selects Claude without guessing model names', () => {
     const validated = validateAiSettings({ providers: [{ id: 'old', baseUrl: 'https://example.test/v1', models: ['claude-fixture'] }, { id: 'claude', baseUrl: settings.baseUrl, protocol: 'anthropic', models: ['claude-fixture'] }] })
     expect(validated.providers.map(provider => provider.protocol)).toEqual(['openai', 'anthropic'])

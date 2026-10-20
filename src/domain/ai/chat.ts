@@ -8,6 +8,7 @@ export interface ChatItem extends AiHistoryRecord {
 }
 
 export type AiSessionState = {
+  toolGroups?: import('@shared/aiToolCatalog').AiToolGroup[]
   compactionCount: number
   draftImages: AiImageAttachment[]
   messages: ChatItem[]

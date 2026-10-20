@@ -3,6 +3,7 @@ import type { AiSessionState, ChatItem } from '@/domain/ai/chat'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '@/i18n'
 import { normalizeAiCompactionCount } from '@shared/aiCompaction'
+import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '@shared/aiToolCatalog'
 import { threadTitleFromMessages } from '@/utils/ai/threadTitle'
 import { fromHistoryRecord, toHistoryRecord, cloneForIpc } from '@/utils/ai/chatHistoryProjection'
 import { getAiSessionState } from './sessionState'
@@ -82,6 +83,7 @@ export function applyThreadMessages(state: AiSessionState, thread: AiConversatio
   state.contextPressure = undefined
   state.compactionCount = normalizeAiCompactionCount(thread?.compactionCount) || normalizeAiCompactionCount(thread?.contextCheckpoint?.compactionCount)
   state.contextFiles = thread?.contextFiles || []
+  state.toolGroups = thread?.toolGroups || []
 }
 
 export async function loadThreadImages(sessionId: string, thread: AiConversationThread): Promise<AiConversationThread> {
@@ -140,6 +142,7 @@ export async function buildStoreFromState(
   active.messages = state.messages
     .filter((m) => !m.streaming)
     .map(toHistoryRecord)
+  active.toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(active.toolGroups), ...normalizeAiToolGroups(state.toolGroups), ...aiToolGroupsFromHistory(state.messages)])
   if (state.compactionCount) active.compactionCount = Math.max(state.compactionCount, normalizeAiCompactionCount(active.compactionCount))
   if (invalidateContextCheckpoint) delete active.contextCheckpoint
   const localSummary = state.threads.find((t) => t.id === active!.id)
@@ -213,6 +216,7 @@ export async function loadHistory(sessionId: string): Promise<ChatItem[]> {
       state.contextCheckpoint = active?.contextCheckpoint
       state.compactionCount = normalizeAiCompactionCount(active?.compactionCount) || normalizeAiCompactionCount(active?.contextCheckpoint?.compactionCount)
       state.contextFiles = active?.contextFiles || []
+      state.toolGroups = active?.toolGroups || []
       state.loaded = true
       return messages
     } catch (err: any) {

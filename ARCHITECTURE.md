@@ -38,8 +38,11 @@ UI (components / views)
 | AI protocols | `electron/ai/providers/` | Typed adapter contracts, registry, OpenAI/Anthropic codecs, SSE transport |
 | AI provider service | `electron/ai/providers/providerService.ts` | Model discovery pagination, connection probes, timeouts |
 | AI tools | `electron/ai/tools/toolExecution.ts`, `streamControl.ts` | Scope/policy/approval/execution and request ownership/cancellation |
+| AI tool catalog | `shared/aiToolCatalog.ts`, `aiSidebarPrompt.ts`, `aiWorkspacePrompt.ts` | Core/optional tool groups, local capability loading and shared request-budget projection; external MCP retains its full catalog |
 
 Import the real subpath (e.g. `ssh/trust/knownHosts`, `db/tunnel/sshTunnel`). Root-level re-export shells were removed.
+
+Internal AI requests start with common tools plus `load_tools`; optional transfer, PTY and job-overview schemas are loaded per conversation. Loaded groups persist in thread metadata independently of compaction and history pruning. A load performs no remote operation, and other calls from the same preplanned batch are deferred until the model reads the new schemas. `chatStream` uses the current advertised catalog for execution admission and context budgeting; `toolExecution` still applies scope, permissions and approval to actual operations. The renderer estimates against the same selected catalog. This adaptation does not alter external MCP tool definitions.
 
 ## Enforced boundaries (ESLint)
 
@@ -133,9 +136,30 @@ for types, and use the public chat facade instead of its private state modules.
 `useAiComposerImages.ts` owns file/paste/drop input and attachment preparation,
 while draft images stay in the conversation state. Preparation verifies its host,
 thread and component lifetime before committing a batch.
+`useAiSidebarContextFiles.ts` owns context-file selection, preview, refresh and removal;
+it captures the host/thread before asynchronous file reads or confirmation.
+`useAiSidebarModelMenu.ts` owns settings/model-menu visibility and popup positioning,
+including cancellation of pending animation frames. `useAiMessageActions.ts` adapts
+message mutations to the public chat facade and prevents old stream projections or
+confirmations from updating a different host/thread. These composables own UI state,
+not a second conversation store.
+`useAiSidebarSession.ts` projects the public chat state, deduplicates initial loads,
+and binds streaming callbacks, selection requests and failed draft restoration to
+their originating host/thread. The input reads and writes the canonical draft.
+`useAiNewConversation.ts` snapshots target sessions/jobs before asynchronous reads,
+and revalidates the originating conversation after confirmation and job cleanup.
+`AiToolApprovals.vue` owns approval presentation and its scoped styles; approval
+resolution still uses the public chat facade. `useAiSidebarHistory.ts` captures
+confirmation targets, rejects stale search responses and serializes thread switches.
+`useAiChatViewport.ts` owns follow-scroll, KeepAlive reading-position restoration,
+timeline sizing and navigation; deactivation/disposal cancels pending viewport work.
 `AiWorkspaceView.vue` renders the workspace; its composable owns event subscriptions,
 connection lifetime, selection and navigation. Workspace host grouping lives in a
 pure helper used by both the browser and picker. Scoped styles remain beside the view.
+`workspace/useAiWorkspaceHosts.ts` owns browsing filters, selections and the host
+picker, consuming the workspace's single connection map and operation lock.
+`workspace/useAiWorkspaceRail.ts` observes the actual workspace width and defaults
+narrow chats to a collapsed rail; an explicit saved user preference takes priority.
 
 These directions are enforced in `eslint.config.mjs`, including the prohibition on
 private chat modules importing their public facade or IPC adapters being imported

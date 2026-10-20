@@ -85,7 +85,7 @@ describe('sshToolChat helpers', () => {
     expect(exec?.function.parameters.properties).not.toHaveProperty('group')
     expect(exec?.function.description).not.toMatch(/list_sessions|connect/)
     for (const tool of tools) {
-      if (tool.function.name === 'ask_user') continue
+      if (['ask_user', 'load_tools'].includes(tool.function.name)) continue
       expect(tool.function.parameters.required).toEqual(expect.arrayContaining(['risk', 'explanation']))
       expect(tool.function.parameters.properties).toHaveProperty('explanation', expect.objectContaining({ type: 'string', minLength: 1, maxLength: 500 }))
     }

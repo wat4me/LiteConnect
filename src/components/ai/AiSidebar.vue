@@ -1,39 +1,40 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { useAiNewConversation } from '@/composables/ai/useAiNewConversation'
+import { useAiClearConversation } from '@/composables/ai/useAiClearConversation'
+import { useAiSidebarSession } from '@/composables/ai/useAiSidebarSession'
+import { useAiMessageActions } from '@/composables/ai/useAiMessageActions'
+import { useAiSidebarModelMenu } from '@/composables/ai/useAiSidebarModelMenu'
+import { useAiSidebarContextFiles } from '@/composables/ai/useAiSidebarContextFiles'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import type { AiConversationContextFile, AiSettings, AiToolRun } from '../../env.d.ts'
+import type { AiToolRun } from '../../env.d.ts'
 import { useAiChat } from '../../composables/ai/useAiChat'
-import type { ChatItem } from '@/domain/ai/chat'
-import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
 import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
 } from '@/utils/terminal/terminalPaste'
-import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
-import { splitToolReason } from '@/utils/ai/toolReason'
 import AppIcon from '../icons/AppIcon.vue'
 import AiImageStrip from './AiImageStrip.vue'
+import AiToolApprovals from './AiToolApprovals.vue'
+import AiConversationMenu, { type AiConversationMenuItem } from './AiConversationMenu.vue'
 import AiBackgroundTasks from './AiBackgroundTasks.vue'
 import AiUserQuestion from './AiUserQuestion.vue'
 import { useAiComposerImages } from '@/composables/ai/useAiComposerImages'
-import type { AiImageAttachment } from '@shared/types/ai'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import AiComposerSelector from './AiComposerSelector.vue'
+import AiContextMeter from './AiContextMeter.vue'
 import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
-import { aiModelId, formatTokenCount } from '@shared/aiContext'
+import { formatTokenCount, modelContextSource } from '@shared/aiContext'
 import { aiToolSchemaTokens } from '@shared/aiContextPressure'
+import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '@shared/aiToolCatalog'
 import { flattenConversationForApi } from '@shared/aiMessages'
 import { projectAiHistoryForContext, AI_COMPACTION_NEW_THREAD_AT } from '@shared/aiCompaction'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 import { workspaceToolsForChat, workspaceToolSystemAddendum } from '@shared/aiWorkspacePrompt'
 import { estimateSidebarAiRequest, sidebarContextFilesFit } from '@shared/aiSidebarPrompt'
-import { isAiMarkdownFilePath } from '@shared/aiFixedContext'
-import { formatToolRunDisplay } from '@shared/aiToolRunDisplay'
-import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
-import { useAiContextFileStatus } from '@/composables/ai/useAiContextFileStatus'
-import { diffPreviewRows } from '@/utils/ai/diffPreviewRows'
 import { useAiSidebarHistory } from '@/composables/ai/useAiSidebarHistory'
 import { threadTitleTooltip } from '@/utils/ai/threadTitle'
 import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
@@ -43,6 +44,8 @@ const { t } = useI18n()
 const props = withDefaults(defineProps<{
   sessionId: string
   workspace?: boolean
+  disconnectAvailable?: boolean
+  connectionBusy?: boolean
   workspaceTargets?: AiWorkspaceTarget[]
   executionAvailable?: boolean
   active?: boolean
@@ -60,8 +63,11 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'selectionConsumed', id: number): void
   (e: 'request-other-host-chat'): void
+  (e: 'disconnect-ssh'): void
+  (e: 'conversation-cleared'): void
 }>()
 
+const chat = useAiChat()
 const {
   settings,
   refreshSettings,
@@ -69,12 +75,8 @@ const {
   activeProvider,
   displayModelName,
   activeContextWindowTokens,
-  sendText,
-  stopGeneration,
   compactContext,
-  loadHistory,
   getSessionState,
-  saveSessionInput,
   startNewConversation,
   setConversationContextFile,
   removeConversationContextFile,
@@ -82,84 +84,44 @@ const {
   switchConversation,
   deleteConversation,
   clearAllConversations,
+  clearMessages,
   regenerateMessage,
   retryMessage,
   editUserMessageAndResend,
   deleteMessage,
-  resolveToolApproval,
   answerQuestion,
-} = useAiChat()
+} = chat
 
-const messages = ref<ChatItem[]>([])
 const contextFiles = computed(() => getSessionState(props.sessionId).contextFiles)
-const contextFileName = (file: AiConversationContextFile) => file.path.split(/[\\/]/).pop() || file.path
-const { contextFileSourceStatus, contextFileKey, checkContextFileSource } = useAiContextFileStatus({
-  sessionId: () => props.sessionId,
-  active: () => props.active,
-  openGeneration: () => props.openGeneration,
-  files: contextFiles,
-})
-
-function onContextFileMenuToggle() {
-  if (contextFileMenuRef.value?.open) {
-    contextFilePreviewKey.value = ''
-    void checkContextFileSource()
-  }
-}
-const contextFilePreviewKey = ref('')
-const previewContextFile = computed(() => contextFiles.value.find(file => contextFileKey(file) === contextFilePreviewKey.value) || null)
-function toggleContextFilePreview(file: AiConversationContextFile) {
-  contextFileMenuRef.value?.removeAttribute('open')
-  const key = contextFileKey(file)
-  contextFilePreviewKey.value = contextFilePreviewKey.value === key ? '' : key
-}
-function contextFileStatusNote(file: AiConversationContextFile) {
-  const status = contextFileSourceStatus.value[contextFileKey(file)]
-  if (status === 'missing') return t('ai.contextFileMissing')
-  if (status === 'unavailable') return t('ai.contextFileUnavailable')
-  return ''
-}
-function contextFileTitle(file: AiConversationContextFile) {
-  const note = contextFileStatusNote(file) || t('ai.contextFileSnapshotHint')
-  const source = file.source === 'ssh' ? t('ai.contextFileSourceSsh') : t('ai.contextFileSourceLocal')
-  return `${source} · ${file.path}\n${note}`
-}
-function contextFileChipLabel(file: AiConversationContextFile) {
-  const preview = t('ai.contextFilePreviewNamed', { name: contextFileName(file) })
-  const note = contextFileStatusNote(file)
-  return note ? `${preview}。${note}` : preview
-}
-watch(contextFiles, (files) => {
-  if (contextFilePreviewKey.value && !files.some(file => contextFileKey(file) === contextFilePreviewKey.value)) {
-    contextFilePreviewKey.value = ''
-  }
-})
-const input = ref('')
 const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)
 const reminderKey = computed(() => `${props.sessionId}:${getSessionState(props.sessionId).activeThreadId}`)
 const dismissedCompactionCounts = reactive<Record<string, number>>({})
 const showLongSessionReminder = computed(() => messages.value.length > 0 && compactionCount.value >= AI_COMPACTION_NEW_THREAD_AT && compactionCount.value > (dismissedCompactionCounts[reminderKey.value] || 0))
 function continueLongSession() { dismissedCompactionCounts[reminderKey.value] = compactionCount.value }
 const supportsImages = computed(() => activeProvider.value?.models.find(model => model.id === displayModelName.value)?.supportsImages === true)
-const loading = ref(false)
-watch(() => getSessionState(props.sessionId).loading, value => { loading.value = value })
-const showSettings = ref(false)
-const showModelSwitcher = ref(false)
-const threadSummaries = ref(getSessionState(props.sessionId).threads)
-const consumedSelectionIds = new Set<number>()
 const settingsPanelRef = ref<InstanceType<typeof AiSettingsPanel> | null>(null)
-const modelSwitcherButtonRef = ref<HTMLButtonElement | null>(null)
-const modelSwitcherDropdownRef = ref<HTMLElement | null>(null)
-const modelSwitcherStyle = ref<Record<string, string>>({})
 const sidebarRef = ref<HTMLElement | null>(null)
 const chatViewRef = ref<InstanceType<typeof AiChatView> | null>(null)
 const composerAreaRef = ref<HTMLElement | null>(null)
 const composerInputRef = ref<HTMLTextAreaElement | null>(null)
-const contextFileMenuRef = ref<HTMLDetailsElement | null>(null)
+const modelMenuId = useId()
+const { messages, input, loading, threadSummaries, syncMessages, syncFromState,
+  ensureInitialLoad, sendMessage, handleStop, onSettingsSaved,
+} = useAiSidebarSession({
+  chat, sessionId: () => props.sessionId, active: () => props.active,
+  openGeneration: () => props.openGeneration, selectionRequest: () => props.selectionRequest,
+  selectionConsumed: id => emit('selectionConsumed', id), canSend: () => canSend.value,
+  sendBlocked: () => savingComposer.value || newConversationBusy.value || clearingConversation.value || contextFilesTooLong.value || !props.executionAvailable,
+  canCompact: () => !loading.value && !savingComposer.value && !contextFileBusy.value && !newConversationBusy.value && !clearingConversation.value && props.executionAvailable,
+  compact: handleCompactContext, applySettings: () => settingsPanelRef.value?.applyExternal(settings.value),
+  t: key => t(key),
+})
+
 let composerObserver: ResizeObserver | undefined
 let composerLayoutRaf = 0
 let composerOverlayInset = 0
 let documentKeydownActive = false
+let sidebarDisposed = false
 
 function attachSidebarDomListeners() {
   if (!documentKeydownActive) {
@@ -231,8 +193,36 @@ function onComposerKeydown(event: KeyboardEvent) {
 const composerModelLabel = computed(() => activeProvider.value?.models.find(m => m.id === displayModelName.value)?.displayName || displayModelName.value)
 const permissionLabel = computed(() => t(`ai.permissionShort${settings.value.toolPermission === 'auto' ? 'Auto' : settings.value.toolPermission === 'readonly' ? 'Readonly' : 'Ask'}`))
 const savingComposer = ref(false)
-const contextFileBusy = ref(false)
-const newConversationBusy = ref(false)
+
+const {
+  contextFileBusy, contextFileMenuRef, contextFilePreviewKey, previewContextFile,
+  contextFileName, contextFileKey, contextFileSourceStatus, contextFileTitle, contextFileChipLabel,
+  onContextFileMenuToggle, toggleContextFilePreview, chooseLocalContextFile, chooseSshContextFile,
+  removeContextFile, refreshContextFile,
+} = useAiSidebarContextFiles({
+  sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
+  loading: () => loading.value, active: () => props.active, openGeneration: () => props.openGeneration,
+  files: contextFiles, ensureLoaded: () => ensureInitialLoad(false),
+  setFile: setConversationContextFile, removeFile: removeConversationContextFile,
+  t: (key, params) => t(key, params ?? {}),
+})
+const {
+  showSettings, showModelSwitcher, modelSwitcherButtonRef, modelSwitcherDropdownRef,
+  modelSwitcherStyle, modelSwitcherGroups, switchModel, openSettingsPanel, closeSettingsPanel,
+  openModelSwitcher, closeModelSwitcher, toggleModelSwitcher, onModelMenuKeydown,
+} = useAiSidebarModelMenu({
+  settings, loading: () => loading.value, saving: () => savingComposer.value, active: () => props.active,
+  refreshSettings, replaceSettings, applyExternal: next => settingsPanelRef.value?.applyExternal(next),
+  closeHistory: () => closeHistoryPanel(), t: key => t(key),
+})
+const { handleRegenerate, handleRetry, handleEditResend, handleDeleteMessage } = useAiMessageActions({
+  sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
+  blocked: () => clearingConversation.value || contextFilesTooLong.value || !props.executionAvailable,
+  loading, sessionLoading: id => getSessionState(id).loading, syncMessages,
+  regenerate: regenerateMessage, retry: retryMessage, edit: editUserMessageAndResend, remove: deleteMessage,
+  t: key => t(key),
+})
+
 const permissionOptions = computed(() => ['ask', 'auto', 'readonly'].map(value => ({ value, label: t(`ai.permission_${value}`), description: t(`ai.permissionDesc_${value}`) })))
 async function savePermission(value: string) {
   if (loading.value || savingComposer.value) return
@@ -247,7 +237,7 @@ async function savePermission(value: string) {
   finally { savingComposer.value = false }
 }
 const {
-  showHistory, historyQuery, historyItems, filteredHistoryItems,
+  showHistory, historyQuery, historyItems, filteredHistoryItems, historyBusy,
   openHistoryPanel, closeHistoryPanel, handleSwitchConversation,
   handleDeleteConversation, handleRenameConversation, handleTogglePin,
   handleClearAllHistory, formatHistoryTime,
@@ -265,7 +255,7 @@ const {
   updateConversation,
   t: (key, params) => t(key, params ?? {}),
   closeModelSwitcher: () => { showModelSwitcher.value = false },
-  closeSettings: () => { showSettings.value = false },
+  closeSettings: closeSettingsPanel,
 })
 const {
   draftImages, imageInputRef, imageBusy, imageDragOver,
@@ -287,27 +277,44 @@ const hasApiConfigured = computed(() => {
   return list.some((p) => (p.apiKey || '').trim().length > 0 && (p.baseUrl || '').trim().length > 0)
 })
 
-let initialLoadPromise: Promise<void> | null = null
-let openPreparationPromise: Promise<void> | null = null
-let handledOpenGeneration = 0
+const toolGroups = computed(() => normalizeAiToolGroups([
+  ...normalizeAiToolGroups(getSessionState(props.sessionId).toolGroups), ...aiToolGroupsFromHistory(messages.value),
+]))
 const toolContext = computed(() => props.workspaceTargets ? {
   system: workspaceToolSystemAddendum(props.workspaceTargets),
-  schemaTokens: aiToolSchemaTokens(workspaceToolsForChat()),
+  schemaTokens: aiToolSchemaTokens(workspaceToolsForChat(toolGroups.value)),
 } : undefined)
 const workspaceJobIds = computed(() => props.workspaceTargets ? messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => run.jobIds || [])) : undefined)
 const workspaceJobTargets = computed(() => Object.fromEntries(messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => (run.jobIds || []).map(id => [id, run.target || ''])))))
 const targetSessionIds = computed(() => props.workspaceTargets?.map(target => target.sessionId).filter(Boolean) || [props.sessionId])
+const { newConversationBusy, handleNewConversation } = useAiNewConversation({
+  sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
+  blocked: () => loading.value || clearingConversation.value || contextFileBusy.value || !!props.connectionBusy,
+  sessionLoading: id => getSessionState(id).loading,
+  targetSessionIds: () => targetSessionIds.value, jobIds: () => workspaceJobIds.value,
+  start: startNewConversation, syncMessages, syncFromState,
+  t: (key, params) => t(key, params ?? {}),
+})
+const { clearingConversation, handleClearConversation } = useAiClearConversation({
+  sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
+  blocked: () => loading.value || newConversationBusy.value || contextFileBusy.value || imageBusy.value || savingComposer.value || historyBusy.value || !!props.connectionBusy,
+  hasMessages: () => messages.value.length > 0,
+  targetSessionIds: () => targetSessionIds.value, jobIds: () => workspaceJobIds.value,
+  clear: clearMessages, syncMessages,
+  cleared: () => { syncFromState(); emit('conversation-cleared') }, t: key => t(key),
+})
 const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
   ...activeProvider.value?.models.find(model => model.id === displayModelName.value),
   systemPrompt: settings.value.systemPrompt,
   toolContext: toolContext.value,
+  toolGroups: toolGroups.value,
   sessionId: props.sessionId,
   cwd: sftpListedCwdState()[props.sessionId],
   model: settings.value.activeModel || displayModelName.value,
   contextWindowTokens: activeContextWindowTokens.value,
   contextFiles: contextFiles.value,
 }))
-const canSend = computed(() => props.executionAvailable && (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !contextFileBusy.value && !contextFilesTooLong.value)
+const canSend = computed(() => props.executionAvailable && (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !clearingConversation.value && !contextFileBusy.value && !contextFilesTooLong.value)
 watch(contextFilesTooLong, () => { void nextTick(resizeComposer) })
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
@@ -321,47 +328,7 @@ const pendingApprovals = computed(() => {
   }
   return runs
 })
-const visibleApprovals = computed(() => pendingApprovals.value.slice(0, 1))
 const pendingQuestions = computed(() => messages.value.filter(message => message.streaming).flatMap(message => (message.toolRuns || []).filter(run => run.status === 'question')))
-
-const resolvingApprovalIds = ref<Set<string>>(new Set())
-
-function isApprovalResolving(runId: string): boolean {
-  return resolvingApprovalIds.value.has(runId)
-}
-
-async function handleToolApproval(runId: string, approved: boolean): Promise<void> {
-  if (isApprovalResolving(runId)) return
-  resolvingApprovalIds.value = new Set(resolvingApprovalIds.value).add(runId)
-  try {
-    await resolveToolApproval(props.sessionId, runId, approved)
-  } finally {
-    const next = new Set(resolvingApprovalIds.value)
-    next.delete(runId)
-    resolvingApprovalIds.value = next
-  }
-}
-
-function approvalHint(run: AiToolRun): string {
-  return formatToolRunDisplay(run).hint
-}
-
-function approvalRiskLabel(risk?: AiToolRun['risk']): string {
-  if (risk === 'read') return t('ai.toolRiskRead')
-  if (risk === 'write' || risk === 'destructive') return t('ai.toolRiskWrite')
-  if (risk === 'privileged') return t('ai.toolRiskPrivileged')
-  if (risk === 'forbidden') return t('ai.toolRiskForbidden')
-  return ''
-}
-
-function approvalCopy(run: AiToolRun): string {
-  if (run.risk === 'destructive' || run.risk === 'privileged' || run.risk === 'forbidden') {
-    return t('ai.toolAskDanger')
-  }
-  return t('ai.toolAskHint')
-}
-
-const toolNameLabel = useAiToolNameLabel()
 
 const currentThreadTitle = computed(() => {
   const active = threadSummaries.value.find((t) => t.active)
@@ -383,6 +350,7 @@ const contextDroppedCount = computed(() => {
     systemPrompt: settings.value.systemPrompt,
     messages: conv,
     toolContext: toolContext.value,
+    toolGroups: toolGroups.value,
     sessionId: props.sessionId,
     cwd: sftpListedCwdState()[props.sessionId],
     model: settings.value.activeModel || displayModelName.value,
@@ -401,6 +369,7 @@ const contextPressure = computed(() => {
     ...contextModelConfig.value, model: displayModelName.value, contextWindowTokens: activeContextWindowTokens.value,
     systemPrompt: settings.value.systemPrompt, messages: projected, contextFiles: contextFiles.value,
     toolContext: toolContext.value, sessionId: props.sessionId, cwd: sftpListedCwdState()[props.sessionId],
+    toolGroups: toolGroups.value,
   }).pressure
 })
 const contextUsedTokens = computed(() => contextPressure.value.usedTokens)
@@ -419,7 +388,7 @@ const contextTone = computed<'ok' | 'warn' | 'danger'>(() => {
 })
 
 /** Show the same next-request estimate the backend uses, including the draft. */
-const showContextMeter = computed(() => contextRatio.value >= 0.7)
+const showContextMeter = computed(() => props.workspace && contextRatio.value >= 0.7)
 
 const contextMeterTitle = computed(() =>
   t('ai.contextUsage', {
@@ -427,53 +396,23 @@ const contextMeterTitle = computed(() =>
     budget: formatTokenCount(contextBudgetTokens.value),
   }),
 )
-const contextMeterDescription = computed(() =>
-  `${t('ai.contextAria')} · ${contextMeterTitle.value} · ${Math.round(contextRatio.value * 100)}%\n${t('ai.contextCompactAt', { tokens: formatTokenCount(contextPressure.value.thresholdTokens) })}\n${t('ai.contextMeterHint')}`,
-)
-
-async function handleCompactContext() {
-  if (loading.value || savingComposer.value || contextFileBusy.value || newConversationBusy.value || !props.executionAvailable) return
-  await compactContext(props.sessionId)
-}
-
-const modelSwitcherGroups = computed(() => {
-  return (settings.value.providers || [])
-    .filter((p) => p.models.length > 0)
-    .map((p) => ({
-      providerId: p.id,
-      providerName: p.name,
-      models: p.models.map((m) => {
-        const id = aiModelId(m)
-        return {
-          providerId: p.id,
-          model: id,
-          label: m.displayName || id,
-          active: p.id === settings.value.activeProviderId && id === settings.value.activeModel,
-        }
-      }).filter((item) => item.model),
-    }))
-    .filter((g) => g.models.length > 0)
+const contextSourceLabel = computed(() => {
+  const info = modelContextSource({
+    ...contextModelConfig.value, id: displayModelName.value,
+    contextWindowTokens: contextModelConfig.value?.contextWindowTokens ?? settings.value.contextWindowTokens,
+  })
+  return t(`ai.contextSource${info.source[0].toUpperCase()}${info.source.slice(1)}`, { tokens: info.tokens })
 })
 
-function syncMessages(msgs: ChatItem[]) {
-  if (messages.value !== msgs) messages.value = msgs
-  threadSummaries.value = getSessionState(props.sessionId).threads.slice()
-}
-
-function syncFromState() {
-  const state = getSessionState(props.sessionId)
-  messages.value = state.messages
-  input.value = state.input
-  loading.value = state.loading
-  threadSummaries.value = state.threads.slice()
+async function handleCompactContext() {
+  if (loading.value || clearingConversation.value || savingComposer.value || contextFileBusy.value || newConversationBusy.value || !props.executionAvailable) return
+  await compactContext(props.sessionId)
 }
 
 onMounted(() => {
   composerObserver = new ResizeObserver(resizeComposer)
   if (props.active) attachSidebarDomListeners()
-  syncFromState()
   void nextTick(resizeComposer)
-  ensureOpenPrepared().catch(() => {})
 })
 
 onActivated(() => {
@@ -484,7 +423,6 @@ onActivated(() => {
 })
 
 onDeactivated(() => {
-  saveSessionInput(props.sessionId, input.value)
   showModelSwitcher.value = false
   detachSidebarDomListeners()
 })
@@ -498,419 +436,38 @@ watch(
       void refreshSettings().catch(() => {})
       return
     }
-    saveSessionInput(props.sessionId, input.value)
     showModelSwitcher.value = false
     detachSidebarDomListeners()
   },
 )
 
 onBeforeUnmount(() => {
-  saveSessionInput(props.sessionId, input.value)
+  sidebarDisposed = true
   detachSidebarDomListeners()
   if (composerLayoutRaf) cancelAnimationFrame(composerLayoutRaf)
 })
 
-watch(
-  () => props.sessionId,
-  async (_newId, oldId) => {
-    if (oldId) saveSessionInput(oldId, input.value)
-    syncFromState()
-    initialLoadPromise = null
-    openPreparationPromise = null
-    handledOpenGeneration = 0
-    await ensureOpenPrepared()
-  }
-)
-
-watch(
-  () => props.openGeneration,
-  (generation) => {
-    if (!props.active || generation <= handledOpenGeneration) return
-    void ensureOpenPrepared()
-  },
-)
-
-watch(input, (value) => {
-  saveSessionInput(props.sessionId, value)
-})
-
-watch(
-  () => props.selectionRequest,
-  async (request) => {
-    if (!request?.text) return
-    if (request.sessionId !== props.sessionId) return
-    if (consumedSelectionIds.has(request.id)) return
-    await ensureOpenPrepared()
-    consumedSelectionIds.add(request.id)
-    emit('selectionConsumed', request.id)
-
-    if (request.mode === 'insert') {
-      input.value = request.text
-      return
-    }
-    const sent = await handleSendText(request.text)
-    if (!sent) input.value = request.text
-  },
-  { immediate: true }
-)
-
-async function ensureInitialLoad(syncUi = true) {
-  const sessionId = props.sessionId
-  if (!initialLoadPromise) {
-    initialLoadPromise = (async () => {
-      try {
-        await refreshSettings()
-        settingsPanelRef.value?.applyExternal(settings.value)
-      } catch (err: any) {
-        ElMessage.warning(err?.message || t('ai.loadSettingsFailed'))
-      }
-      const state = getSessionState(sessionId)
-      // Cached SSH panes may remount. Do not replace their current thread with
-      // the persisted host's active thread (which another SSH pane can change).
-      if (state.loaded) return
-      const history = await loadHistory(sessionId)
-      if (state.messages.length === 0 && history.length > 0) {
-        state.messages.push(...history)
-      }
-    })()
-  }
-  await initialLoadPromise
-  if (syncUi && props.sessionId === sessionId) syncFromState()
-}
-
-/**
- * A new SSH session starts an empty draft. Reopening or switching an existing
- * pane resumes that session's current conversation.
- */
-async function ensureOpenPrepared() {
-  if (openPreparationPromise) {
-    await openPreparationPromise
-    if (props.openGeneration <= handledOpenGeneration) return
-  }
-
-  const generation = props.openGeneration
-  const sessionId = props.sessionId
-  const preparation = (async () => {
-    await ensureInitialLoad(false)
-    if (props.sessionId !== sessionId) return
-    handledOpenGeneration = Math.max(handledOpenGeneration, generation)
-    syncFromState()
-  })()
-  openPreparationPromise = preparation
-
-  try {
-    await preparation
-  } finally {
-    if (openPreparationPromise === preparation) openPreparationPromise = null
-  }
-}
-
-const newChatMenuRef = ref<HTMLDetailsElement | null>(null)
-
-function closeNewChatMenu() {
-  newChatMenuRef.value?.removeAttribute('open')
-}
-
-function onNewChatMenuClick(event: MouseEvent) {
-  if (!(loading.value || newConversationBusy.value)) return
-  event.preventDefault()
-}
-
-async function handleNewConversation() {
-  closeNewChatMenu()
-  if (loading.value || contextFileBusy.value || newConversationBusy.value) return
-  const sessionId = props.sessionId
-  const threadId = getSessionState(sessionId).activeThreadId
-  newConversationBusy.value = true
-  try {
-    const jobs = (await window.LiteConnect.mcpListJobs()).filter(job => targetSessionIds.value.includes(job.sessionId) && (!workspaceJobIds.value || workspaceJobIds.value.includes(job.jobId)) && job.status === 'running')
-    if (jobs.length) {
-      try {
-        await appConfirm({
-          title: t('ai.newConversationRunningTitle'),
-          message: t('ai.newConversationRunningMessage', { count: jobs.length }),
-          detail: t('ai.newConversationRunningDetail'),
-          confirmText: t('ai.newConversationStopAndCreate'),
-          cancelText: t('common.cancel'),
-          danger: true, tone: 'warning',
-        })
-      } catch { return }
-    }
-    // A confirmation belongs to the window and conversation that opened it.
-    if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId || getSessionState(sessionId).loading) return
-    await window.LiteConnect.aiSuppressBackgroundReplies(sessionId, threadId)
-    for (const job of jobs) {
-      const result = await window.LiteConnect.mcpCallTool('cancel_job', { jobId: job.jobId })
-      if (result.isError) throw new Error(result.content)
-    }
-    if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
-    await startNewConversation(sessionId, syncMessages)
-    syncFromState()
-  } catch (error: any) {
-    ElMessage.warning(error?.message || t('ai.newConversationFailed'))
-  } finally {
-    newConversationBusy.value = false
-  }
+const conversationMenuItems = computed<AiConversationMenuItem[]>(() => [
+  { id: 'new-current', icon: 'plus', label: t(props.workspaceTargets ? 'ai.workspace.newInScope' : 'ai.workspace.newOnCurrent'), disabled: loading.value || clearingConversation.value || newConversationBusy.value || props.connectionBusy },
+  { id: 'new-scope', icon: 'server', label: t('ai.workspace.newScope'), disabled: loading.value || clearingConversation.value || newConversationBusy.value || props.connectionBusy },
+  { id: 'history', icon: 'history', label: t('ai.history'), separator: true, disabled: clearingConversation.value },
+  { id: 'settings', icon: 'settings', label: t('ai.settings'), disabled: clearingConversation.value },
+  { id: 'disconnect', icon: 'unplug', label: t('ai.workspace.disconnectSsh'), danger: true, separator: true, disabled: clearingConversation.value || !props.disconnectAvailable || props.connectionBusy },
+])
+function selectConversationAction(action: string) {
+  if (action === 'new-current') void handleNewConversation()
+  else if (action === 'new-scope') requestOtherHostChat()
+  else if (action === 'history') void openHistoryPanel()
+  else if (action === 'settings') void openSettingsPanel()
+  else if (action === 'disconnect' && props.disconnectAvailable && !props.connectionBusy) emit('disconnect-ssh')
 }
 
 function requestOtherHostChat() {
-  closeNewChatMenu()
   emit('request-other-host-chat')
-}
-
-async function chooseLocalContextFile() {
-  contextFileMenuRef.value?.removeAttribute('open')
-  if (loading.value || contextFileBusy.value) return
-  contextFileBusy.value = true
-  try {
-    await ensureInitialLoad(false)
-    const file = await window.LiteConnect.aiSelectLocalContextFile()
-    if (file) await setConversationContextFile(props.sessionId, file)
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.contextFileFailed'))
-  } finally {
-    contextFileBusy.value = false
-  }
-}
-
-async function chooseSshContextFile() {
-  contextFileMenuRef.value?.removeAttribute('open')
-  if (loading.value || contextFileBusy.value) return
-  contextFileBusy.value = true
-  let path: string
-  try {
-    await ensureInitialLoad(false)
-    path = (await appPrompt({
-      title: t('ai.contextFileSsh'),
-      message: t('ai.contextFileSshHint'),
-      inputPlaceholder: '/home/user/AGENTS.md',
-      maxLength: 1024,
-    })).trim()
-  } catch {
-    contextFileBusy.value = false
-    return
-  }
-  if (!path) {
-    contextFileBusy.value = false
-    return
-  }
-  try {
-    if (!isAiMarkdownFilePath(path)) throw new Error(t('ai.contextFileMarkdownOnly'))
-    const content = await window.LiteConnect.sftpReadFile(props.sessionId, path)
-    const file: AiConversationContextFile = { source: 'ssh', path, content }
-    if (!content.trim() || content.includes('\0') || new TextEncoder().encode(content).length > 32 * 1024) {
-      throw new Error(t('ai.contextFileInvalid'))
-    }
-    await setConversationContextFile(props.sessionId, file)
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.contextFileFailed'))
-  } finally {
-    contextFileBusy.value = false
-  }
-}
-
-async function removeContextFile(file: AiConversationContextFile) {
-  if (loading.value || contextFileBusy.value) return
-  const sessionId = props.sessionId
-  const threadId = getSessionState(sessionId).activeThreadId
-  let choice: 'confirm' | 'tertiary'
-  try {
-    choice = await appConfirm({
-      title: t('ai.contextFileRemoveTitle'),
-      message: t('ai.contextFileRemoveChoice', { name: contextFileName(file) }),
-      detail: file.path,
-      confirmText: t('ai.contextFileRemoveFuture'),
-      tertiaryText: t('ai.contextFileRemoveCurrent'),
-      cancelText: t('common.cancel'),
-      danger: true,
-      tone: 'warning',
-    })
-  } catch { return }
-  if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
-  contextFileBusy.value = true
-  try {
-    await ensureInitialLoad(false)
-    if (await removeConversationContextFile(sessionId, file, choice === 'confirm')) {
-      ElMessage.success(t(choice === 'confirm' ? 'ai.contextFileRemovedFuture' : 'ai.contextFileRemovedCurrent'))
-    }
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.contextFileFailed'))
-  } finally {
-    contextFileBusy.value = false
-  }
-}
-
-async function handleRegenerate(messageId: string) {
-  if (contextFilesTooLong.value || !props.executionAvailable) return
-  loading.value = true
-  try {
-    await regenerateMessage(props.sessionId, messageId, syncMessages)
-  } finally {
-    loading.value = getSessionState(props.sessionId).loading
-  }
-}
-
-async function handleRetry(messageId: string) {
-  if (contextFilesTooLong.value || !props.executionAvailable) return
-  loading.value = true
-  try {
-    await retryMessage(props.sessionId, messageId, syncMessages)
-  } finally {
-    loading.value = getSessionState(props.sessionId).loading
-  }
-}
-
-async function handleEditResend(
-  messageId: string,
-  newText: string,
-  done: (success: boolean) => void,
-) {
-  if (contextFilesTooLong.value) {
-    done(false)
-    return
-  }
-  let started = false
-  try {
-    const ok = await editUserMessageAndResend(
-      props.sessionId,
-      messageId,
-      newText,
-      syncMessages,
-      () => {
-        started = true
-        done(true)
-      },
-    )
-    if (!ok && !started) {
-      done(false)
-      ElMessage.warning(t('ai.editResendFailed'))
-    }
-  } catch (err: any) {
-    if (!started) done(false)
-    ElMessage.warning(err?.message || t('ai.editResendFailed'))
-  }
-}
-
-async function handleDeleteMessage(messageId: string) {
-  try {
-    await appConfirm({
-      title: t('ai.deleteMessageTitle'),
-      message: t('ai.deleteMessageConfirm'),
-      confirmText: t('common.delete'),
-      cancelText: t('common.cancel'),
-      danger: true,
-      tone: 'danger',
-    })
-  } catch {
-    return
-  }
-  await deleteMessage(props.sessionId, messageId, syncMessages)
-}
-
-async function onSettingsSaved(next: AiSettings) {
-  replaceSettings(next)
-  if (loading.value) return
-  const history = await loadHistory(props.sessionId)
-  const state = getSessionState(props.sessionId)
-  state.messages.splice(0, state.messages.length, ...history)
-  syncFromState()
-}
-
-async function switchModel(providerId: string, model: string) {
-  showModelSwitcher.value = false
-  if (!model || loading.value || savingComposer.value) return
-  try {
-    const updated = await window.LiteConnect.switchAiModel(providerId, model)
-    replaceSettings(updated)
-    settingsPanelRef.value?.applyExternal(updated)
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.switchModelFailed'))
-  }
-}
-
-async function positionModelSwitcher() {
-  await nextTick()
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  })
-  const btn = modelSwitcherButtonRef.value
-  const dropdown = modelSwitcherDropdownRef.value
-  if (!btn || !dropdown) return
-  const rect = btn.getBoundingClientRect()
-  const size = {
-    width: dropdown.offsetWidth || 200,
-    height: dropdown.offsetHeight || 120,
-  }
-  const pos = placePopupNearAnchor(rect, size, { align: 'end', gap: 6, prefer: 'above' })
-  const next: Record<string, string> = {
-    left: `${pos.left}px`,
-    top: `${pos.top}px`,
-  }
-  if (pos.maxHeight > 0) next.maxHeight = `${pos.maxHeight}px`
-  modelSwitcherStyle.value = next
-}
-
-watch(showModelSwitcher, (open) => {
-  if (open) void positionModelSwitcher()
-})
-
-async function handleSendText(text: string, images?: AiImageAttachment[]): Promise<boolean> {
-  const content = text.trim()
-  if ((!content && !images?.length) || savingComposer.value || newConversationBusy.value || contextFilesTooLong.value || !props.executionAvailable) return false
-  loading.value = true
-  try {
-    return await sendText(props.sessionId, content, syncMessages, images)
-  } finally {
-    loading.value = getSessionState(props.sessionId).loading
-  }
-}
-
-async function sendMessage() {
-  if (input.value.trim() === '/compact' && !draftImages.value.length && !loading.value && !savingComposer.value && !contextFileBusy.value && !newConversationBusy.value && props.executionAvailable) {
-    input.value = ''
-    await handleCompactContext()
-    return
-  }
-  if (!canSend.value) return
-  const content = input.value.trim()
-  const state = getSessionState(props.sessionId)
-  const images = state.draftImages.splice(0)
-  input.value = ''
-  try {
-    const sent = await handleSendText(content, images)
-    if (!sent && !input.value) input.value = content
-    if (!sent) state.draftImages.unshift(...images)
-  } catch (err: any) {
-    if (!input.value) input.value = content
-    state.draftImages.unshift(...images)
-    ElMessage.warning(err?.message || t('ai.requestFailed'))
-  }
-}
-
-async function handleStop() {
-  await stopGeneration(props.sessionId)
-  loading.value = getSessionState(props.sessionId).loading
 }
 
 async function openSettingsCta() {
   await openSettingsPanel()
-}
-
-async function openSettingsPanel() {
-  showHistory.value = false
-  showModelSwitcher.value = false
-  try {
-    await refreshSettings()
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.loadSettingsFailed'))
-  }
-  showSettings.value = true
-  await nextTick()
-  settingsPanelRef.value?.applyExternal(settings.value)
-}
-
-function closeSettingsPanel() {
-  showSettings.value = false
 }
 
 function closePopoverOnEscape(event: KeyboardEvent) {
@@ -928,41 +485,6 @@ function closeContextFileMenuOnOutsideClick(event: PointerEvent) {
   }
   if (!composerAreaRef.value?.querySelector('.composer-context-files')?.contains(event.target as Node)) {
     contextFilePreviewKey.value = ''
-  }
-}
-
-async function refreshContextFile(file: AiConversationContextFile) {
-  if (loading.value || contextFileBusy.value) return
-  contextFileBusy.value = true
-  const sessionId = props.sessionId
-  const threadId = getSessionState(sessionId).activeThreadId
-  try {
-    const latest = file.source === 'local'
-      ? await window.LiteConnect.aiReadLocalContextFile(sessionId, threadId, file.path)
-      : { source: 'ssh' as const, path: file.path, content: await window.LiteConnect.sftpReadFile(sessionId, file.path) }
-    if (!latest.content.trim() || latest.content.includes('\0') || new TextEncoder().encode(latest.content).length > 32 * 1024) {
-      throw new Error(t('ai.contextFileInvalid'))
-    }
-    if (latest.content === file.content) {
-      ElMessage.info(t('ai.contextFileUnchanged'))
-      return
-    }
-    await appConfirm({
-      title: t('ai.contextFileRefreshTitle'),
-      message: t('ai.contextFileRefreshConfirm', { name: contextFileName(file) }),
-      detail: file.path,
-      confirmText: t('ai.contextFileRefresh'),
-      cancelText: t('common.cancel'),
-    })
-    if (props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
-    if (await setConversationContextFile(sessionId, latest)) {
-      ElMessage.success(t('ai.contextFileRefreshed'))
-      void checkContextFileSource()
-    }
-  } catch (err: any) {
-    if (err !== 'cancel') ElMessage.warning(err?.message || t('ai.contextFileRefreshFailed'))
-  } finally {
-    contextFileBusy.value = false
   }
 }
 
@@ -987,10 +509,12 @@ async function confirmAiTerminalAction(action: 'fill' | 'run', code: string): Pr
 }
 
 async function fillCodeToTerminal(code: string) {
+  const sessionId = props.sessionId
+  const threadId = getSessionState(sessionId).activeThreadId
   const text = await confirmAiTerminalAction('fill', code)
-  if (!text) return
+  if (!text || sidebarDisposed || props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
   try {
-    window.LiteConnect.sshWrite(props.sessionId, text)
+    window.LiteConnect.sshWrite(sessionId, text)
     ElMessage.success(t('ai.filledTerminal'))
   } catch (err: any) {
     ElMessage.warning(err?.message || t('ai.fillFailed'))
@@ -998,11 +522,13 @@ async function fillCodeToTerminal(code: string) {
 }
 
 async function runCodeToTerminal(code: string) {
+  const sessionId = props.sessionId
+  const threadId = getSessionState(sessionId).activeThreadId
   const text = await confirmAiTerminalAction('run', code)
-  if (!text) return
+  if (!text || sidebarDisposed || props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
   const payload = text.endsWith('\n') ? text : `${text}\n`
   try {
-    window.LiteConnect.sshWrite(props.sessionId, payload)
+    window.LiteConnect.sshWrite(sessionId, payload)
     ElMessage.success(t('ai.sentTerminal'))
   } catch (err: any) {
     ElMessage.warning(err?.message || t('ai.sendFailed'))
@@ -1020,26 +546,11 @@ async function runCodeToTerminal(code: string) {
       </div>
       <div v-if="$slots['workspace-toolbar']" class="ai-header-context"><slot name="workspace-toolbar" /></div>
       <div class="ai-header-actions">
-        <details
-          v-if="workspace"
-          ref="newChatMenuRef"
-          class="ai-new-chat-menu"
-          :class="{ disabled: loading || newConversationBusy }"
-        >
-          <summary
-            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
-            :title="t('ai.workspace.newConversationMenu')"
-            :aria-label="t('ai.workspace.newConversationMenu')"
-            :aria-disabled="loading || newConversationBusy"
-            @click="onNewChatMenuClick"
-          >
-            <AppIcon name="plus" size="sm" />
-          </summary>
-          <div class="ai-new-chat-dropdown">
-            <button type="button" :disabled="loading || newConversationBusy" @click="handleNewConversation">{{ t(workspaceTargets ? 'ai.workspace.newInScope' : 'ai.workspace.newOnCurrent') }}</button>
-            <button type="button" :disabled="loading || newConversationBusy" @click="requestOtherHostChat">{{ t(workspaceTargets ? 'ai.workspace.newScope' : 'ai.workspace.newOnOther') }}</button>
-          </div>
-        </details>
+        <button v-if="workspace" type="button" class="ui-btn ui-btn-xs workspace-clear-chat"
+          :disabled="!messages.length || loading || clearingConversation || newConversationBusy || contextFileBusy || imageBusy || savingComposer || historyBusy || connectionBusy"
+          :title="t('ai.clearConversationTitle')" :aria-label="t('ai.clearConversationTitle')" :aria-busy="clearingConversation"
+          @click="handleClearConversation"><AppIcon name="delete" size="sm" /><span>{{ t('ai.clear') }}</span></button>
+        <AiConversationMenu v-if="workspace" :items="conversationMenuItems" :active="active" @select="selectConversationAction" />
         <button
           v-else
           type="button"
@@ -1050,10 +561,10 @@ async function runCodeToTerminal(code: string) {
         >
           <AppIcon name="plus" size="sm" />
         </button>
-        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
+        <button v-if="!workspace" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :class="{ active: showHistory }" @click="openHistoryPanel" :title="t('ai.history')">
           <AppIcon name="history" size="sm" />
         </button>
-        <button class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm header-settings-action" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
+        <button v-if="!workspace" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm header-settings-action" :class="{ active: showSettings }" @click="openSettingsPanel" :title="t('ai.settings')">
           <AppIcon name="settings" size="sm" />
         </button>
         <button v-if="!workspace" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('ai.closePanel')">
@@ -1085,55 +596,7 @@ async function runCodeToTerminal(code: string) {
       />
     </div>
 
-    <div v-if="pendingApprovals.length && !showSettings && !showHistory" class="tool-approval-stack">
-      <div
-        v-for="run in visibleApprovals"
-        :key="run.id"
-        class="tool-approval"
-        :class="{ danger: run.risk === 'destructive' || run.risk === 'privileged' || run.risk === 'forbidden' }"
-      >
-        <div class="tool-approval-head">
-          <span v-if="run.target" class="tool-approval-target">{{ run.target }}</span>
-          <span class="tool-approval-name">{{ toolNameLabel(run.name) }}</span>
-          <span v-if="approvalRiskLabel(run.risk)" class="tool-approval-risk" :data-risk="run.risk">{{ approvalRiskLabel(run.risk) }}</span>
-          <span class="tool-approval-copy">{{ approvalCopy(run) }}</span>
-        </div>
-        <p v-if="splitToolReason(run.reason).explanation" class="tool-approval-reason"><strong>{{ t('ai.toolExplanationLabel') }}</strong>{{ splitToolReason(run.reason).explanation }}</p>
-        <p v-if="splitToolReason(run.reason).notice" class="tool-approval-reason tool-policy-notice"><strong>{{ t('ai.toolPolicyNoticeLabel') }}</strong>{{ splitToolReason(run.reason).notice }}</p>
-        <details v-if="approvalHint(run) || run.diffSummary || run.diffPreview" class="tool-approval-details" open>
-          <summary>
-            <AppIcon name="chevron-right" size="xs" class="details-chevron" />
-            <span>{{ t('ai.toolApprovalDetails') }}</span>
-            <span v-if="run.diffSummary" class="tool-approval-diff-summary">{{ run.diffSummary }}</span>
-          </summary>
-          <div class="tool-approval-details-body">
-            <pre v-if="approvalHint(run)" class="tool-approval-hint" :title="approvalHint(run)">{{ approvalHint(run) }}</pre>
-            <div v-if="run.diffPreview" class="tool-approval-diff">
-              <pre class="tool-approval-diff-body"><span
-                v-for="(row, i) in diffPreviewRows(run.diffPreview)"
-                :key="i"
-                class="diff-row"
-                :class="`diff-${row.kind}`"
-              >{{ row.text }}</span></pre>
-            </div>
-          </div>
-        </details>
-        <div class="tool-approval-actions">
-          <button type="button" class="tool-approval-btn" :disabled="isApprovalResolving(run.id)" @click="handleToolApproval(run.id, false)">{{ t('ai.toolDeny') }}</button>
-          <button
-            type="button"
-            class="tool-approval-btn primary"
-            :disabled="isApprovalResolving(run.id)"
-            @click="handleToolApproval(run.id, true)"
-          >
-            {{ t('ai.toolAllow') }}
-          </button>
-        </div>
-      </div>
-      <div v-if="pendingApprovals.length > 1" class="tool-approval-queued">
-        {{ t('ai.toolApprovalQueued', { n: pendingApprovals.length - 1 }) }}
-      </div>
-    </div>
+    <AiToolApprovals v-if="!showSettings && !showHistory" :key="sessionId" :session-id="sessionId" :runs="pendingApprovals" />
 
     <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area" :class="{ 'has-question': pendingQuestions.length }">
     <AiUserQuestion v-for="run in pendingQuestions" :key="run.id" :run="run" :submit="answer => answerQuestion(sessionId, run.id, answer)" allow-stop @stop="handleStop" />
@@ -1213,28 +676,22 @@ async function runCodeToTerminal(code: string) {
               :aria-expanded="showModelSwitcher"
               aria-haspopup="menu"
               :class="{ active: showModelSwitcher }"
-              @click="showModelSwitcher = !showModelSwitcher"
+              :aria-controls="showModelSwitcher ? modelMenuId : undefined"
+              @click="toggleModelSwitcher"
+              @keydown.down.prevent="openModelSwitcher('first')"
+              @keydown.up.prevent="openModelSwitcher('last')"
+              @keydown.esc.stop.prevent="closeModelSwitcher(true)"
               :title="activeProvider ? `${activeProvider.name} · ${displayModelName}` : displayModelName"
             >
               <span class="ai-model-switcher-name">{{ composerModelLabel }}</span>
               <AppIcon name="chevron-down" size="xs" />
             </button>
-            <button
-              v-if="displayModelName"
-              type="button"
-              class="composer-context-meter"
-              :class="contextTone"
-              :disabled="loading || savingComposer || contextFileBusy || newConversationBusy || !messages.length || !props.executionAvailable"
-              :aria-label="t('ai.compactContext')"
-              :aria-description="contextMeterDescription"
-              :title="contextMeterDescription"
-              @click="handleCompactContext"
-            >
-              <svg viewBox="0 0 24 24" role="meter" :aria-label="t('ai.contextAria')" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="Math.round(contextRatio * 100)" :aria-valuetext="contextMeterDescription">
-                <circle class="context-meter-track" cx="12" cy="12" r="9" />
-                <circle class="context-meter-fill" cx="12" cy="12" r="9" pathLength="100" :stroke-dasharray="`${contextRatio * 100} 100`" transform="rotate(-90 12 12)" />
-              </svg>
-            </button>
+            <AiContextMeter
+              v-if="workspace && displayModelName" :key="reminderKey"
+              :pressure="contextPressure" :source-label="contextSourceLabel" :compaction-count="compactionCount"
+              :can-compact="!loading && !savingComposer && !contextFileBusy && !newConversationBusy && !!messages.length && props.executionAvailable"
+              @compact="handleCompactContext"
+            />
           </div>
           <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
           <button
@@ -1262,9 +719,13 @@ async function runCodeToTerminal(code: string) {
         v-if="showModelSwitcher && modelSwitcherGroups.length > 0"
         ref="modelSwitcherDropdownRef"
         class="model-switcher-dropdown"
+        :id="modelMenuId"
+        role="menu"
+        :aria-label="t('ai.manageModels')"
         :style="modelSwitcherStyle"
+        @keydown="onModelMenuKeydown"
       >
-        <div class="model-context-info">{{ contextMeterTitle }} · {{ Math.round(contextRatio * 100) }}%</div>
+        <div v-if="workspace" class="model-context-info">{{ contextMeterTitle }} · {{ Math.round(contextRatio * 100) }}%</div>
         <div
           v-for="group in modelSwitcherGroups"
           :key="group.providerId"
@@ -1276,6 +737,8 @@ async function runCodeToTerminal(code: string) {
             :key="item.providerId + item.model"
             type="button"
             class="model-switcher-item"
+            role="menuitemradio"
+            :aria-checked="item.active"
             :class="{ active: item.active }"
             @click="switchModel(item.providerId, item.model)"
           >
@@ -1287,7 +750,7 @@ async function runCodeToTerminal(code: string) {
       <div
         v-if="showModelSwitcher"
         class="model-switcher-overlay"
-        @click="showModelSwitcher = false"
+        @click="closeModelSwitcher(true)"
       ></div>
     </Teleport>
 
@@ -1323,6 +786,7 @@ async function runCodeToTerminal(code: string) {
             type="button"
             class="ui-btn ui-btn-xs ui-btn-ghost"
             v-if="historyItems.length > 0"
+            :disabled="historyBusy || loading || contextFileBusy"
             @click="handleClearAllHistory"
           >
             <AppIcon name="delete" size="sm" />
@@ -1335,7 +799,7 @@ async function runCodeToTerminal(code: string) {
       </div>
       <label v-if="historyItems.length" class="ai-history-search"><AppIcon name="search" size="sm" /><input v-model="historyQuery" :placeholder="t('ai.searchHistory')" :aria-label="t('ai.searchHistory')" /></label>
       <div v-if="!filteredHistoryItems.length" class="ai-history-empty"><AppIcon name="history" size="2xl" /><span>{{ t(historyItems.length ? 'ai.noMatchingHistory' : 'ai.emptyHistory') }}</span></div>
-      <div v-else class="ai-history-list">
+      <div v-else class="ai-history-list" :aria-busy="historyBusy">
         <div
           v-for="item in filteredHistoryItems"
           :key="item.id"
@@ -1345,6 +809,7 @@ async function runCodeToTerminal(code: string) {
           <button
             type="button"
             class="ai-history-item-main"
+            :disabled="historyBusy || loading || contextFileBusy"
             :title="item.tip || item.title"
             @click="handleSwitchConversation(item.id)"
           >

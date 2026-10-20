@@ -11,6 +11,7 @@ import { buildFileChangeDiffPreview } from './toolDiffPreview'
 import { waitForToolApproval } from './streamControl'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { executeUserQuestion } from './userQuestion'
+import { AI_LOAD_TOOLS, parseAiToolGroupRequest, type AiToolGroup } from '../../../shared/aiToolCatalog'
 
 export type AiToolApprovalObserver = (input: { requestId: string; callId: string; sessionId: string; toolName: string }) => void | (() => void)
 export type AiToolExecutionContext = {
@@ -24,6 +25,8 @@ export type AiToolExecutionContext = {
   checkpoint?: () => Promise<void>
   foregroundOnly?: boolean
   allowQuestions?: boolean
+  availableTools?: ReadonlySet<string>
+  loadTools?: (groups: AiToolGroup[]) => { loadedGroups: AiToolGroup[]; tools: string[] }
   onToolApprovalRequested?: AiToolApprovalObserver
   onBackgroundJobsStarted?: (jobIds: string[]) => void
   onBackgroundJobCollected?: (jobId: string) => void
@@ -34,7 +37,21 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   const { requestId, boundSessionId, workspaceTargets, sshMcpRuntime, signal, send } = opts
   if (signal.aborted) return undefined
   if (call.function.name === AI_QUESTION_TOOL) return executeUserQuestion(call, opts)
+  const localResult = (content: string, isError: boolean, status: AiToolRunStatus = 'done') => {
+    const run: AiToolRun = { id: call.id, name: call.function.name, args: call.function.arguments, content, isError, status }
+    send({ type: 'tool', value: { ...run, phase: status } })
+    return { run, message: { role: 'tool' as const, toolCallId: call.id, content } }
+  }
+  if (opts.availableTools && !opts.availableTools.has(call.function.name)) {
+    return localResult('TOOL_NOT_AVAILABLE: This tool is not loaded. Use the advertised load_tools groups for optional capabilities; use exec for ordinary system commands. No operation was executed.', true, 'blocked')
+  }
   const rawArgs = parseToolCallArguments(call.function.arguments)
+  if (call.function.name === AI_LOAD_TOOLS) {
+    const groups = parseAiToolGroupRequest((rawArgs as Record<string, unknown>)?.groups)
+    if (!groups) return localResult('INVALID_TOOL_GROUPS: groups must be a nonempty array containing only file_transfer, interactive_terminal or job_overview. No tools were loaded.', true)
+    if (!opts.loadTools) return localResult('TOOL_LOADING_UNAVAILABLE: Tool loading is unavailable in this execution.', true)
+    return localResult(JSON.stringify({ ...opts.loadTools(groups), notice: 'Tools are available in the next request. Loading performed no remote operation and granted no approval. Plan the next operation using the actual loaded schemas.' }), false)
+  }
   let targetLabel: string | undefined
   let boundArgs: Record<string, unknown>
   try {

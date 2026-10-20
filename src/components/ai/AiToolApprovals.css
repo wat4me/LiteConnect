@@ -1,0 +1,231 @@
+.tool-approval-stack {
+  margin: 0 14px var(--ai-composer-overlay-inset, 150px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(30vh, 260px);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex-shrink: 1;
+}
+
+.tool-approval {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-caption);
+}
+
+.tool-approval-queued {
+  padding: 2px 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  text-align: center;
+}
+
+.tool-approval.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-color));
+}
+
+.tool-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-approval-name {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-approval-risk {
+  flex-shrink: 0;
+  font-size: var(--font-caption);
+  font-weight: 500;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+}
+
+.tool-approval-risk[data-risk='destructive'],
+.tool-approval-risk[data-risk='privileged'],
+.tool-approval-risk[data-risk='forbidden'] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.tool-approval-copy {
+  color: var(--text-secondary);
+}
+
+.tool-approval-hint {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 96px;
+  overflow: auto;
+}
+
+.tool-approval-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.tool-approval-details {
+  min-height: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-tertiary) 32%, transparent);
+  overflow: hidden;
+}
+
+.tool-approval-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 5px 8px;
+  list-style: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tool-approval-details > summary::-webkit-details-marker,
+.tool-approval-details > summary::marker {
+  display: none;
+  content: '';
+}
+
+.tool-approval-details .details-chevron {
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.tool-approval-details > summary > span:first-of-type {
+  margin-right: auto;
+}
+
+.tool-approval-details[open] > summary .details-chevron {
+  transform: rotate(90deg);
+}
+
+.tool-approval-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 132px;
+  padding: 0 6px 6px;
+  overflow: auto;
+}
+
+.tool-approval-diff-summary {
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+}
+
+.tool-approval-diff-body {
+  margin: 0;
+  padding: 5px 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.tool-approval-diff-body .diff-row {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 8px;
+  white-space: pre;
+  color: var(--text-primary);
+}
+
+.tool-approval-diff-body .diff-head,
+.tool-approval-diff-body .diff-hunk {
+  color: var(--text-secondary);
+}
+
+.tool-approval-diff-body .diff-add {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.tool-approval-diff-body .diff-del {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.tool-approval-reason {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.tool-approval-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+  background: var(--bg-secondary);
+}
+
+.tool-approval-btn {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.tool-approval-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.tool-approval-btn.primary {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-color));
+}
+
+.tool-approval-btn.primary:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+
+.tool-approval-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tool-policy-notice { color: var(--warning); }
+
+.tool-policy-notice strong { font-weight: 600; }
+
+.tool-approval-head:has(.tool-approval-target) { flex-wrap: wrap; }
+
+.tool-approval-target { flex-basis: 100%; overflow-wrap: anywhere; font-weight: 600; color: var(--accent); }

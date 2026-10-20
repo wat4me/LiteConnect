@@ -1,4 +1,5 @@
 import { AI_QUESTION_ARGS_MAX, AI_QUESTION_TOOL, validateAiQuestions, validateAiUserAnswer } from './aiQuestions'
+import { AI_LOAD_TOOLS, AI_TOOL_GROUP_LABELS, parseAiToolGroupRequest } from './aiToolCatalog'
 
 export const AI_TOOL_RUN_CONTENT_MAX = 20_000
 export const AI_TOOL_RUN_ARGS_MAX = 4_000
@@ -336,7 +337,9 @@ export function formatToolRunDisplay(input: {
       return { summary: { kind: 'ok' }, hint, body }
     } catch { /* Malformed legacy records retain the generic display. */ }
   }
-  const hint = hintFromArgs(args, argsObj)
+  const hint = input.name === AI_LOAD_TOOLS
+    ? (parseAiToolGroupRequest(argsObj?.groups) || []).map(group => AI_TOOL_GROUP_LABELS[group]).join('、')
+    : hintFromArgs(args, argsObj)
 
   if (input.isError) {
     const message = content.trim() || 'error'

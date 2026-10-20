@@ -54,7 +54,7 @@ it('exposes a credential-free scope, scopes server tools and leaves user questio
   expect(system).not.toContain('不要切换到其它主机')
   const tools = workspaceToolsForChat()
   expect(tools.find(tool => tool.function.name === AI_QUESTION_TOOL)).toEqual(aiUserQuestionTool)
-  for (const tool of tools.filter(tool => tool.function.name !== AI_QUESTION_TOOL)) {
+  for (const tool of tools.filter(tool => ![AI_QUESTION_TOOL, 'load_tools'].includes(tool.function.name))) {
     expect(tool.function.parameters.required).toContain('connectionId')
     expect(tool.function.parameters.properties).not.toHaveProperty('sessionId')
   }

@@ -1,9 +1,10 @@
 import type { AiWorkspaceTarget } from './aiWorkspace'
 import { sshToolsForChat, sshToolSystemAddendum } from './aiSidebarPrompt'
 import { AI_QUESTION_TOOL } from './aiQuestions'
+import { AI_LOAD_TOOLS, type AiToolGroup } from './aiToolCatalog'
 
-export function workspaceToolsForChat() {
-  return sshToolsForChat().map(tool => tool.function.name === AI_QUESTION_TOOL ? tool : ({
+export function workspaceToolsForChat(groups: readonly AiToolGroup[] = []) {
+  return sshToolsForChat(groups).map(tool => [AI_QUESTION_TOOL, AI_LOAD_TOOLS].includes(tool.function.name) ? tool : ({
     ...tool,
     function: {
       ...tool.function,

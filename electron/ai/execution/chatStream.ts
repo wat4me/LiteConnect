@@ -35,6 +35,9 @@ import type { SshMcpRuntime } from '../../mcp/runtime'
 import { readHttpErrorMessage } from '../providers/http'
 import { buildAiRequestEnvironment, packRequestMessages } from './requestContext'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
+import { AI_LOAD_TOOLS, aiToolGroupsFromHistory, normalizeAiToolGroups, type AiToolGroup } from '../../../shared/aiToolCatalog'
+import { sshToolsForChat } from '../../../shared/aiSidebarPrompt'
+import { workspaceToolsForChat } from '../../../shared/aiWorkspacePrompt'
 
 export async function runAiChatStream(opts: {
   emit: (payload: AiChatStreamPayload) => void
@@ -54,6 +57,7 @@ export async function runAiChatStream(opts: {
   persistBackgroundResults?: (notice: string, apiMessages: AiChatMessage[]) => Promise<void>
   foregroundOnly?: boolean
   allowQuestions?: boolean
+  toolGroups?: readonly AiToolGroup[]
   getToolPermission?: () => AiToolPermissionMode
   onToolApprovalRequested?: AiToolApprovalObserver
   contextHistory?: {
@@ -94,7 +98,16 @@ export async function runAiChatStream(opts: {
   const workspaceTargets = opts.workspaceTargets
   const contextFiles = opts.contextFiles || []
   const allowQuestions = opts.allowQuestions !== false && !opts.foregroundOnly
-  const { boundSessionId, useTools, extraSystem, tools } = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, contextFiles, sshMcpRuntime, allowQuestions })
+  let toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(opts.toolGroups), ...aiToolGroupsFromHistory(opts.contextHistory?.records || [])])
+  const environment = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, contextFiles, sshMcpRuntime, allowQuestions, toolGroups })
+  const { boundSessionId, useTools, extraSystem } = environment
+  let tools = environment.tools
+  const loadTools = (groups: AiToolGroup[]) => {
+    toolGroups = normalizeAiToolGroups([...toolGroups, ...groups])
+    tools = (workspaceTargets ? workspaceToolsForChat(toolGroups) : sshToolsForChat(toolGroups))
+      .filter(tool => allowQuestions || tool.function.name !== AI_QUESTION_TOOL)
+    return { loadedGroups: toolGroups, tools: tools.map(tool => tool.function.name) }
+  }
 
   const control = opts.abortController ? undefined : createAiStreamControl(requestId)
   const abortController = opts.abortController || control!.controller
@@ -313,12 +326,18 @@ export async function runAiChatStream(opts: {
       generatedMessages.push(assistantExchange)
 
       const questionCall = allowQuestions ? assistantToolCalls.find(call => call.function.name === AI_QUESTION_TOOL) : undefined
+      const loadingCall = assistantToolCalls.find(call => call.function.name === AI_LOAD_TOOLS)
+      // A batch is planned against this request's catalog. Newly loaded schemas
+      // may be used only after the model has received and read the load result.
+      const availableTools = new Set(tools?.map(tool => tool.function.name))
       for (const call of assistantToolCalls) {
         if (abortController.signal.aborted) break
         // A preplanned command cannot depend on an answer the model has not read.
         // Complete the declared protocol with a non-execution result instead.
-        if (questionCall && call !== questionCall) {
-          const content = 'QUESTION_BATCH_DEFERRED: This tool was not executed. Interpret the user answer or cancellation from ask_user before planning further tool calls. Call ask_user alone.'
+        if ((questionCall && call !== questionCall) || (!questionCall && loadingCall && call !== loadingCall)) {
+          const content = questionCall
+            ? 'QUESTION_BATCH_DEFERRED: This tool was not executed. Interpret the user answer or cancellation from ask_user before planning further tool calls. Call ask_user alone.'
+            : 'TOOL_LOAD_BATCH_DEFERRED: This tool was not executed. Read the load_tools result and the loaded schemas before planning further tool calls. Call load_tools alone.'
           const run: AiToolRun = { id: call.id, name: call.function.name, args: call.function.arguments, content, isError: true, status: 'done' }
           send({ type: 'tool', value: { ...run, phase: 'done' } })
           toolRuns.push(run)
@@ -333,6 +352,7 @@ export async function runAiChatStream(opts: {
           signal: abortController.signal, send, getToolPermission: currentToolPermission,
           checkpoint: opts.checkpoint, foregroundOnly: opts.foregroundOnly,
           allowQuestions,
+          availableTools, loadTools,
           onToolApprovalRequested: opts.onToolApprovalRequested,
           onBackgroundJobsStarted: opts.onBackgroundJobsStarted,
           onBackgroundJobCollected: opts.onBackgroundJobCollected,

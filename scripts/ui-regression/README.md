@@ -6,6 +6,14 @@ checks: sidebar/LiteAI layouts across three themes, collapsed live overview,
 terminal duration freezing, pause/resume, and updates without IPC polling.
 The LiteAI rail checks cover direct close buttons, closing from home or another
 conversation, preservation of SSH connections/history, and busy/failure handling.
+The clear action checks cover confirmation/cancellation, persisted current-message
+removal, retained drafts/other history/SSH connections, and the disabled empty state.
+Scope details show an explanatory heading and fit inside a compact popover.
+Model-menu checks cover menu semantics, initial focus, arrow/Home/End navigation,
+Escape focus return and native Tab exit. Narrow chats default to a collapsed rail;
+manual rail choices remain persistent. Chat viewport checks retain the 200-turn
+timeline and stream follow/pause behavior. Composable tests additionally cover
+KeepAlive reading-position restoration and pending viewport-work disposal.
 
 Run `npm run test:ui:questions` for AI question-card checks: single choice,
 multiple choice, free text, explicit custom answers, compact arrow pager, unanswered

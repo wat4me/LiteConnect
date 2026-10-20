@@ -233,6 +233,8 @@ export interface AiConversationContextFile {
 }
 
 export interface AiConversationThread {
+  /** Optional capabilities loaded for this conversation, independent of its summary. */
+  toolGroups?: import('../aiToolCatalog').AiToolGroup[]
   /** Lifetime successful summary count, retained even if a checkpoint is invalidated. */
   compactionCount?: number
   id: string

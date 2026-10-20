@@ -36,6 +36,8 @@ app.whenReady().then(async () => {
       if (Date.now() > deadline) {
         const state = await run(`({
           error:window.__uiError,
+          usage:document.querySelector('.ai-fixture .usage-line')?.outerHTML,
+          usagePanel:document.querySelector('.ai-usage-popover')?.outerHTML.slice(0,250),
           notices:Array.from(document.querySelectorAll('.el-message')).map(el=>el.textContent),
           bookmarkWidth:document.querySelector('.bookmark-menu')?.getBoundingClientRect().width,
           sidebarWidth:document.querySelector('.file-sidebar')?.getBoundingClientRect().width,
@@ -54,9 +56,10 @@ app.whenReady().then(async () => {
     await window.webContents.capturePage()
     await new Promise(resolve => setTimeout(resolve, 100))
     const zoom = window.webContents.getZoomFactor()
-    const cropSelector = name.startsWith('style-system-') ? '.style-system-fixture' : name.startsWith('lite-ai-') ? '.lite-ai-workspace-fixture' : name.startsWith('ai-settings-panel-') ? '.ai-image-composer-fixture' : name.startsWith('ai-background-result-') ? '.ai-fixture' : null
+    const cropSelector = name.startsWith('style-system-') ? '.style-system-fixture' : name.startsWith('lite-ai-') ? '.lite-ai-workspace-fixture' : name.startsWith('ai-settings-panel-') ? '.ai-image-composer-fixture' : name.startsWith('ai-background-result-') ? '.ai-fixture' : name.startsWith('ai-usage-') ? '.ai-fixture, .ai-usage-popover' : name.startsWith('ai-context-') ? '.ai-image-composer-fixture .composer, .ai-context-popover' : name.startsWith('ai-image-preview-') ? '.ai-image-dialog[open]' : null
     const rect = cropSelector ? await run(`(() => {
-      const r=document.querySelector('${cropSelector}').getBoundingClientRect();
+      const boxes=[...document.querySelectorAll('${cropSelector}')].map(node=>node.getBoundingClientRect());
+      const r={left:Math.min(...boxes.map(box=>box.left)),top:Math.min(...boxes.map(box=>box.top)),right:Math.max(...boxes.map(box=>box.right)),bottom:Math.max(...boxes.map(box=>box.bottom))};
       const x=Math.max(0,Math.floor(r.left)),y=Math.max(0,Math.floor(r.top));
       return {x:Math.floor(x*${zoom}),y:Math.floor(y*${zoom}),width:Math.max(1,Math.floor((Math.min(r.right,innerWidth)-x)*${zoom})),height:Math.max(1,Math.floor((Math.min(r.bottom,innerHeight)-y)*${zoom}))};
     })()`) : undefined
@@ -69,6 +72,20 @@ app.whenReady().then(async () => {
     }
     await run(`document.querySelector('.settings-box [data-section="${id}"]').click()`)
     await waitFor(`document.querySelector('.settings-content[data-section="${id}"]')`)
+  }
+  const openConversationMenu = async () => {
+    await run(`document.querySelector('.lite-ai-chat .ai-conversation-menu-trigger').click()`)
+    await waitFor('document.querySelector(".ai-conversation-menu")')
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    assert.ok(await run(`(() => {const menu=document.querySelector('.ai-conversation-menu'),r=menu.getBoundingClientRect();return r.left>=0 && r.top>=0 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1 && menu.scrollWidth<=menu.clientWidth+1})()`), 'The conversation menu fits the viewport')
+  }
+  const disconnectAiConversation = async () => {
+    const before = await run('window.__uiRegression.workspaceCloses.length')
+    await openConversationMenu()
+    await run(`document.querySelector('.ai-conversation-menu [data-action="disconnect"]').click()`)
+    await waitFor('document.querySelector(".app-dialog")')
+    await run(`document.querySelector('.app-dialog-actions button:last-child').click()`)
+    await waitFor(`!document.querySelector('.app-dialog') && window.__uiRegression.workspaceCloses.length > ${before}`)
   }
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   await waitFor('window.__uiRegression && document.querySelector(".connection-row")')
@@ -416,22 +433,79 @@ app.whenReady().then(async () => {
   assert.equal(await run('document.querySelector(".ai-fixture .chat-list").scrollTop'), 0, 'Activity changes respect manual scrollback')
   await run('window.__uiRegression.finishAi()')
 
-  await run('window.__uiRegression.aiUsage({promptTokens:3000,cachedPromptTokens:2300,uncachedPromptTokens:700,completionTokens:300,reasoningTokens:60,totalTokens:3300,requestCount:2})')
-  await waitFor('document.querySelector(".ai-fixture .usage-line")?.textContent.includes("缓存 2.3k")')
-  assert.ok(await run('document.querySelector(".ai-fixture .usage-line").textContent.includes("非缓存 700") && document.querySelector(".ai-fixture .usage-line").textContent.includes("输出 300")'), 'Token footer exposes cache hits, uncached input and output')
-  assert.ok(await run('document.querySelector(".ai-fixture .usage-line").title.includes("模型请求 2 次") && document.querySelector(".ai-fixture .usage-line").title.includes("其中推理 60（已计入输出）")'), 'Exact accounting details explain request counts and reasoning without double counting')
-  for (const width of [300,440]) {
-    await run(`document.querySelector('.ai-fixture').style.width='${width}px'`)
-    assert.ok(await run(`(() => {const footer=document.querySelector('.ai-fixture .message-footer');const usage=footer.querySelector('.usage-line');const rect=footer.getBoundingClientRect();return footer.scrollWidth<=footer.clientWidth+1 && usage.getBoundingClientRect().right<=rect.right+1 && getComputedStyle(usage).visibility==='visible' && Number(getComputedStyle(usage).opacity)>0})()`), `Token breakdown fits and is visible without hover at ${width}px`)
+  const usageRows = () => run(`Object.fromEntries([...document.querySelectorAll('.ai-usage-popover .usage-row')].map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]))`)
+  const openUsage = async () => {
+    await run(`document.querySelector('.ai-fixture .usage-line').click()`)
+    await waitFor(`document.querySelector('.ai-fixture .usage-line')?.getAttribute('aria-expanded')==='true' && !!document.querySelector('.ai-usage-popover .usage-details')`)
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
   }
+  const closeUsage = async () => {
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)
+    await waitFor(`document.querySelector('.ai-fixture .usage-line')?.getAttribute('aria-expanded')==='false' && !document.querySelector('.ai-usage-popover .usage-details')`)
+  }
+  await run('window.__uiRegression.aiUsage({promptTokens:3000,cachedPromptTokens:2300,uncachedPromptTokens:700,completionTokens:300,reasoningTokens:60,totalTokens:3300,requestCount:2})')
+  await waitFor(`document.querySelector('.ai-fixture .usage-line')?.textContent.includes('用量 3.3k tok')`)
+  assert.equal(await run(`document.querySelector('.ai-fixture .usage-line').textContent.includes('缓存')`), false, 'Footer keeps cache and output details inside the disclosure')
+  await run(`document.querySelector('.ai-fixture').scrollIntoView({block:'center'})`)
+  await openUsage()
+  assert.deepEqual(await usageRows(), {'输入总量':'3,000 tok','缓存命中率':'76.7%','未缓存输入':'700 tok','缓存读取':'2,300 tok','输出':'300 tok','其中推理':'60 tok','模型请求次数':'2'}, 'Popover exposes exact accounting without counting reasoning twice')
+  await run(`document.querySelector('.ai-fixture .usage-line').dispatchEvent(new MouseEvent('mouseleave'))`)
+  await run(`new Promise(resolve=>setTimeout(resolve,220))`)
+  assert.equal(await run(`document.querySelector('.ai-fixture .usage-line').getAttribute('aria-expanded')`), 'true', 'Click pins the preview after the pointer leaves')
+  await closeUsage()
+  await run(`document.querySelector('.ai-fixture .usage-line').dispatchEvent(new MouseEvent('mouseenter'))`)
+  await waitFor(`!!document.querySelector('.ai-usage-popover .usage-details')`)
+  await run(`document.querySelector('.ai-fixture .usage-line').dispatchEvent(new MouseEvent('mouseleave'))`)
+  await waitFor(`!document.querySelector('.ai-usage-popover .usage-details')`)
+  window.webContents.focus()
+  await run(`document.querySelector('.ai-fixture .usage-line').focus()`)
+  assert.equal(await run(`document.activeElement===document.querySelector('.ai-fixture .usage-line')`), true, 'Keyboard test starts on the usage button')
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'})
+  window.webContents.sendInputEvent({type:'char',keyCode:'Enter'})
+  window.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'})
+  await waitFor(`document.querySelector('.ai-fixture .usage-line').getAttribute('aria-expanded')==='true'`)
+  await closeUsage()
+  assert.equal(await run(`document.activeElement===document.querySelector('.ai-fixture .usage-line')`), true, 'Escape preserves keyboard focus on the usage button')
+  await openUsage()
+  await run(`document.querySelector('.ai-fixture .message-content').dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))`)
+  await waitFor(`document.querySelector('.ai-fixture .usage-line').getAttribute('aria-expanded')==='false'`)
+
+  for (const theme of ['light','dark','eyecare']) {
+    await run(`window.__uiRegression.setTheme('${theme}')`)
+    for (const width of [300,440,900]) {
+      await run(`(() => {const fixture=document.querySelector('.ai-fixture');fixture.style.width='${width}px';fixture.scrollIntoView({block:'center'})})()`)
+      await run('window.__uiRegression.aiUsage({promptTokens:7498817,cachedPromptTokens:7491072,uncachedPromptTokens:7745,completionTokens:13730,totalTokens:7512547,requestCount:18})')
+      await waitFor(`document.querySelector('.ai-fixture .usage-line')?.textContent.includes('7.5M')`)
+      assert.ok(await run(`(() => {const footer=document.querySelector('.ai-fixture .message-footer');const nodes=[footer.querySelector('.usage-line'),footer.querySelector('.message-time'),footer.querySelector('.message-actions')];return footer.scrollWidth<=footer.clientWidth+1 && nodes.every(node=>Math.abs(node.getBoundingClientRect().top+node.clientHeight/2-(nodes[0].getBoundingClientRect().top+nodes[0].clientHeight/2))<3)})()`), `Usage, time and actions share a row at ${theme}/${width}px`)
+      await openUsage()
+      assert.equal((await usageRows())['缓存命中率'], '99.9%')
+      assert.equal(await run(`document.querySelector('.usage-heading strong').textContent`), '7,512,547 tok')
+      assert.ok(await run(`(() => {const panel=document.querySelector('.ai-usage-popover');const rect=panel.getBoundingClientRect();return panel.scrollWidth<=panel.clientWidth+1 && rect.left>=0 && rect.right<=innerWidth+1 && rect.top>=0 && rect.bottom<=innerHeight+1 && !document.querySelector('.ai-fixture').contains(panel)})()`), `Teleported details stay inside the viewport at ${theme}/${width}px`)
+      await saveScreenshot(`ai-usage-${theme}-${width}.png`)
+      await closeUsage()
+    }
+  }
+  await run(`window.__uiRegression.setTheme('light')`)
+  await run(`document.querySelector('.ai-fixture').style.width='440px'`)
   await run('window.__uiRegression.aiUsage({promptTokens:3000,cachedPromptTokens:800,uncachedPromptTokens:200,completionTokens:300,totalTokens:3300,requestCount:2,cacheUsageIncomplete:true})')
-  await waitFor('document.querySelector(".ai-fixture .usage-line")?.textContent.includes("缓存部分统计")')
-  assert.ok(await run('document.querySelector(".ai-fixture .usage-line").textContent.includes("非缓存 200")'), 'Incomplete cache accounting is not extrapolated to unknown requests')
+  await waitFor(`!!document.querySelector('.ai-fixture .usage-partial')`)
+  await openUsage()
+  assert.equal((await usageRows())['缓存命中率'], '未返回', 'Incomplete cache data does not produce a misleading turn-wide hit rate')
+  assert.equal((await usageRows())['未缓存输入'], '200 tok')
+  assert.ok(await run(`document.querySelector('.usage-incomplete').textContent.includes('部分请求未返回缓存明细')`))
+  await closeUsage()
   await run('window.__uiRegression.aiUsage({promptTokens:1000,completionTokens:100})')
-  await waitFor('document.querySelector(".ai-fixture .usage-line")?.textContent.includes("缓存未提供")')
-  assert.equal(await run('document.querySelector(".ai-fixture .usage-line").textContent.includes("缓存 0")'), false, 'Unavailable cache data never becomes zero hits')
+  await openUsage()
+  assert.equal((await usageRows())['缓存读取'], '未返回', 'Unknown cache statistics never become zero hits')
+  assert.equal((await usageRows())['缓存命中率'], '未返回')
+  await closeUsage()
   await run('window.__uiRegression.aiUsage({requestCount:1,usageIncomplete:true,cacheUsageIncomplete:true})')
-  await waitFor('document.querySelector(".ai-fixture .usage-line")?.textContent.includes("未返回用量")')
+  await waitFor(`document.querySelector('.ai-fixture .usage-line')?.textContent.includes('未返回用量')`)
+  await openUsage()
+  assert.equal(await run(`document.querySelector('.usage-heading strong').textContent`), '未返回')
+  assert.equal((await usageRows())['输出'], '未返回')
+  await closeUsage()
 
   await run('window.__uiRegression.aiTimeline(200)')
   await waitFor('document.querySelectorAll(".chat-timeline-item").length > 0 && document.querySelectorAll(".chat-timeline-item").length <= 12')
@@ -461,13 +535,104 @@ app.whenReady().then(async () => {
   await waitFor('window.__uiRegression.calls.aiCreates.length === 1')
   assert.equal(await run('document.querySelectorAll(".ai-image-composer-fixture .chat-row").length'), 0, 'A new SSH window starts blank even when the host has an active historical conversation')
   await waitFor('document.querySelector(".composer-add-image") && !document.querySelector(".composer-add-image").disabled')
+  assert.equal(await run(`document.querySelector('.composer-context-meter')`), null, 'SSH sidebars omit the context meter')
+  await run('window.__uiRegression.setContextLayout(true)')
+  await waitFor(`!!document.querySelector('.composer-context-meter')`)
   const initialContextPercent = await run('Number(document.querySelector(".composer-context-meter [role=meter]").getAttribute("aria-valuenow"))')
-  assert.ok(await run('document.querySelector(".composer-context-meter").title.includes("自动压缩触发点")'), 'Context meter explains the backend pressure threshold')
+  assert.ok(await run('document.querySelector(".composer-context-meter").getAttribute("aria-label").includes("自动压缩触发点")'), 'Context meter explains the backend pressure threshold')
   await run(`(() => {const input=document.querySelector('.composer-input');input.value='测试草稿'.repeat(2000);input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await waitFor(`Number(document.querySelector('.composer-context-meter [role=meter]').getAttribute('aria-valuenow')) > ${initialContextPercent}`)
   assert.equal(await run('window.__uiRegression.calls.aiRequests.length'), 0, 'Draft context estimation never makes a model request')
   await run(`(() => {const input=document.querySelector('.composer-input');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await run('document.querySelector(".ai-image-composer-fixture").scrollIntoView({block:"center"})')
+  const openContext = async () => {
+    await run(`document.querySelector('.composer-context-meter').click()`)
+    await waitFor(`document.querySelector('.composer-context-meter').getAttribute('aria-expanded')==='true' && !!document.querySelector('.context-info-rows')`)
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  }
+  const closeContext = async () => {
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    await run(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)
+    await waitFor(`!document.querySelector('.context-info-rows')`)
+  }
+  await openContext()
+  assert.ok(await run(`document.querySelector('.context-info-source').textContent.includes('未识别模型容量')`), 'Unknown model capacity explicitly identifies the default budget')
+  assert.ok(await run(`document.querySelector('.context-compact-button').disabled`), 'An empty chat can inspect context without enabling manual compaction')
+  assert.equal(await run(`window.__uiRegression.manualCompactions.length`), 0, 'Clicking the ring opens information without compacting')
+  await closeContext()
+  await run('window.__uiRegression.setContextModelWindow(undefined,64000)')
+  await openContext()
+  assert.ok(await run(`document.querySelector('.context-info-source').textContent.includes('提供商接口') && document.querySelector('.context-info-summary').textContent.includes('64k')`), 'Provider capacity is identified and replaces the fallback budget')
+  await closeContext()
+  await run('window.__uiRegression.setContextModelWindow(32000,64000)')
+  await openContext()
+  assert.ok(await run(`document.querySelector('.context-info-source').textContent.includes('手动设置') && document.querySelector('.context-info-summary').textContent.includes('32k')`), 'A manual capacity override takes precedence over provider metadata')
+  await closeContext()
+  await run('window.__uiRegression.setContextModelWindow()')
+  await run('window.__uiRegression.setLiveContextPressure({usedTokens:81400,windowTokens:300000,outputReserveTokens:16384,inputBudgetTokens:283616,thresholdTokens:226892,retainTokens:15000})')
+  await waitFor(`document.querySelector('.context-meter-percent').textContent==='27.1%'`)
+  await openContext()
+  assert.equal(await run(`document.querySelector('.context-info-summary').textContent`), '81.4k / 300k tok')
+  assert.deepEqual(await run(`Array.from(document.querySelectorAll('.context-info-rows dd')).map(node=>node.textContent)`), ['81,400 tok','300,000 tok','16,384 tok','226,892 tok','0'], 'The ring displays exact runtime context pressure, not reply usage')
+  assert.equal(await run(`document.querySelector('.context-compact-button').disabled`), true, 'Context information remains available while generating, but compaction is disabled')
+  await closeContext()
+  for (const workspace of [false,true]) {
+    await run(`window.__uiRegression.setContextLayout(${workspace})`)
+    for (const width of [300,440,900]) {
+      await run(`(() => {const fixture=document.querySelector('.ai-image-composer-fixture');fixture.style.width='${width}px';fixture.scrollIntoView({block:'center'})})()`)
+      if (workspace) {
+        await openContext()
+        assert.ok(await run(`(() => {const panel=document.querySelector('.ai-context-popover'),rect=panel.getBoundingClientRect(),form=document.querySelector('.composer');return panel.scrollWidth<=panel.clientWidth+1 && rect.left>=0 && rect.right<=innerWidth+1 && rect.top>=0 && rect.bottom<=innerHeight+1 && form.scrollWidth<=form.clientWidth+1})()`), `LiteAI context information fits ${width}px`)
+        assert.ok(await run(`(() => {const label=document.querySelector('.ai-model-switcher-name'),button=document.querySelector('.ai-model-switcher'),meter=document.querySelector('.composer-context-meter');return label.getBoundingClientRect().width>=40 && button.getBoundingClientRect().right<=meter.getBoundingClientRect().left+1})()`), 'The context meter does not squeeze out or overlap the model name')
+      }
+      if (!workspace) {
+        assert.ok(await run(`(() => {
+          const form=document.querySelector('.ai-image-composer-fixture .composer');
+          const permission=form.querySelector('.composer-permission-selector');
+          const center=node=>{const r=node.getBoundingClientRect();return r.top+r.height/2};
+          const model=form.querySelector('.model-switcher-wrap');
+          const send=form.querySelector('.send-btn,.stop-btn');
+          return !form.querySelector('.composer-context-meter,.context-meter-percent')
+            && form.querySelector('.ai-model-switcher-name').getBoundingClientRect().width>=40
+            && form.scrollWidth<=form.clientWidth+1
+            && form.querySelectorAll('.composer-permission-selector').length===1
+            && permission.closest('.composer-actions-right')
+            && Math.abs(center(permission)-center(send))<2
+            && Math.abs(center(model)-center(send))<2
+            && model.getBoundingClientRect().right<=permission.getBoundingClientRect().left+1
+            && permission.getBoundingClientRect().right<=send.getBoundingClientRect().left+1
+            && !form.querySelector('.composer-context-strip .composer-permission-selector');
+        })()`), `Sidebar model, permissions and send controls share one row without overlap at ${width}px`)
+      }
+      await saveScreenshot(`ai-context-${workspace?'workspace':'sidebar'}-${width}.png`)
+      if (workspace) await closeContext()
+    }
+  }
+  await run(`window.__uiRegression.setContextLayout(false)`)
+  await run(`document.querySelector('.ai-image-composer-fixture').style.width='440px'`)
+  await run('window.__uiRegression.setLiveContextPressure({usedTokens:290000,windowTokens:300000,outputReserveTokens:4000,inputBudgetTokens:296000,thresholdTokens:236800,retainTokens:15000})')
+  assert.equal(await run(`document.querySelector('.composer-context-meter,.context-meter-percent,.composer-context-warning[role="status"]')`), null, 'SSH sidebars omit context percentages even near the capacity limit')
+  await run('window.__uiRegression.setLiveContextPressure()')
+  await run(`document.querySelector('.ai-model-switcher').click()`)
+  await waitFor(`!!document.querySelector('.model-switcher-dropdown')`)
+  assert.equal(await run(`document.querySelector('.model-context-info')`), null, 'SSH model menus also omit context statistics')
+  await waitFor(`document.activeElement?.matches('.model-switcher-item[role="menuitemradio"]')`)
+  assert.equal(await run(`document.querySelector('.model-switcher-dropdown').getAttribute('role')`), 'menu', 'Model switching exposes menu semantics')
+  for (const [key, index] of [['End', -1], ['ArrowDown', 0], ['Home', 0], ['ArrowUp', -1]]) {
+    await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(key)},bubbles:true,cancelable:true}))`)
+    assert.ok(await run(`document.activeElement===Array.from(document.querySelectorAll('.model-switcher-item')).at(${index})`), `${key} navigates the model menu`)
+  }
+  await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))`)
+  await waitFor(`!document.querySelector('.model-switcher-dropdown') && document.activeElement.matches('.ai-model-switcher')`)
+  await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}))`)
+  await waitFor(`document.activeElement===Array.from(document.querySelectorAll('.model-switcher-item')).at(-1)`)
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'})
+  window.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'})
+  await waitFor(`!document.querySelector('.model-switcher-dropdown') && !document.activeElement.matches('.ai-model-switcher')`)
+  await run(`document.querySelector('.ai-model-switcher').click()`)
+  await waitFor(`!!document.querySelector('.model-switcher-dropdown')`)
+  await run(`document.querySelector('.model-switcher-overlay')?.click()`)
+  await waitFor(`!document.querySelector('.model-switcher-dropdown')`)
   const addFixtureImage = (mode, color) => run(`(async () => {
     const canvas=document.createElement('canvas');canvas.width=800;canvas.height=450;
     const ctx=canvas.getContext('2d');ctx.fillStyle=${JSON.stringify(color)};ctx.fillRect(0,0,800,450);ctx.fillStyle='#fff';ctx.font='32px sans-serif';ctx.fillText('Connection refused / 连接失败',40,90);
@@ -480,8 +645,45 @@ app.whenReady().then(async () => {
   await addFixtureImage('select', '#174e7b')
   await waitFor('document.querySelectorAll(".composer-images .ai-image-thumbnail").length === 1')
   await run('document.querySelector(".composer-images .ai-image-thumbnail").click()')
-  await waitFor('document.querySelector(".ai-image-dialog[open]")')
+  await waitFor('document.querySelector(".ai-image-dialog[open] img")?.naturalWidth === 800')
   assert.equal(await run('document.querySelector(".ai-image-dialog[open] img").naturalWidth'), 800)
+  const checkImagePreview = async () => {
+    await waitFor('document.querySelector(".ai-image-dialog img").getBoundingClientRect().width > 0')
+    const initial = await run(`(() => {const r=document.querySelector('.ai-image-dialog').getBoundingClientRect();return {x:r.left,y:r.top,centered:Math.abs(r.left+r.width/2-innerWidth/2)<2 && Math.abs(r.top+r.height/2-innerHeight/2)<2,scale:document.querySelector('.ai-image-preview-scale').textContent}})()`)
+    assert.ok(initial.centered, 'Image previews start centered instead of inheriting the global zero-margin reset')
+    const drag = async (selector, dx, dy) => {
+      const point = await run(`(() => {const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`)
+      const zoom = window.webContents.getZoomFactor()
+      const from = { x: Math.round(point.x * zoom), y: Math.round(point.y * zoom) }
+      const to = { x: Math.round((point.x + dx) * zoom), y: Math.round((point.y + dy) * zoom) }
+      window.webContents.sendInputEvent({ type: 'mouseMove', ...from })
+      window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...from })
+      window.webContents.sendInputEvent({ type: 'mouseMove', ...to })
+      window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...to })
+      await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    }
+    await drag('.ai-image-preview-head > span', 24, 16)
+    assert.ok(await run(`(() => {const r=document.querySelector('.ai-image-dialog').getBoundingClientRect();return r.left>${initial.x}+1 && r.top>${initial.y}+1 && r.right<=innerWidth && r.bottom<=innerHeight})()`), 'The title bar moves the preview within the window bounds')
+    await run(`(() => {const button=document.querySelector('.ai-image-preview-toolbar [aria-label="放大图片"]');button.click();button.click()})()`)
+    await waitFor('document.querySelector(".ai-image-preview-viewport").classList.contains("pannable")')
+    const before = await run(`(() => {const r=document.querySelector('.ai-image-dialog img').getBoundingClientRect();return {x:r.left,y:r.top,width:r.width}})()`)
+    await drag('.ai-image-preview-viewport', 36, 24)
+    assert.ok(await run(`(() => {const image=document.querySelector('.ai-image-dialog img').getBoundingClientRect(),stage=document.querySelector('.ai-image-preview-viewport').getBoundingClientRect();return Math.abs(image.left-(${before.x}))>1 && (image.width<=stage.width+1 || image.left<=stage.left+1 && image.right>=stage.right-1)})()`), 'Enlarged images pan without exposing empty space beyond their edges')
+    await run(`(() => {const stage=document.querySelector('.ai-image-preview-viewport'),r=stage.getBoundingClientRect();stage.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,clientX:r.left+r.width/2,clientY:r.top+r.height/2,bubbles:true,cancelable:true}))})()`)
+    assert.ok(await run(`document.querySelector('.ai-image-dialog img').getBoundingClientRect().width>${before.width}`), 'The wheel zooms the image')
+    await saveScreenshot('ai-image-preview-zoomed.png')
+    await run(`document.querySelector('.ai-image-preview-toolbar [aria-label="适应窗口"]').click()`)
+    assert.equal(await run('document.querySelector(".ai-image-preview-scale").textContent'), initial.scale, 'Fit restores the initial zoom')
+    assert.equal(await run('document.querySelector(".ai-image-preview-viewport").classList.contains("pannable")'), false)
+    await saveScreenshot('ai-image-preview-fit.png')
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    await waitFor('!document.querySelector(".ai-image-dialog[open]")')
+    await run('document.querySelector(".composer-images .ai-image-thumbnail").click()')
+    await waitFor('document.querySelector(".ai-image-dialog[open] img")?.getBoundingClientRect().width > 0')
+    assert.equal(await run('document.querySelector(".ai-image-preview-scale").textContent'), initial.scale, 'Reopening starts with a fresh view')
+  }
+  await checkImagePreview()
   await run('document.querySelector(".ai-image-dialog[open] .ui-icon-btn").click()')
   await addFixtureImage('paste', '#4e236b')
   await waitFor('document.querySelectorAll(".composer-images .ai-image-thumbnail").length === 2')
@@ -511,11 +713,15 @@ app.whenReady().then(async () => {
   assert.equal(imageRequest.images.length, 2, 'Image-only message carries both original attachments')
   assert.ok(imageRequest.images.every(image => image.dataUrl.startsWith('data:image/png;base64,') && image.width === 800 && /^[a-f0-9]{64}$/.test(image.id)))
   await waitFor('document.querySelectorAll(".ai-image-composer-fixture .chat-row .ai-image-thumbnail").length === 2')
+  await run('window.__uiRegression.setContextLayout(true)')
   const rowsBeforeManualCompaction = await run('document.querySelectorAll(".ai-image-composer-fixture .chat-row").length')
   await run(`(() => {const input=document.querySelector('.composer-input');input.value='手动压缩时保留草稿';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.composer-context-meter').click()})()`)
+  await waitFor(`!!document.querySelector('.context-compact-button') && !document.querySelector('.context-compact-button').disabled`)
+  await run(`document.querySelector('.context-compact-button').click()`)
   await waitFor('window.__uiRegression.manualCompactions.length === 1 && !document.querySelector(".stop-btn")')
   assert.equal(await run('document.querySelectorAll(".ai-image-composer-fixture .chat-row").length'), rowsBeforeManualCompaction, 'Manual compaction creates no chat message')
   assert.equal(await run('document.querySelector(".composer-input").value'), '手动压缩时保留草稿', 'Manual compaction preserves the unsent draft')
+  await run('window.__uiRegression.setContextLayout(false)')
   await run(`(() => {const input=document.querySelector('.composer-input');input.value='A 窗口未发送的草稿';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   const originalSession = await run('window.__uiRegression.imageSessionState("image-fixture")')
   await run('window.__uiRegression.switchImageSession("image-fixture-c")')
@@ -871,6 +1077,15 @@ app.whenReady().then(async () => {
   await saveScreenshot('lite-ai-conversation.png')
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');return toolbar.contains(document.querySelector('.workspace-target')) && toolbar.getBoundingClientRect().height<100})()`), 'Conversation title and server controls share one compact toolbar')
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');const centers=['.workspace-back','.ai-title','.workspace-target','.ai-header-actions','.workspace-session-action'].map(selector=>{const r=toolbar.querySelector(selector).getBoundingClientRect();return r.top+r.height/2});return Math.max(...centers)-Math.min(...centers)<=1})()`), 'Title, server information and session actions align on one row in a wide window')
+  assert.equal(await run(`document.querySelectorAll('.lite-ai-chat .ai-header-actions button').length`), 2, 'Workspace exposes clear beside the single more button')
+  assert.equal(await run(`document.querySelector('.lite-ai-chat .workspace-clear-chat').textContent.trim()`), '清空', 'The current conversation has a visible clear action')
+  assert.equal(await run(`document.querySelector('.workspace-session-action').textContent.trim()`), '关闭会话', 'Legacy and scoped chats use the same close action')
+  await openConversationMenu()
+  assert.deepEqual(await run(`Array.from(document.querySelectorAll('.ai-conversation-menu [data-action]')).map(button=>button.dataset.action)`), ['new-current','new-scope','history','settings','disconnect'])
+  await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}))`)
+  assert.equal(await run('document.activeElement.dataset.action'), 'new-scope', 'Arrow keys move through enabled actions')
+  await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))`)
+  await waitFor('!document.querySelector(".ai-conversation-menu") && document.activeElement.classList.contains("ai-conversation-menu-trigger")')
   assert.ok(await run(`(() => {const button=document.querySelector('.workspace-session-action');const style=getComputedStyle(button);return !!button.querySelector('svg') && style.borderTopStyle==='solid' && parseFloat(style.borderTopWidth)>=1 && !['transparent','rgba(0, 0, 0, 0)'].includes(style.backgroundColor)})()`), 'Closing a session has an icon, visible border and surface before hover')
   await run(`window.__uiRegression.setTheme('light')`)
   await saveScreenshot('lite-ai-desktop-chat-light.png')
@@ -898,10 +1113,12 @@ app.whenReady().then(async () => {
   assert.equal(await run('window.__uiRegression.workspaceOpens.length'), 2, 'The sidebar continues an existing conversation without reconnecting or discarding the draft')
 
   await run(`document.querySelector('.lite-ai-workspace-fixture').style.width='680px'`)
+  await waitFor(`document.querySelector('.ai-workspace-rail.collapsed')`)
+  assert.ok(await run(`document.querySelector('.lite-ai-chat').getBoundingClientRect().width>550`), 'A narrow chat defaults to a compact rail and keeps room for the transcript')
   await saveScreenshot('lite-ai-narrow.png')
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');const bounds=toolbar.getBoundingClientRect();return toolbar.scrollWidth<=toolbar.clientWidth+1 && [...toolbar.querySelectorAll('button')].filter(button=>button.getClientRects().length).every(button=>{const rect=button.getBoundingClientRect();return rect.left>=bounds.left && rect.right<=bounds.right+1})})()`), 'Every conversation toolbar action remains visible within a narrow window')
   const disconnectedHost = await run('document.querySelector(".workspace-target-host strong").textContent')
-  await run(`document.querySelector('.workspace-disconnect').click()`)
+  await disconnectAiConversation()
   await waitFor(`document.querySelector(".workspace-target-host strong") && document.querySelector(".workspace-target-host strong").textContent !== ${JSON.stringify(disconnectedHost)}`)
   assert.equal(await run('document.querySelectorAll(".rail-current-list .rail-item").length'), 1, 'Disconnecting A retains the independent connection to B')
   await run(`document.querySelector('.workspace-schedule-entry').click()`)
@@ -1034,8 +1251,8 @@ app.whenReady().then(async () => {
   await waitFor('!document.querySelector(".workspace-error") && !document.querySelector(".lite-ai-chat .send-btn").disabled')
   assert.equal(await run('document.querySelectorAll(".lite-ai-chat .chat-row").length'), rowsBeforeReconnect, 'Reconnecting preserves the shared conversation')
   assert.equal(await run('document.querySelectorAll(".lite-ai-chat .background-task-body li").length'), 2, 'Task details remain visible when a host reconnects with a new SSH session id')
-  await run(`document.querySelector('.lite-ai-chat .ai-new-chat-menu summary').click()`)
-  await run(`document.querySelector('.lite-ai-chat .ai-new-chat-dropdown button').click()`)
+  await openConversationMenu()
+  await run(`document.querySelector('.ai-conversation-menu [data-action="new-current"]').click()`)
   await waitFor('document.querySelector(".app-dialog-actions button")')
   await run(`document.querySelector('.app-dialog-actions button:last-child').click()`)
   await waitFor('!document.querySelector(".app-dialog") && document.querySelectorAll(".lite-ai-chat .chat-row").length === 0')
@@ -1103,6 +1320,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(await run('window.__uiRegression.workspaceScopes.at(-1).connectionIds.slice().sort()'), ['one','two'], 'The page and dialog create the same explicit AI scope')
   await run(`document.querySelector('.workspace-scope-details summary').click()`)
   await saveScreenshot('lite-ai-page-scope-header.png')
+  assert.ok(await run(`(() => {const panel=document.querySelector('.workspace-scope-popover'),bounds=panel.getBoundingClientRect(),workspace=document.querySelector('.ai-workspace').getBoundingClientRect();return panel.textContent.includes('AI 仅可操作以下服务器') && bounds.width<=442 && bounds.right<=workspace.right+1 && panel.scrollWidth<=panel.clientWidth+1})()`), 'The scope popover explains its purpose and stays compact within the workspace')
   assert.ok(await run('document.querySelector(".workspace-scope-details summary").textContent.includes("已连接 2/2")'), 'Scope header shows connected targets independently from the conversation count')
   assert.ok(await run('document.querySelector(".rail-current-list .rail-item.active .rail-host-count").textContent.includes("2 台")'), 'Sidebar exposes multi-server conversation size')
   await run(`document.querySelector('.workspace-scope-details summary').click()`)
@@ -1117,6 +1335,29 @@ app.whenReady().then(async () => {
   assert.equal(await run('window.__uiRegression.calls.clipboardWrites.at(-1)'), 'free -h', 'Host detail copy preserves the actual command')
   assert.equal(await run('document.querySelectorAll(".workspace-response .code-action-btn").length'), 0, 'Workspace details never offer hidden terminal execution')
   await saveScreenshot('lite-ai-workspace-response.png')
+  const clearingScope = await run(`(async () => {
+    const id=window.__uiRegression.workspaceScopes.at(-1).id;
+    const store=await window.LiteConnect.getAiSessionStore(id);
+    store.threads.push({id:'keep-after-clear',title:'保留其他会话',createdAt:1,updatedAt:1,contextFiles:[],messages:[{id:'keep-message',role:'user',content:'其他会话不能删除',createdAt:1}]});
+    await window.LiteConnect.setAiSessionStore(id,store);
+    const input=document.querySelector('.lite-ai-chat .composer-input');input.value='清空后保留草稿';input.dispatchEvent(new Event('input',{bubbles:true}));
+    return {id,threadId:store.activeThreadId,closes:window.__uiRegression.workspaceCloses.length,opens:window.__uiRegression.workspaceOpens.length,rows:document.querySelectorAll('.lite-ai-chat .chat-row').length};
+  })()`)
+  await run(`document.querySelector('.workspace-clear-chat').click()`)
+  await waitFor('document.querySelector(".app-dialog-title")?.textContent.includes("清空当前对话")')
+  await run(`document.querySelector('.app-dialog-actions button:first-child').click()`)
+  await waitFor('!document.querySelector(".app-dialog") && !document.querySelector(".workspace-clear-chat").disabled')
+  assert.equal(await run('document.querySelectorAll(".lite-ai-chat .chat-row").length'), clearingScope.rows, 'Cancelling clear preserves the full transcript')
+  await run(`document.querySelector('.workspace-clear-chat').click()`)
+  await waitFor('document.querySelector(".app-dialog-title")?.textContent.includes("清空当前对话")')
+  await run(`document.querySelector('.app-dialog-actions button:last-child').click()`)
+  await waitFor('!document.querySelector(".app-dialog") && document.querySelectorAll(".lite-ai-chat .chat-row").length===0 && document.querySelector(".workspace-clear-chat").disabled')
+  const clearedScope = await run(`(async () => {
+    const store=await window.LiteConnect.getAiSessionStore(${JSON.stringify(clearingScope.id)});
+    return {current:store.threads.find(thread=>thread.id===${JSON.stringify(clearingScope.threadId)}).messages.length,other:store.threads.find(thread=>thread.id==='keep-after-clear').messages[0].content,draft:document.querySelector('.lite-ai-chat .composer-input').value,closes:window.__uiRegression.workspaceCloses.length,opens:window.__uiRegression.workspaceOpens.length};
+  })()`)
+  assert.deepEqual(clearedScope, {current:0,other:'其他会话不能删除',draft:'清空后保留草稿',closes:clearingScope.closes,opens:clearingScope.opens}, 'Clearing persists only the current transcript and preserves drafts, history and SSH connections')
+  await saveScreenshot('lite-ai-cleared-conversation.png')
   await run(`document.querySelector('.workspace-close-session').click()`)
   await waitFor('!document.querySelector(".workspace-scope-target")')
   await run(`document.querySelector('.workspace-clear-selection').click()`)
@@ -1207,7 +1448,7 @@ app.whenReady().then(async () => {
   while (await run(`!!document.querySelector('.rail-current-list .rail-item:not([data-connection-id^="workspace:"])')`)) {
     await run(`document.querySelector('.rail-current-list .rail-item:not([data-connection-id^="workspace:"])').click()`)
     await waitFor('document.querySelector(".workspace-target-host")')
-    await run(`document.querySelector('.workspace-disconnect').click()`)
+    await disconnectAiConversation()
   }
   await run('window.__uiRegression.seedWorkspaceRail()')
   await run(`document.querySelector('.workspace-host-entry').click()`)

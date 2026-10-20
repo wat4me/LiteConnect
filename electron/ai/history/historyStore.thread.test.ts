@@ -19,6 +19,27 @@ import {
 import { closeAppDatabase, initializeAppDatabase } from '../../store/appDatabase'
 import type { AiChatMessage, AiChatSegment, AiToolRun } from '../../../shared/types/ai'
 
+it('persists loaded capabilities across pruning/reload and starts new conversations without them', async () => {
+  const session = 'loaded-tool-history'
+  await writeAiSessionStore(session, { version: 1, activeThreadId: 'loaded', defaultContextFiles: [], threads: [{
+    id: 'loaded', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [
+      { id: 'loader', role: 'assistant', content: '', status: 'completed', createdAt: 1, toolRuns: [{
+        id: 'load-call', name: 'load_tools', args: '{"groups":["file_transfer"]}', content: '{}', status: 'done', isError: false,
+      }] },
+      ...Array.from({ length: 24 }, (_, i) => ({ id: `recent-${i}`, role: 'user' as const, content: 'continue', createdAt: i + 2 })),
+    ],
+  }] }, { maxMessages: 20 })
+  let stored = await readAiSessionStore(session)
+  expect(stored.threads[0].messages.some(message => message.id === 'loader')).toBe(false)
+  expect(stored.threads[0].toolGroups).toEqual(['file_transfer'])
+  await writeAiSessionStore(session, stored)
+  stored = await readAiSessionStore(session)
+  expect(stored.threads[0].toolGroups).toEqual(['file_transfer'])
+  const fresh = await createNewConversationAtomic(session, {})
+  expect(fresh.threads.find(thread => thread.id === fresh.activeThreadId)?.toolGroups).toBeUndefined()
+  expect(fresh.threads.find(thread => thread.id === 'loaded')?.toolGroups).toEqual(['file_transfer'])
+})
+
 it('serializes queued mutations through failures without blocking other sessions', async () => {
   const order: string[] = []
   let releaseFirst!: () => void

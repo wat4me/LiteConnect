@@ -1,4 +1,4 @@
-import { computed, nextTick, ref, shallowRef, type Ref } from 'vue'
+import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
 import { threadTitleTooltip } from '@/utils/ai/threadTitle'
@@ -27,6 +27,21 @@ export function useAiSidebarHistory(deps: {
   const showHistory = ref(false)
   const historyQuery = ref('')
   const historyBody = shallowRef<Record<string, string[]>>({})
+  const historyBusy = ref(false)
+  let disposed = false
+  let revision = 0
+  let indexRequest = 0
+  function capture() {
+    const sessionId = deps.sessionId()
+    const threadId = deps.activeThreadId()
+    const version = revision
+    const visible = () => !disposed && revision === version && deps.sessionId() === sessionId
+    const current = () => visible() && deps.activeThreadId() === threadId
+    const sync = (messages: ChatItem[]) => { if (visible()) deps.syncMessages(messages) }
+    return { sessionId, visible, current, sync }
+  }
+  onScopeDispose(() => { disposed = true; indexRequest++ })
+  watch(deps.sessionId, () => { revision++; historyBusy.value = false; closeHistoryPanel() }, { flush: 'sync' })
   const historyItems = computed(() => deps.threadSummaries.value
     .filter(thread => (thread.messageCount || 0) > 0)
     .slice()
@@ -56,38 +71,46 @@ export function useAiSidebarHistory(deps: {
   })
 
   async function openHistoryPanel() {
+    if (disposed) return
+    const target = capture()
+    const request = ++indexRequest
     historyQuery.value = ''
+    historyBody.value = {}
     deps.closeModelSwitcher()
     showHistory.value = true
     deps.closeSettings()
-    await nextTick()
-    const sessionId = deps.sessionId()
     try {
-      const store = await window.LiteConnect.getAiSessionStore(sessionId)
-      if (!showHistory.value || deps.sessionId() !== sessionId) return
+      const store = await window.LiteConnect.getAiSessionStore(target.sessionId)
+      if (!showHistory.value || !target.visible() || request !== indexRequest) return
       historyBody.value = Object.fromEntries(store.threads.map(thread => [
         thread.id,
         thread.messages.map(message => message.content).filter(Boolean),
       ]))
     } catch {
-      if (deps.sessionId() === sessionId) historyBody.value = {}
+      if (target.visible() && request === indexRequest) historyBody.value = {}
     }
   }
 
   function closeHistoryPanel() {
+    indexRequest++
     showHistory.value = false
     historyBody.value = {}
   }
 
   async function handleSwitchConversation(threadId: string) {
-    if (deps.loading.value || deps.contextFileBusy.value) return
-    await deps.switchConversation(deps.sessionId(), threadId, deps.syncMessages)
-    deps.syncFromState()
-    closeHistoryPanel()
+    if (disposed || historyBusy.value || deps.loading.value || deps.contextFileBusy.value) return
+    const target = capture()
+    historyBusy.value = true
+    try {
+      const ok = await deps.switchConversation(target.sessionId, threadId, target.sync)
+      if (target.visible() && ok !== false) { deps.syncFromState(); closeHistoryPanel() }
+    } finally { if (target.visible()) historyBusy.value = false }
   }
 
   async function handleDeleteConversation(threadId: string, event?: Event) {
     event?.stopPropagation()
+    if (disposed || historyBusy.value || deps.loading.value || deps.contextFileBusy.value) return
+    const target = capture()
     try {
       await appConfirm({
         title: deps.t('ai.deleteHistoryTitle'),
@@ -99,12 +122,18 @@ export function useAiSidebarHistory(deps: {
         tone: 'danger',
       })
     } catch { return }
-    const ok = await deps.deleteConversation(deps.sessionId(), threadId, deps.syncMessages)
-    if (ok) ElMessage.success(deps.t('ai.historyDeleted'))
+    if (!target.current() || deps.loading.value || historyBusy.value) return
+    historyBusy.value = true
+    try {
+      const ok = await deps.deleteConversation(target.sessionId, threadId, target.sync)
+      if (ok && target.visible()) ElMessage.success(deps.t('ai.historyDeleted'))
+    } finally { if (target.visible()) historyBusy.value = false }
   }
 
   async function handleRenameConversation(threadId: string, title: string, event?: Event) {
     event?.stopPropagation()
+    if (disposed) return
+    const target = capture()
     let next: string
     try {
       next = await appPrompt({
@@ -115,15 +144,18 @@ export function useAiSidebarHistory(deps: {
         required: false,
       })
     } catch { return }
-    await deps.updateConversation(deps.sessionId(), threadId, { customTitle: next.trim() || null })
+    if (target.current()) await deps.updateConversation(target.sessionId, threadId, { customTitle: next.trim() || null })
   }
 
   async function handleTogglePin(threadId: string, pinned: boolean, event?: Event) {
     event?.stopPropagation()
+    if (disposed) return
     await deps.updateConversation(deps.sessionId(), threadId, { pinned: !pinned })
   }
 
   async function handleClearAllHistory() {
+    if (disposed || historyBusy.value || deps.loading.value || deps.contextFileBusy.value) return
+    const target = capture()
     const count = historyItems.value.length
     if (count === 0) return
     try {
@@ -136,8 +168,12 @@ export function useAiSidebarHistory(deps: {
         tone: 'danger',
       })
     } catch { return }
-    const ok = await deps.clearAllConversations(deps.sessionId(), deps.syncMessages)
-    if (ok) ElMessage.success(deps.t('ai.allHistoryCleared'))
+    if (!target.current() || deps.loading.value || historyBusy.value) return
+    historyBusy.value = true
+    try {
+      const ok = await deps.clearAllConversations(target.sessionId, target.sync)
+      if (ok && target.visible()) ElMessage.success(deps.t('ai.allHistoryCleared'))
+    } finally { if (target.visible()) historyBusy.value = false }
   }
 
   function formatHistoryTime(timestamp: number) {
@@ -146,7 +182,7 @@ export function useAiSidebarHistory(deps: {
     })
   }
 
-  return { showHistory, historyQuery, historyItems, filteredHistoryItems,
+  return { showHistory, historyQuery, historyItems, filteredHistoryItems, historyBusy,
     openHistoryPanel, closeHistoryPanel, handleSwitchConversation,
     handleDeleteConversation, handleRenameConversation, handleTogglePin,
     handleClearAllHistory, formatHistoryTime }

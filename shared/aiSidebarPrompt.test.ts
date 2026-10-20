@@ -103,7 +103,7 @@ describe('sshToolsForChat', () => {
     ['sidebar', sshToolsForChat],
     ['workspace', workspaceToolsForChat],
   ] as const)('uses automatic result delivery throughout the %s tool catalog', (_name, catalog) => {
-    const tools = catalog()
+    const tools = catalog(['job_overview'])
     const exec = tools.find(tool => tool.function.name === 'exec')!.function
     const properties = exec.parameters.properties as Record<string, Record<string, unknown>>
     expect(exec.description).toContain('Completion status and stdout/stderr are delivered automatically')

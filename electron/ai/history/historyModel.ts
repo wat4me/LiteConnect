@@ -2,6 +2,7 @@ import { AI_TOOL_DIFF_MAX_CHARS } from '../../../shared/aiToolDiff'
 import { AI_QUESTION_ARGS_MAX, AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { normalizeAiImages } from '../../../shared/aiImages'
 import { normalizeAiCompactionCount } from '../../../shared/aiCompaction'
+import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '../../../shared/aiToolCatalog'
 import { isAiMarkdownFilePath } from '../../../shared/aiFixedContext'
 import { limitAiMessagesPreservingToolProtocol } from '../../../shared/aiMessages'
 import { MAX_AI_TOOL_CALLS_PER_TURN, MAX_AI_TURN_SEGMENTS } from '../../../shared/aiToolLimits'
@@ -267,6 +268,7 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
         .sort((a: AiHistoryRecord, b: AiHistoryRecord) => a.createdAt - b.createdAt)
     : []
   const messages = limitThreadMessages(allMessages, limits.maxMessages)
+  const toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(raw.toolGroups), ...aiToolGroupsFromHistory(allMessages)])
   const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : messages[0]?.createdAt || Date.now()
   const updatedAt =
     typeof raw.updatedAt === 'number'
@@ -288,6 +290,7 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
     createdAt,
     updatedAt,
     messages,
+    ...(toolGroups.length ? { toolGroups } : {}),
     ...(contextCheckpoint ? { contextCheckpoint } : {}),
     contextFiles,
     ...(compactionCount ? { compactionCount } : {}),

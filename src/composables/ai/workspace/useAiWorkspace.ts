@@ -1,4 +1,5 @@
-import { groupAiWorkspaceHosts } from '@/utils/ai/workspaceHosts'
+import { useAiWorkspaceHosts } from './useAiWorkspaceHosts'
+import { useAiWorkspaceRail } from './useAiWorkspaceRail'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Connection, Group } from '@shared/types/connection'
@@ -22,20 +23,17 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     const host = connections.value.find(item => item.id === connectionId)
     return host ? t('terminal.connectFailedWithTarget', { name: host.name, host: host.host, reason }) : reason
   }
-  const { getSessionState, switchConversation, loadHistory, startNewConversation, onReplyComplete } = useAiChat()
+  const { getSessionState, switchConversation, loadHistory, startNewConversation, onReplyComplete, stopGeneration } = useAiChat()
   const connections = ref<Connection[]>([])
   const groups = ref<Group[]>([])
   const recent = ref<AiWorkspaceConversationItem[]>([])
-  const query = ref('')
   const selectedId = ref('')
   const connectingId = ref('')
   const sessions = ref<Record<string, string>>({})
   const scopes = ref<Record<string, AiWorkspaceScope>>({})
   const selectedScopeId = ref('')
-  const pickerSelection = ref<string[]>([])
-  const browserSelection = ref<string[]>([])
-  const browserSelectionHosts = computed(() => browserSelection.value.flatMap(id => connections.value.find(host => host.id === id) || []))
   const scopeBusy = ref(false)
+  const conversationBusy = ref(false)
   const pickerError = ref('')
   const singleChatIds = ref<string[]>([])
   const activeScope = computed(() => scopes.value[selectedScopeId.value])
@@ -49,72 +47,35 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   const loading = ref(false)
   const closing = ref(false)
   const showSchedules = ref(false)
-  const railCollapsed = ref(false)
   const HISTORY_PREVIEW_COUNT = 5
   const historyExpanded = ref(false)
   const historyList = ref<HTMLElement | null>(null)
-  const hostView = ref<'cards' | 'list'>(readHostView())
-  const hostFilter = ref<'all' | 'connected'>('all')
   const browsing = ref(true)
+  const { workspaceElement, railCollapsed } = useAiWorkspaceRail(() => !browsing.value && !showSchedules.value)
   const scheduleCreateToken = ref(0)
-  const collapsedGroups = ref<Record<string, boolean>>({})
   const pendingThreadId = ref('')
   const pendingNewConversation = ref(false)
   const sessionTick = ref(0)
-  const hostPicker = ref<'switch' | 'new' | 'create' | null>(null)
-  const pickerQuery = ref('')
-  const pickerCollapsedGroups = ref<Record<string, boolean>>({})
-  const pickerElement = ref<HTMLElement | null>(null)
-  let pickerReturnFocus: HTMLElement | null = null
   let disposed = false
+  let refreshVersion = 0
+  let recentVersion = 0
   let unsubscribe: (() => void) | undefined
   let unsubscribeReply: (() => void) | undefined
+
+  const selectionLocked = computed(() => scopeBusy.value || conversationBusy.value || !!connectingId.value || closing.value)
+  const hosts = useAiWorkspaceHosts({ connections, groups, sessions, selectionLocked,
+    selectedId: () => selectedId.value, browsing: () => browsing.value,
+    scoped: () => !!selectedScopeId.value, scopeBusy: () => scopeBusy.value })
+  const { query, pickerSelection, browserSelection, browserSelectionHosts,
+    hostView, hostFilter, hostPicker, pickerQuery, pickerElement,
+    visible, pickerHosts, groupedHosts, pickerGroups, allResultsSelected, canSelectResults,
+    toggleBrowserHost, toggleResults, resetFilters, groupName,
+    isCollapsed, toggleGroup, isPickerGroupCollapsed, togglePickerGroup,
+    closeHostPicker, trapPickerFocus } = hosts
 
   const selected = computed(() => connections.value.find(connection => connection.id === selectedId.value))
   const sessionId = computed(() => selectedScopeId.value || sessions.value[selectedId.value] || '')
   const connectedCount = computed(() => Object.keys(sessions.value).length)
-  const visible = computed(() => {
-    const text = query.value.trim().toLocaleLowerCase()
-    return connections.value.filter(connection =>
-      (hostFilter.value === 'all' || !!sessions.value[connection.id]) &&
-      (!text || `${connection.name} ${connection.host} ${connection.username} ${connection.note || ''} ${groupName(connection)}`.toLocaleLowerCase().includes(text)),
-    )
-  })
-  const pickerHosts = computed(() => {
-    const text = pickerQuery.value.trim().toLocaleLowerCase()
-    return connections.value
-      .filter(connection => {
-        if (hostPicker.value === 'new' && connection.id === selectedId.value) return false
-        if (!text) return true
-        return `${connection.name} ${connection.host} ${connection.username} ${connection.note || ''} ${groupName(connection)}`.toLocaleLowerCase().includes(text)
-      })
-  })
-  const groupedHosts = computed(() => groupConnections(visible.value))
-  const pickerGroups = computed(() => groupConnections(pickerHosts.value, true))
-  const allResultsSelected = computed(() => !!visible.value.length && visible.value.every(host => browserSelection.value.includes(host.id)))
-  const selectionLocked = computed(() => scopeBusy.value || !!connectingId.value || closing.value)
-  const canSelectResults = computed(() => allResultsSelected.value || new Set([...browserSelection.value, ...visible.value.map(host => host.id)]).size <= AI_WORKSPACE_MAX_HOSTS)
-
-  function toggleBrowserHost(connectionId: string) {
-    if (selectionLocked.value) return
-    if (browserSelection.value.includes(connectionId)) {
-      browserSelection.value = browserSelection.value.filter(id => id !== connectionId)
-    } else if (browserSelection.value.length < AI_WORKSPACE_MAX_HOSTS) {
-      browserSelection.value = [...browserSelection.value, connectionId]
-    } else ElMessage.warning(t('ai.workspace.selectionLimit', { count: AI_WORKSPACE_MAX_HOSTS }))
-  }
-  function toggleResults() {
-    if (selectionLocked.value || !canSelectResults.value) return
-    const ids = new Set(visible.value.map(host => host.id))
-    browserSelection.value = allResultsSelected.value
-      ? browserSelection.value.filter(id => !ids.has(id))
-      : [...new Set([...browserSelection.value, ...ids])]
-  }
-
-
-  function groupConnections(hosts: Connection[], connectedFirst = false) {
-    return groupAiWorkspaceHosts(hosts, groups.value, { connectedFirst, sessions: sessions.value, unknownGroup: t('ai.workspace.unknownGroup'), ungrouped: t('ai.workspace.ungrouped') })
-  }
   const currentConversations = computed(() => {
     void sessionTick.value
     return Object.entries(sessions.value).flatMap(([connectionId, id]) => {
@@ -175,53 +136,36 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     void nextTick(() => { if (historyList.value) historyList.value.scrollTop = 0 })
   }
 
-  function readHostView(): 'cards' | 'list' {
-    try { return localStorage.getItem('LiteConnect.aiWorkspace.hostView') === 'cards' ? 'cards' : 'list' }
-    catch { return 'list' }
-  }
-
-  function resetFilters() {
-    query.value = ''
-    hostFilter.value = 'all'
-  }
-
-  function groupName(connection: Connection) {
-    return groups.value.find(group => group.id === connection.group)?.name ||
-      t(connection.group ? 'ai.workspace.unknownGroup' : 'ai.workspace.ungrouped')
-  }
-  function groupKey(id: string) { return id || '__ungrouped__' }
-  function isCollapsed(id: string) { return !!collapsedGroups.value[groupKey(id)] }
-  function toggleGroup(id: string) {
-    const key = groupKey(id)
-    collapsedGroups.value = { ...collapsedGroups.value, [key]: !collapsedGroups.value[key] }
-  }
-  function isPickerGroupCollapsed(id: string) {
-    return !pickerQuery.value.trim() && !!pickerCollapsedGroups.value[id]
-  }
-  function togglePickerGroup(id: string) {
-    pickerCollapsedGroups.value = { ...pickerCollapsedGroups.value, [id]: !isPickerGroupCollapsed(id) }
-  }
   async function refreshRecent() {
+    if (disposed) return
+    const version = ++recentVersion
     try {
-      recent.value = await window.LiteConnect.aiListWorkspaceConversations(
+      const items = await window.LiteConnect.aiListWorkspaceConversations(
         connections.value.map(connection => ({ id: connection.id, name: connection.name, host: connection.host, port: connection.port || 22 })),
         AI_WORKSPACE_HISTORY_LIMIT * 3,
       )
+      if (!disposed && version === recentVersion) recent.value = items
     } catch { /* Browse still works without the conversation index. */ }
   }
 
   async function refresh() {
+    if (disposed) return
+    const version = ++refreshVersion
+    // An index requested for an older host list must not repopulate the rail.
+    recentVersion++
     loading.value = true
     try {
       const [hosts, hostGroups] = await Promise.all([window.LiteConnect.getConnections(), window.LiteConnect.getGroups()])
-      if (disposed) return
+      if (disposed || version !== refreshVersion) return
       connections.value = hosts
-      browserSelection.value = browserSelection.value.filter(id => hosts.some(host => host.id === id))
       groups.value = hostGroups
       error.value = ''
       await refreshRecent()
-    } catch (failure: any) { error.value = failure?.message || t('ai.workspace.loadFailed') }
-    finally { loading.value = false }
+    } catch (failure: any) {
+      if (!disposed && version === refreshVersion) error.value = failure?.message || t('ai.workspace.loadFailed')
+    } finally {
+      if (!disposed && version === refreshVersion) loading.value = false
+    }
   }
 
   async function applyPendingActions(id: string) {
@@ -229,58 +173,33 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     const wantNew = pendingNewConversation.value
     pendingThreadId.value = ''
     pendingNewConversation.value = false
-    if (wantNew) {
+    if (!wantNew && !threadId) return
+    const current = () => !disposed && sessions.value[selectedId.value] === id
+    conversationBusy.value = true
+    try {
       await loadHistory(id)
-      await startNewConversation(id, () => { })
+      if (!current()) return
+      if (wantNew) await startNewConversation(id, () => { })
+      else await switchConversation(id, threadId, () => { })
+      if (!current()) return
       sessionTick.value += 1
       await refreshRecent()
-      return
+    } catch (failure: any) {
+      if (current()) error.value = failure?.message || t('ai.workspace.loadFailed')
+    } finally {
+      conversationBusy.value = false
     }
-    if (!threadId) return
-    await loadHistory(id)
-    await switchConversation(id, threadId, () => { })
-    await refreshRecent()
   }
 
   function openHostPicker(mode: 'switch' | 'new' | 'create', initialIds?: string[]) {
-    if (connectingId.value || closing.value || scopeBusy.value) return
-    pickerSelection.value = [...(initialIds || (browsing.value ? browserSelection.value : []))]
+    if (selectionLocked.value) return
     pickerError.value = ''
-    if (selectedScopeId.value && mode === 'new') mode = 'create'
-    pickerReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    pickerQuery.value = ''
-    pickerCollapsedGroups.value = {}
-    hostPicker.value = mode
-    void nextTick(() => pickerElement.value?.querySelector<HTMLInputElement>('input')?.focus())
-  }
-
-  function closeHostPicker() {
-    if (scopeBusy.value) return
-    hostPicker.value = null
-    pickerQuery.value = ''
-    const target = pickerReturnFocus
-    pickerReturnFocus = null
-    void nextTick(() => { if (target?.isConnected) target.focus() })
-  }
-
-  function trapPickerFocus(event: KeyboardEvent) {
-    const controls = Array.from(pickerElement.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input') || [])
-      .filter(element => element.getClientRects().length > 0)
-    if (!controls?.length) return
-    const first = controls[0]
-    const last = controls[controls.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
+    hosts.openHostPicker(mode, initialIds)
   }
 
   async function pickHost(connection: Connection) {
     const mode = hostPicker.value
-    if (!mode || connectingId.value || closing.value) return
+    if (!mode || selectionLocked.value) return
     if (mode === 'create' || mode === 'new') {
       const ids = pickerSelection.value
       pickerSelection.value = ids.includes(connection.id) ? ids.filter(id => id !== connection.id)
@@ -299,7 +218,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function openScope(input: { connectionIds?: string[]; id?: string }, threadId = '') {
-    if (scopeBusy.value || connectingId.value || closing.value) return
+    if (selectionLocked.value) return
     // Snapshot reactive picker data before awaits; Vue proxies cannot cross Electron IPC.
     const request: { connectionIds?: string[]; id?: string } = input.id
       ? { id: input.id }
@@ -347,14 +266,13 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     }
   }
 
-  async function closeScope() {
-    const scope = activeScope.value
-    if (!scope) return
-    await closeConversation({ sessionId: scope.id, connectionId: scope.id })
+  async function closeCurrentConversation() {
+    if (!sessionId.value) return
+    await closeConversation({ sessionId: sessionId.value, connectionId: activeScope.value?.id || selectedId.value })
   }
 
   async function closeConversation(item: { sessionId: string; connectionId: string }) {
-    if (closing.value || scopeBusy.value || connectingId.value) return
+    if (selectionLocked.value) return
     const scope = scopes.value[item.sessionId]
     if (!scope && (!singleChatIds.value.includes(item.connectionId) || sessions.value[item.connectionId] !== item.sessionId)) return
     const state = getSessionState(item.sessionId)
@@ -405,10 +323,12 @@ export function useAiWorkspace(options: { active: () => boolean }) {
       if (selectedId.value === event.connectionId) {
         error.value = ''
         browsing.value = false
-        void applyPendingActions(event.sessionId)
+        return applyPendingActions(event.sessionId)
       }
     } else {
       const previous = sessions.value[event.connectionId]
+      // A delayed close/cancel from an earlier attempt cannot clear a new lease.
+      if (previous && (event.status === 'cancelled' || (event.sessionId && event.sessionId !== previous))) return
       if (previous) void nextTick(() => disposeAiSessionState(previous))
       clearSession(event.connectionId)
       if (connectingId.value === event.connectionId) connectingId.value = ''
@@ -429,7 +349,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function startChat(connection = selected.value, threadId = '', forceNew = false) {
-    if (!connection || connectingId.value || closing.value) return
+    if (!connection || selectionLocked.value) return
     showSchedules.value = false
     selectedScopeId.value = ''
     singleChatIds.value = [...new Set([...singleChatIds.value, connection.id])]
@@ -446,7 +366,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     let waitingForTrust = false
     try {
       const id = await window.LiteConnect.aiOpenWorkspaceConnection(connection.id)
-      if (!disposed) onConnection({ connectionId: connection.id, sessionId: id, status: 'connected' })
+      if (!disposed) await onConnection({ connectionId: connection.id, sessionId: id, status: 'connected' })
     } catch (failure: any) {
       if (isSshHostKeyConfirmationRequired(failure)) waitingForTrust = true
       else if (!isSshConnectionCancelled(failure)) error.value = connectionFailure(failure, connection.id)
@@ -465,7 +385,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function openCurrent(item: { connectionId: string; sessionId: string }) {
-    if (closing.value) return
+    if (selectionLocked.value) return
     if (scopes.value[item.sessionId]) {
       selectedScopeId.value = item.sessionId
       selectedId.value = ''
@@ -482,6 +402,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function openHistory(item: AiWorkspaceConversationItem) {
+    if (selectionLocked.value) return
     if (item.workspaceId) { await openScope({ id: item.workspaceId }, item.threadId); return }
     const connection = connections.value.find(entry => entry.id === item.connectionId)
     if (!connection) { ElMessage.warning(t('ai.workspace.deletedHost')); return }
@@ -497,25 +418,42 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     catch (failure: any) { ElMessage.warning(failure?.message || t('ai.workspace.connectFailed')) }
   }
 
-  async function disconnect(connectionId = selectedId.value) {
-    const id = sessions.value[connectionId]
-    if (!id || closing.value) return
-    selectedId.value = connectionId
+  async function disconnect() {
+    if (selectionLocked.value) return
+    const connectionIds = activeScope.value?.connectionIds || [selectedId.value]
+    const targets = connectionIds.flatMap(connectionId => {
+      const id = sessions.value[connectionId]
+      return id ? [{ connectionId, sessionId: id, name: connections.value.find(host => host.id === connectionId)?.name || connectionId }] : []
+    })
+    if (!targets.length) return
     closing.value = true
     try {
-      const jobs = await window.LiteConnect.mcpListJobs()
-      const state = getSessionState(id)
-      if (state.loading || jobs.some(job => job.sessionId === id && job.status === 'running')) {
-        try {
-          await appConfirm({
-            title: t('ai.workspace.disconnectTitle'), message: t('ai.workspace.disconnectMessage'),
-            confirmText: t('ai.workspace.disconnect'), cancelText: t('common.cancel'), danger: true, tone: 'warning'
-          })
-        } catch { return }
+      try {
+        await appConfirm({
+          title: t('ai.workspace.disconnectSshTitle'),
+          message: t('ai.workspace.disconnectSshMessage', { count: targets.length, hosts: targets.map(target => target.name).join('、') }),
+          detail: t('ai.workspace.disconnectSshDetail'),
+          confirmText: t('ai.workspace.disconnectSsh'), cancelText: t('common.cancel'), danger: true, tone: 'warning',
+        })
+      } catch { return }
+      if (disposed) return
+      const affected = new Set(targets.map(target => target.connectionId))
+      const conversations = [...targets.map(target => target.sessionId), ...Object.values(scopes.value)
+        .filter(scope => scope.connectionIds.some(id => affected.has(id))).map(scope => scope.id)]
+      // Shared AI connections can serve several conversations. Stop their replies
+      // and suppress completion delivery before tearing down the actual channels.
+      for (const id of new Set(conversations)) {
+        const state = getSessionState(id)
+        if (state.loading) await stopGeneration(id)
+        if (state.activeThreadId) await window.LiteConnect.aiSuppressBackgroundReplies(id, state.activeThreadId)
       }
-      await window.LiteConnect.aiCloseWorkspaceConnection(id)
-      onConnection({ connectionId, sessionId: id, status: 'closed' })
-    } catch (failure: any) { ElMessage.warning(failure?.message || t('ai.workspace.connectFailed')) }
+      const results = await Promise.allSettled(targets.map(async target => {
+        if (disposed || sessions.value[target.connectionId] !== target.sessionId) return
+        await window.LiteConnect.aiCloseWorkspaceConnection(target.sessionId)
+        if (!disposed) onConnection({ ...target, status: 'closed' })
+      }))
+      if (results.some(result => result.status === 'rejected')) ElMessage.warning(t('ai.workspace.disconnectSshFailed'))
+    } catch (failure: any) { ElMessage.warning(failure?.message || t('ai.workspace.disconnectSshFailed')) }
     finally { closing.value = false }
   }
 
@@ -538,10 +476,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
 
   watch(browsing, value => { if (value) void refreshRecent() })
   watch(() => options.active(), active => { if (active) void refresh() })
-  watch(hostView, value => {
-    try { localStorage.setItem('LiteConnect.aiWorkspace.hostView', value) }
-    catch { /* Browsing works when local storage is unavailable. */ }
-  })
+
 
   onMounted(() => {
     window.addEventListener('focus', refreshWhenActive)
@@ -568,6 +503,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   })
 
   return {
+    workspaceElement,
     connections,
     query,
     selectedId,
@@ -618,12 +554,13 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     isPickerGroupCollapsed,
     togglePickerGroup,
     refresh,
+    refreshRecent,
     openHostPicker,
     closeHostPicker,
     trapPickerFocus,
     pickHost,
     openScope,
-    closeScope,
+    closeCurrentConversation,
     closeConversation,
     startChat,
     retryConnect,

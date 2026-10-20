@@ -1,11 +1,10 @@
 import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
-import { workspaceToolsForChat } from '../../../shared/aiWorkspacePrompt'
+import { AI_CHAT_SERVER_TOOLS } from '../../../shared/aiToolCatalog'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import { bindSessionArgs } from './sshToolChat'
 
-const allowed = new Set(workspaceToolsForChat().map(tool => tool.function.name))
 export function routeWorkspaceTool(name: string, raw: unknown, targets: AiWorkspaceTarget[], runtime: SshMcpRuntime) {
-  if (!allowed.has(name)) throw new Error('SCOPE_DENIED: Tool is not available in this workspace')
+  if (!AI_CHAT_SERVER_TOOLS.has(name)) throw new Error('SCOPE_DENIED: Tool is not available in this workspace')
   const args = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {}
   const target = targets.find(item => item.connectionId === args.connectionId)
   if (!target) throw new Error('SCOPE_DENIED: Specify a connectionId in this conversation scope')

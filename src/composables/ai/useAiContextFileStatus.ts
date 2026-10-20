@@ -1,4 +1,4 @@
-import { ref, watch, type ComputedRef } from 'vue'
+import { onScopeDispose, ref, watch, type ComputedRef } from 'vue'
 import type { AiConversationContextFile } from '@shared/types/ai'
 
 type SourceStatus = 'checking' | 'available' | 'missing' | 'unavailable'
@@ -12,6 +12,7 @@ export function useAiContextFileStatus(options: {
   const contextFileSourceStatus = ref<Record<string, SourceStatus>>({})
   const contextFileKey = (file: AiConversationContextFile) => `${file.source}:${file.path}`
   let checkVersion = 0
+  onScopeDispose(() => { checkVersion++ })
 
   async function checkContextFileSource(): Promise<void> {
     const version = ++checkVersion

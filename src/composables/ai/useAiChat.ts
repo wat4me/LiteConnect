@@ -9,6 +9,7 @@ import { flattenConversationForApi } from '@shared/aiMessages'
 import type { AiUserAnswer } from '@shared/aiQuestions'
 import { assertAiImageCapability, normalizeAiImages } from '@shared/aiImages'
 import { normalizeAiCompactionCount } from '@shared/aiCompaction'
+import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '@shared/aiToolCatalog'
 import { notifyAiReplyComplete, onAiReplyComplete } from './aiReplyEvents'
 import { syncAiApprovalPending } from './useAiApprovalHint'
 import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
@@ -271,6 +272,7 @@ export function useAiChat() {
           }
           if (idx >= 0) Object.assign(runs[idx], nextRun)
           else runs.push(nextRun)
+          state.toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(state.toolGroups), ...aiToolGroupsFromHistory([current])])
           if (!current.segments) current.segments = []
           ensureToolSegments(current.segments, runs)
           refreshApprovalPending(sessionId)
@@ -606,10 +608,7 @@ export function useAiChat() {
       const active = store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
       state.activeThreadId = active?.id || ''
       state.draftImages = []
-      state.messages.splice(0, state.messages.length)
-      state.contextCheckpoint = active?.contextCheckpoint
-      state.compactionCount = normalizeAiCompactionCount(active?.compactionCount)
-      state.contextFiles = active?.contextFiles || []
+      applyThreadMessages(state, active)
       syncThreadSummaries(state, store)
       onUpdate(state.messages)
       return true
@@ -746,10 +745,7 @@ export function useAiChat() {
 
     state.activeThreadId = empty.id
     state.draftImages = []
-    state.messages.splice(0, state.messages.length)
-    state.contextCheckpoint = undefined
-    state.compactionCount = 0
-    state.contextFiles = [...defaultContextFiles]
+    applyThreadMessages(state, empty)
     syncThreadSummaries(state, store)
     onUpdate(state.messages)
     return true
@@ -761,16 +757,40 @@ export function useAiChat() {
       ElMessage.warning(t('ai.busy'))
       return false
     }
-    const removed = state.messages.slice()
-    state.messages.splice(0, state.messages.length)
-    onUpdate(state.messages)
-    if (!await persistActiveThread(sessionId, true)) {
-      state.messages.splice(0, state.messages.length, ...removed)
-      onUpdate(state.messages)
+    const threadId = state.activeThreadId
+    if (!threadId) return false
+    try {
+      const store = await window.LiteConnect.getAiSessionStore(sessionId)
+      if (state.activeThreadId !== threadId || state.loading) return false
+      const thread = store.threads.find(item => item.id === threadId)
+      if (!thread) throw new Error(t('ai.clearConversationFailed'))
+      thread.messages = []
+      thread.title = thread.customTitle || ''
+      thread.updatedAt = Date.now()
+      thread.toolGroups = []
+      thread.compactionCount = 0
+      delete thread.contextCheckpoint
+      // Keep the host store's other threads and active selection as read.
+      // Only update the originating thread; a later UI selection must survive.
+      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
+      if (state.activeThreadId === threadId) {
+        state.messages.splice(0, state.messages.length)
+        state.contextCheckpoint = undefined
+        state.contextPressure = undefined
+        state.compactionCount = 0
+        state.toolGroups = []
+        const selectedStore = { ...store, activeThreadId: threadId }
+        syncThreadSummaries(state, selectedStore)
+        onUpdate(state.messages)
+      } else {
+        const summary = state.threads.find(item => item.id === threadId)
+        if (summary) { summary.title = thread.title || t('ai.newConversationTitle'); summary.messageCount = 0; summary.updatedAt = thread.updatedAt }
+      }
+      return true
+    } catch {
       ElMessage.warning(t('ai.historySaveFailed'))
       return false
     }
-    return true
   }
 
   function getSessionState(sessionId: string): AiSessionState {
@@ -789,6 +809,7 @@ export function useAiChat() {
       const state = findAiSessionState(event.sessionId)
       if (!state || state.activeThreadId !== event.threadId) return
       const message = fromHistoryRecord(event.record)
+      state.toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(state.toolGroups), ...aiToolGroupsFromHistory([message])])
       message.streaming = event.record.status === 'running'
       const previous = state.messages.find(item => item.id === message.id)
       if (message.streaming) {

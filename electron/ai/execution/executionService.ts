@@ -178,7 +178,7 @@ export class AiExecutionService {
         await this.ports.history.hydrate(historyId, initial, target.threadId)
         const thread = initial.threads.find(item => item.id === target.threadId)!
         const environment = await buildAiRequestEnvironment({
-          sessionId: target.sessionId, cwd: target.cwd, workspaceTargets, contextFiles: thread.contextFiles, sshMcpRuntime: this.ports.runtime,
+          sessionId: target.sessionId, cwd: target.cwd, workspaceTargets, contextFiles: thread.contextFiles, toolGroups: thread.toolGroups, sshMcpRuntime: this.ports.runtime,
         })
         const usage: (AiUsage | undefined)[] = []
         const prepared = await maybeCompactAiContext({
@@ -233,7 +233,7 @@ export class AiExecutionService {
               } : undefined
             },
             persistBackgroundResults,
-            contextFiles: thread.contextFiles, getToolPermission: permission,
+            contextFiles: thread.contextFiles, toolGroups: thread.toolGroups, getToolPermission: permission,
             onToolApprovalRequested: owner.kind === 'interactive' ? observer?.onApproval : undefined,
             contextHistory: {
               // The running background reply is excluded from history projection.
