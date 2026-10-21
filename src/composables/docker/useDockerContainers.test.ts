@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
-import {
-  canApplyContainersListResult,
-  canApplyInspectResult,
-  useDockerContainers,
-} from './useDockerContainers'
+import { useDockerContainers } from './useDockerContainers'
 import type { DockerContainerInspectResult, DockerContainerSummary } from '../../env.d'
 
 function sample(id: string, name: string, state = 'running'): DockerContainerSummary {
@@ -74,46 +70,6 @@ function mockliteConnect(opts: {
     dockerInspectContainer: opts.inspect || (async (_s, id) => sampleInspect(id, id)),
   }
 }
-
-describe('canApplyContainersListResult / canApplyInspectResult', () => {
-  it('rejects stale list generations and sessions', () => {
-    expect(
-      canApplyContainersListResult({
-        disposed: false,
-        resultGen: 1,
-        currentGen: 2,
-        ownerSessionId: 'a',
-        resultSessionId: 'a',
-        activeSessionId: 'a',
-      }),
-    ).toBe(false)
-    expect(
-      canApplyContainersListResult({
-        disposed: false,
-        resultGen: 2,
-        currentGen: 2,
-        ownerSessionId: 'a',
-        resultSessionId: 'a',
-        activeSessionId: 'a',
-      }),
-    ).toBe(true)
-  })
-
-  it('rejects inspect when selection changed', () => {
-    expect(
-      canApplyInspectResult({
-        disposed: false,
-        resultGen: 1,
-        currentGen: 1,
-        ownerSessionId: 's',
-        resultSessionId: 's',
-        activeSessionId: 's',
-        selectedId: 'b',
-        resultContainerId: 'a',
-      }),
-    ).toBe(false)
-  })
-})
 
 describe('useDockerContainers', () => {
   let scope: ReturnType<typeof effectScope>

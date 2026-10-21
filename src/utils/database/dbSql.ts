@@ -1,13 +1,9 @@
 /** SQL helpers for LiteConnect database UI (MySQL / PostgreSQL / Oracle dialects). */
 
-export type SqlDialect = 'mysql' | 'postgres' | 'oracle'
+import { quoteIdent, type SqlDialect } from '@shared/sqlIdent'
 
-export function quoteIdent(name: string, dialect: SqlDialect = 'mysql'): string {
-  if (dialect === 'postgres' || dialect === 'oracle') {
-    return '"' + String(name).replace(/"/g, '""') + '"'
-  }
-  return '`' + String(name).replace(/`/g, '``') + '`'
-}
+export type { SqlDialect }
+export { quoteIdent }
 
 export function sqlLiteral(value: unknown, dialect: SqlDialect = 'mysql'): string {
   if (value === null || value === undefined) return 'NULL'

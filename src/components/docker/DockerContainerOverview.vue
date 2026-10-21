@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createDockerLabels } from './dockerUiHelpers'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../icons/AppIcon.vue'
@@ -13,6 +14,7 @@ defineProps<{
 }>()
 
 const { t } = useI18n()
+const { stateLabel } = createDockerLabels(t)
 
 async function copyMountPath(path: string) {
   if (!path) return
@@ -22,18 +24,6 @@ async function copyMountPath(path: string) {
   } catch {
     ElMessage.error(t('docker.detail.copyFailed'))
   }
-}
-
-function stateLabel(state: string): string {
-  const s = (state || '').toLowerCase()
-  if (s === 'running') return t('docker.containerState.running')
-  if (s === 'exited') return t('docker.containerState.exited')
-  if (s === 'created') return t('docker.containerState.created')
-  if (s === 'dead') return t('docker.containerState.dead')
-  if (s === 'paused') return t('docker.containerState.paused')
-  if (s === 'restarting') return t('docker.containerState.restarting')
-  if (s === 'removing') return t('docker.containerState.removing')
-  return state || t('docker.containerState.unknown')
 }
 </script>
 

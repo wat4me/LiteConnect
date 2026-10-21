@@ -1,60 +1,46 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MySqlDriver } from './mysql'
+import { warmExactCount } from './mysqlBrowse'
+import { BrowseCountCache } from '../browse/browsePagination'
 import { DEFAULT_QUERY_TIMEOUT_MS } from '../common'
+import type { LiveSession, MysqlBrowseHost } from './mysqlTypes'
 
-describe('MySqlDriver.warmExactCount timeout', () => {
-  it('issues COUNT with query timeout option', async () => {
-    const driver = new MySqlDriver()
-    const poolQuery = vi.fn(async () => [[{ c: 3 }], []])
-    const session = {
-      id: 's1',
-      connectionId: 'c1',
-      connectionName: 't',
-      host: 'h',
-      port: 3306,
-      username: 'u',
-      database: 'db',
-      serverVersion: '8',
-      pool: { query: poolQuery, end: async () => {} },
-    }
-    ;(driver as any).sessions.set('s1', session)
+function fixture(query: unknown) {
+  const session: LiveSession = {
+    id: 's1', connectionId: 'c1', connectionName: 't', host: 'h', port: 3306,
+    username: 'u', database: 'db', serverVersion: '8', password: '', ssl: undefined,
+    pool: { query } as LiveSession['pool'],
+  }
+  const host: MysqlBrowseHost = {
+    sessions: new Map([[session.id, session]]), countCache: new BrowseCountCache(),
+    countWarmInflight: new Set(), requireSession: () => session,
+  }
+  return { host, session }
+}
 
-    await (driver as any).warmExactCount(session, 's1\0db\0t\0\0\0', '`db`.`t`', '', [])
-    expect(poolQuery).toHaveBeenCalled()
-    const arg = poolQuery.mock.calls[0][0]
-    expect(arg).toMatchObject({
-      timeout: DEFAULT_QUERY_TIMEOUT_MS,
-    })
-    expect(String(arg.sql)).toMatch(/COUNT\(\*\)/i)
+const key = 's1\0db\0t\0\0\0'
+
+describe('MySQL background COUNT', () => {
+  it('uses the production Browse implementation with a query timeout', async () => {
+    const query = vi.fn(async (_options: { sql: string; timeout?: number }) => [[{ c: 3 }], []])
+    const { host, session } = fixture(query)
+    await warmExactCount(host, session, key, '`db`.`t`', '', [])
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({
+      sql: expect.stringMatching(/COUNT\(\*\)/i), timeout: DEFAULT_QUERY_TIMEOUT_MS,
+    }))
+    expect(host.countCache.get(key)).toBe(3)
+    expect(host.countWarmInflight.size).toBe(0)
   })
 
-  it('does not write cache after disconnect', async () => {
-    const driver = new MySqlDriver()
-    let resolveQ!: () => void
-    const gate = new Promise<void>((r) => {
-      resolveQ = r
-    })
-    const poolQuery = vi.fn(async () => {
-      await gate
-      return [[{ c: 9 }], []]
-    })
-    const session = {
-      id: 's1',
-      connectionId: 'c1',
-      connectionName: 't',
-      host: 'h',
-      port: 3306,
-      username: 'u',
-      database: 'db',
-      serverVersion: '8',
-      pool: { query: poolQuery, end: async () => {} },
-    }
-    ;(driver as any).sessions.set('s1', session)
-    const key = 's1\0db\0t\0\0\0'
-    const warm = (driver as any).warmExactCount(session, key, '`db`.`t`', '', [])
-    ;(driver as any).sessions.delete('s1')
-    resolveQ()
-    await warm
-    expect((driver as any).countCache.get(key)).toBeNull()
+  it('does not cache a late count after disconnect', async () => {
+    let resolve!: () => void
+    const gate = new Promise<void>(done => { resolve = done })
+    const query = vi.fn(async () => { await gate; return [[{ c: 9 }], []] })
+    const { host, session } = fixture(query)
+    const pending = warmExactCount(host, session, key, '`db`.`t`', '', [])
+    host.sessions.delete(session.id)
+    resolve()
+    await pending
+    expect(host.countCache.get(key)).toBeNull()
+    expect(host.countWarmInflight.size).toBe(0)
   })
 })

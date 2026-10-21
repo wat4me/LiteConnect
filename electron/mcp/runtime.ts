@@ -2,7 +2,6 @@ import { decideCommandPolicy, policyErrorMessage } from '../../shared/mcp/policy
 import { SSH_MCP_TOOLS } from '../../shared/mcp/tools'
 import type {
   ApprovalMode,
-  CommandClass,
   CommandClassification,
   SshMcpErrorPayload,
   SshMcpToolDefinition,
@@ -51,6 +50,7 @@ export class SshMcpRuntime {
   private readonly ptys: PtySessionStore
   private readonly lastToolAt = new Map<string, number>()
   private readonly unsubTeardown?: () => void
+  private disposed = false
 
   constructor(opts: SshMcpRuntimeOptions) {
     this.ssh = opts.ssh
@@ -59,9 +59,17 @@ export class SshMcpRuntime {
     this.approvalMode = opts.approvalMode ?? 'deny-destructive'
     this.getApprovalMode = opts.getApprovalMode
     this.requestApproval = opts.requestApproval
-    this.ptys = new PtySessionStore((sessionId, generation, shellOpts) =>
-      this.ssh.openShellChannel(sessionId, generation, shellOpts),
-    )
+    this.ptys = new PtySessionStore(async (sessionId, generation, shellOpts) => {
+      this.assertGeneration(sessionId, generation)
+      const channel = await this.ssh.openShellChannel(sessionId, generation, shellOpts)
+      try {
+        this.assertGeneration(sessionId, generation)
+        return channel
+      } catch (error) {
+        try { channel.destroy?.() } catch {}
+        throw error
+      }
+    })
     this.unsubTeardown = opts.ssh.onSessionTeardown?.((sessionId) => {
       this.jobs.cancelForSession(sessionId)
       this.ptys.closeForSession(sessionId)
@@ -91,13 +99,26 @@ export class SshMcpRuntime {
 
   getPtySessionId(ptyId: string) { return this.ptys.list().find(pty => pty.ptyId === ptyId)?.sessionId }
 
-  hasSession(sessionId: string) { return Boolean(this.ssh.getSessionSnapshot(sessionId)) }
+  hasSession(sessionId: string) { return !this.disposed && Boolean(this.ssh.getSessionSnapshot(sessionId)) }
+
+  /** Release owned tools and observers; interactive SSH connections belong to SSHManager. */
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    try { this.unsubTeardown?.() } catch (error) {
+      console.warn('[MCP] Failed to unsubscribe session teardown:', error)
+    }
+    this.jobs.dispose()
+    this.ptys.dispose()
+    this.lastToolAt.clear()
+  }
 
   async call(
     name: unknown,
     args: unknown,
     opts?: { approvalMode?: ApprovalMode; signal?: AbortSignal },
   ): Promise<SshMcpToolResult> {
+    if (this.disposed) return this.error('TOOL_FAILED', 'MCP runtime disposed')
     if (!isSshMcpToolName(name)) {
       return this.error('UNKNOWN_TOOL', `Unknown tool: ${String(name)}`)
     }
@@ -215,6 +236,7 @@ export class SshMcpRuntime {
           class: classification.class,
           reason: classification.reason,
         })
+        this.assertActive()
         if (!approved) {
           return this.error('DESTRUCTIVE_DENIED', 'User denied the command', classification.class)
         }
@@ -243,6 +265,7 @@ export class SshMcpRuntime {
   }
 
   private requireSession(sessionId: unknown): { sessionId: string; generation: number } {
+    this.assertActive()
     if (typeof sessionId !== 'string' || !isValidUUID(sessionId)) {
       throw toolError('INVALID_SESSION_ID', 'sessionId must be a UUID of an open SSH session')
     }
@@ -254,13 +277,18 @@ export class SshMcpRuntime {
   }
 
   private assertGeneration(sessionId: string, generation: number) {
+    this.assertActive()
     if (this.ssh.getSessionGeneration(sessionId) !== generation || !this.ssh.getSessionSnapshot(sessionId)) {
       throw toolError('SESSION_STALE', 'SSH session generation changed')
     }
   }
 
   private touch(sessionId: string) {
-    this.lastToolAt.set(sessionId, Date.now())
+    if (!this.disposed) this.lastToolAt.set(sessionId, Date.now())
+  }
+
+  private assertActive() {
+    if (this.disposed) throw toolError('TOOL_FAILED', 'MCP runtime disposed')
   }
 
   private ok<T>(structuredContent: T): SshMcpToolResult<T> {

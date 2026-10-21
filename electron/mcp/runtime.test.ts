@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SSH_MCP_TOOLS } from '../../shared/mcp/tools'
-import { createSshMcpRuntime } from './runtime'
+import { createSshMcpRuntime, type SshMcpRuntime } from './runtime'
 import type { SshMcpSessionPort } from './ports'
 import type { SessionSnapshot } from '../ssh/types'
 import type { SessionExecResult } from '../ssh/sessionExec'
@@ -8,6 +8,8 @@ import type { SessionExecResult } from '../ssh/sessionExec'
 const SESSION_ID = '550e8400-e29b-41d4-a716-446655440000'
 const CONNECTION_ID = '660e8400-e29b-41d4-a716-446655440000'
 const NEW_CONNECTION_ID = '770e8400-e29b-41d4-a716-446655440000'
+const runtimes: SshMcpRuntime[] = []
+afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose() })
 
 function snapshot(over: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return {
@@ -122,10 +124,69 @@ function makeRuntime(over: Partial<SshMcpSessionPort> = {}, extras?: { approvalM
     approvalMode: extras?.approvalMode,
     requestApproval: extras?.requestApproval,
   })
+  runtimes.push(runtime)
   return { runtime, ssh }
 }
 
 describe('SshMcpRuntime', () => {
+  it('disposes jobs and subscriptions once without closing user SSH or waking observers', async () => {
+    let settle!: (value: SessionExecResult) => void
+    const promise = new Promise<SessionExecResult>(resolve => { settle = resolve })
+    const cancel = vi.fn()
+    const unsubscribe = vi.fn()
+    const { runtime, ssh } = makeRuntime({
+      beginSessionExec: vi.fn(async () => ({ promise, cancel })),
+      onSessionTeardown: () => unsubscribe,
+    })
+    const reply = await runtime.call('exec', { sessionId: SESSION_ID, command: 'uptime', background: true })
+    expect(reply.isError).toBe(false)
+    const changed = vi.fn()
+    const settled = vi.fn()
+    runtime.onJobsChanged(changed)
+    runtime.onJobSettled(settled)
+    runtime.dispose()
+    runtime.dispose()
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+    expect(runtime.listJobs()).toEqual([])
+    expect(runtime.hasSession(SESSION_ID)).toBe(false)
+    expect(ssh.disconnectSession).not.toHaveBeenCalled()
+    settle({ stdout: 'late', stderr: '', exitCode: 0, truncated: false })
+    await Promise.resolve()
+    expect(changed).not.toHaveBeenCalled()
+    expect(settled).not.toHaveBeenCalled()
+    expect(runtime.listJobs()).toEqual([])
+    expect((await runtime.call('exec', { sessionId: SESSION_ID, command: 'uptime' })).isError).toBe(true)
+    expect(ssh.executeSessionExec).not.toHaveBeenCalled()
+  })
+
+  it('cancels a background handle that arrives after disposal', async () => {
+    let open!: (value: { promise: Promise<SessionExecResult>; cancel: () => void }) => void
+    const beginSessionExec = vi.fn(() => new Promise<{ promise: Promise<SessionExecResult>; cancel: () => void }>(resolve => { open = resolve }))
+    const { runtime } = makeRuntime({ beginSessionExec })
+    const reply = runtime.call('exec', { sessionId: SESSION_ID, command: 'uptime', background: true })
+    await vi.waitFor(() => expect(beginSessionExec).toHaveBeenCalledOnce())
+    runtime.dispose()
+    const cancel = vi.fn()
+    open({ promise: Promise.reject(new Error('cancelled late channel')), cancel })
+    expect((await reply).isError).toBe(true)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(runtime.listJobs()).toEqual([])
+  })
+
+  it('does not execute an approval granted after disposal', async () => {
+    let approve!: (value: boolean) => void
+    const requestApproval = vi.fn(() => new Promise<boolean>(resolve => { approve = resolve }))
+    const { runtime, ssh } = makeRuntime({}, { approvalMode: 'ask-destructive', requestApproval })
+    const reply = runtime.call('exec', { sessionId: SESSION_ID, command: 'rm -rf /tmp/example' })
+    await vi.waitFor(() => expect(requestApproval).toHaveBeenCalledOnce())
+    runtime.dispose()
+    approve(true)
+    expect((await reply).isError).toBe(true)
+    expect(ssh.executeSessionExec).not.toHaveBeenCalled()
+    expect(ssh.beginSessionExec).not.toHaveBeenCalled()
+  })
+
   it('lists the P0 tool catalog', () => {
     const { runtime } = makeRuntime()
     expect(runtime.listTools().map((t) => t.name)).toEqual(SSH_MCP_TOOLS.map((t) => t.name))

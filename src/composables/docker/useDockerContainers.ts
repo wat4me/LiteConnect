@@ -109,7 +109,7 @@ export function useDockerContainers(sessionId: Ref<string | null>) {
     const sid = sessionId.value
     if (!sid || disposed) return
 
-    const keep = options?.keepExisting === true && hasLoadedOnce && containers.value.length >= 0
+    const keep = options?.keepExisting === true && hasLoadedOnce
     const gen = ++listGeneration
     ownerSessionId = sid
 
@@ -239,45 +239,5 @@ export function useDockerContainers(sessionId: Ref<string | null>) {
     clearInspect,
     resetForSession,
     dispose,
-    // test helpers
-    canApplyList,
-    canApplyInspect,
-    getListGeneration: () => listGeneration,
-    getInspectGeneration: () => inspectGeneration,
   }
-}
-
-/** Pure helper for tests: late list result may apply. */
-export function canApplyContainersListResult(opts: {
-  disposed: boolean
-  resultGen: number
-  currentGen: number
-  ownerSessionId: string | null
-  resultSessionId: string
-  activeSessionId: string | null
-}): boolean {
-  if (opts.disposed) return false
-  if (opts.resultGen !== opts.currentGen) return false
-  if (opts.ownerSessionId !== opts.resultSessionId) return false
-  if (opts.activeSessionId !== opts.resultSessionId) return false
-  return true
-}
-
-/** Pure helper for tests: late inspect result may apply. */
-export function canApplyInspectResult(opts: {
-  disposed: boolean
-  resultGen: number
-  currentGen: number
-  ownerSessionId: string | null
-  resultSessionId: string
-  activeSessionId: string | null
-  selectedId: string | null
-  resultContainerId: string
-}): boolean {
-  if (opts.disposed) return false
-  if (opts.resultGen !== opts.currentGen) return false
-  if (opts.ownerSessionId !== opts.resultSessionId) return false
-  if (opts.activeSessionId !== opts.resultSessionId) return false
-  if (opts.selectedId !== opts.resultContainerId) return false
-  return true
 }

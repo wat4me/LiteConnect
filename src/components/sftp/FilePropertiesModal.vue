@@ -2,7 +2,7 @@
 import AppIcon from '../icons/AppIcon.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatSize } from '@/utils/shared/format'
+import { formatBytes } from '@shared/formatBytes'
 
 const { t } = useI18n()
 
@@ -157,7 +157,7 @@ function bitLabel(bit: string): string {
             <div class="props-section-title">{{ t('sftp.propsBasic') }}</div>
             <div class="props-row">
               <span class="props-label">{{ t('sftp.propsSize') }}</span>
-              <span class="props-value">{{ t('sftp.sizeWithBytes', { size: formatSize(stat.size), n: stat.size.toLocaleString() }) }}</span>
+              <span class="props-value">{{ t('sftp.sizeWithBytes', { size: formatBytes(stat.size), n: stat.size.toLocaleString() }) }}</span>
             </div>
             <div class="props-row">
               <span class="props-label">{{ t('sftp.propsMtime') }}</span>

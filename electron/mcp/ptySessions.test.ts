@@ -24,6 +24,31 @@ describe('PtySessionStore', () => {
     return { store, channel }
   }
 
+  it('closes owned PTYs and rejects new opens after idempotent disposal', async () => {
+    const { store, channel } = makeStore()
+    const destroy = vi.spyOn(channel, 'destroy')
+    await store.open({ sessionId: SESSION_ID, generation: 1 })
+    store.dispose()
+    store.dispose()
+    expect(destroy).toHaveBeenCalledOnce()
+    expect(store.list()).toEqual([])
+    await expect(store.open({ sessionId: SESSION_ID, generation: 1 })).rejects.toMatchObject({ code: 'PTY_CLOSED' })
+  })
+
+  it('destroys a late channel without creating a PTY or idle timer', async () => {
+    let resolve!: (value: McpShellChannel) => void
+    const store = new PtySessionStore(() => new Promise(done => { resolve = done }))
+    stores.push(store)
+    const pending = store.open({ sessionId: SESSION_ID, generation: 1 })
+    store.dispose()
+    const channel = fakeChannel()
+    const destroy = vi.spyOn(channel, 'destroy')
+    resolve(channel)
+    await expect(pending).rejects.toMatchObject({ code: 'PTY_CLOSED' })
+    expect(destroy).toHaveBeenCalledOnce()
+    expect(store.list()).toEqual([])
+  })
+
   it('opens a PTY, writes CR, and streams output', async () => {
     const { store, channel } = makeStore()
     const opened = await store.open({ sessionId: SESSION_ID, generation: 1, cols: 80, rows: 24 })

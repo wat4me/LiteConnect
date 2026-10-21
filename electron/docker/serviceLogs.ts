@@ -202,7 +202,7 @@ export async function startContainerLogs(
         onEntries: (entries) => {
           if (owned.closed || ctx.logStreams.get(streamId) !== owned) return
           if (!ctx.isGenerationLive(sessionId, generation)) return
-          enqueueLogEntries(ctx, owned, entries)
+          enqueueLogEntries(owned, entries)
         },
         onState: (state, code) => {
           if (ctx.logStreams.get(streamId) !== owned) return
@@ -250,7 +250,6 @@ export function stopContainerLogs(
 }
 
 export function enqueueLogEntries(
-  ctx: DockerServiceContext,
   owned: OwnedLogStream,
   entries: DockerLogEntry[],
 ): void {

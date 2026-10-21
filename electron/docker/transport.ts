@@ -1,13 +1,12 @@
 import * as net from 'net'
 import type { ClientChannel } from 'ssh2'
 import { isAllowedDockerApiRequest } from './containers'
-import { classifyStreamLocalError } from './errorClassify'
+import { classifyStreamLocalError, isDockerTransportErrorCode } from './errorClassify'
 import { IncrementalHttpResponseParser } from './logHttpParser'
 import {
   DOCKER_SOCKET_PATH,
   DockerTransportError,
   type DockerProxyEndpoint,
-  type DockerTransportErrorCode,
   type StreamLocalChannelOpener,
 } from './types'
 
@@ -397,26 +396,6 @@ function destroyServer(
   } catch {}
 }
 
-function isDockerErrorCode(value: string): value is DockerTransportErrorCode {
-  return (
-    value === 'ssh-disconnected' ||
-    value === 'transport-unsupported' ||
-    value === 'socket-forward-failed' ||
-    value === 'socket-not-found' ||
-    value === 'permission-denied' ||
-    value === 'daemon-unavailable' ||
-    value === 'proxy-closed' ||
-    value === 'request-failed' ||
-    value === 'request-timeout' ||
-    value === 'generation-stale' ||
-    value === 'container-not-found' ||
-    value === 'action-conflict' ||
-    value === 'container-not-running' ||
-    value === 'attach-protocol-error' ||
-    value === 'output-overflow'
-  )
-}
-
 /** Raw HTTP over the loopback proxy (no external dockerode dependency for MVP-001). */
 export async function dockerHttpRequest(
   endpoint: DockerProxyEndpoint,
@@ -517,7 +496,7 @@ export async function dockerHttpRequest(
         }
         const parsed = parseHttpResponse(raw)
         const proxyErr = headerValue(parsed.headers, DOCKER_PROXY_ERROR_HEADER)
-        if (proxyErr && isDockerErrorCode(proxyErr)) {
+        if (proxyErr && isDockerTransportErrorCode(proxyErr)) {
           const msg = parsed.body.toString('utf8') || proxyErr
           finish(new DockerTransportError(proxyErr, msg, endpoint.sessionId))
           return

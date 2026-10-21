@@ -11,7 +11,8 @@
     "typecheck": "npm run typecheck:renderer && npm run typecheck:main",
     "typecheck:renderer": "vue-tsc --noEmit --incremental",
     "typecheck:main": "tsc -p tsconfig.node.json --noEmit --incremental --tsBuildInfoFile node_modules/.cache/litessh/tsconfig.node.tsbuildinfo",
-    "lint": "eslint src electron shared --max-warnings 0 && node scripts/check-unified-icons.mjs",
+    "lint": "npm run check:dependencies && eslint src electron shared --max-warnings 0 && node scripts/check-unified-icons.mjs",
+    "check:dependencies": "node scripts/check-dependency-baseline.mjs",
     "i18n:check": "node scripts/check-i18n-keys.mjs",
     "sync:models-dev": "node scripts/sync-models-dev-context.mjs",
     "test": "vitest run",
@@ -20,7 +21,7 @@
     "test:ui:docker": "node scripts/check-ui-regressions.mjs --docker",
     "test:ui:questions": "node scripts/check-ui-regressions.mjs --questions",
     "clean:electron": "node scripts/clean-electron-out.mjs",
-    "build": "npm run typecheck && npm run clean:electron && vite build && node scripts/copy-bash-wasm.mjs",
+    "build": "npm run check:dependencies && npm run typecheck && npm run clean:electron && vite build && node scripts/copy-bash-wasm.mjs",
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder"

@@ -314,6 +314,20 @@ app.whenReady().then(async () => {
     if (width === 280) await saveScreenshot('sftp-toolbar-narrow.png')
     await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
   }
+  await run(`window.__uiRegression.setTreeFiles(${JSON.stringify([
+    { name: 'anaconda-ks.cfg', path: '/anaconda-ks.cfg', isDirectory: false, isSymlink: false, size: 1945, modifyTime: 1, permissions: 'rw-r--r--' },
+    { name: 'commons-compress.jar', path: '/commons-compress.jar', isDirectory: false, isSymlink: false, size: 1048576, modifyTime: 1, permissions: 'rw-r--r--' },
+  ])})`)
+  const sizeAlignment = await run(`(() => {
+    const pane=document.querySelector('.sftp-tree-fixture');pane.style.width='360px';
+    const rows=[...pane.querySelectorAll('.tree-row')].filter(row=>row.querySelector('.tree-size'));
+    const edges=rows.map(row=>Math.round(row.querySelector('.tree-size').getBoundingClientRect().right));
+    const actions=rows.map(row=>row.querySelectorAll('.tree-quick-btn').length);
+    return {edges,actions};
+  })()`)
+  assert.deepEqual(sizeAlignment.actions, [2, 1], 'Only editable files show the edit action')
+  assert.ok(Math.max(...sizeAlignment.edges) - Math.min(...sizeAlignment.edges) <= 1, `SFTP sizes stay aligned: ${JSON.stringify(sizeAlignment)}`)
+  await run('window.__uiRegression.setTreeName("config.log")')
   for (const action of ['collapse-tree', 'upload-folder', 'directory-sync']) {
     await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
     await waitFor('document.querySelector(".sftp-toolbar-menu")')

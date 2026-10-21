@@ -97,6 +97,14 @@ async function startJob(
     timeoutMs,
     stdin ? { stdin } : undefined,
   )
+  // The SSH handle may arrive after runtime disposal or session teardown.
+  try {
+    host.assertGeneration(target.sessionId, target.generation)
+  } catch (error) {
+    try { started.cancel() } catch {}
+    void started.promise.catch(() => {})
+    throw error
+  }
   const job = host.jobs.create({
     sessionId: target.sessionId,
     connectionId: target.connectionId,

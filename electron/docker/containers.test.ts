@@ -5,7 +5,6 @@ import {
   buildRestartContainerPath,
   buildStartContainerPath,
   buildStopContainerPath,
-  formatPortsSummary,
   isAllowedDockerApiPath,
   isAllowedDockerApiRequest,
   isValidDockerContainerAction,
@@ -231,17 +230,6 @@ describe('normalizeContainerSummary fallback displayName', () => {
       State: 'created',
     })
     expect(s?.displayName).toBe('abcdef123456')
-  })
-})
-
-describe('formatPortsSummary', () => {
-  it('formats published and private-only', () => {
-    expect(
-      formatPortsSummary([
-        { ip: '0.0.0.0', privatePort: 80, publicPort: 8080, type: 'tcp' },
-        { ip: '', privatePort: 443, publicPort: null, type: 'tcp' },
-      ]),
-    ).toBe('8080→80/tcp, 443/tcp')
   })
 })
 

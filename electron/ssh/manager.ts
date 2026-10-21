@@ -19,7 +19,6 @@ import type {
   DirTransferResult,
   SftpTransferOptions,
   SSHCallbacks,
-  TransferConflictStrategy,
 } from './types'
 
 export type {

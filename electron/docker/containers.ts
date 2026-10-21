@@ -517,17 +517,3 @@ export function normalizeContainerInspect(raw: unknown): DockerContainerInspectR
 
   return { overview, inspectJson }
 }
-
-/** Compact port summary for list rows: "8080→80/tcp, 443/tcp". */
-export function formatPortsSummary(ports: DockerContainerPort[]): string {
-  if (!ports.length) return ''
-  return ports
-    .map((p) => {
-      if (p.publicPort != null) {
-        const host = p.ip && p.ip !== '0.0.0.0' && p.ip !== '::' ? `${p.ip}:` : ''
-        return `${host}${p.publicPort}→${p.privatePort}/${p.type}`
-      }
-      return `${p.privatePort}/${p.type}`
-    })
-    .join(', ')
-}

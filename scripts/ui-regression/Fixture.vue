@@ -33,6 +33,7 @@ import type { AiWorkspaceConversationItem } from '../../shared/aiWorkspaceConver
 import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import type { SshConnectionStage } from '../../shared/sshConnectionProgress'
 import type { FileEntry, SftpPathBookmark } from '../../shared/types/sftp'
+import { canEditSftpFile } from '../../src/utils/sftp/sftpEditable'
 
 const groups: Group[] = [
   { id: 'dev', name: '默认分组', order: 0, isDefault: true },
@@ -615,6 +616,10 @@ onMounted(() => {
       treeEntries.value = [{ ...treeEntries.value[0], name, path: '/' + name }]
       await nextTick()
     },
+    async setTreeFiles(files: FileEntry[]) {
+      treeEntries.value = files
+      await nextTick()
+    },
   }
 })
 </script>
@@ -640,7 +645,7 @@ onMounted(() => {
         @collapse-tree="calls.sftpActions.push('collapse-tree')" @upload-folder="calls.sftpActions.push('upload-folder')" @directory-sync="calls.sftpActions.push('directory-sync')" />
     </section>
     <section class="sftp-tree-fixture">
-      <SftpDirTree current-path="/" :entries-of="path => path === '/' ? treeEntries : []" :is-expanded="() => false" :is-loading="() => false" :can-edit="() => true" />
+      <SftpDirTree current-path="/" :entries-of="path => path === '/' ? treeEntries : []" :is-expanded="() => false" :is-loading="() => false" :can-edit="canEditSftpFile" />
     </section>
     <section class="label-fixture">
       <InlineLabel text="很长的中文与英文数据库名称 Production database"><span class="fixture-count">123456</span></InlineLabel>

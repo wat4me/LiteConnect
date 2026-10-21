@@ -8,9 +8,6 @@ import {
 } from './serviceContext'
 import {
   clearProbeInflightForSession,
-  compareDockerApiVersions,
-  DOCKER_MVP_MIN_API_VERSION,
-  parseDockerApiVersion,
   ping as probePing,
   probe as runSessionProbe,
   version as probeVersion,

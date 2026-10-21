@@ -109,19 +109,3 @@ export function useDockerProbe(sessionId: Ref<string | null>) {
     dispose,
   }
 }
-
-/** Pure helper for tests: decide if a late probe result may be applied. */
-export function canApplyProbeResult(opts: {
-  disposed: boolean
-  resultGen: number
-  currentGen: number
-  ownerSessionId: string | null
-  resultSessionId: string
-  activeSessionId: string | null
-}): boolean {
-  if (opts.disposed) return false
-  if (opts.resultGen !== opts.currentGen) return false
-  if (opts.ownerSessionId !== opts.resultSessionId) return false
-  if (opts.activeSessionId !== opts.resultSessionId) return false
-  return true
-}

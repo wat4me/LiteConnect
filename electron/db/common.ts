@@ -44,20 +44,7 @@ export function assertIdent(name: string): void {
   }
 }
 
-/** MySQL-style backtick identifiers */
-export function quoteIdentMysql(name: string): string {
-  return '`' + String(name).replace(/`/g, '``') + '`'
-}
-
-/** PostgreSQL-style double-quote identifiers */
-export function quoteIdentPostgres(name: string): string {
-  return '"' + String(name).replace(/"/g, '""') + '"'
-}
-
-/** Oracle-style double-quote identifiers */
-export function quoteIdentOracle(name: string): string {
-  return '"' + String(name).replace(/"/g, '""') + '"'
-}
+export { quoteIdentMysql, quoteIdentOracle, quoteIdentPostgres } from '../../shared/sqlIdent'
 
 export function cancelledError(): Error {
   const err = new Error(t('db.queryCancelled'))

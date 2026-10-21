@@ -122,25 +122,3 @@ export function detectArchiveKind(fileName: string): ArchiveKind | null {
   if (lower.endsWith('.gz') && !lower.endsWith('.tar.gz')) return 'gz'
   return null
 }
-
-export function buildExtractCommand(remotePath: string, kind: ArchiveKind): string {
-  // Paths are shell-quoted by caller via shellQuote in manager
-  switch (kind) {
-    case 'targz':
-      return `tar -xzf`
-    case 'tarbz2':
-      return `tar -xjf`
-    case 'tarxz':
-      return `tar -xJf`
-    case 'tar':
-      return `tar -xf`
-    case 'zip':
-      return `unzip -o`
-    case '7z':
-      return `7z x -y`
-    case 'gz':
-      return `gunzip -k -f`
-    default:
-      return `tar -xf`
-  }
-}

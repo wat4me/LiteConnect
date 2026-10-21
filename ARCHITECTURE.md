@@ -77,6 +77,9 @@ Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`
 (`tsc -p tsconfig.node.json --noEmit`). CI and `build` run both checks; Vite bundling
 alone does not validate main-process types. Main-process incremental metadata stays
 under `node_modules/.cache/litessh/` rather than the runtime output directory.
+Both renderer/shared and main/shared checks enforce unused locals and parameters.
+Unused exports still require a separate reference audit.
+An imported file may contain obsolete exports or test-only copies of production logic.
 
 ## Renderer directory map
 
@@ -201,6 +204,8 @@ Do not merge these — they have different lifecycles and security boundaries:
 | `sqlReadOnly.ts` | Read-only SQL classification (main + renderer) |
 | `sqlRisk.ts` | Dangerous SQL risk assessment (main + renderer) |
 | `dbConnectionUrl.ts` | Connection URL / JDBC / Easy Connect parsing |
+| `formatBytes.ts` | Compact byte formatting shared by resource stats, monitor, SFTP and DB UI |
+| `sqlIdent.ts` | SQL identifier quoting for main-process drivers and renderer SQL helpers |
 | `mcp/*` | SSH tool schemas, command classification, output truncation |
 | `mcp/bashParse.ts` | Bash AST → flat command list (pure; the parser is injected) |
 
@@ -215,9 +220,16 @@ Settings IPC is composed from `electron/ipc/settings/*.ts`. New settings go thro
 `electron/store/aiSettingsService.ts` owns AI provider normalization, model selection, and resolved runtime configuration. `electron/store/settingsSecrets.ts` holds the Electron safeStorage boundary shared by AI keys and the MCP HTTP token; `SettingsStore` retains migration and persistence ownership.
 
 SSH MCP tool implementations live under `electron/mcp/tools/` (sessions, exec, sftp, pty, service). `electron/mcp/runtime.ts` is dispatch + session guards.
+`SshMcpRuntime.dispose()` is idempotent: it unsubscribes session teardown, disposes
+background jobs and agent PTYs, and clears tool activity state. Job disposal detaches
+observers before cancellation so shutdown cannot enqueue AI continuations. Late exec
+handles are cancelled; late PTY channels are destroyed. Disposal rejects new tool calls
+and approvals granted after shutdown. Main stops the AI executor and HTTP gateway
+before disposing MCP, then the SSH owner closes its connections and foreground exec
+channels. Runtime disposal itself does not disconnect user SSH sessions.
 Interactive SSH connection authentication, keyboard prompts, and host-verifier configs live in `electron/ssh/connectionAuth.ts`; X11 readiness policy lives in `electron/ssh/connectionX11.ts`. `ConnectionService` retains session generation, shell, jump transport, and resource cleanup. Single-file SFTP stream execution lives in `electron/ssh/transfer/fileTransfer.ts`; `TransferRunner` retains transfer registration, cancellation, and directory-job orchestration.
 
-DB query-tab run/export orchestration is `src/composables/database/useDbQueryRun.ts` and `useDbResultExport.ts`. Engine metadata/browse SQL lives in `electron/db/drivers/{postgres,mysql,oracle}Browse.ts` (class files stay the `DbDriver` entry and keep a private `warmExactCount` wrapper for tests).
+DB query-tab run/export orchestration is `src/composables/database/useDbQueryRun.ts` and `useDbResultExport.ts`. Engine metadata/browse SQL lives in `electron/db/drivers/{postgres,mysql,oracle}Browse.ts`; driver classes remain the `DbDriver` entry. Background COUNT tests call the production Browse implementation instead of private wrappers on driver classes. Query execution tests drive `useDbQueryRun` and its IPC boundary rather than unused action-mapping replicas.
 `DatabaseView.vue` loads `DbQueryTab.vue` (including CodeMirror) and `DbTableWorkspace.vue` only when the corresponding tab is opened; the database shell remains a separate lazy view from `App.vue`.
 
 App-shell wiring extracted from `App.vue`: snippet hotkeys (`useSnippetHotkeys`), Docker SSH session listeners (`useDockerSshBridge`), SFTP/batch toasts (`useTransferToasts`).
@@ -230,7 +242,7 @@ AI sidebar context-file availability checks live in `src/composables/ai/useAiCon
 AI sidebar history filtering and mutations live in `src/composables/ai/useAiSidebarHistory.ts`.
 `src/views/AiWorkspaceView.vue` reuses the chat sidebar in the standalone LiteAI module. `electron/ai/workspace/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
 `electron/ai/schedules/scheduler.ts` owns persisted interval/daily/weekly local plans and bounded, serialized inspection runs. `shared/aiSchedules.ts` validates timing and calculates the next local-calendar occurrence, including DST and timezone changes. `electron/ipc/aiScheduleExecutor.ts` creates a dedicated saved-profile SSH transport and temporary history for each read-only execution. `registerAiScheduleHandlers.ts` adapts persistence and renderer events; `components/ai/AiSchedulePanel.vue` configures plans and shows reports. The scheduler runs while the app is alive, skips catch-up bursts and aborts work at shutdown.
-`electron/ai/schedules/orchestrator.ts` runs selected-host inspections serially or with bounded parallelism and synthesizes reports through ports; each host retains its own context and transport. Plans may pin a provider/model or fall back to the active pair. `electron/ai/schedules/notifications.ts` handles opt-in generic JSON Webhooks with encrypted endpoint/token storage, bounded requests and delivery state independent of inspection results. Notification settings never enter model context. Windows window/taskbar icon lookup and separate development app identity live in `electron/window/appIcon.ts`.
+`electron/ai/schedules/orchestrator.ts` runs selected-host inspections serially or with bounded parallelism and synthesizes reports through ports; each host retains its own context and transport. Plans may pin a provider/model or fall back to the active pair. `electron/ai/schedules/notifications.ts` handles opt-in generic JSON Webhooks with encrypted endpoint/token storage, bounded requests and delivery state independent of inspection results. Notification settings never enter model context. Windows window/taskbar icon lookup lives in `electron/window/appIcon.ts`; development shortcut registration and legacy Electron shortcut conflict handling live in `electron/window/developmentTaskbar.ts`.
 AI chat message footer display and controls live in `src/components/ai/AiMessageFooter.vue`; `AiChatView.vue` keeps scroll and timeline coordination, with scoped rules in `AiChatView.css`.
 SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
 
@@ -268,3 +280,36 @@ services or each other's codecs; ESLint enforces those dependency directions.
 - Preload channel names / `window.LiteConnect` shape
 - Routing DB tunnels through interactive `SSHManager` sessions
 - Flattening `electron/docker` (already well factored)
+
+## Governance status and next steps
+
+The 2026-10-19 cleanup removes unused imports, obsolete query action mappings,
+test-only copies of Docker stale-result decisions, private DB COUNT wrappers,
+and unused main-process port-summary/extract-command helpers. Docker late-result
+tests continue to exercise real composables; COUNT and query tests exercise their
+production modules. Renderer/shared and main/shared unused local and parameter checks run as
+part of the existing typecheck/build/CI commands.
+
+Docker state/action labels are resolved through `components/docker/dockerUiHelpers.ts`
+at call time to preserve locale changes. The three Docker transport channels use
+the same complete error-code guard in `electron/docker/errorClassify.ts`.
+`utils/terminal/shellText.ts` supplies the identical text-splitting behavior needed
+by terminal CWD tracking and container-entry hints. It is not a security parser;
+MCP classification continues to use its own command policy and Bash AST engine.
+
+The second cleanup batch completes MCP disposal, extracts the sidebar's context-file, model-menu
+and message actions, and converges on npm with `package-lock.json` as the sole lockfile.
+`scripts/check-dependency-baseline.mjs` rejects competing lockfiles and mismatched root
+versions/dependency declarations; lint and production builds run it automatically.
+Validate clean dependencies in a separate directory instead of replacing a running
+development environment's dependencies.
+
+Future cleanup candidates are shared xterm settings application and command-snippet
+variable resolution. Split other components by responsibility, not total template/style
+line count; keep one AI session store and separate SSH, Docker and DB lifecycles.
+
+Architecture rules and progress stay in this document. User behavior belongs in
+`docs/AI.md` / `docs/SSH.md`, development and release commands in
+`docs/DEVELOPMENT.md`, and UI/icon contracts in `docs/UI_STYLES.md` / `docs/ICONS.md`.
+Historical release notes and third-party provenance remain versioned records.
+Avoid creating standalone audit or plan documents that duplicate these sources.

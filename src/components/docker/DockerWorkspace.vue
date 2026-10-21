@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createDockerLabels } from './dockerUiHelpers'
 import { computed, nextTick, onBeforeUnmount, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -37,6 +38,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { actionLabel } = createDockerLabels(t)
 const sessionIdRef = toRef(props, 'sessionId')
 const { ui, probing, refresh: refreshProbe, probe } = useDockerProbe(sessionIdRef)
 const {
@@ -282,12 +284,6 @@ async function onContainerAction(
     void selectContainer(containerId)
   }
   void runAction(containerId, action, { onSuccessRefresh: refreshAfterAction })
-}
-
-function actionLabel(action: DockerContainerAction): string {
-  if (action === 'start') return t('docker.actions.start')
-  if (action === 'stop') return t('docker.actions.stop')
-  return t('docker.actions.restart')
 }
 
 const actionFeedbackText = computed(() => {

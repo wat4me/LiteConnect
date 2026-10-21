@@ -4,7 +4,6 @@ import {
   assertIdent,
   cancelledError,
   clampQueryLimits,
-  DEFAULT_QUERY_TIMEOUT_MS,
   quoteIdentOracle,
   sanitizeCancelError,
   validateSqlInput,
@@ -471,23 +470,6 @@ export class OracleDriver implements DbDriver {
       page,
       pageSize,
       options,
-    )
-  }
-
-  private async warmExactCount(
-    session: LiveSession,
-    cacheKey: string,
-    fq: string,
-    whereClause: string,
-    whereParams: unknown[],
-  ): Promise<void> {
-    return oracleBrowse.warmExactCount(
-      this.browseHost(),
-      session,
-      cacheKey,
-      fq,
-      whereClause,
-      whereParams,
     )
   }
 

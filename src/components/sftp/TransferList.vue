@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { TransferItem } from '../../env.d.ts'
-import { formatSize } from '@/utils/shared/format'
+import { formatBytes } from '@shared/formatBytes'
 import { canResumeTransfer, formatSpeed } from '../../composables/sftp/useTransfers'
 import AppIcon from '../icons/AppIcon.vue'
 
@@ -58,7 +58,7 @@ function getProgress(item: TransferItem): number {
             <template v-else-if="item.phase === 'preparing'">
               {{ t('sftp.transferPreparingDirs', { done: item.preparedDirs ?? 0, total: item.totalDirs ?? 0 }) }}
             </template>
-            <template v-else>{{ formatSize(item.transferred) }} / {{ formatSize(item.total) }}</template>
+            <template v-else>{{ formatBytes(item.transferred) }} / {{ formatBytes(item.total) }}</template>
             <span v-if="item.phase !== 'scanning' && item.phase !== 'preparing' && getSpeed && getSpeed(id) > 0" class="transfer-speed">· {{ formatSpeed(getSpeed(id)) }}</span>
             <span
               v-if="item.phase !== 'scanning' && item.phase !== 'preparing' && item.totalFiles != null && item.totalFiles > 0"

@@ -5,7 +5,6 @@ import {
   assertIdent,
   cancelledError,
   clampQueryLimits,
-  DEFAULT_QUERY_TIMEOUT_MS,
   quoteIdentPostgres,
   sanitizeCancelError,
   serializeCell,
@@ -49,7 +48,7 @@ import {
   type PostgresBrowseHost,
   type PostgresControlClient,
 } from './postgresTypes'
-import { parseTableRef, withStatementTimeout } from './postgresHelpers'
+
 import * as pgBrowse from './postgresBrowse'
 
 export type { PostgresControlClient } from './postgresTypes'
@@ -584,17 +583,6 @@ export class PostgresDriver implements DbDriver {
     options?: DbBrowseOptions,
   ): Promise<DbTableBrowseResult> {
     return pgBrowse.browseTable(this.browseHost(), sessionId, database, table, page, pageSize, options)
-  }
-
-  private async warmExactCount(
-    session: LiveSession,
-    pool: Pool,
-    cacheKey: string,
-    fq: string,
-    whereClause: string,
-    whereParams: unknown[],
-  ): Promise<void> {
-    return pgBrowse.warmExactCount(this.browseHost(), session, pool, cacheKey, fq, whereClause, whereParams)
   }
 
   async useDatabase(sessionId: string, database: string): Promise<void> {

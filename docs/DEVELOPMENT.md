@@ -74,15 +74,19 @@ LiteConnect/
 
 LiteAI 的模块职责与依赖方向见 [架构说明](../ARCHITECTURE.md#liteai-modules)，执行和中断协议见 [AI 执行服务](AI-RUNTIME.md)。前端 `useAiChat` 是对话操作入口，`chat/` 管理会话状态、历史和配置；`workspace/useAiWorkspace` 管理独立工作区生命周期。跨模块 UI 类型放在 `src/domain/ai/`，不从 composable 导入类型。新增代码直接导入实际模块路径，避免根目录再建立转发文件。
 
+已完成的清理与后续治理顺序统一记录在 [架构说明](../ARCHITECTURE.md#governance-status-and-next-steps)，不另设重复的审查或方案文档。
+
 ## 开发
 
 建议使用 Node.js 22（与 CI 保持一致）及 npm 9 或更高版本。主进程的数据存储使用 `node:sqlite`，不支持 Node.js 18。
 
-安装依赖：
+CI 和正式发布使用 `npm ci`，以 `package-lock.json` 为依赖基线。首次安装和复现 CI 环境：
 
 ```bash
-npm install
+npm ci
 ```
+
+仓库仅维护 npm 的 `package-lock.json`，已移除解析版本不同的 pnpm 锁文件。不要交替使用其他包管理器生成第二份锁文件。`npm run check:dependencies` 会检查锁文件唯一性、根包版本和依赖声明是否一致；lint 与生产构建会自动执行。排查依赖差异时，在独立代码副本中运行 `npm ci` 验证，不覆盖正在运行的开发版依赖。
 
 启动开发环境：
 
@@ -151,6 +155,7 @@ npm test
 ```
 
 `typecheck` 同时检查 renderer/shared 与 Electron 主进程，CI 和 `build` 也执行这两部分。
+renderer/shared 与主进程/shared 都检查未使用的局部变量和参数；导出函数无引用仍需单独审查，不能仅靠类型检查判定为无用。
 局部修改可单独运行 `npm run typecheck:renderer` 或 `npm run typecheck:main`。
 主进程检查只生成 `node_modules/.cache/litessh/` 下的增量缓存，不输出 JavaScript。
 
@@ -173,7 +178,8 @@ npm run electron:build
 公开仓库用 GitHub Actions 标准 runner 打包（Windows / macOS / Linux 均免费）。推送与 `package.json` 一致的版本 tag：
 
 ```bash
-# 先把 package.json 的 version 改成新版本并提交
+# 先同步 package.json、package-lock.json 中的版本，
+# 准备 docs/releases/v1.0.0.md，并完成检查、提交和推送
 git tag v1.0.0
 git push origin v1.0.0
 ```
@@ -182,9 +188,11 @@ git push origin v1.0.0
 
 | 平台 | 产物 |
 |---|---|
-| Windows x64 | NSIS `LiteConnect Setup *.exe`、`latest.yml` |
+| Windows x64 | NSIS `LiteConnect-Setup-<version>.exe`、对应 `.blockmap`、`latest.yml` |
 | macOS (Actions 为 Apple Silicon) | `.dmg`、`.zip`、`latest-mac.yml` |
 | Linux x64 | `.AppImage`、`.deb`、`latest-linux.yml` |
+
+三个构建任务全部完成后，发布任务校验安装包和三平台更新清单，再统一创建公开 Release。说明正文读取 `docs/releases/<tag>.md`；标签版本必须与 `package.json` 一致。
 
 未做代码签名：Windows 可能被 SmartScreen 拦截；macOS 需右键「打开」，或执行 `xattr -cr /Applications/LiteConnect.app`。VcXsrv 只打进 Windows 包。
 
@@ -196,6 +204,9 @@ git push origin v1.0.0
 |---|---|
 | `npm run dev` | 使用系统 `LiteConnect-Dev` 独立目录启动 Vite 和 Electron |
 | `npm run dev:isolated` | 使用仓库内 `.liteconnect-dev-data/` 启动一次性隔离环境 |
+| `npm run check:dependencies` | 检查唯一 npm 锁文件、根包版本与依赖声明 |
+| `npm run lint` | 检查依赖基线、架构边界与图标规范 |
+| `npm run i18n:check` | 检查国际化键和消息格式 |
 | `npm run typecheck` | 运行 renderer/shared 和 Electron 主进程的严格类型检查 |
 | `npm run typecheck:renderer` | 单独检查 Vue renderer/shared |
 | `npm run typecheck:main` | 单独检查 Electron 主进程/shared |

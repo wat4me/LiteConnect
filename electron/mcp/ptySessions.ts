@@ -60,10 +60,12 @@ export type PtyOpener = (
 export class PtySessionStore {
   private readonly ptys = new Map<string, PtyRecord>()
   private idleTimer: ReturnType<typeof setInterval> | null = null
+  private disposed = false
 
   constructor(private readonly openChannel: PtyOpener) {}
 
   async open(opts: PtyOpenOpts): Promise<{ ptyId: string; cols: number; rows: number }> {
+    this.assertActive()
     const cols = clampDim(opts.cols, MCP_PTY_DEFAULT_COLS, MCP_PTY_MAX_COLS)
     const rows = clampDim(opts.rows, MCP_PTY_DEFAULT_ROWS, MCP_PTY_MAX_ROWS)
     let owned = 0
@@ -80,6 +82,10 @@ export class PtySessionStore {
       cols,
       rows,
     })
+    if (this.disposed) {
+      try { channel.destroy?.() } catch {}
+      this.assertActive()
+    }
     const term = new Terminal({
       cols,
       rows,
@@ -143,6 +149,7 @@ export class PtySessionStore {
     ptyId: string,
     opts: { mode?: PtyReadMode; waitForIdleMs?: number; maxBytes?: number },
   ): Promise<PtyReadResult> {
+    this.assertActive()
     const rec = this.require(ptyId)
     const mode: PtyReadMode =
       opts.mode === 'snapshot' || opts.mode === 'screen' ? opts.mode : 'streaming'
@@ -150,10 +157,12 @@ export class PtySessionStore {
     if (idle > 0 && !rec.closed) {
       const deadline = Date.now() + MCP_PTY_READ_TIMEOUT_MS
       while (Date.now() < deadline) {
+        if (rec.closed) break
         if (Date.now() - rec.lastDataAt >= idle) break
         await sleep(40)
       }
     }
+    this.assertActive()
     const maxBytes = clamp(opts.maxBytes ?? 65_536, 1, MCP_PTY_BUFFER_CHARS)
     if (mode === 'streaming') {
       const raw = rec.buffer.slice(rec.unreadAt)
@@ -243,10 +252,18 @@ export class PtySessionStore {
   }
 
   dispose() {
+    if (this.disposed) return
+    this.disposed = true
     for (const id of [...this.ptys.keys()]) this.close(id)
     if (this.idleTimer) {
       clearInterval(this.idleTimer)
       this.idleTimer = null
+    }
+  }
+
+  private assertActive() {
+    if (this.disposed) {
+      throw Object.assign(new Error('Agent PTY store disposed'), { code: 'PTY_CLOSED' })
     }
   }
 

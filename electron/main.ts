@@ -54,6 +54,7 @@ import {
   getPrimaryWindow,
 } from './window/windowRegistry'
 import type { McpHttpGateway } from './mcp/httpGateway'
+import type { SshMcpRuntime } from './mcp/runtime'
 import type { AiExecutionService } from './ai/execution/executionService'
 
 configureDevelopmentUserDataPath()
@@ -77,6 +78,7 @@ const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
 let aiExecutionService: AiExecutionService | undefined
+let mcpRuntime: SshMcpRuntime | undefined
 let aiScheduler: import('./ai/schedules/scheduler').AiScheduler | undefined
 let monitorAlerts: MonitorAlerts
 let backgroundMonitor: BackgroundMonitor
@@ -187,6 +189,7 @@ async function loadDeferredMain(): Promise<void> {
     const sshMcpRuntime = bindSshMcpRuntime(sshManager, credentialStore, monitorCollector, {
       getApprovalMode: () => settingsStore.getMcpApprovalMode(),
     })
+    mcpRuntime = sshMcpRuntime
     const gateway = new McpHttpGateway(
       sshMcpRuntime,
       settingsStore,
@@ -348,6 +351,8 @@ app.on('before-quit', (event) => {
   markQuitting()
   aiScheduler?.dispose()
   aiExecutionService?.dispose()
+  void mcpHttpGateway?.stop()
+  mcpRuntime?.dispose()
   backgroundMonitor.dispose()
   clearLatencyTimers()
   monitorCollector.stopAll()
@@ -355,7 +360,6 @@ app.on('before-quit', (event) => {
   sshManager.forceDisconnectAll()
   dbManager.disconnectAll()
   sessionLog.endAll()
-  void mcpHttpGateway?.stop()
 })
 
 app.on('will-quit', () => {

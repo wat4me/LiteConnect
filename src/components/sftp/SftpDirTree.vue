@@ -2,7 +2,7 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { FileEntry } from '../../env.d.ts'
-import { formatSize } from '@/utils/shared/format'
+import { formatBytes } from '@shared/formatBytes'
 import { ancestorPaths } from '../../composables/sftp/useSftpDirTree'
 import { useSftpTreeScroll } from '../../composables/sftp/useSftpTreeScroll'
 import { useSftpTreeKeyboard } from '../../composables/sftp/useSftpTreeKeyboard'
@@ -524,7 +524,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
           <span
             v-else-if="row.kind === 'file' && row.entry.size > 0"
             class="tree-size"
-          >{{ formatSize(row.entry.size) }}</span>
+          >{{ formatBytes(row.entry.size) }}</span>
           <div v-if="row.kind === 'file'" class="tree-quick-actions">
             <button type="button" class="tree-quick-btn" :title="t('sftp.download')" @click.stop="emit('download', row.entry)">
               <AppIcon name="download" size="xs" />
@@ -722,9 +722,12 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .tree-quick-actions {
-  flex-shrink: 0;
+  --tree-quick-btn: 24px;
+  /* Keep one slot for download and one for edit, so a missing edit button does not shift the size. */
+  flex: 0 0 calc(var(--tree-quick-btn) * 2 + 2px);
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
   margin-left: 2px;
   opacity: 0;
@@ -738,8 +741,8 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .tree-quick-btn {
-  width: 24px;
-  height: 24px;
+  width: var(--tree-quick-btn, 24px);
+  height: var(--tree-quick-btn, 24px);
   display: inline-flex;
   align-items: center;
   justify-content: center;

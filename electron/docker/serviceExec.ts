@@ -372,12 +372,12 @@ export function enqueueExecData(ctx: DockerServiceContext, owned: OwnedExecTermi
   if (!owned.batchTimer) {
     owned.batchTimer = setTimeout(() => {
       owned.batchTimer = null
-      flushExecQueue(ctx, owned)
+      flushExecQueue(owned)
     }, DOCKER_EXEC_BATCH_FLUSH_MS)
   }
 }
 
-export function flushExecQueue(ctx: DockerServiceContext, owned: OwnedExecTerminal): void {
+export function flushExecQueue(owned: OwnedExecTerminal): void {
   if (!owned.outQueue.length) return
   const parts = owned.outQueue
   owned.outQueue = []
@@ -415,7 +415,7 @@ export function emitExecState(
       clearTimeout(owned.batchTimer)
       owned.batchTimer = null
     }
-    flushExecQueue(ctx, owned)
+    flushExecQueue(owned)
     owned.finalStateSent = true
   }
   if (!ctx.isGenerationLive(owned.sessionId, owned.generation)) {

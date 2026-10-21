@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
-import { canApplyProbeResult, useDockerProbe } from './useDockerProbe'
+import { useDockerProbe } from './useDockerProbe'
 import type { DockerAvailability } from '../../env.d'
 
 function mockliteConnect(probeImpl: (sessionId: string) => Promise<DockerAvailability>) {
@@ -10,67 +10,6 @@ function mockliteConnect(probeImpl: (sessionId: string) => Promise<DockerAvailab
   g.window = g.window || ({} as typeof g.window)
   g.window.LiteConnect = { dockerProbe: probeImpl }
 }
-
-describe('canApplyProbeResult', () => {
-  it('rejects disposed, stale generation, owner mismatch, and inactive session', () => {
-    expect(
-      canApplyProbeResult({
-        disposed: true,
-        resultGen: 1,
-        currentGen: 1,
-        ownerSessionId: 'a',
-        resultSessionId: 'a',
-        activeSessionId: 'a',
-      }),
-    ).toBe(false)
-
-    expect(
-      canApplyProbeResult({
-        disposed: false,
-        resultGen: 1,
-        currentGen: 2,
-        ownerSessionId: 'a',
-        resultSessionId: 'a',
-        activeSessionId: 'a',
-      }),
-    ).toBe(false)
-
-    expect(
-      canApplyProbeResult({
-        disposed: false,
-        resultGen: 2,
-        currentGen: 2,
-        ownerSessionId: 'b',
-        resultSessionId: 'a',
-        activeSessionId: 'a',
-      }),
-    ).toBe(false)
-
-    expect(
-      canApplyProbeResult({
-        disposed: false,
-        resultGen: 2,
-        currentGen: 2,
-        ownerSessionId: 'a',
-        resultSessionId: 'a',
-        activeSessionId: 'b',
-      }),
-    ).toBe(false)
-  })
-
-  it('accepts matching live result', () => {
-    expect(
-      canApplyProbeResult({
-        disposed: false,
-        resultGen: 3,
-        currentGen: 3,
-        ownerSessionId: 's1',
-        resultSessionId: 's1',
-        activeSessionId: 's1',
-      }),
-    ).toBe(true)
-  })
-})
 
 describe('useDockerProbe stale-result guard', () => {
   let scope: ReturnType<typeof effectScope>

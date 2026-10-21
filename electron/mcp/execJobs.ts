@@ -22,13 +22,16 @@ export class McpJobStore {
   private readonly jobs = new Map<string, McpJobRecord>()
   private readonly listeners = new Set<() => void>()
   private readonly settlementListeners = new Set<(job: SshMcpJobResult) => void>()
+  private disposed = false
 
   onSettled(listener: (job: SshMcpJobResult) => void): () => void {
+    if (this.disposed) return () => {}
     this.settlementListeners.add(listener)
     return () => { this.settlementListeners.delete(listener) }
   }
 
   onChanged(listener: () => void): () => void {
+    if (this.disposed) return () => {}
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }
@@ -47,6 +50,7 @@ export class McpJobStore {
     class: CommandClass
     cancel: () => void
   }): McpJobRecord {
+    if (this.disposed) throw new Error('MCP job store disposed')
     this.prune()
     while (this.jobs.size >= MCP_MAX_JOBS) {
       const oldest = this.oldestFinished()
@@ -109,6 +113,16 @@ export class McpJobStore {
         this.cancel(job.jobId)
       }
     }
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    // Shutdown must not enqueue AI continuations or broadcast into closed windows.
+    this.listeners.clear()
+    this.settlementListeners.clear()
+    for (const job of [...this.jobs.values()]) this.cancel(job.jobId)
+    this.jobs.clear()
   }
 
   summary(job: McpJobRecord): SshMcpJobSummary {

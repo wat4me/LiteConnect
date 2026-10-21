@@ -4,7 +4,7 @@
  */
 
 import * as net from 'net'
-import { classifyStreamLocalError } from './errorClassify'
+import { classifyStreamLocalError, isDockerTransportErrorCode } from './errorClassify'
 import { isAllowedDockerApiRequest } from './containers'
 import {
   IncrementalHttpResponseParser,
@@ -52,26 +52,6 @@ export type ActiveLogStreamHandle = {
   destroy: (reason: LogStreamFinalReason, code?: DockerTransportErrorCode) => void
 }
 
-function isDockerErrorCode(value: string): value is DockerTransportErrorCode {
-  return (
-    value === 'ssh-disconnected' ||
-    value === 'transport-unsupported' ||
-    value === 'socket-forward-failed' ||
-    value === 'socket-not-found' ||
-    value === 'permission-denied' ||
-    value === 'daemon-unavailable' ||
-    value === 'proxy-closed' ||
-    value === 'request-failed' ||
-    value === 'request-timeout' ||
-    value === 'generation-stale' ||
-    value === 'container-not-found' ||
-    value === 'action-conflict' ||
-    value === 'container-not-running' ||
-    value === 'attach-protocol-error' ||
-    value === 'output-overflow'
-  )
-}
-
 function mapHttpStatus(status: number): DockerTransportErrorCode {
   if (status === 404) return 'container-not-found'
   if (status === 401 || status === 403) return 'permission-denied'
@@ -89,7 +69,7 @@ export function mapLogResponseHeaders(
 ): DockerTransportErrorCode | null {
   if (statusCode < 400) return null
   const proxyErr = headers[DOCKER_PROXY_ERROR_HEADER.toLowerCase()]
-  if (proxyErr && isDockerErrorCode(proxyErr)) {
+  if (proxyErr && isDockerTransportErrorCode(proxyErr)) {
     return proxyErr
   }
   return mapHttpStatus(statusCode)

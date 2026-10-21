@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createDockerLabels } from './dockerUiHelpers'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
@@ -40,6 +41,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { stateLabel, actionLabel, actionAria, actionBusyLabel } = createDockerLabels(t)
 const scrollEl = ref<HTMLElement | null>(null)
 
 defineExpose({ getScrollEl: () => scrollEl.value })
@@ -53,36 +55,6 @@ const filterCounts = computed(() => {
   }
   return { all: props.containers.length, running, stopped }
 })
-
-function stateLabel(state: string): string {
-  const s = (state || '').toLowerCase()
-  if (s === 'running') return t('docker.containerState.running')
-  if (s === 'exited') return t('docker.containerState.exited')
-  if (s === 'created') return t('docker.containerState.created')
-  if (s === 'dead') return t('docker.containerState.dead')
-  if (s === 'paused') return t('docker.containerState.paused')
-  if (s === 'restarting') return t('docker.containerState.restarting')
-  if (s === 'removing') return t('docker.containerState.removing')
-  return state || t('docker.containerState.unknown')
-}
-
-function actionLabel(action: DockerContainerAction): string {
-  if (action === 'start') return t('docker.actions.start')
-  if (action === 'stop') return t('docker.actions.stop')
-  return t('docker.actions.restart')
-}
-
-function actionAria(action: DockerContainerAction): string {
-  if (action === 'start') return t('docker.actions.startAria')
-  if (action === 'stop') return t('docker.actions.stopAria')
-  return t('docker.actions.restartAria')
-}
-
-function actionBusyLabel(action: DockerContainerAction): string {
-  if (action === 'start') return t('docker.actions.starting')
-  if (action === 'stop') return t('docker.actions.stopping')
-  return t('docker.actions.restarting')
-}
 
 function onSearchInput(e: Event) {
   emit('search', (e.target as HTMLInputElement).value)

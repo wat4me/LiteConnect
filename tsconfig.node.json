@@ -9,6 +9,8 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "downlevelIteration": true,
     "outDir": "dist-electron"
   },

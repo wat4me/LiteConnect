@@ -6,6 +6,7 @@ import DbNavContextMenu from '../components/database/DbNavContextMenu.vue'
 import DbConnectionDialog from '../components/database/DbConnectionDialog.vue'
 import DbCreateDatabaseDialog from '../components/database/DbCreateDatabaseDialog.vue'
 import { useI18n } from 'vue-i18n'
+import { formatBytes } from '@shared/formatBytes'
 import { useDbWorkspace } from '../composables/database/useDbWorkspace'
 
 const { t } = useI18n()
@@ -162,10 +163,6 @@ const scriptJobId = ref<string | null>(null)
 const scriptStatus = ref('')
 let stopScriptProgress: (() => void) | null = null
 
-function formatFileSize(bytes: number) {
-  return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 async function importSqlScript() {
   const live = session.value
   if (!live || scriptJobId.value) return
@@ -173,7 +170,7 @@ async function importSqlScript() {
     const file = await window.LiteConnect.dbSelectSqlScript()
     if (!file) return
     const accepted = window.confirm(
-      `将执行 SQL 文件：${file.name}（${formatFileSize(file.size)}）。\n` +
+      `将执行 SQL 文件：${file.name}（${formatBytes(file.size)}）。\n` +
       '脚本会直接写入当前数据库连接，执行后无法自动撤销。是否继续？',
     )
     if (!accepted) return

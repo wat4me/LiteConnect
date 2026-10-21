@@ -107,17 +107,7 @@ export function estimateAiTextBytes(charCount: number): number {
   return n * 2
 }
 
-export function formatBytes(bytes: number): string {
-  const n = Number(bytes)
-  if (!Number.isFinite(n) || n <= 0) return '0 B'
-  if (n < 1024) return `${Math.round(n)} B`
-  if (n < 1024 * 1024) {
-    const kb = n / 1024
-    return kb < 10 ? `${kb.toFixed(1)} KB` : `${Math.round(kb)} KB`
-  }
-  const mb = n / (1024 * 1024)
-  return mb < 10 ? `${mb.toFixed(1)} MB` : `${Math.round(mb)} MB`
-}
+export { formatBytes } from './formatBytes'
 
 /**
  * 12, 20, 28… — the highest crossed warning rung for this count.

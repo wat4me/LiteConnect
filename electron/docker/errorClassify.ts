@@ -94,19 +94,22 @@ export function classifyStreamLocalError(
   )
 }
 
-export function isDockerTransportErrorCode(code: string): code is DockerTransportErrorCode {
+export function isDockerTransportErrorCode(value: string): value is DockerTransportErrorCode {
   return (
-    code === 'ssh-disconnected' ||
-    code === 'transport-unsupported' ||
-    code === 'socket-forward-failed' ||
-    code === 'socket-not-found' ||
-    code === 'permission-denied' ||
-    code === 'daemon-unavailable' ||
-    code === 'proxy-closed' ||
-    code === 'request-failed' ||
-    code === 'request-timeout' ||
-    code === 'generation-stale' ||
-    code === 'container-not-found' ||
-    code === 'action-conflict'
+    value === 'ssh-disconnected' ||
+    value === 'transport-unsupported' ||
+    value === 'socket-forward-failed' ||
+    value === 'socket-not-found' ||
+    value === 'permission-denied' ||
+    value === 'daemon-unavailable' ||
+    value === 'proxy-closed' ||
+    value === 'request-failed' ||
+    value === 'request-timeout' ||
+    value === 'generation-stale' ||
+    value === 'container-not-found' ||
+    value === 'action-conflict' ||
+    value === 'container-not-running' ||
+    value === 'attach-protocol-error' ||
+    value === 'output-overflow'
   )
 }
