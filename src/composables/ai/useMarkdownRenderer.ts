@@ -126,8 +126,35 @@ function isCaptionLine(line: string): boolean {
 
 export function useMarkdownRenderer() {
   function parseMarkdown(markdown: string): MarkdownBlock[] {
+    return parseSnapshot(markdown).blocks
+  }
+
+  function parseSnapshot(markdown: string, trackStable = false) {
     const lines = markdown.split(/\r?\n/)
     const blocks: MarkdownBlock[] = []
+    const offsets: number[] = []
+    const nextNonBlank: number[] = []
+    let offset = 0
+    let next = -1
+    for (let i = lines.length - 1; i >= 0; i--) {
+      nextNonBlank[i] = next
+      if (lines[i].trim()) next = i
+    }
+    if (trackStable) {
+      for (const line of lines) {
+        offsets.push(offset)
+        offset += line.length + (markdown[offset + line.length] === '\r' ? 2 : 1)
+      }
+    }
+    let stableLength = 0
+    let stableCount = 0
+    // Only a complete following line proves that earlier blocks cannot grow or
+    // change type (table headers, loose lists and captions all need lookahead).
+    const checkpoint = (lineIndex: number) => {
+      if (!trackStable || lineIndex >= lines.length - 1 || !lines[lineIndex].trim()) return
+      stableLength = offsets[lineIndex]
+      stableCount = blocks.length
+    }
     let paragraph: string[] = []
     let listItems: Array<{ ordered: boolean; text: string; depth: number; start: number }> = []
     let code: string[] | null = null
@@ -154,14 +181,6 @@ export function useMarkdownRenderer() {
       if (paragraph.length === 0) return
       blocks.push({ type: 'html', content: `<p>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>` })
       paragraph = []
-    }
-
-    const nextNonBlankIsFence = (fromIndex: number): boolean => {
-      for (let i = fromIndex + 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue
-        return !!parseFenceLine(lines[i])
-      }
-      return false
     }
 
     const emitCaption = (line: string) => {
@@ -237,6 +256,7 @@ export function useMarkdownRenderer() {
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       const line = lines[lineIndex]
+      if (!code && !paragraph.length && !listItems.length) checkpoint(lineIndex)
       if (code && openFence) {
         if (isClosingFence(line, openFence)) {
           closeCodeFence()
@@ -250,6 +270,7 @@ export function useMarkdownRenderer() {
       if (fence) {
         flushParagraphBeforeFence()
         flushList()
+        checkpoint(lineIndex)
         code = []
         openFence = fence
         codeLanguage = fenceLanguage(fence.info)
@@ -257,10 +278,10 @@ export function useMarkdownRenderer() {
       }
 
       if (!line.trim()) {
-        const next = lines.slice(lineIndex + 1).find(value => value.trim())
+        const next = lines[nextNonBlank[lineIndex]]
         // A loose list may contain blank lines before nested/next items or indented prose.
         if (listItems.length && next && /^(\s*([-*+]|\d+\.)\s+| {2,}\S)/.test(next) && !parseFenceLine(next)) continue
-        if (nextNonBlankIsFence(lineIndex)) {
+        if (next && parseFenceLine(next)) {
           flushParagraphBeforeFence()
         } else {
           flushParagraph()
@@ -277,6 +298,7 @@ export function useMarkdownRenderer() {
       ) {
         flushParagraph()
         flushList()
+        checkpoint(lineIndex)
         lineIndex = flushTable(lineIndex)
         continue
       }
@@ -285,6 +307,7 @@ export function useMarkdownRenderer() {
       if (heading) {
         flushParagraph()
         flushList()
+        checkpoint(lineIndex)
         const level = Math.min(heading[1].length, 6)
         blocks.push({ type: 'html', content: `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>` })
         continue
@@ -293,6 +316,7 @@ export function useMarkdownRenderer() {
       if (/^[-*_]{3,}\s*$/.test(line.trim())) {
         flushParagraph()
         flushList()
+        checkpoint(lineIndex)
         blocks.push({ type: 'html', content: '<hr>' })
         continue
       }
@@ -313,10 +337,12 @@ export function useMarkdownRenderer() {
         continue
       }
       flushList()
+      if (!paragraph.length) checkpoint(lineIndex)
 
       if (line.startsWith('> ')) {
         flushParagraph()
         flushList()
+        checkpoint(lineIndex)
         // consecutive blockquote lines
         const quoteLines = [line.slice(2)]
         while (lineIndex + 1 < lines.length && lines[lineIndex + 1].startsWith('> ')) {
@@ -337,8 +363,31 @@ export function useMarkdownRenderer() {
     if (code) closeCodeFence()
     flushParagraph()
     flushList()
-    return blocks
+    return { blocks, stableLength, stableCount }
   }
 
-  return { parseMarkdown }
+  /** Each segment owns its cursor; only its unresolved suffix is parsed again. */
+  function createStreamRenderer() {
+    let previous = ''
+    let consumed = 0
+    let stable: MarkdownBlock[] = []
+    let rendered: MarkdownBlock[] = []
+    return (text: string): MarkdownBlock[] => {
+      if (text === previous) return rendered
+      if (!text.startsWith(previous)) {
+        consumed = 0
+        stable = []
+      }
+      const snapshot = parseSnapshot(text.slice(consumed), true)
+      rendered = stable.concat(snapshot.blocks)
+      if (snapshot.stableLength) {
+        stable = stable.concat(snapshot.blocks.slice(0, snapshot.stableCount))
+        consumed += snapshot.stableLength
+      }
+      previous = text
+      return rendered
+    }
+  }
+
+  return { parseMarkdown, createStreamRenderer }
 }

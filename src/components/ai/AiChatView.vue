@@ -12,17 +12,20 @@ import {
 } from '@shared/aiToolRunDisplay'
 import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatReasoning'
 import { chatActivityDisplay } from '@/utils/ai/chatActivity'
+import { isLiveContentSegment } from '@/utils/ai/chatSegments'
 import { useAiChatViewport } from '@/composables/ai/useAiChatViewport'
 import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
 import AiToolRunRow from './AiToolRun.vue'
 import AiWorkspaceResponse from './AiWorkspaceResponse.vue'
+import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
 import AiBackgroundResults from './AiBackgroundResults.vue'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 
 const props = defineProps<{
   messages: ChatItem[]
+  conversationKey?: string
   terminalActions?: boolean
   workspaceHostCount?: number
   workspaceTargets?: AiWorkspaceTarget[]
@@ -79,14 +82,6 @@ function parseSegmentMarkdown(message: ChatItem, segIndex: number, text: string)
   return blocks
 }
 
-watch(() => props.messages, (msgs) => {
-  const ids = new Set(msgs.map((m) => m.id))
-  for (const key of markdownCache.keys()) {
-    const sep = key.indexOf('::')
-    if (sep < 0 || !ids.has(key.slice(0, sep))) markdownCache.delete(key)
-  }
-}, { deep: false })
-
 type DisplayItem = { seg: AiChatSegment; run?: AiToolRun }
 
 /**
@@ -102,9 +97,10 @@ function displayItems(message: ChatItem): DisplayItem[] {
     if (message.content) synthesized.push({ kind: 'content', text: message.content })
     segments = synthesized
   }
+  const runs = new Map((message.toolRuns || []).map(run => [run.id, run]))
   return segments.map((seg) => ({
     seg,
-    run: seg.kind === 'tool' ? (message.toolRuns || []).find((r) => r.id === seg.runId) : undefined,
+    run: seg.kind === 'tool' ? runs.get(seg.runId) : undefined,
   }))
 }
 
@@ -182,10 +178,19 @@ const activityLayoutSignature = computed(() => props.messages
   .join('|'))
 
 const { listRef, followLatest, timelineRef, showTimeline, activeTurnId,
+  visibleMessages, hiddenTurnCount, hasEarlierMessages, loadingEarlier, loadEarlierMessages,
   timelineExpanded, visibleTimelineTurns, setTimelineHovered, onTimelineFocus,
   onTimelineBlur, jumpToTurn, onListScroll, toggleFollowLatest, handleViewportInsetChange,
 } = useAiChatViewport({ messages: () => props.messages, loading: () => props.loading,
-  layoutSignature: () => activityLayoutSignature.value })
+  layoutSignature: () => activityLayoutSignature.value, conversationKey: () => props.conversationKey })
+
+watch(visibleMessages, (msgs) => {
+  const ids = new Set(msgs.map(message => message.id))
+  for (const key of markdownCache.keys()) {
+    const sep = key.indexOf('::')
+    if (sep < 0 || !ids.has(key.slice(0, sep))) markdownCache.delete(key)
+  }
+})
 
 onDeactivated(() => {
   activityVisible = false
@@ -328,6 +333,12 @@ async function copyText(text: string, key: string) {
           <AppIcon name="models" size="xs" aria-hidden="true" />{{ t('ai.manageModels') }}
         </button>
       </div>
+      <div v-if="hasEarlierMessages" class="chat-load-earlier">
+        <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" :disabled="loadingEarlier" :aria-busy="loadingEarlier" @click="loadEarlierMessages">
+          {{ t(loadingEarlier ? 'ai.loadingEarlierTurns' : 'ai.loadEarlierTurns') }}
+        </button>
+        <span>{{ t('ai.hiddenEarlierTurns', { count: hiddenTurnCount }) }}</span>
+      </div>
       <div
         v-if="messages.length > 0 && (contextDroppedCount || 0) > 0"
         class="context-omit"
@@ -336,7 +347,7 @@ async function copyText(text: string, key: string) {
         {{ t('ai.contextOmitted', { n: contextDroppedCount }) }}
       </div>
       <div
-        v-for="message in messages"
+        v-for="message in visibleMessages"
         :key="message.id"
         class="chat-row"
         :class="[message.role, { error: message.error, streaming: message.streaming }]"
@@ -424,32 +435,13 @@ async function copyText(text: string, key: string) {
       </details>
       <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" @toggle="onToolRunToggle(message, item.run!, $event)" />
       <div v-else-if="item.seg.kind === 'content'" class="message-content">
-        <!-- Parsing the whole growing response on every stream chunk can saturate the
-             renderer for very long replies. Render once when the turn settles. -->
-        <div v-if="message.streaming" class="markdown-block markdown-streaming">{{ item.seg.kind === 'content' ? item.seg.text : '' }}</div>
-        <AiWorkspaceResponse v-else-if="message.role === 'assistant' && (workspaceTargets?.length || 0) > 1" :text="item.seg.text" :targets="workspaceTargets!" />
-        <template v-else v-for="(block, index) in parseSegmentMarkdown(message, segIndex, item.seg.kind === 'content' ? item.seg.text : '')" :key="index">
-          <div v-if="block.type === 'code'" class="code-block">
-            <div class="code-block-header">
-              <span class="code-language">{{ block.language || 'text' }}</span>
-              <div class="code-actions">
-                <button v-if="terminalActions !== false" type="button" class="code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
-                <button v-if="terminalActions !== false" type="button" class="code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
-                <button
-                  type="button"
-                  class="copy-btn"
-                  :title="copiedKey === `${message.id}-seg${segIndex}-code-${index}` ? t('common.copied') : t('ai.copyCode')"
-                  @click="copyText(block.content, `${message.id}-seg${segIndex}-code-${index}`)"
-                >
-                  <AppIcon v-if="copiedKey === `${message.id}-seg${segIndex}-code-${index}`" name="check" size="sm" />
-                  <AppIcon v-else name="copy" size="sm" />
-                </button>
-              </div>
-            </div>
-            <pre class="markdown-code"><code>{{ block.content }}</code></pre>
-          </div>
-          <div v-else class="markdown-block" v-html="block.content"></div>
-        </template>
+        <AiWorkspaceResponse v-if="!isLiveContentSegment(message, segIndex) && message.role === 'assistant' && (workspaceTargets?.length || 0) > 1" :text="item.seg.text" :targets="workspaceTargets!" />
+        <AiStreamingMarkdown
+          v-else :content="item.seg.text" :streaming="isLiveContentSegment(message, segIndex)"
+          :terminal-actions="terminalActions"
+          @fill-code="emit('fill-code', $event)" @run-code="emit('run-code', $event)"
+          @layout="handleViewportInsetChange"
+        />
       </div>
       </template>
       <div

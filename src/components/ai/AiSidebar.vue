@@ -577,6 +577,7 @@ async function runCodeToTerminal(code: string) {
     <AiBackgroundTasks v-show="!showSettings && !showHistory" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
+        :conversation-key="reminderKey"
         :terminal-actions="!workspace"
         :workspace-host-count="workspaceTargets?.length"
         :workspace-targets="workspaceTargets"

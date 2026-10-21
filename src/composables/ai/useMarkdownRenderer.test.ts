@@ -3,6 +3,60 @@ import { useMarkdownRenderer } from './useMarkdownRenderer'
 
 const { parseMarkdown } = useMarkdownRenderer()
 
+describe('incremental Markdown', () => {
+  const samples = [
+    '标题\n\n```bash\necho hi\n```\n\n后面的说明。',
+    '3. first\n\n4. second\n\n   - nested\n\n   explanation\n\nConclusion\n\n1. new list',
+    '| 服务 | 状态 |\n| --- | --- |\n| app | **正常** |\n| db | 正常 |\n\n结束。',
+    '# header | value\n---|---\n1|2\n\nnext',
+    '> one\n> **two**\n\nparagraph\nnext\n\n~~~sh\na\n\n~~~\n# end',
+    '```markdown\n建议的下一步\n\n```bash\nls /tmp\n```\n\n后面的说明\n```',
+    '前文。\n\n建议的下一步\n\n\n``` sh\necho hi\n````\n\n尾部。',
+    '# heading\r\n\r\nfirst\r\n\r\n1. item\r\n\r\n2. next\r\n\r\nlast',
+    '<script>bad</script>\n\n[链接](https://example.com)\n\n`code` **bold** _italic_',
+  ]
+
+  it.each(samples)('matches full parsing at every character boundary: %s', source => {
+    const render = useMarkdownRenderer().createStreamRenderer()
+    for (let end = 0; end <= source.length; end++) {
+      const prefix = source.slice(0, end)
+      expect(render(prefix), `prefix ${JSON.stringify(prefix)}`).toEqual(parseMarkdown(prefix))
+    }
+  })
+
+  it('reuses completed blocks while a later paragraph grows', () => {
+    const render = useMarkdownRenderer().createStreamRenderer()
+    const first = render('# 标题\n\n已完成。\n\n正在\n')
+    const second = render('# 标题\n\n已完成。\n\n正在\n输出 **正文**')
+    expect(second[0]).toBe(first[0])
+    expect(second[1]).toBe(first[1])
+    expect(second.at(-1)?.content).toContain('<strong>正文</strong>')
+    expect(render('# 标题\n\n已完成。\n\n正在\n输出 **正文**')).toBe(second)
+  })
+
+  it('resets cached blocks when history is replaced or truncated', () => {
+    const render = useMarkdownRenderer().createStreamRenderer()
+    render('# old\n\nold paragraph\n\nlast\n')
+    for (const text of ['# new\n\nnew paragraph\n', '# new', '', 'fresh']) {
+      expect(render(text)).toEqual(parseMarkdown(text))
+    }
+  })
+
+  it('preserves parser semantics across mixed blocks and arbitrary chunk sizes', () => {
+    const lines = ['# title', 'text', '', '```sh', '```', '~~~', '~~~md', '1. item', '   - detail', '   continuation', '> quote', '| a | b |', '| --- | --- |', '---', '**bold**', 'caption']
+    let seed = 42
+    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed }
+    for (let sample = 0; sample < 30; sample++) {
+      const source = Array.from({ length: 20 }, () => lines[random() % lines.length]).join('\n') + '\n'
+      const render = useMarkdownRenderer().createStreamRenderer()
+      for (let end = 1; end < source.length; end += 1 + random() % 19) {
+        expect(render(source.slice(0, end)), JSON.stringify(source.slice(0, end))).toEqual(parseMarkdown(source.slice(0, end)))
+      }
+      expect(render(source)).toEqual(parseMarkdown(source))
+    }
+  })
+})
+
 const USER_SAMPLE = `活动。
 13:10:57 那次的报错日志，是某个脚本/人又启动了一个 ES，第二个实例抢不到锁（ES 默认 node.max_local_storage_nodes=1）后自行退出了。curl 返回 401 也是因为 ES 开了安全认证，反而证明服务是活的。
 要不要处理

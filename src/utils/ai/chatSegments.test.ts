@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { appendTextSegment, ensureToolSegments } from './chatSegments'
+import { appendTextSegment, ensureToolSegments, isLiveContentSegment } from './chatSegments'
+
+it('seals the preface at a question and keeps it sealed when the answer resumes', () => {
+  const message = { streaming: true, segments: appendTextSegment([], 'content', '**检查范围**') }
+  expect(isLiveContentSegment(message, 0)).toBe(true)
+  ensureToolSegments(message.segments, [{ id: 'question-1' }])
+  expect(isLiveContentSegment(message, 0)).toBe(false)
+  appendTextSegment(message.segments, 'content', '继续检查。')
+  expect(isLiveContentSegment(message, 0)).toBe(false)
+  expect(isLiveContentSegment(message, 2)).toBe(true)
+  message.streaming = false
+  expect(isLiveContentSegment(message, 2)).toBe(false)
+})
+
+it.each(['ask', 'question', 'running'])('seals legacy content while a tool is %s', status => {
+  expect(isLiveContentSegment({ streaming: true, toolRuns: [{ status }] }, 0)).toBe(false)
+  expect(isLiveContentSegment({ streaming: true, toolRuns: [{ status: 'done' }] }, 0)).toBe(true)
+})
 
 describe('appendTextSegment', () => {
   it('starts a new block when the tail is a different kind', () => {

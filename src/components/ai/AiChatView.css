@@ -21,6 +21,8 @@
   padding-left: 26px;
 }
 
+.chat-load-earlier { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 8px; flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-caption); }
+
 .empty-state {
   margin: auto 0;
   padding: 28px 12px;

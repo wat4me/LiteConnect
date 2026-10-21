@@ -1,0 +1,61 @@
+const { app, BrowserWindow } = require('electron')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-markdown-ui-'))
+app.setPath('userData', path.join(artifacts, 'profile'))
+const timeout = setTimeout(() => { console.error('Markdown UI timed out', { artifacts }); app.exit(1) }, 60_000)
+app.whenReady().then(async () => {
+  const window = new BrowserWindow({ show: false, width: 1100, height: 900, webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
+  const run = script => window.webContents.executeJavaScript(script)
+  const wait = async expression => {
+    const start = Date.now()
+    while (!await run(expression)) {
+      if (Date.now() - start > 10_000) {
+        console.error(await run(`({error:window.__uiError,html:document.querySelector('.ai-fixture')?.innerHTML})`))
+        throw new Error(`Timeout: ${expression}`)
+      }
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+  }
+  const source = '# 检查结果\n\n服务 **正常**。\n\n| 服务 | 状态 |\n| --- | --- |\n| app | 正常 |\n\n```bash\necho par'
+  const set = (content, boundary = false, resumed) => run(`window.__uiRegression.aiMarkdown(${JSON.stringify(content)},${boundary},${JSON.stringify(resumed)})`)
+  const screenshot = async name => {
+    await run(`document.querySelector('.ai-fixture').scrollIntoView({block:'center'})`)
+    await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    const rect = await run(`(() => {const r=document.querySelector('.ai-fixture').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.floor(r.width),height:Math.floor(r.height)}})()`)
+    fs.writeFileSync(path.join(artifacts, name), (await window.webContents.capturePage(rect)).toPNG())
+  }
+  await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+  await wait('!!window.__uiRegression')
+  await set(source)
+  await wait(`document.querySelector('.ai-fixture h1')?.textContent==='检查结果' && !!document.querySelector('.ai-fixture table')`)
+  assert.equal(await run(`document.querySelector('.ai-fixture strong').textContent`), '正常')
+  assert.equal(await run(`document.querySelectorAll('.ai-fixture .code-action-btn').length`), 0, 'A growing code block has no fill/run actions')
+  await run(`window.__markdownHeading=document.querySelector('.ai-fixture h1'); window.__markdownTable=document.querySelector('.ai-fixture table')`)
+  await set(source + 'tial')
+  await wait(`document.querySelector('.ai-fixture .markdown-code')?.textContent==='echo partial'`)
+  assert.ok(await run(`window.__markdownHeading===document.querySelector('.ai-fixture h1') && window.__markdownTable===document.querySelector('.ai-fixture table')`), 'Stable heading and table retain their DOM nodes')
+  const complete = source + 'tial\n```\n'
+  await set(complete, true)
+  await wait(`!!document.querySelector('.ai-fixture .tool-run') && document.querySelectorAll('.ai-fixture .code-action-btn').length===2`)
+  assert.ok(await run(`document.querySelector('.ai-fixture .chat-row').classList.contains('streaming')`), 'The request stays running while the preface is formatted')
+  await screenshot('markdown-question.png')
+  await set(complete, true, '## 继续检查\n\n正在读取 **日志**。')
+  await wait(`document.querySelector('.ai-fixture h2')?.textContent==='继续检查'`)
+  assert.equal(await run(`document.querySelectorAll('.ai-fixture .code-action-btn').length`), 2, 'The preface stays sealed when a new content segment starts')
+  await screenshot('markdown-resumed.png')
+  await set('## 已停止\n\n**最后一个片段**')
+  await run('window.__uiRegression.finishAi()')
+  await wait(`document.querySelector('.ai-fixture strong')?.textContent==='最后一个片段'`)
+  assert.equal(await run(`document.querySelectorAll('.ai-fixture .chat-row.streaming').length`), 0)
+  await run('window.__uiRegression.longAiReply()')
+  await wait(`(() => {const el=document.querySelector('.ai-fixture .chat-list');return el.scrollHeight-el.scrollTop-el.clientHeight<3})()`)
+  await run(`window.__uiRegression.aiMarkdown('## 长回复\\n\\n'+'流式日志输出。\\n'.repeat(120))`)
+  await wait(`(() => {const el=document.querySelector('.ai-fixture .chat-list');return el.textContent.includes('长回复') && el.scrollHeight-el.scrollTop-el.clientHeight<3})()`)
+  assert.equal(await run('window.__uiError || null'), null)
+  clearTimeout(timeout)
+  console.log('Markdown UI regression passed', { artifacts })
+  app.exit(0)
+}).catch(error => { console.error(error, { artifacts }); clearTimeout(timeout); app.exit(1) })

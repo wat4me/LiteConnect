@@ -1,5 +1,19 @@
 import type { AiChatSegment } from '../../env.d'
 
+/** A tool/question boundary seals the preceding content without ending the request. */
+export function isLiveContentSegment(message: {
+  streaming?: boolean
+  segments?: AiChatSegment[]
+  toolRuns?: Array<{ status?: string }>
+}, index: number): boolean {
+  if (!message.streaming) return false
+  if (message.segments?.length) {
+    return index === message.segments.length - 1 && message.segments[index].kind === 'content'
+  }
+  // Legacy/projected messages can have content but no recorded timeline.
+  return !message.toolRuns?.some(run => run.status === 'ask' || run.status === 'question' || run.status === 'running')
+}
+
 /** Append a streamed reasoning/content delta to the display timeline. */
 export function appendTextSegment(
   segments: AiChatSegment[] | undefined,

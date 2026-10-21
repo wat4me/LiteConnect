@@ -1,12 +1,14 @@
 import { computed, nextTick, onActivated, onDeactivated, onScopeDispose, ref, watch } from 'vue'
 import type { ChatItem } from '@/domain/ai/chat'
 import { activeTimelineTurnId, collectChatTimelineTurns, overviewChatTimelineTurns } from '@/utils/ai/chatTimeline'
+import { chatTurnStarts, CHAT_TURNS_PER_PAGE } from '@/utils/ai/chatMessageWindow'
 
 /** Owns viewport position and timeline navigation, independently of message rendering. */
 export function useAiChatViewport(deps: {
   messages: () => ChatItem[]
   loading: () => boolean | undefined
   layoutSignature: () => string
+  conversationKey?: () => string | undefined
 }) {
   /**
    * KeepAlive detaches/re-attaches this panel when switching SSH sessions.
@@ -31,6 +33,72 @@ export function useAiChatViewport(deps: {
   let isProgrammaticScroll = false
   let scrollRaf = 0
   const NEAR_BOTTOM_PX = 48
+
+  const turns = computed(() => chatTurnStarts(deps.messages()))
+  const firstVisibleId = ref<string | null>(null)
+  const endVisibleId = ref<string | null>(null)
+  const loadingEarlier = ref(false)
+  let windowGeneration = 0
+  const windowStart = computed(() => {
+    const anchored = firstVisibleId.value === null ? -1 : turns.value.findIndex(turn => turn.id === firstVisibleId.value)
+    return anchored >= 0 ? anchored : Math.max(0, turns.value.length - CHAT_TURNS_PER_PAGE)
+  })
+  const windowEnd = computed(() => {
+    const anchored = endVisibleId.value === null ? -1 : turns.value.findIndex(turn => turn.id === endVisibleId.value)
+    return anchored > windowStart.value ? anchored : turns.value.length
+  })
+  const visibleMessages = computed(() => deps.messages().slice(
+    turns.value[windowStart.value]?.index || 0,
+    turns.value[windowEnd.value]?.index ?? deps.messages().length,
+  ))
+  const hiddenTurnCount = computed(() => windowStart.value)
+  const hasEarlierMessages = computed(() => hiddenTurnCount.value > 0)
+  const hasNewerMessages = computed(() => windowEnd.value < turns.value.length)
+  watch(followLatest, latest => {
+    if (latest) {
+      firstVisibleId.value = null
+      endVisibleId.value = null
+    } else if (firstVisibleId.value === null) {
+      firstVisibleId.value = turns.value[windowStart.value]?.id || null
+    }
+  }, { flush: 'sync' })
+  // Thread switches reuse the same messages array; do not key pagination by its identity.
+  watch([() => deps.conversationKey?.() ?? deps.messages()[0]?.id, () => deps.messages().length === 0], () => {
+    windowGeneration++
+    loadingEarlier.value = false
+    firstVisibleId.value = null
+    endVisibleId.value = null
+    followLatest.value = true
+    savedScrollTop = 0
+    cancelFrames()
+  }, { flush: 'sync' })
+
+  async function loadEarlierMessages() {
+    const el = listRef.value
+    if (!el || loadingEarlier.value || !hasEarlierMessages.value) return
+    const generation = windowGeneration
+    const anchor = el.querySelector<HTMLElement>('[data-message-id]')
+    const anchorTop = anchor?.getBoundingClientRect().top
+    const oldHeight = el.scrollHeight
+    const oldTop = el.scrollTop
+    loadingEarlier.value = true
+    followLatest.value = false
+    cancelFrames()
+    isProgrammaticScroll = true
+    firstVisibleId.value = turns.value[Math.max(0, windowStart.value - CHAT_TURNS_PER_PAGE)].id
+    await nextTick()
+    if (disposed || generation !== windowGeneration || listRef.value !== el) return
+    // Account for browser scroll anchoring as well as the inserted rows/button.
+    if (anchor && anchorTop !== undefined && el.contains(anchor)) {
+      el.scrollTop += anchor.getBoundingClientRect().top - anchorTop
+    } else {
+      el.scrollTop = oldTop + el.scrollHeight - oldHeight
+    }
+    captureScroll()
+    updateActiveTurn()
+    loadingEarlier.value = false
+    scheduleFrame(() => { isProgrammaticScroll = false })
+  }
 
   const timelineTurns = computed(() => collectChatTimelineTurns(deps.messages()))
   const showTimeline = computed(() => timelineTurns.value.length > 0 && deps.messages().length > 1)
@@ -121,19 +189,29 @@ export function useAiChatViewport(deps: {
       return
     }
     const rows = new Map(Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).map(row => [row.dataset.messageId, row]))
-    const measured = turns.map((turn) => {
+    const measured = turns.flatMap((turn) => {
       const row = rows.get(turn.id)
-      return { id: turn.id, top: row ? row.offsetTop : 0 }
+      return row ? [{ id: turn.id, top: row.offsetTop }] : []
     })
     activeTurnId.value = activeTimelineTurnId(measured, el.scrollTop)
   }
 
-  function jumpToTurn(id: string) {
+  async function jumpToTurn(id: string) {
     const el = listRef.value
     if (!el) return
+    const index = turns.value.findIndex(turn => turn.id === id)
+    if (index < 0) return
+    const generation = windowGeneration
+    followLatest.value = false
+    cancelFrames()
+    if (index < windowStart.value || index >= windowEnd.value) {
+      firstVisibleId.value = turns.value[index].id
+      endVisibleId.value = turns.value[index + CHAT_TURNS_PER_PAGE]?.id || null
+    }
+    await nextTick()
+    if (disposed || generation !== windowGeneration || listRef.value !== el) return
     const row = el.querySelector(`[data-message-id="${CSS.escape(id)}"]`) as HTMLElement | null
     if (!row) return
-    followLatest.value = false
     activeTurnId.value = id
     isProgrammaticScroll = true
     const top = Math.max(0, row.offsetTop - 8)
@@ -160,7 +238,7 @@ export function useAiChatViewport(deps: {
     // Manual scroll away from tail pauses follow; return to bottom re-enables.
     if (followLatest.value && !isNearBottom(el)) {
       followLatest.value = false
-    } else if (!followLatest.value && isNearBottom(el)) {
+    } else if (!followLatest.value && !hasNewerMessages.value && isNearBottom(el)) {
       followLatest.value = true
     }
     updateActiveTurn()
@@ -175,7 +253,7 @@ export function useAiChatViewport(deps: {
 
   /** Cheap signature so streaming token updates trigger follow-scroll. */
   const messagesSignature = computed(() =>
-    deps.messages()
+    visibleMessages.value
       .map(
         (m) =>
           `${m.id}:${m.content.length}:${(m.reasoningContent || '').length}:${m.streaming ? 1 : 0}:${(m.segments || [])
@@ -230,8 +308,9 @@ export function useAiChatViewport(deps: {
     if (jumpScrollTimer) clearTimeout(jumpScrollTimer)
     jumpScrollTimer = null
   }
-  onScopeDispose(() => { disposed = true; cancelFrames() })
-  return { listRef, followLatest, timelineRef, showTimeline, activeTurnId,
+  onScopeDispose(() => { disposed = true; windowGeneration++; cancelFrames() })
+  return { listRef, followLatest, visibleMessages, hiddenTurnCount, hasEarlierMessages, loadingEarlier, loadEarlierMessages,
+    timelineRef, showTimeline, activeTurnId,
     timelineExpanded, visibleTimelineTurns, setTimelineHovered, onTimelineFocus,
     onTimelineBlur, jumpToTurn, onListScroll, toggleFollowLatest, handleViewportInsetChange }
 }

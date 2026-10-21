@@ -382,11 +382,11 @@
   flex-shrink: 0;
   border: none;
   outline: none;
-  padding: 0;
+  padding: var(--ai-composer-input-padding, 0);
   background: transparent;
   color: var(--text-primary);
   font-size: var(--font-ui);
-  line-height: 1.5;
+  line-height: var(--ai-composer-input-line-height, 1.5);
   font-family: inherit;
 }
 
@@ -420,10 +420,11 @@
 .composer {
   flex-shrink: 0;
   margin: 0;
-  padding: 10px 12px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  background: var(--bg-secondary);
+  padding: var(--ai-composer-padding, 8px 10px);
+  border: 1px solid var(--ai-composer-border, var(--border-color));
+  border-radius: var(--ai-composer-radius, 14px);
+  background: var(--ai-composer-background, var(--bg-secondary));
+  box-shadow: var(--ai-composer-shadow, none);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -435,7 +436,8 @@
 }
 
 .composer:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-color));
+  border-color: var(--ai-composer-focus-border, color-mix(in srgb, var(--accent) 50%, var(--border-color)));
+  box-shadow: var(--ai-composer-focus-shadow, none);
 }
 
 .composer-actions {
@@ -578,10 +580,10 @@
   container-name: ai-composer;
 }
 .composer-area.has-question { display: flex; flex-direction: column; max-height: var(--ai-question-max-height, calc(100% - 80px)); }
-.composer-area.has-question :deep(.ai-question-card) { margin: 0; }
+.composer-area.has-question :deep(.ai-question-card) { width: 100%; max-width: none; align-self: stretch; margin: 0; }
 .composer-permission:hover { color: var(--text-primary); }
 .send-btn, .stop-btn { flex-shrink: 0; }
-.composer { padding: 10px; gap: var(--space-2); }
+.composer { gap: var(--space-2); }
 .composer-actions-right { width: 100%; gap: 6px; min-width: 0; }
 .composer-permission-selector { display: flex; height: 34px; align-items: center; margin-left: auto; flex-shrink: 0; }
 .model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: 34px; align-items: center; gap: var(--space-1); }
@@ -605,7 +607,7 @@
 }
 
 /* Compact defaults; the textarea still grows to its measured content height. */
-.composer { padding: 8px 10px; gap: 5px; }
+.composer { gap: 5px; }
 .composer-add-image { width: 26px; height: 26px; min-height: 26px; }
 .ai-header { padding-top: 6px; padding-bottom: 6px; }
 
@@ -688,14 +690,18 @@
   left: max(18px, calc((100% - 1060px) / 2));
   right: max(18px, calc((100% - 1060px) / 2));
   bottom: 16px;
+  --ai-composer-padding: 10px 12px 8px;
+  --ai-composer-border: var(--workspace-line);
+  --ai-composer-radius: 16px;
+  --ai-composer-background: color-mix(in srgb, var(--bg-secondary) 50%, var(--bg-primary));
+  --ai-composer-shadow: 0 4px 18px color-mix(in srgb, var(--overlay-bg) 10%, transparent), var(--workspace-shadow);
+  --ai-composer-focus-border: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+  --ai-composer-focus-shadow: 0 0 0 3px var(--accent-bg), var(--workspace-shadow);
+  --ai-composer-input-padding: 2px;
+  --ai-composer-input-line-height: 1.6;
 }
 .is-workspace .composer {
-  padding: 10px 12px 8px;
   gap: 7px;
-  border-color: var(--workspace-line);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--bg-secondary) 50%, var(--bg-primary));
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--overlay-bg) 10%, transparent), var(--workspace-shadow);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .is-workspace .composer:focus-within {
@@ -703,9 +709,7 @@
   box-shadow: 0 0 0 3px var(--accent-bg), var(--workspace-shadow);
 }
 .is-workspace .composer-input {
-  padding: 2px;
   font-size: var(--font-ui);
-  line-height: 1.6;
 }
 .is-workspace .composer-context-menu summary,
 .is-workspace .composer-add-image {
