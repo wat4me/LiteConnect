@@ -135,4 +135,51 @@ describe('useSharedMonitor', () => {
     expect(callbacks.get('conn-2')).toBeTypeOf('function')
     mounted.app.unmount()
   })
+
+  it('does not attach a late subscription after the panel closes during startup', async () => {
+    let finish!: () => void
+    monitorStart.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const mounted = await mountMonitor(ref('conn-1'), ref('session-1'))
+    mounted.app.unmount()
+    finish()
+    await settle()
+
+    expect(callbacks.has('conn-1')).toBe(false)
+    expect(monitorStop).toHaveBeenCalledWith('conn-1')
+  })
+
+  it('keeps the new host snapshot when a previous host finishes startup late', async () => {
+    let finish!: () => void
+    monitorStart.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const connectionId = ref('conn-1')
+    const sessionId = ref('session-1')
+    const mounted = await mountMonitor(connectionId, sessionId)
+    connectionId.value = 'conn-2'
+    sessionId.value = 'session-2'
+    await settle()
+    callbacks.get('conn-2')?.({ hostname: 'second' } as MonitorData)
+    await settle()
+    finish()
+    await settle()
+
+    expect(callbacks.has('conn-1')).toBe(false)
+    expect(mounted.api.data.value?.hostname).toBe('second')
+    mounted.app.unmount()
+  })
+
+  it('releases monitoring and clears the snapshot when the session disconnects', async () => {
+    const sessionId = ref('session-1')
+    const mounted = await mountMonitor(ref('conn-1'), sessionId)
+    await settle()
+    callbacks.get('conn-1')?.({ hostname: 'first' } as MonitorData)
+    await settle()
+    sessionId.value = ''
+    await settle()
+
+    expect(mounted.api.data.value).toBeNull()
+    expect(monitorStop).toHaveBeenCalledWith('conn-1')
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    mounted.app.unmount()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
 })

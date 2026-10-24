@@ -38,10 +38,16 @@ async function startEntry(connectionId: string, sessionId: string) {
   if (entry.startPromise) {
     await entry.startPromise
   }
+  if (entries.get(connectionId) !== entry || entry.refCount === 0) return
   if (entry.started && entry.unsub && !entry.error.value) {
     if (entry.execSessionId !== sessionId) {
       entry.execSessionId = sessionId
-      await window.LiteConnect.monitorStart(connectionId, sessionId)
+      try {
+        await window.LiteConnect.monitorStart(connectionId, sessionId)
+      } catch (err: any) {
+        entry.error.value = err?.message || t('monitor.startFailed')
+        entry.started = false
+      }
     }
     return
   }
@@ -53,6 +59,8 @@ async function startEntry(connectionId: string, sessionId: string) {
     entry.starting.value = true
     try {
       await window.LiteConnect.monitorStart(connectionId, sessionId)
+      // A panel can close or switch hosts while native startup is pending.
+      if (entries.get(connectionId) !== entry || entry.refCount === 0) return
       entry.unsub = window.LiteConnect.onMonitorData(connectionId, (d: MonitorData) => {
         entry.data.value = d
         entry.error.value = ''
@@ -93,6 +101,7 @@ function stopEntry(connectionId: string, clearData = true) {
  */
 export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<string>) {
   let boundConnection: string | null = null
+  let bindVersion = 0
 
   const data = ref<MonitorData | null>(null)
   const error = ref('')
@@ -124,19 +133,9 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
     }
   }
 
-  async function bind(nextConnectionId: string, nextSessionId: string) {
-    if (!nextConnectionId || !nextSessionId) return
-    if (boundConnection === nextConnectionId) {
-      attachEntry(nextConnectionId)
-      const entry = getEntry(nextConnectionId)
-      if (entry.execSessionId !== nextSessionId || !entry.started) {
-        await startEntry(nextConnectionId, nextSessionId)
-        data.value = entry.data.value
-        error.value = entry.error.value
-        starting.value = entry.starting.value
-      }
-      return
-    }
+  function releaseEntry() {
+    stopWatchEntry?.()
+    stopWatchEntry = null
     if (boundConnection) {
       const prev = getEntry(boundConnection)
       prev.refCount = Math.max(0, prev.refCount - 1)
@@ -144,12 +143,38 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
         stopEntry(boundConnection)
         entries.delete(boundConnection)
       }
+      boundConnection = null
     }
+  }
+
+  async function bind(nextConnectionId: string, nextSessionId: string) {
+    const version = ++bindVersion
+    if (!nextConnectionId || !nextSessionId) {
+      releaseEntry()
+      data.value = null
+      error.value = ''
+      starting.value = false
+      return
+    }
+    if (boundConnection === nextConnectionId) {
+      attachEntry(nextConnectionId)
+      const entry = getEntry(nextConnectionId)
+      if (entry.execSessionId !== nextSessionId || !entry.started) {
+        await startEntry(nextConnectionId, nextSessionId)
+        if (version !== bindVersion) return
+        data.value = entry.data.value
+        error.value = entry.error.value
+        starting.value = entry.starting.value
+      }
+      return
+    }
+    releaseEntry()
     const entry = getEntry(nextConnectionId)
     entry.refCount += 1
     boundConnection = nextConnectionId
     attachEntry(nextConnectionId)
     await startEntry(nextConnectionId, nextSessionId)
+    if (version !== bindVersion) return
     data.value = entry.data.value
     error.value = entry.error.value
     starting.value = entry.starting.value
@@ -175,17 +200,8 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
   )
 
   onBeforeUnmount(() => {
-    stopWatchEntry?.()
-    stopWatchEntry = null
-    if (boundConnection) {
-      const prev = getEntry(boundConnection)
-      prev.refCount = Math.max(0, prev.refCount - 1)
-      if (prev.refCount === 0) {
-        stopEntry(boundConnection)
-        entries.delete(boundConnection)
-      }
-      boundConnection = null
-    }
+    bindVersion++
+    releaseEntry()
   })
 
   return { data, error, starting, retry }
