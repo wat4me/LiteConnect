@@ -9,8 +9,8 @@ import { splitToolReason } from '@/utils/ai/toolReason'
 import { toolRunPresentation, toolStateKeys } from '@/utils/ai/toolRunPresentation'
 import AppIcon from '../icons/AppIcon.vue'
 
-const props = withDefaults(defineProps<{ run: AiToolRun; streaming?: boolean; open?: boolean }>(), { open: undefined })
-const emit = defineEmits<{ (event: 'toggle', open: boolean): void }>()
+const props = withDefaults(defineProps<{ run: AiToolRun; streaming?: boolean; open?: boolean; executionHistoryAvailable?: boolean }>(), { open: undefined })
+const emit = defineEmits<{ (event: 'toggle', open: boolean): void; (event: 'view-execution'): void }>()
 const { t } = useI18n()
 const toolNameLabel = useAiToolNameLabel()
 const localOpen = ref(false)
@@ -63,6 +63,7 @@ function onToggle(event: Event) {
           </span>
         </summary>
         <template v-if="isOpen">
+        <div v-if="executionHistoryAvailable && run.name === 'exec'" class="tool-run-section"><button type="button" class="ui-btn ui-btn-xs tool-run-view-execution" @click="emit('view-execution')"><AppIcon name="terminal" size="xs" />{{ t('ai.execution.view') }}</button></div>
         <div v-if="explanation" class="tool-run-section tool-run-explanation-section">
           <div class="tool-run-section-label">{{ t('ai.toolExplanationLabel') }}</div>
           <div class="tool-run-explanation">{{ explanation }}</div>
@@ -85,6 +86,7 @@ function onToggle(event: Event) {
 
 <style scoped>
 .tool-run-target { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; }
+.tool-run-view-execution { display: inline-flex; align-items: center; gap: 5px; }
 .tool-run {
   padding: 1px 0;
   border: none;

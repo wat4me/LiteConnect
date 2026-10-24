@@ -1,5 +1,17 @@
 export default {
   ai: {
+    execution: {
+      title: '命令执行记录', close: '关闭命令执行记录', view: '查看执行记录',
+      hint: '查看当前对话中的命令和已保存的输出。',
+      commands: '命令列表', search: '搜索命令或服务器', noMatches: '没有匹配的命令。',
+      empty: '当前对话还没有命令记录。AI 调用 exec 后会出现在这里。',
+      selectCommand: '选择一条命令查看输出', output: '命令输出', currentServer: '当前会话服务器',
+      commandUnavailable: '未保存命令内容', commandTruncated: '命令参数记录已截断，以下内容可能不完整。',
+      notExecuted: '这条命令尚未获准执行。', outputPending: '命令执行中，等待结果…',
+      backgroundPending: '后台命令已启动，等待完成结果。', outputUnavailable: '没有可用的已保存输出。',
+      savedOutputHint: '此处展示已收到的执行结果，尚不提供终端实时输出。',
+      signal: '结束信号：{signal}', exitCode: '退出码：{code}',
+    },
     question: {
       title: 'AI 需要你补充信息', hint: '回答后 AI 会继续处理；你也可以直接填写自己的答案。',
       multiple: '可多选', clearSelection: '清除选择', otherAnswer: '其他／自己填写', answerOrNote: '自己的回答或补充说明', yourAnswer: '你的回答', answerPlaceholder: '请输入你的回答…',

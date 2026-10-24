@@ -28,6 +28,7 @@ import AiComposerSelector from './AiComposerSelector.vue'
 import AiContextMeter from './AiContextMeter.vue'
 import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
+import AiExecutionHistory from './AiExecutionHistory.vue'
 import { formatTokenCount, modelContextSource } from '@shared/aiContext'
 import { aiToolSchemaTokens } from '@shared/aiContextPressure'
 import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '@shared/aiToolCatalog'
@@ -97,6 +98,13 @@ const {
 const contextFiles = computed(() => getSessionState(props.sessionId).contextFiles)
 const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)
 const reminderKey = computed(() => `${props.sessionId}:${getSessionState(props.sessionId).activeThreadId}`)
+const showExecutionHistory = ref(false)
+const executionRecordKey = ref('')
+function openExecutionHistory(key = '') {
+  executionRecordKey.value = key
+  showExecutionHistory.value = true
+}
+watch([reminderKey, () => props.active], () => { showExecutionHistory.value = false })
 const dismissedCompactionCounts = reactive<Record<string, number>>({})
 const showLongSessionReminder = computed(() => messages.value.length > 0 && compactionCount.value >= AI_COMPACTION_NEW_THREAD_AT && compactionCount.value > (dismissedCompactionCounts[reminderKey.value] || 0))
 function continueLongSession() { dismissedCompactionCounts[reminderKey.value] = compactionCount.value }
@@ -433,6 +441,7 @@ onActivated(() => {
 })
 
 onDeactivated(() => {
+  showExecutionHistory.value = false
   showModelSwitcher.value = false
   detachSidebarDomListeners()
 })
@@ -556,6 +565,7 @@ async function runCodeToTerminal(code: string) {
       </div>
       <div v-if="$slots['workspace-toolbar']" class="ai-header-context"><slot name="workspace-toolbar" /></div>
       <div class="ai-header-actions">
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-execution-history-trigger" :title="t('ai.execution.title')" :aria-label="t('ai.execution.title')" aria-haspopup="dialog" @click="openExecutionHistory()"><AppIcon name="terminal" size="sm" /></button>
         <button v-if="workspace" type="button" class="ui-btn ui-btn-xs workspace-clear-chat"
           :disabled="!messages.length || loading || clearingConversation || newConversationBusy || contextFileBusy || imageBusy || savingComposer || historyBusy || connectionBusy"
           :title="t('ai.clearConversationTitle')" :aria-label="t('ai.clearConversationTitle')" :aria-busy="clearingConversation"
@@ -584,10 +594,12 @@ async function runCodeToTerminal(code: string) {
       <slot name="header-trailing" />
     </div>
 
+    <AiExecutionHistory v-if="showExecutionHistory && active" :messages="messages" :initial-record-key="executionRecordKey" :fallback-target="workspaceTargets?.length === 1 ? workspaceTargets[0].name : undefined" @close="showExecutionHistory = false" />
     <AiBackgroundTasks v-show="!showSettings && !showHistory" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
     <AiFileTransfers v-show="!showSettings && !showHistory" :key="reminderKey" :session-id="sessionId" :thread-id="getSessionState(sessionId).activeThreadId" :targets="workspaceTargets" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
+        @view-execution="openExecutionHistory"
         :conversation-key="reminderKey"
         :terminal-actions="!workspace"
         :workspace-host-count="workspaceTargets?.length"
