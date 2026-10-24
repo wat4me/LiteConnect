@@ -10,6 +10,31 @@ export interface FileEntry {
 
 export type TransferConflictStrategy = 'overwrite' | 'skip' | 'rename'
 
+export interface UploadTransferOptions {
+  conflict?: TransferConflictStrategy | 'ask'
+  /** One drop / folder selection; remembered decisions never cross batches. */
+  batchId?: string
+  batchSize?: number
+  resume?: boolean
+  remoteFullPath?: string
+  concurrency?: number
+  failPolicy?: 'continue' | 'stop'
+}
+
+export interface UploadConflictRequest {
+  requestId: string
+  transferId: string
+  sessionId: string
+  localPath: string
+  remotePath: string
+  hostName?: string
+}
+
+export interface UploadConflictDecision {
+  action: TransferConflictStrategy | 'cancel'
+  applyToAll: boolean
+}
+
 export type SftpPathBookmarkScope = 'connection' | 'global'
 
 export interface SftpPathBookmark {
@@ -21,6 +46,14 @@ export interface SftpPathBookmark {
   connectionId?: string
   createdAt: number
   updatedAt: number
+}
+
+/** Present for tool transfers; ordinary file-panel transfers have no origin. */
+export interface TransferOrigin {
+  source: 'ai' | 'mcp'
+  conversationId?: string
+  threadId?: string
+  hostName?: string
 }
 
 export interface TransferItem {
@@ -44,6 +77,8 @@ export interface TransferItem {
   preparedDirs?: number
   totalDirs?: number
   batchId?: string
+  origin?: TransferOrigin
+  waitingForConflict?: boolean
 }
 
 export interface SftpEditorSnapshot { content: string; revision: string }

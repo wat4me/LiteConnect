@@ -1,6 +1,7 @@
 import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
 import { AI_CHAT_SERVER_TOOLS } from '../../../shared/aiToolCatalog'
 import type { SshMcpRuntime } from '../../mcp/runtime'
+import type { McpTransferOptions } from '../../mcp/ports'
 import { bindSessionArgs } from './sshToolChat'
 
 export function routeWorkspaceTool(name: string, raw: unknown, targets: AiWorkspaceTarget[], runtime: SshMcpRuntime) {
@@ -23,7 +24,7 @@ export function routeWorkspaceTool(name: string, raw: unknown, targets: AiWorksp
   return { args: bound, target, label: `${target.name} (${target.username}@${target.host}:${target.port})` }
 }
 
-export async function callWorkspaceTool(runtime: SshMcpRuntime, name: string, args: Record<string, unknown>, opts: { approvalMode: 'auto'; signal: AbortSignal }) {
+export async function callWorkspaceTool(runtime: SshMcpRuntime, name: string, args: Record<string, unknown>, opts: { approvalMode: 'auto'; signal: AbortSignal } & McpTransferOptions) {
   // Global MCP listing tools intentionally ignore sessionId; scope their projection here.
   if (name === 'list_jobs' || name === 'pty_list') {
     const field = name === 'list_jobs' ? 'jobs' : 'ptys'

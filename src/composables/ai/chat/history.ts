@@ -63,6 +63,10 @@ export function syncThreadSummaries(state: AiSessionState, store: AiSessionStore
 
   state.threads.splice(0, state.threads.length, ...summaries)
   state.activeThreadId = store.activeThreadId
+  const retainedThreads = new Set(summaries.map(thread => thread.id))
+  for (const [key, draft] of state.questionDrafts || []) {
+    if (!retainedThreads.has(draft.threadId)) state.questionDrafts!.delete(key)
+  }
 }
 
 /**

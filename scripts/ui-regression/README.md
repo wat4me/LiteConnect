@@ -23,6 +23,25 @@ eyecare themes, including the real terminal/LiteAI sidebar with its floating
 composer, visible answer/actions, stop control, and composer restoration. Answers are mocked;
 the suite never sends an answer to a real conversation or runs SSH commands.
 
+Run `npm run test:ui -- --ai-retention` for question drafts across component
+recreation and session switches, failed/successful answers, skip and offscreen
+completion cleanup. It also checks lazy multi-host Markdown mounting and code
+copying with 20 hosts, plus disclosure cleanup after removing message parts or
+switching threads. Unsubmitted answers stay in renderer memory only.
+
+Run `npm run test:ui -- --workspace-disconnect` for the visible per-server
+disconnect actions in card/list views across three themes and widths. It checks
+confirmation/cancellation, selection and double-click isolation, target-only
+disconnect, connected filters, and staying on the host browser.
+
+Run `npm run test:ui -- --workspace-pending` for shared pending-action badges,
+question/approval/mixed descriptions, exact conversation navigation and retained
+answer drafts, completion cleanup, and expanded/collapsed rail layouts.
+
+Run `npm run test:ui -- --ai-transfers` for shared SFTP download/upload progress,
+speed, server grouping, conversation/thread isolation, cancellation, opening a
+completed download folder, offscreen completion, and narrow/theme layouts.
+
 Run `npm run test:ui:docker` for the focused Docker checks. They cover toolbar
 alignment, list column alignment and overflow across three themes and widths,
 history reading without stopping reception, jumping to the latest logs, search
@@ -68,3 +87,8 @@ conversation, preserves host selection on return, and fits at 520–1050px.
 Background completion cards reuse tool-result rows, distinguish failed exit
 codes, timeouts and cancellation, and retain truncation notices. Collapsed and
 expanded layouts are checked at 300px/440px in light, dark and eyecare themes.
+
+The `--ai-transfers` suite also checks the global upload-conflict dialog at
+360px and 1080px in all three themes: long paths wrap, keep-both is selected
+initially, decisions include apply-to-all, and cancelling targets the current
+batch. Closing the file/AI panel does not hide the conflict dialog.

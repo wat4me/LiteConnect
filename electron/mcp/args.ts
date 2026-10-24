@@ -28,7 +28,10 @@ export function requireLocalPath(path: unknown): string {
     throw toolError('INVALID_PATH', 'localPath is required')
   }
   if (!isSafeLocalPath(path)) {
-    throw toolError('INVALID_PATH', 'localPath must be an absolute path without parent-directory segments')
+    const format = process.platform === 'win32'
+      ? 'a fully qualified Windows path with a drive letter (C:\\Users\\name\\Downloads\\file.log) or a complete UNC share path; /tmp, \\tmp and C:file are not valid local destinations'
+      : 'an absolute path for this local operating system'
+    throw toolError('INVALID_PATH', `localPath refers to the operator PC, not the SSH server, and must be ${format}, without parent-directory segments. For download_file, omit localPath to use the configured downloads directory.`)
   }
   return path
 }

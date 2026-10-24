@@ -35,7 +35,7 @@ function setup(workspaceTargets?: import('./executionService').AiExecutionPorts[
     workspaceTargets, workspaceOwned,
     settings: { ready: async () => { ready = true }, config: () => config, limits: () => ({}) },
     history: { read: async () => JSON.parse(JSON.stringify(store)), save, checkpoint: vi.fn(), hydrate: vi.fn() },
-    runtime: { hasSession, getJobResult: id => jobs.get(id), onJobSettled: callback => { settled = callback; return unsubscribe } } as unknown as SshMcpRuntime,
+    runtime: { hasSession, getJobResult: (id: string) => jobs.get(id), onJobSettled: (callback: (job: SshMcpJobResult) => void) => { settled = callback; return unsubscribe } } as unknown as SshMcpRuntime,
   })
   services.push(service)
   const request: AiExecutionRequest = {
@@ -45,6 +45,71 @@ function setup(workspaceTargets?: import('./executionService').AiExecutionPorts[
   return { service, request, store, config, save, jobs, hasSession, unsubscribe, settle: (job: SshMcpJobResult) => settled(job) }
 }
 
+it('drains an aborted stream through its final persisted record before reporting idle', async () => {
+  const { service, request, store, save } = setup()
+  let finishSave!: () => void
+  const finalSave = new Promise<void>(resolve => { finishSave = resolve })
+  const originalSave = save.getMockImplementation()!
+  save.mockImplementation(async (...args) => {
+    await originalSave(...args)
+    if (args[1].status === 'aborted') await finalSave
+  })
+  mocks.run.mockImplementationOnce(async opts => {
+    opts.emit({ type: 'content', value: 'partial reply' })
+    return new Promise((_resolve, reject) => opts.abortController.signal.addEventListener('abort', () => reject(opts.abortController.signal.reason), { once: true }))
+  })
+  const running = service.run(request)
+  await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledOnce())
+  service.dispose()
+  await expect(service.run({ ...request, requestId: 'late' })).rejects.toThrow('disposed')
+  let idle = false
+  const draining = service.waitForIdle().then(() => { idle = true })
+  await vi.waitFor(() => expect(store.threads[0].messages.at(-1)?.status).toBe('aborted'))
+  expect(idle).toBe(false)
+  finishSave()
+  expect(await running).toMatchObject({ aborted: true, content: 'partial reply' })
+  await draining
+  expect(idle).toBe(true)
+})
+
+it('seals persistence at the shutdown deadline even if a provider ignores cancellation', async () => {
+  const { service, request, save } = setup()
+  let finish!: () => void
+  mocks.run.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ content: 'late reply' }) }))
+  const running = service.run(request)
+  await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledOnce())
+  service.dispose()
+  service.sealPersistence()
+  const writes = save.mock.calls.length
+  finish()
+  await running
+  await service.waitForIdle()
+  expect(save).toHaveBeenCalledTimes(writes)
+})
+
+it('cancels and drains a running background continuation without starting another reply', async () => {
+  const { service, request, jobs, settle, store } = setup()
+  const job: SshMcpJobResult = { jobId: 'shutdown-job', sessionId: 'ssh-a', command: 'inspect', status: 'running', startedAt: 1 }
+  jobs.set(job.jobId, job)
+  mocks.run.mockImplementationOnce(async opts => {
+    opts.onBackgroundJobsStarted([job.jobId])
+    return { content: 'started' }
+  }).mockImplementationOnce(async opts => {
+    opts.emit({ type: 'content', value: 'background partial' })
+    return new Promise((_resolve, reject) => opts.abortController.signal.addEventListener('abort', () => reject(opts.abortController.signal.reason), { once: true }))
+  })
+  await service.run(request)
+  const completed = { ...job, status: 'completed' as const, stdout: 'done', exitCode: 0 }
+  jobs.set(job.jobId, completed)
+  settle(completed)
+  await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(2))
+  service.dispose()
+  settle(completed)
+  await service.waitForIdle()
+  expect(store.threads[0].messages.at(-1)).toMatchObject({ content: 'background partial', status: 'aborted' })
+  expect(mocks.run).toHaveBeenCalledTimes(2)
+})
+
 it('runs and persists with no UI observer and enforces unattended read-only permissions', async () => {
   const { service, request, store, config } = setup()
   mocks.run.mockImplementationOnce(async opts => {
@@ -52,6 +117,7 @@ it('runs and persists with no UI observer and enforces unattended read-only perm
     expect(opts.allowQuestions).toBe(false)
     expect(opts.settings.toolPermission).toBe('readonly')
     expect(opts.onToolApprovalRequested).toBeUndefined()
+    expect(opts.transferContext).toBeUndefined()
     config.toolPermission = 'auto'
     expect(opts.getToolPermission()).toBe('readonly')
     opts.emit({ type: 'content', value: 'Server is healthy.' })
@@ -60,6 +126,16 @@ it('runs and persists with no UI observer and enforces unattended read-only perm
   const reply = await service.run(request)
   expect(reply.content).toBe('Server is healthy.')
   expect(store.threads[0].messages.at(-1)).toMatchObject({ role: 'assistant', content: 'Server is healthy.', status: 'completed' })
+})
+
+it('binds transfer UI routing to the interactive owner and exact conversation thread', async () => {
+  const { service, request } = setup()
+  request.owner = { id: 5, kind: 'interactive' }
+  mocks.run.mockImplementationOnce(async opts => {
+    expect(opts.transferContext).toEqual({ ownerId: 5, conversationId: 'ssh-a', threadId: 'thread-a' })
+    return { content: 'done' }
+  })
+  await service.run(request)
 })
 
 it('manual compaction shares the execution lock and creates no chat record', async () => {

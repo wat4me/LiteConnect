@@ -68,6 +68,7 @@ export interface ActiveTransfer {
   keepPartial?: boolean
   /** Directory job: child transfer ids to cancel together */
   childIds?: Set<string>
+  abortPending?: () => void
 }
 
 /** On single-file failure during directory transfer */
@@ -87,6 +88,8 @@ export interface SftpTransferOptions {
 
 export interface DirTransferOptions {
   conflict?: TransferConflictStrategy
+  /** Called immediately before an existing file is written, never for a merged directory. */
+  onFileConflict?: (localPath: string, remotePath: string, signal: AbortSignal) => Promise<TransferConflictStrategy>
   /** Concurrent file transfers (default 3, clamp 1–8) */
   concurrency?: number
   /** continue = record failure and proceed; stop = abort remaining (default) */

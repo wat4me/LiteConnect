@@ -8,6 +8,7 @@ export class AiScheduler {
   private timer?: ReturnType<typeof setInterval>
   private deliveries = new Map<string, AbortController>()
   private disposed = false
+  private readonly tasks = new Set<Promise<unknown>>()
   private timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   constructor(private readonly ports: {
     read: () => AiScheduleSnapshot
@@ -76,6 +77,7 @@ export class AiScheduler {
     return structuredClone(plan)
   }
   remove(id: string) {
+    if (this.disposed) throw new Error('Scheduler is unavailable')
     if (this.active) throw new Error('请先中断正在执行的巡检。')
     const next = this.snapshot()
     next.plans = next.plans.filter(plan => plan.id !== id)
@@ -96,9 +98,15 @@ export class AiScheduler {
       try { this.persist() } catch (error) { this.ports.onError?.(error); return }
     }
     const due = this.state.plans.filter(plan => plan.enabled && plan.nextRunAt <= this.now()).sort((a, b) => a.nextRunAt - b.nextRunAt)[0]
-    if (due) void this.executeRun(due.id, true).catch(error => this.ports.onError?.(error))
+    if (due) void this.track(this.executeRun(due.id, true)).catch(error => this.ports.onError?.(error))
   }
-  runNow(id: string) { return this.executeRun(id, false) }
+  runNow(id: string) { return this.track(this.executeRun(id, false)) }
+  private track<T>(task: Promise<T>): Promise<T> {
+    this.tasks.add(task)
+    void task.then(() => this.tasks.delete(task), () => this.tasks.delete(task))
+    return task
+  }
+  async waitForIdle() { await Promise.allSettled([...this.tasks]) }
   private async executeRun(id: string, scheduled: boolean) {
     if (this.disposed) throw new Error('Scheduler is unavailable')
     if (this.active) throw new Error('已有巡检正在执行，请稍后重试。')
@@ -138,7 +146,7 @@ export class AiScheduler {
       if (!this.disposed) {
         if (run.status !== 'cancelled' && this.ports.notify) run.notification = { status: 'sending' }
         this.persist()
-        if (run.notification?.status === 'sending') void this.deliver(structuredClone(plan), structuredClone(run))
+        if (run.notification?.status === 'sending') void this.track(this.deliver(structuredClone(plan), structuredClone(run)))
         // Drain overdue plans immediately, independently of Webhook delivery.
         this.tick()
       }
@@ -163,12 +171,14 @@ export class AiScheduler {
     finally { this.deliveries.delete(run.id) }
   }
   stop(runId: string) {
+    if (this.disposed) return
     if (this.active?.run.id !== runId || this.active.run.status !== 'running') return
     this.active.run.status = 'cancelled'
     this.active.controller.abort()
     this.persist()
   }
   dispose() {
+    if (this.disposed) return
     if (this.timer) clearInterval(this.timer)
     this.disposed = true
     let changed = false

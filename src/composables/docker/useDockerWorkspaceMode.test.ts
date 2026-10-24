@@ -177,4 +177,60 @@ describe('useDockerWorkspaceMode', () => {
     expect(panels.sidebarVisible.value).toBe(true)
     expect(panels.batchPanelVisible.value).toBe(false)
   })
+
+  it('keeps SFTP hidden on B and C after A returns from Docker to its terminal', () => {
+    const { mode, activeSessionId, activeConnectionId, panels } = makeMode()
+    function select(connection: string) {
+      const previous = activeSessionId.value
+      activeConnectionId.value = connection
+      activeSessionId.value = `session-${connection}`
+      mode.applyModeForActiveSession(previous, activeSessionId.value)
+    }
+    for (const connection of ['A', 'B', 'C']) {
+      select(connection)
+      panels.sidebarVisible.value = true // SFTP opened when this SSH connected.
+      mode.enterDocker()
+    }
+
+    select('A')
+    mode.enterTerminal()
+    expect(panels.sidebarVisible.value).toBe(true)
+
+    for (const connection of ['B', 'C']) {
+      select(connection)
+      expect(mode.isDockerMode.value).toBe(true)
+      expect(panels.sidebarVisible.value).toBe(false)
+      expect(mode._getTab(connection).savedPanels?.sidebarVisible).toBe(true)
+    }
+    select('A')
+    expect(mode.isDockerMode.value).toBe(false)
+    expect(panels.sidebarVisible.value).toBe(true)
+    select('B')
+    mode.enterTerminal()
+    expect(panels.sidebarVisible.value).toBe(true)
+    select('C')
+    mode.closeDockerTab()
+    expect(panels.sidebarVisible.value).toBe(true)
+  })
+
+  it('hides every inherited terminal panel when returning to Docker without replacing its saved layout', () => {
+    const { mode, activeSessionId, activeConnectionId, panels } = makeMode({ panels: makePanels({ sidebarVisible: true, monitorVisible: true }) })
+    mode.enterDocker()
+    activeConnectionId.value = 'c2'
+    activeSessionId.value = 's2'
+    mode.applyModeForActiveSession('s1', 's2')
+    for (const panel of Object.values(panels)) panel.value = true
+
+    activeConnectionId.value = 'c1'
+    activeSessionId.value = 's1'
+    mode.applyModeForActiveSession('s2', 's1')
+    expect(Object.values(panels).every(panel => !panel.value)).toBe(true)
+    mode.enterTerminal()
+    expect(panels.sidebarVisible.value).toBe(true)
+    expect(panels.monitorVisible.value).toBe(true)
+    expect(panels.aiSidebarVisible.value).toBe(false)
+    expect(panels.batchPanelVisible.value).toBe(false)
+    expect(panels.snippetsPanelVisible.value).toBe(false)
+    expect(panels.snippetPaletteVisible.value).toBe(false)
+  })
 })

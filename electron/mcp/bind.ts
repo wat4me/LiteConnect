@@ -1,12 +1,13 @@
-import { randomUUID } from 'crypto'
 import type { MonitorCollector } from '../ssh/monitor/monitor'
 import type { SSHManager } from '../ssh/manager'
 import type { CredentialStore } from '../store/credentialStore'
 import { requestRendererConnect } from './connectBridge'
 import { createSshMcpRuntime, type SshMcpRuntime } from './runtime'
-import type { SshMcpApprovalFn, SshMcpSaveConnectionDraft } from './ports'
+import type { McpDownloadSettings, SshMcpApprovalFn, SshMcpSaveConnectionDraft } from './ports'
 import type { ApprovalMode } from '../../shared/mcp/types'
-import { broadcast, clearSessionOwner } from '../window/windowRegistry'
+import { broadcast, clearSessionOwner, getAllWindows, getSessionsOwnedBy } from '../window/windowRegistry'
+import { safeSend } from '../utils/validation'
+import { createMcpFileTransfers } from './fileTransfers'
 import { matchExistingSavedConnection } from './saveConnectionInput'
 
 function publicConnectionFields(c: { id: string; name: string; host: string; port: number; username: string; group?: string }) {
@@ -69,8 +70,20 @@ export function bindSshMcpRuntime(
     approvalMode?: ApprovalMode
     getApprovalMode?: () => ApprovalMode
     requestApproval?: SshMcpApprovalFn
+    getDownloadSettings?: () => McpDownloadSettings
   },
 ): SshMcpRuntime {
+  const fileTransfers = createMcpFileTransfers({
+    getConnectionName: id => sshManager.getSessionSnapshot(id)?.connectionName,
+    sftpDownload: (...args) => sshManager.sftpDownload(...args),
+    sftpUpload: (...args) => sshManager.sftpUpload(...args),
+    cancelTransfer: id => sshManager.cancelTransfer(id),
+  }, (sessionId, context) => {
+    const win = getAllWindows().find(window => context
+      ? window.webContents.id === context.ownerId
+      : getSessionsOwnedBy(window.webContents.id).includes(sessionId))
+    return (channel, ...args) => { if (win) safeSend(win, channel, ...args) }
+  }, extras?.getDownloadSettings)
   return createSshMcpRuntime({
     ssh: {
       listSessionSnapshots: () => sshManager.listSessionSnapshots(),
@@ -86,14 +99,8 @@ export function bindSshMcpRuntime(
       sftpReadFileRange: (id, path, offset, length) => sshManager.sftpReadFileRange(id, path, offset, length),
       sftpWriteFile: (id, path, content, maxBytes) => sshManager.sftpWriteFile(id, path, content, maxBytes),
       sftpWriteBuffer: (id, path, buffer) => sshManager.sftpWriteBuffer(id, path, buffer),
-      sftpDownload: (id, remotePath, localPath) =>
-        sshManager.sftpDownload(id, remotePath, localPath, `mcp-dl-${randomUUID()}`, () => {}, {
-          keepPartial: false,
-        }),
-      sftpUpload: (id, localPath, remotePath) =>
-        sshManager.sftpUpload(id, localPath, remotePath, `mcp-ul-${randomUUID()}`, () => {}, {
-          keepPartial: false,
-        }),
+      sftpDownload: fileTransfers.download,
+      sftpUpload: fileTransfers.upload,
       sftpStat: (id, path) => sshManager.sftpStat(id, path),
       connectSaved: async (connectionId) => {
         const existing = sshManager.listSessionSnapshots().find((s) => s.connectionId === connectionId)
@@ -126,5 +133,6 @@ export function bindSshMcpRuntime(
     approvalMode: extras?.approvalMode,
     getApprovalMode: extras?.getApprovalMode,
     requestApproval: extras?.requestApproval,
+    getDownloadSettings: extras?.getDownloadSettings,
   })
 }

@@ -1,3 +1,4 @@
+import { TransferCancelledError } from '../../shared/transferCancellation'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -14,7 +15,6 @@ vi.mock('electron', () => ({
 }))
 
 import { registerSftpTransferHandlers } from './registerSftpTransferHandlers'
-import { TransferCancelledError } from '../ssh/transfer/transferHelpers'
 import type { SSHManager } from '../ssh/manager'
 import type { SettingsStore } from '../store/settingsStore'
 
@@ -23,7 +23,7 @@ const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 function sender() {
   const send = vi.fn()
-  return { send, isDestroyed: () => false }
+  return { id: 1, send, isDestroyed: () => false }
 }
 
 function eventsOf(send: ReturnType<typeof vi.fn>, channel: string) {
@@ -57,6 +57,7 @@ describe('SFTP transfer handlers', () => {
       },
       initSftp: async () => {},
       cancelTransfer: vi.fn(() => false),
+      getSessionSnapshot: () => ({ connectionName: 'server 163' }),
       ...manager,
     } as unknown as SSHManager
     registerSftpTransferHandlers(() => null, full, settings)
@@ -259,6 +260,40 @@ describe('SFTP transfer handlers', () => {
 
     expect(sftpUpload).not.toHaveBeenCalled()
     expect(eventsOf(s.send, 'sftp:transferComplete')[0]).toEqual([SID, 'ul-skip', local, 'skipped'])
+  })
+
+  it('asks only about real conflicts without holding up an unrelated new upload', async () => {
+    concurrency = 2
+    const sftpUpload = vi.fn(async () => {})
+    register({ sftpUpload, sftpExists: async (_sid, target) => target.endsWith('exists.txt') })
+    const s = sender()
+    const upload = handlers.get('sftp:upload')!
+    await upload({ sender: s }, SID, localFile('exists.txt'), '/remote', 'exists.txt', 'ul-exists', { conflict: 'ask' })
+    await upload({ sender: s }, SID, localFile('new.txt'), '/remote', 'new.txt', 'ul-new', { conflict: 'ask' })
+    await flush()
+    expect(sftpUpload).toHaveBeenCalledTimes(1)
+    expect(sftpUpload.mock.calls[0][2]).toBe('/remote/new.txt')
+    const request = eventsOf(s.send, 'sftp:uploadConflict')[0][0]
+    expect(request).toMatchObject({ transferId: 'ul-exists', hostName: 'server 163', remotePath: '/remote/exists.txt' })
+    handlers.get('sftp:resolveUploadConflict')!({ sender: s }, request.requestId, { action: 'skip', applyToAll: false })
+    await flush()
+    expect(sftpUpload).toHaveBeenCalledTimes(1)
+    expect(eventsOf(s.send, 'sftp:transferComplete')).toContainEqual([SID, 'ul-exists', path.join(downloadDir, 'exists.txt'), 'skipped'])
+  })
+
+  it('cancels a waiting conflict and releases the queue for a later upload', async () => {
+    const sftpUpload = vi.fn(async () => {})
+    register({ sftpUpload, sftpExists: async (_sid, target) => target.endsWith('exists.txt') })
+    const s = sender()
+    const upload = handlers.get('sftp:upload')!
+    await upload({ sender: s }, SID, localFile('exists.txt'), '/remote', 'exists.txt', 'ul-exists', { conflict: 'ask' })
+    await upload({ sender: s }, SID, localFile('new.txt'), '/remote', 'new.txt', 'ul-new', { conflict: 'ask' })
+    await flush()
+    expect(sftpUpload).not.toHaveBeenCalled()
+    handlers.get('sftp:cancelTransfer')!({}, 'ul-exists')
+    await flush()
+    expect(sftpUpload).toHaveBeenCalledTimes(1)
+    expect(eventsOf(s.send, 'sftp:transferError')).toContainEqual([SID, 'ul-exists', 'Transfer cancelled', 'cancelled'])
   })
 
   it('reopens the SFTP channel before a queued transfer and reports when that fails', async () => {

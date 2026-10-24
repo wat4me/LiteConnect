@@ -3,6 +3,9 @@ import { randomUUID } from 'crypto'
 import { unlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { AiExecutionService } from '../ai/execution/executionService'
+
+const execution = { selectConversation: vi.fn() } as unknown as AiExecutionService
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
@@ -38,7 +41,7 @@ beforeEach(() => {
 
 it('normalizes retention preview limits without invoking a history write', async () => {
   const { registerAiHandlers } = await import('./registerAiHandlers')
-  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any)
+  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any, execution)
   const preview = mocks.handlers.get('ai:previewHistoryPrune')!
   await expect(preview({}, { maxThreads: -5, maxMessages: 99999 })).resolves.toEqual({ conversations: 2, messages: 12 })
   expect(mocks.previewPrune).toHaveBeenCalledWith({ maxThreads: 1, maxMessages: 2000 })
@@ -53,7 +56,7 @@ it('loads two runtime terminals from the same stable host history', async () => 
   const { registerAiHandlers } = await import('./registerAiHandlers')
   registerAiHandlers(
     settingsStore as any,
-    undefined,
+    execution,
     () => 'host-v1:22:server.example',
   )
 
@@ -67,7 +70,7 @@ it('loads two runtime terminals from the same stable host history', async () => 
 
 it('reports when a selected local Markdown source was deleted', async () => {
   const { registerAiHandlers } = await import('./registerAiHandlers')
-  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any)
+  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any, execution)
   const check = mocks.handlers.get('ai:checkLocalContextFile')!
   const path = join(tmpdir(), `lite-ai-reference-${randomUUID()}.md`)
   try {
@@ -94,7 +97,7 @@ it('opens a manually selected workspace under independent history and rejects an
     ? { connectionId, sessionId: randomUUID(), name: 'selected', host: 'selected.example', port: 22, username: 'ops' } : undefined)
   try {
     const { registerAiHandlers } = await import('./registerAiHandlers')
-    registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any, undefined, () => 'host-v1:22:selected.example')
+    registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}) } as any, execution, () => 'host-v1:22:selected.example')
     const open = mocks.handlers.get('ai:openWorkspaceScope')!
     const scope = await open({ sender: { id: 1 } }, { connectionIds: [id] })
     const load = mocks.handlers.get('ai:getSessionStore')!

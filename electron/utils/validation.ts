@@ -1,6 +1,6 @@
 import type { BrowserWindow, WebContents } from 'electron'
 import { isIP } from 'net'
-import { isAbsolute, normalize } from 'path'
+import { posix, win32 } from 'path'
 import {
   CLIPBOARD_MAX_CHARS,
   LOCAL_PATH_MAX_CHARS,
@@ -85,14 +85,18 @@ export function isStrictPath(p: string): boolean {
 }
 
 /** Absolute local filesystem path for shell open / reveal (no traversal / null bytes). */
-export function isSafeLocalPath(p: string): boolean {
+export function isSafeLocalPath(p: string, platform: NodeJS.Platform = process.platform): boolean {
   if (typeof p !== 'string' || p.length === 0 || p.length > LOCAL_PATH_MAX_CHARS) return false
   if (p.includes('\0')) return false
-  if (!isAbsolute(p)) return false
+  const paths = platform === 'win32' ? win32 : posix
+  if (!paths.isAbsolute(p)) return false
+  // Windows also calls /tmp and \tmp "absolute", but both depend on the
+  // process's current drive. Require a drive root or a complete UNC share.
+  if (platform === 'win32' && !/^[a-z]:[\\/]/i.test(p) && !/^[\\/]{2}[^\\/?\.][^\\/]*[\\/][^\\/]+(?:[\\/]|$)/.test(p)) return false
   // Reject parent-segment before and after normalize (Windows normalize may collapse `..`).
   if (/(^|[\\/])\.\.([\\/]|$)/.test(p)) return false
-  const normalized = normalize(p)
-  if (!isAbsolute(normalized)) return false
+  const normalized = paths.normalize(p)
+  if (!paths.isAbsolute(normalized)) return false
   if (/(^|[\\/])\.\.([\\/]|$)/.test(normalized)) return false
   return true
 }

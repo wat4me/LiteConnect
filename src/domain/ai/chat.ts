@@ -7,7 +7,19 @@ export interface ChatItem extends AiHistoryRecord {
   activity?: AiChatActivity
 }
 
+/** In-memory answer only; never part of model input or persisted history. */
+export interface AiQuestionDraft {
+  threadId: string
+  requestId: string | null
+  args: string
+  selected: Record<string, string[]>
+  text: Record<string, string>
+  custom: Record<string, boolean>
+  currentIndex: number
+}
+
 export type AiSessionState = {
+  questionDrafts?: Map<string, AiQuestionDraft>
   toolGroups?: import('@shared/aiToolCatalog').AiToolGroup[]
   compactionCount: number
   draftImages: AiImageAttachment[]

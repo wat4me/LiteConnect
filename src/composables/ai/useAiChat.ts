@@ -15,6 +15,7 @@ import { syncAiApprovalPending } from './useAiApprovalHint'
 import { appendTextSegment, ensureToolSegments } from '@/utils/ai/chatSegments'
 import { getSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 import { advanceChatActivity } from '@/utils/ai/chatActivity'
+import { getAiPendingAction } from '@/utils/ai/pendingAction'
 import {
   sanitizeAiErrorMessage, createMessage, plainUsage, toHistoryRecord, fromHistoryRecord,
   plainToolRuns, plainSegments, plainApiMessages, cloneForIpc,
@@ -24,6 +25,7 @@ import {
   closeContextCompressionNotice, setContextCompressionNotice,
 } from './chat/sessionState'
 import { settings, refreshAiSettings, replaceAiSettings, useAiModelSelection } from './chat/settings'
+import { clearAiQuestionDrafts, getAiQuestionDraft, pruneAiQuestionDrafts } from './chat/questionDrafts'
 import {
   createThreadId, pruneEmptyThreadsLocal, syncThreadSummaries, applyThreadMessages,
   loadThreadImages, buildStoreFromState, persistActiveThread, persistMessage, loadHistory,
@@ -97,7 +99,7 @@ export function useAiChat() {
     resolvingQuestions.add(key)
     try {
       const resolved = await window.LiteConnect.aiAnswerQuestion(requestId, runId, cloneForIpc(answer))
-      if (resolved) {
+      if (resolved && state.activeRequestId === requestId) {
         for (const message of state.messages) {
           const run = message.toolRuns?.find(item => item.id === runId && item.status === 'question')
           if (run) run.status = 'running'
@@ -111,10 +113,8 @@ export function useAiChat() {
 
   function refreshApprovalPending(sessionId: string) {
     const state = getAiSessionState(sessionId)
-    const pending =
-      state.loading &&
-      state.messages.some((message) => message.streaming && (message.toolRuns || []).some((run) => run.status === 'ask' || run.status === 'question'))
-    syncAiApprovalPending(sessionId, pending)
+    pruneAiQuestionDrafts(state)
+    syncAiApprovalPending(sessionId, getAiPendingAction(state))
   }
 
   function setSessionLoading(sessionId: string, value: boolean) {
@@ -773,6 +773,7 @@ export function useAiChat() {
       // Keep the host store's other threads and active selection as read.
       // Only update the originating thread; a later UI selection must survive.
       await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
+      clearAiQuestionDrafts(state, threadId)
       if (state.activeThreadId === threadId) {
         state.messages.splice(0, state.messages.length)
         state.contextCheckpoint = undefined
@@ -795,6 +796,10 @@ export function useAiChat() {
 
   function getSessionState(sessionId: string): AiSessionState {
     return getAiSessionState(sessionId)
+  }
+
+  function getQuestionDraft(sessionId: string, run: Pick<AiToolRun, 'id' | 'args'>) {
+    return getAiQuestionDraft(getAiSessionState(sessionId), run)
   }
 
   function saveSessionInput(sessionId: string, input: string) {
@@ -852,6 +857,7 @@ export function useAiChat() {
     sendText,
     resolveToolApproval,
     answerQuestion,
+    getQuestionDraft,
     stopGeneration,
     compactContext,
     clearMessages,

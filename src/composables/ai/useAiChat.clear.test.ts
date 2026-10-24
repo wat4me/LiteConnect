@@ -25,6 +25,7 @@ it('persists an empty current conversation with fresh model context while preser
   state.activeThreadId = 'current'
   state.messages.push({ id: 'old', role: 'user', content: 'forget this', createdAt: 1 })
   state.input = 'unsent draft'
+  chat.getQuestionDraft('clear-current', { id: 'old-question', args: '{}' }).text.scope = 'old question draft'
   state.contextFiles = contextFiles
   state.compactionCount = 4
   state.toolGroups = ['file_transfer']
@@ -39,6 +40,7 @@ it('persists an empty current conversation with fresh model context while preser
   expect(stored.threads.find(thread => thread.id === 'other')).toEqual(other)
   expect(state.messages).toEqual([])
   expect(state.input).toBe('unsent draft')
+  expect(state.questionDrafts?.size).toBe(0)
   expect(state.contextCheckpoint).toBeUndefined()
   expect(state.compactionCount).toBe(0)
   expect(state.toolGroups).toEqual([])

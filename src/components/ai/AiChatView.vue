@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -14,6 +14,7 @@ import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatRea
 import { chatActivityDisplay } from '@/utils/ai/chatActivity'
 import { isLiveContentSegment } from '@/utils/ai/chatSegments'
 import { useAiChatViewport } from '@/composables/ai/useAiChatViewport'
+import { useAiDisclosureState, toolDisclosureKey, reasoningDisclosureKey } from '@/composables/ai/useAiDisclosureState'
 import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
@@ -107,20 +108,22 @@ function displayItems(message: ChatItem): DisplayItem[] {
 const copiedKey = ref('')
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
-const toolOpenState = reactive(new Map<string, boolean>())
-const reasoningOpenState = reactive(new Map<string, boolean>())
+const { toolOpenState, reasoningOpenState } = useAiDisclosureState({
+  messages: () => props.messages, conversationKey: () => props.conversationKey,
+})
 
 function toolRunKey(message: ChatItem, run: AiToolRun): string {
-  return `${message.id}:${run.id}`
+  return toolDisclosureKey(message.id, run.id)
 }
 
 
 function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
-  return toolOpenState.get(toolRunKey(message, run)) === true
+  return toolOpenState.get(toolRunKey(message, run)) ?? toolRunDefaultOpen()
 }
 
 function onToolRunToggle(message: ChatItem, run: AiToolRun, open: boolean) {
-  toolOpenState.set(toolRunKey(message, run), open)
+  if (open) toolOpenState.set(toolRunKey(message, run), true)
+  else toolOpenState.delete(toolRunKey(message, run))
 }
 
 function isReasoningLive(message: ChatItem, segIndex: number): boolean {
@@ -128,7 +131,7 @@ function isReasoningLive(message: ChatItem, segIndex: number): boolean {
 }
 
 function reasoningKey(message: ChatItem, segIndex: number): string {
-  return `${message.id}:r${segIndex}`
+  return reasoningDisclosureKey(message.id, segIndex)
 }
 
 function isReasoningOpen(message: ChatItem, segIndex: number): boolean {
@@ -138,7 +141,8 @@ function isReasoningOpen(message: ChatItem, segIndex: number): boolean {
 function onReasoningToggle(message: ChatItem, segIndex: number, event: Event) {
   const el = event.currentTarget as HTMLDetailsElement
   if (!el || el.tagName !== 'DETAILS') return
-  reasoningOpenState.set(reasoningKey(message, segIndex), el.open)
+  if (el.open) reasoningOpenState.set(reasoningKey(message, segIndex), true)
+  else reasoningOpenState.delete(reasoningKey(message, segIndex))
 }
 
 function reasoningPreview(item: DisplayItem): string {
@@ -149,23 +153,6 @@ function reasoningPreview(item: DisplayItem): string {
 function reasoningText(item: DisplayItem): string {
   return item.seg.kind === 'reasoning' ? item.seg.text : ''
 }
-
-watch(
-  () =>
-    props.messages
-      .flatMap((m) => (m.toolRuns || []).map((r) => `${m.id}:${r.id}`))
-      .join('|'),
-  () => {
-    for (const message of props.messages) {
-      for (const run of message.toolRuns || []) {
-        const key = toolRunKey(message, run)
-        if (toolOpenState.has(key)) continue
-        toolOpenState.set(key, toolRunDefaultOpen())
-      }
-    }
-  },
-  { immediate: true },
-)
 
 // Activity transitions can add lines without new stream text (for example the
 // delayed-response hint). Follow only those layout changes, not every timer tick.

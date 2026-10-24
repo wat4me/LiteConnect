@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { validateAiQuestions, validateAiUserAnswer, type AiUserAnswer } from '@shared/aiQuestions'
 import type { AiToolRun } from '@shared/types/ai'
+import type { AiQuestionDraft } from '@/domain/ai/chat'
 import AppIcon from '../icons/AppIcon.vue'
-const props = defineProps<{ run: AiToolRun; submit: (answer: AiUserAnswer) => Promise<boolean>; allowStop?: boolean }>()
+const props = defineProps<{ run: AiToolRun; draft?: AiQuestionDraft; submit: (answer: AiUserAnswer) => Promise<boolean>; allowStop?: boolean }>()
 const emit = defineEmits<{ stop: [] }>()
 const { t } = useI18n()
 const questions = computed(() => {
   try { return validateAiQuestions(JSON.parse(props.run.args)) } catch { return [] }
 })
-const selected = reactive<Record<string, string[]>>({})
-const text = reactive<Record<string, string>>({})
-const custom = reactive<Record<string, boolean>>({})
+const draft = props.draft || reactive<AiQuestionDraft>({
+  threadId: '', requestId: null, args: props.run.args, selected: {}, text: {}, custom: {}, currentIndex: 0,
+})
+const { selected, text, custom } = draft
 const form = ref<HTMLFormElement>()
-const currentIndex = ref(0)
+const currentIndex = toRef(draft, 'currentIndex')
 const displayedQuestions = computed(() => questions.value.slice(currentIndex.value, currentIndex.value + 1))
 // Selecting an optional custom note must not invalidate a valid multiple choice.
 // Single-choice custom answers already clear the suggested selection.

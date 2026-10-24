@@ -1,5 +1,6 @@
 import { mkdir, stat } from 'fs/promises'
 import { dirname } from 'path'
+import type { McpTransferOptions } from '../ports'
 import {
   MCP_EDIT_MAX_FILE_BYTES,
   MCP_MAX_DIR_ENTRIES,
@@ -220,25 +221,25 @@ export async function writeFileTool(host: McpRuntimeHost, input: Record<string, 
   return host.ok({ path, bytes: buffer.length, encoding })
 }
 
-export async function downloadFile(host: McpRuntimeHost, input: Record<string, unknown>): Promise<SshMcpToolResult> {
+export async function downloadFile(host: McpRuntimeHost, input: Record<string, unknown>, options?: McpTransferOptions): Promise<SshMcpToolResult> {
   const session = host.requireSession(input.sessionId)
   const remotePath = requireRemotePath(input.remotePath)
-  const localPath = requireLocalPath(input.localPath)
+  const localPath = input.localPath === undefined ? undefined : requireLocalPath(input.localPath)
   const st = await host.withSftp(session.sessionId, session.generation, () =>
     host.ssh.sftpStat(session.sessionId, remotePath),
   )
   if (st.size > MCP_MAX_TRANSFER_BYTES) {
     return host.error('FILE_TOO_LARGE', `Remote file is ${st.size} bytes; max download is ${MCP_MAX_TRANSFER_BYTES}`)
   }
-  await mkdir(dirname(localPath), { recursive: true })
-  await host.withSftp(session.sessionId, session.generation, () =>
-    host.ssh.sftpDownload(session.sessionId, remotePath, localPath),
+  if (localPath) await mkdir(dirname(localPath), { recursive: true })
+  const result = await host.withSftp(session.sessionId, session.generation, () =>
+    host.ssh.sftpDownload(session.sessionId, remotePath, localPath, options),
   )
   host.touch(session.sessionId)
-  return host.ok({ remotePath, localPath, bytes: st.size })
+  return host.ok({ remotePath, localPath: result?.localPath ?? localPath, bytes: result?.skipped ? 0 : st.size, ...(result?.skipped ? { status: 'skipped' } : {}) })
 }
 
-export async function uploadFile(host: McpRuntimeHost, input: Record<string, unknown>): Promise<SshMcpToolResult> {
+export async function uploadFile(host: McpRuntimeHost, input: Record<string, unknown>, options?: McpTransferOptions): Promise<SshMcpToolResult> {
   const session = host.requireSession(input.sessionId)
   const remotePath = requireRemotePath(input.remotePath)
   const localPath = requireLocalPath(input.localPath)
@@ -255,7 +256,7 @@ export async function uploadFile(host: McpRuntimeHost, input: Record<string, unk
     return host.error('FILE_TOO_LARGE', `Local file is ${size} bytes; max upload is ${MCP_MAX_TRANSFER_BYTES}`)
   }
   await host.withSftp(session.sessionId, session.generation, () =>
-    host.ssh.sftpUpload(session.sessionId, localPath, remotePath),
+    host.ssh.sftpUpload(session.sessionId, localPath, remotePath, options),
   )
   host.touch(session.sessionId)
   return host.ok({ localPath, remotePath, bytes: size })

@@ -43,8 +43,10 @@ export async function handleMcpJsonRpc(
     runtime: RuntimeLike
     serverInfo: McpServerInfo
     audit?: McpAuditHook
+    signal?: AbortSignal
   },
 ): Promise<ProtocolOutcome> {
+  ctx.signal?.throwIfAborted()
   if (!message || typeof message !== 'object' || Array.isArray(message)) {
     return rpcError(null, -32600, 'Invalid Request')
   }
@@ -107,7 +109,7 @@ export async function handleMcpJsonRpc(
     const params = rec.params && typeof rec.params === 'object' ? (rec.params as Record<string, unknown>) : {}
     const name = params.name
     const args = params.arguments
-    const result = await ctx.runtime.call(name, args)
+    const result = await (ctx.signal ? ctx.runtime.call(name, args, { signal: ctx.signal }) : ctx.runtime.call(name, args))
     const code = (result.structuredContent as { code?: string } | undefined)?.code
     if (result.isError && code === 'UNKNOWN_TOOL') {
       return rpcError(id, -32602, typeof name === 'string' ? `Unknown tool: ${name}` : 'Unknown tool')

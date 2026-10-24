@@ -9,6 +9,7 @@ import { AI_WORKSPACE_HISTORY_LIMIT } from '@shared/aiWorkspaceConversations'
 import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 import { isSshConnectionCancelled } from '@shared/sshConnectionProgress'
 import { disposeAiSessionState, useAiChat } from '@/composables/ai/useAiChat'
+import { useAiApprovalHint } from '@/composables/ai/useAiApprovalHint'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { sshConnectFailureKey } from '@/utils/session/sshDisconnectReason'
@@ -24,6 +25,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     return host ? t('terminal.connectFailedWithTarget', { name: host.name, host: host.host, reason }) : reason
   }
   const { getSessionState, switchConversation, loadHistory, startNewConversation, onReplyComplete, stopGeneration } = useAiChat()
+  const { getPendingAction } = useAiApprovalHint()
   const connections = ref<Connection[]>([])
   const groups = ref<Group[]>([])
   const recent = ref<AiWorkspaceConversationItem[]>([])
@@ -55,6 +57,8 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   const scheduleCreateToken = ref(0)
   const pendingThreadId = ref('')
   const pendingNewConversation = ref(false)
+  const pendingRevealSessionId = ref('')
+  const revealGeneration = ref(0)
   const sessionTick = ref(0)
   let disposed = false
   let refreshVersion = 0
@@ -89,6 +93,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
         connectionId,
         connected: true,
         sessionId: id,
+        pendingAction: getPendingAction(id),
         hostLabel: connection.name,
         hostCount: 1,
         threadId: state.activeThreadId || active?.threadId || '',
@@ -102,10 +107,12 @@ export function useAiWorkspace(options: { active: () => boolean }) {
       return {
         hostCount: scope.connectionIds.length, connected: scope.connectionIds.every(id => !!sessions.value[id]), connectionId: scope.id, sessionId: scope.id, hostLabel: scopeLabel(scope), threadId: state.activeThreadId,
         title: summary?.customTitle || summary?.title || t('ai.workspace.openChat'), updatedAt: summary?.updatedAt || scope.createdAt,
-        viewing: !browsing.value && selectedScopeId.value === scope.id
+        viewing: !browsing.value && selectedScopeId.value === scope.id,
+        pendingAction: getPendingAction(scope.id),
       }
     })).sort((a, b) => Number(b.viewing) - Number(a.viewing) || b.updatedAt - a.updatedAt)
   })
+  const pendingConversationCount = computed(() => currentConversations.value.filter(item => item.pendingAction).length)
   const historyConversations = computed(() => {
     const open = new Set(currentConversations.value.map(item => `${item.connectionId}:${item.threadId}`))
     return recent.value
@@ -338,7 +345,6 @@ export function useAiWorkspace(options: { active: () => boolean }) {
         const fallbackId = Object.keys(sessions.value).find(id => singleChatIds.value.includes(id))
         if (fallbackId) {
           selectedId.value = fallbackId
-          browsing.value = false
           error.value = ''
         } else {
           browsing.value = true
@@ -401,6 +407,35 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     showSchedules.value = false
   }
 
+  /** Reveal an already open AI conversation without reconnecting or replacing its pending run. */
+  function revealConversation(id: string): boolean {
+    if (disposed || !id) return false
+    const scope = scopes.value[id]
+    const connectionId = Object.keys(sessions.value).find(key => sessions.value[key] === id && singleChatIds.value.includes(key))
+    if (!scope && !connectionId) return false
+    if (selectionLocked.value) {
+      pendingRevealSessionId.value = id
+      return true
+    }
+    pendingRevealSessionId.value = ''
+    selectedScopeId.value = scope ? id : ''
+    selectedId.value = scope ? '' : connectionId!
+    closeHostPicker()
+    showSchedules.value = false
+    browsing.value = false
+    error.value = ''
+    revealGeneration.value += 1
+    return true
+  }
+
+  watch(selectionLocked, locked => {
+    if (!locked && pendingRevealSessionId.value) {
+      const id = pendingRevealSessionId.value
+      pendingRevealSessionId.value = ''
+      revealConversation(id)
+    }
+  })
+
   async function openHistory(item: AiWorkspaceConversationItem) {
     if (selectionLocked.value) return
     if (item.workspaceId) { await openScope({ id: item.workspaceId }, item.threadId); return }
@@ -419,8 +454,15 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   }
 
   async function disconnect() {
+    return disconnectConnections(activeScope.value?.connectionIds || [selectedId.value])
+  }
+
+  async function disconnectHost(connectionId: string) {
+    return disconnectConnections([connectionId])
+  }
+
+  async function disconnectConnections(connectionIds: string[]) {
     if (selectionLocked.value) return
-    const connectionIds = activeScope.value?.connectionIds || [selectedId.value]
     const targets = connectionIds.flatMap(connectionId => {
       const id = sessions.value[connectionId]
       return id ? [{ connectionId, sessionId: id, name: connections.value.find(host => host.id === connectionId)?.name || connectionId }] : []
@@ -437,8 +479,10 @@ export function useAiWorkspace(options: { active: () => boolean }) {
         })
       } catch { return }
       if (disposed) return
-      const affected = new Set(targets.map(target => target.connectionId))
-      const conversations = [...targets.map(target => target.sessionId), ...Object.values(scopes.value)
+      const currentTargets = targets.filter(target => sessions.value[target.connectionId] === target.sessionId)
+      if (!currentTargets.length) return
+      const affected = new Set(currentTargets.map(target => target.connectionId))
+      const conversations = [...currentTargets.map(target => target.sessionId), ...Object.values(scopes.value)
         .filter(scope => scope.connectionIds.some(id => affected.has(id))).map(scope => scope.id)]
       // Shared AI connections can serve several conversations. Stop their replies
       // and suppress completion delivery before tearing down the actual channels.
@@ -447,7 +491,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
         if (state.loading) await stopGeneration(id)
         if (state.activeThreadId) await window.LiteConnect.aiSuppressBackgroundReplies(id, state.activeThreadId)
       }
-      const results = await Promise.allSettled(targets.map(async target => {
+      const results = await Promise.allSettled(currentTargets.map(async target => {
         if (disposed || sessions.value[target.connectionId] !== target.sessionId) return
         await window.LiteConnect.aiCloseWorkspaceConnection(target.sessionId)
         if (!disposed) onConnection({ ...target, status: 'closed' })
@@ -545,6 +589,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     toggleBrowserHost,
     toggleResults,
     currentConversations,
+    pendingConversationCount,
     historyConversations,
     historySections,
     toggleHistory,
@@ -565,9 +610,12 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     startChat,
     retryConnect,
     openCurrent,
+    revealConversation,
+    revealGeneration,
     openHistory,
     cancelConnect,
     disconnect,
+    disconnectHost,
     openSchedules,
     backToHosts
   }

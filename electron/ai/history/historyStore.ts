@@ -52,9 +52,12 @@ async function writeAiSessionStoreUnlocked(
   store: AiSessionStore,
   limits?: Partial<AiHistoryLimits>,
 ): Promise<void> {
+  const database = getAppDatabase()
   const normalized = normalizeSessionStore(store, limits)
   const snapshot = await externalizeAiImages(sessionId, normalized)
-  getAppDatabase().setSingleton(aiSessionKey(sessionId), snapshot)
+  // A timed-out shutdown may seal storage while attachment I/O is still pending.
+  if (database.isOpen === false) return
+  database.setSingleton(aiSessionKey(sessionId), snapshot)
   try { await pruneAiImageFiles(sessionId, snapshot) } catch (error) { console.warn('Failed to prune AI image attachments:', error) }
 }
 

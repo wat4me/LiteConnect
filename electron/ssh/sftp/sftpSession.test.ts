@@ -34,6 +34,16 @@ function createSessionWithSftp(sftp: Record<string, unknown>): Session {
 }
 
 describe('SftpSession remote exec status', () => {
+  it('counts symlink entries as existing and distinguishes missing files from failed checks', async () => {
+    const lstat = vi.fn()
+      .mockImplementationOnce((_path, callback) => callback(null, { isSymbolicLink: () => true }))
+      .mockImplementationOnce((_path, callback) => callback(Object.assign(new Error('missing'), { code: 2 })))
+      .mockImplementationOnce((_path, callback) => callback(Object.assign(new Error('permission denied'), { code: 3 })))
+    const sftp = new SftpSession(() => createSessionWithSftp({ lstat }))
+    await expect(sftp.sftpExists('sess-1', '/link')).resolves.toBe(true)
+    await expect(sftp.sftpExists('sess-1', '/missing')).resolves.toBe(false)
+    await expect(sftp.sftpExists('sess-1', '/denied')).rejects.toThrow('permission denied')
+  })
   it('rejects a non-zero remote exit status with stderr', async () => {
     const session = createSessionForExec((stream) => {
       stream.stderr.emit('data', Buffer.from('permission denied'))

@@ -1,6 +1,6 @@
 {
   "name": "lite-connect",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Lightweight multi-protocol connection manager (SSH, database) with embedded terminal",
   "author": "LiteConnect",
   "license": "GPL-3.0-only",
@@ -8,10 +8,12 @@
   "scripts": {
     "dev": "vite",
     "dev:isolated": "node scripts/dev-isolated.mjs",
-    "typecheck": "npm run typecheck:renderer && npm run typecheck:main",
+    "typecheck": "npm run typecheck:renderer && npm run typecheck:main && npm run typecheck:contracts",
+    "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit",
     "typecheck:renderer": "vue-tsc --noEmit --incremental",
     "typecheck:main": "tsc -p tsconfig.node.json --noEmit --incremental --tsBuildInfoFile node_modules/.cache/litessh/tsconfig.node.tsbuildinfo",
-    "lint": "npm run check:dependencies && eslint src electron shared --max-warnings 0 && node scripts/check-unified-icons.mjs",
+    "lint": "npm run check:dependencies && npm run check:architecture && eslint src electron shared --max-warnings 0 && node scripts/check-unified-icons.mjs",
+    "check:architecture": "node scripts/check-architecture-rules.mjs",
     "check:dependencies": "node scripts/check-dependency-baseline.mjs",
     "i18n:check": "node scripts/check-i18n-keys.mjs",
     "sync:models-dev": "node scripts/sync-models-dev-context.mjs",

@@ -717,10 +717,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.4;
-  display: none;
 }
-
-.connections-main:has(.search-box:focus-within) .list-keyboard-hint { display: block; }
 
 .connections-list {
   flex: 1;

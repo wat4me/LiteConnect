@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AiChatStreamOptions, AiProviderProtocol } from '../shared/types/ai'
 import type { AiUserAnswer } from '../shared/aiQuestions'
+import { createSftpApi } from './preload/sftpApi'
 
 contextBridge.exposeInMainWorld('LiteConnect', {
   getAppBootstrap: () => ipcRenderer.invoke('app:getBootstrap'),
@@ -539,73 +540,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     return () => ipcRenderer.removeListener('monitor:alertClick', listener)
   },
 
-  sftpInit: (sessionId: string) => ipcRenderer.invoke('sftp:init', sessionId),
-  sftpReaddir: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:readdir', sessionId, remotePath),
-  sftpRealpath: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:realpath', sessionId, remotePath),
-  sftpExecHome: (sessionId: string) => ipcRenderer.invoke('sftp:execHome', sessionId),
-  sftpDownload: (
-    sessionId: string,
-    remotePath: string,
-    fileName: string,
-    transferId: string,
-    options?: {
-      conflict?: 'overwrite' | 'skip' | 'rename'
-      resume?: boolean
-      localDir?: string
-      localPath?: string
-    },
-  ) => ipcRenderer.send('sftp:download', sessionId, remotePath, fileName, transferId, options),
-  sftpUpload: (
-    sessionId: string,
-    localPath: string,
-    remotePath: string,
-    fileName: string,
-    transferId: string,
-    options?: {
-      conflict?: 'overwrite' | 'skip' | 'rename'
-      resume?: boolean
-      remoteFullPath?: string
-    },
-  ) => ipcRenderer.send('sftp:upload', sessionId, localPath, remotePath, fileName, transferId, options),
-  sftpCancelTransfer: (transferId: string) => ipcRenderer.send('sftp:cancelTransfer', transferId),
-  sftpExtractArchive: (sessionId: string, remotePath: string) =>
-    ipcRenderer.invoke('sftp:extractArchive', sessionId, remotePath),
-  sftpExists: (sessionId: string, remotePath: string) =>
-    ipcRenderer.invoke('sftp:exists', sessionId, remotePath),
-  sftpEditorSnapshot: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:editorSnapshot', sessionId, remotePath),
-  sftpEditorSave: (sessionId: string, remotePath: string, content: string, options: import('../shared/types/sftp').SftpEditorSaveOptions) => ipcRenderer.invoke('sftp:editorSave', sessionId, remotePath, content, options),
-  sftpDirectoryPreview: (sessionId: string, localPath: string, remotePath: string) => ipcRenderer.invoke('sftp:directoryPreview', sessionId, localPath, remotePath),
-  sftpReadFile: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:readFile', sessionId, remotePath),
-  sftpWriteFile: (sessionId: string, remotePath: string, content: string) => ipcRenderer.invoke('sftp:writeFile', sessionId, remotePath, content),
-  sftpChmod: (sessionId: string, remotePath: string, mode: string, recursive?: boolean) => ipcRenderer.invoke('sftp:chmod', sessionId, remotePath, mode, recursive),
-  sftpChown: (sessionId: string, remotePath: string, owner: string, group?: string, recursive?: boolean) => ipcRenderer.invoke('sftp:chown', sessionId, remotePath, owner, group, recursive),
-  sftpRename: (sessionId: string, oldPath: string, newPath: string) => ipcRenderer.invoke('sftp:rename', sessionId, oldPath, newPath),
-  sftpMkdir: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:mkdir', sessionId, remotePath),
-  sftpDelete: (sessionId: string, remotePath: string, isDirectory?: boolean) => ipcRenderer.invoke('sftp:delete', sessionId, remotePath, isDirectory),
-  sftpDownloadDirectory: (
-    sessionId: string,
-    remotePath: string,
-    dirName: string,
-    transferId: string,
-    options?: {
-      conflict?: 'overwrite' | 'skip' | 'rename'
-      concurrency?: number
-      failPolicy?: 'continue' | 'stop'
-    },
-  ) => ipcRenderer.send('sftp:downloadDirectory', sessionId, remotePath, dirName, transferId, options),
-  sftpUploadDirectory: (
-    sessionId: string,
-    localPath: string,
-    remoteParent: string,
-    dirName: string,
-    transferId: string,
-    options?: {
-      conflict?: 'overwrite' | 'skip' | 'rename'
-      concurrency?: number
-      failPolicy?: 'continue' | 'stop'
-    },
-  ) => ipcRenderer.send('sftp:uploadDirectory', sessionId, localPath, remoteParent, dirName, transferId, options),
-  sftpStat: (sessionId: string, remotePath: string) => ipcRenderer.invoke('sftp:stat', sessionId, remotePath),
+  ...createSftpApi(ipcRenderer),
 
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
@@ -664,93 +599,6 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     const listener = (_event: any, accelerator: string) => callback(accelerator)
     ipcRenderer.on('app:globalHotkeyFailed', listener)
     return () => ipcRenderer.removeListener('app:globalHotkeyFailed', listener)
-  },
-
-  onTransferStart: (
-    callback: (
-      sessionId: string,
-      transferId: string,
-      fileName: string,
-      localPath: string,
-      direction: 'download' | 'upload',
-      remotePath?: string,
-      kind?: 'file' | 'directory',
-    ) => void,
-  ) => {
-    const listener = (
-      _event: any,
-      sessionId: string,
-      transferId: string,
-      fileName: string,
-      localPath: string,
-      direction: string,
-      remotePath?: string,
-      kind?: 'file' | 'directory',
-    ) => callback(sessionId, transferId, fileName, localPath, direction as 'download' | 'upload', remotePath, kind)
-    ipcRenderer.on('sftp:transferStart', listener)
-    return () => ipcRenderer.removeListener('sftp:transferStart', listener)
-  },
-  onTransferProgress: (
-    callback: (
-      sessionId: string,
-      transferId: string,
-      transferred: number,
-      total: number,
-      stats?: {
-        completedFiles: number
-        failedFiles: number
-        totalFiles: number
-        phase?: 'scanning' | 'preparing' | 'transferring'
-        preparedDirs?: number
-        totalDirs?: number
-      },
-    ) => void,
-  ) => {
-    const listener = (
-      _event: any,
-      sessionId: string,
-      transferId: string,
-      transferred: number,
-      total: number,
-      stats?: {
-        completedFiles: number
-        failedFiles: number
-        totalFiles: number
-        phase?: 'scanning' | 'preparing' | 'transferring'
-        preparedDirs?: number
-        totalDirs?: number
-      },
-    ) => callback(sessionId, transferId, transferred, total, stats)
-    ipcRenderer.on('sftp:transferProgress', listener)
-    return () => ipcRenderer.removeListener('sftp:transferProgress', listener)
-  },
-  onTransferComplete: (
-    callback: (
-      sessionId: string,
-      transferId: string,
-      localPath: string,
-      status?: 'skipped' | 'partial',
-      stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
-    ) => void,
-  ) => {
-    const listener = (
-      _event: any,
-      sessionId: string,
-      transferId: string,
-      localPath: string,
-      status?: 'skipped' | 'partial',
-      stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
-    ) => callback(sessionId, transferId, localPath, status, stats)
-    ipcRenderer.on('sftp:transferComplete', listener)
-    return () => ipcRenderer.removeListener('sftp:transferComplete', listener)
-  },
-  onTransferError: (
-    callback: (sessionId: string, transferId: string, error: string, code?: 'cancelled') => void,
-  ) => {
-    const listener = (_event: any, sessionId: string, transferId: string, error: string, code?: 'cancelled') =>
-      callback(sessionId, transferId, error, code)
-    ipcRenderer.on('sftp:transferError', listener)
-    return () => ipcRenderer.removeListener('sftp:transferError', listener)
   },
 
   updateTitleBar: (theme: string, colors?: { color: string; symbolColor: string }) => ipcRenderer.send('titlebar:theme', theme, colors),

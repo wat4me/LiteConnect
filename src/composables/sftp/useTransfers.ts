@@ -1,6 +1,10 @@
-import { reactive, computed } from 'vue'
+import { reactive, computed, shallowRef } from 'vue'
 import { t } from '../../i18n'
 import type { TransferItem } from '../../env.d.ts'
+import type { TransferOrigin, UploadConflictRequest } from '@shared/types/sftp'
+
+/** App owns the dialog so closing the file panel never strands a transfer. */
+export const uploadConflictRequest = shallowRef<UploadConflictRequest | null>(null)
 
 /** Shared across FileSidebar instances so badge works when sidebar is closed */
 const transfers = reactive<Map<string, TransferItem>>(new Map())
@@ -71,6 +75,7 @@ function addTransfer(
   direction: 'download' | 'upload',
   remotePath?: string,
   kind?: 'file' | 'directory',
+  origin?: TransferOrigin,
 ) {
   const batchId = transferBatchIds.get(transferId)
   if (transfers.has(transferId)) {
@@ -79,6 +84,7 @@ function addTransfer(
     existing.localPath = localPath
     if (remotePath) existing.remotePath = remotePath
     if (kind) existing.kind = kind
+    if (origin) existing.origin = origin
     existing.status = direction === 'download' ? 'downloading' : 'uploading'
     existing.error = undefined
     if (batchId) existing.batchId = batchId
@@ -96,6 +102,7 @@ function addTransfer(
     status: direction === 'download' ? 'downloading' : 'uploading',
     direction,
     batchId,
+    origin,
   })
   lastProgress.set(transferId, { transferred: 0, time: Date.now() })
   speedMap.set(transferId, 0)
@@ -255,7 +262,9 @@ function markError(sessionId: string, transferId: string, errorMsg: string) {
 
 /** Cancelled (by the user or by session teardown): resumable error state, no failure toast. */
 function markCancelled(sessionId: string, transferId: string) {
-  markError(sessionId, transferId, t('sftp.cancelledResumable'))
+  markError(sessionId, transferId, t('sftp.transferCancelled'))
+  const item = getTransfer(sessionId, transferId)
+  if (item && canResumeTransfer(item)) item.error = t('sftp.cancelledResumable')
 }
 
 /** All sessions — for toolbar badge when SFTP panel is closed */
@@ -275,8 +284,8 @@ export function ensureTransferListeners() {
   listenersBound = true
 
   unsubFns = [
-    window.LiteConnect.onTransferStart((sessionId, transferId, fileName, localPath, direction, remotePath, kind) => {
-      addTransfer(sessionId, transferId, fileName, localPath, direction, remotePath, kind)
+    window.LiteConnect.onTransferStart((sessionId, transferId, fileName, localPath, direction, remotePath, kind, origin) => {
+      addTransfer(sessionId, transferId, fileName, localPath, direction, remotePath, kind, origin)
     }),
     window.LiteConnect.onTransferProgress((sessionId, transferId, transferred, total, stats) => {
       updateProgress(sessionId, transferId, transferred, total, stats)
@@ -315,9 +324,22 @@ export function ensureTransferListeners() {
       })
     }),
   ]
+  if (window.LiteConnect.onUploadConflict) unsubFns.push(window.LiteConnect.onUploadConflict(request => {
+    const previous = uploadConflictRequest.value
+    if (previous) {
+      const item = transfers.get(previous.transferId)
+      if (item) item.waitingForConflict = false
+    }
+    uploadConflictRequest.value = request
+    if (request) {
+      const item = transfers.get(request.transferId)
+      if (item) item.waitingForConflict = true
+    }
+  }))
 }
 
 export function teardownTransferListeners() {
+  uploadConflictRequest.value = null
   for (const u of unsubFns) u()
   unsubFns = []
   listenersBound = false
@@ -325,7 +347,8 @@ export function teardownTransferListeners() {
 
 /** Single-file transfers only; a directory job has no one stream to pick up again. */
 export function canResumeTransfer(item: TransferItem): boolean {
-  return item.status === 'error' && item.kind !== 'directory' && !!item.localPath && !!item.remotePath
+  return !item.origin && item.status === 'error' && item.kind !== 'directory' && !!item.localPath && !!item.remotePath
+    && (item.direction !== 'upload' || item.transferred > 0)
 }
 
 export function useTransfers(getCurrentSessionId: () => string) {

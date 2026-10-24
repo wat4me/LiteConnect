@@ -9,6 +9,7 @@ import AiSchedulePanel from '@/components/ai/AiSchedulePanel.vue'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import { useAiWorkspace } from '@/composables/ai/workspace/useAiWorkspace'
 import { useAiChat } from '@/composables/ai/useAiChat'
+import type { AiPendingAction } from '@/utils/ai/pendingAction'
 
 const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
 const emit = defineEmits<{ (event: 'open-connections'): void }>()
@@ -80,6 +81,7 @@ const {
   toggleBrowserHost,
   toggleResults,
   currentConversations,
+  pendingConversationCount,
   historyConversations,
   historySections,
   toggleHistory,
@@ -99,12 +101,27 @@ const {
   closeConversation,
   retryConnect,
   openCurrent,
+  revealConversation,
+  revealGeneration,
   openHistory,
   cancelConnect,
   disconnect,
+  disconnectHost,
   openSchedules,
   backToHosts
 } = useAiWorkspace({ active: () => props.active })
+
+defineExpose({
+  revealConversation(id: string) {
+    if (!revealConversation(id)) return false
+    showModelSettings.value = false
+    return true
+  },
+})
+
+function pendingActionHint(action: AiPendingAction) {
+  return t(action === 'approval' ? 'ai.activity.approval' : action === 'question' ? 'ai.activity.question' : 'ai.workspace.pendingMixed')
+}
 
 let lastHostClick: { connectionId: string; selection: string[] } | undefined
 
@@ -136,14 +153,14 @@ function openHostChat(connectionId: string) {
         <button type="button" class="ui-icon-btn rail-collapse" :title="t(railCollapsed ? 'ai.workspace.expandRail' : 'ai.workspace.collapseRail')" :aria-label="t(railCollapsed ? 'ai.workspace.expandRail' : 'ai.workspace.collapseRail')" :aria-expanded="!railCollapsed" @click="railCollapsed = !railCollapsed"><AppIcon :name="railCollapsed ? 'chevron-right' : 'chevron-left'" size="xs" /></button>
       </div>
       <nav class="workspace-primary-nav" :aria-label="t('ai.workspace.navigation')">
-        <button type="button" class="workspace-manage workspace-host-entry" :class="{ active: browsing && !showSchedules }" :aria-current="browsing && !showSchedules ? 'page' : undefined" :title="t('ai.schedule.host')" @click="backToHosts"><AppIcon name="server" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.host') }}</span></button>
+        <button type="button" class="workspace-manage workspace-host-entry" :class="{ active: browsing && !showSchedules }" :aria-current="browsing && !showSchedules ? 'page' : undefined" :title="railCollapsed && pendingConversationCount ? t('ai.workspace.pendingCount', { count: pendingConversationCount }) : t('ai.schedule.host')" @click="backToHosts"><AppIcon name="server" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.host') }}</span><span v-if="railCollapsed && pendingConversationCount" class="workspace-pending-dot" role="img" :aria-label="t('ai.workspace.pendingCount', { count: pendingConversationCount })" /></button>
         <button type="button" class="workspace-manage workspace-schedule-entry" :class="{ active: showSchedules }" :aria-current="showSchedules ? 'page' : undefined" :title="t('ai.schedule.title')" @click="openSchedules()"><AppIcon name="calendar-clock" size="sm" /><span v-if="!railCollapsed">{{ t('ai.schedule.title') }}</span></button>
       </nav>
       <div v-show="!railCollapsed" class="rail-conversations">
         <section class="rail-section rail-current">
           <div class="rail-section-head">
-            <h3>{{ t('ai.workspace.currentChats') }}</h3>
-            <span class="rail-count">{{ currentConversations.length }}</span>
+            <h3>{{ t('ai.workspace.currentChats') }} <span class="rail-count">{{ currentConversations.length }}</span></h3>
+            <span v-if="pendingConversationCount" class="rail-pending-summary" role="img" :title="t('ai.workspace.pendingCount', { count: pendingConversationCount })" :aria-label="t('ai.workspace.pendingCount', { count: pendingConversationCount })"><AppIcon name="bell" size="xs" />{{ pendingConversationCount }}</span>
           </div>
           <div class="rail-list rail-current-list" role="region" :aria-label="t('ai.workspace.currentChats')" tabindex="0">
             <p v-if="!currentConversations.length" class="rail-empty">{{ t('ai.workspace.noCurrentChats') }}</p>
@@ -159,12 +176,12 @@ function openHostChat(connectionId: string) {
               :disabled="selectionLocked"
               :data-connection-id="item.connectionId"
               :class="{ active: item.viewing && !showSchedules && !browsing }"
-              :title="`${item.title}\n${item.hostLabel}`"
+              :title="`${item.title}\n${item.hostLabel}${item.pendingAction ? '\n' + pendingActionHint(item.pendingAction) : ''}`"
               :aria-current="item.viewing && !showSchedules && !browsing ? 'page' : undefined"
-              @click="openCurrent(item)"
+              @click="item.pendingAction ? revealConversation(item.sessionId) : openCurrent(item)"
             >
               <span class="rail-item-title"><span class="connection-dot" :class="{ connected: item.connected }" /><span class="rail-title-text">{{ item.title }}</span><span class="rail-host-count">{{ t('ai.workspace.hostCountBadge', { count: item.hostCount }) }}</span></span>
-              <span class="rail-item-meta">{{ item.hostLabel }}</span>
+              <span class="rail-item-secondary"><span class="rail-item-meta">{{ item.hostLabel }}</span><span v-if="item.pendingAction" class="rail-pending-badge" role="img" :title="pendingActionHint(item.pendingAction)" :aria-label="pendingActionHint(item.pendingAction)"><AppIcon name="bell" size="xs" /></span></span>
             </button>
             <button type="button" class="ui-icon-btn rail-close-chat" :disabled="selectionLocked" :title="t('ai.workspace.closeHint')" :aria-label="t('ai.workspace.closeNamed', { name: item.title })" @click="closeConversation(item)"><AppIcon name="close" size="xs" /></button>
             </div>
@@ -222,6 +239,7 @@ function openHostChat(connectionId: string) {
           <AiSidebar
             :key="sessionId"
             :session-id="sessionId"
+            :open-generation="revealGeneration"
             :workspace-targets="scopeTargets"
             :disconnect-available="activeScope ? !!scopeTargets?.some(target => !!target.sessionId) : !!sessionId"
             :connection-busy="selectionLocked"
@@ -334,7 +352,7 @@ function openHostChat(connectionId: string) {
             <span>{{ t('ai.workspace.groupCount', { count: section.hosts.length }) }}</span>
           </button>
           <div v-if="hostView === 'list' && !isCollapsed(section.id)" class="workspace-list-heading" aria-hidden="true">
-            <span>{{ t('ai.workspace.serverName') }}</span><span>{{ t('ai.workspace.connectionAddress') }}</span><span>{{ t('ai.workspace.connectionStatus') }}</span>
+            <span>{{ t('ai.workspace.serverName') }}</span><span>{{ t('ai.workspace.connectionAddress') }}</span><span>{{ t('ai.workspace.connectionStatus') }}</span><span>{{ t('ai.workspace.actions') }}</span>
           </div>
           <div v-show="!isCollapsed(section.id)" class="workspace-card-grid" :class="{ 'is-list': hostView === 'list' }">
             <article
@@ -368,7 +386,7 @@ function openHostChat(connectionId: string) {
                 <span class="connection-dot" :class="{ connected: !!sessions[connection.id], connecting: connectingId === connection.id }" />
                 {{ connectingId === connection.id ? t('ai.workspace.connecting') : sessions[connection.id] ? t('ai.workspace.connected') : t('ai.workspace.disconnected') }}
               </span>
-
+              <button v-if="sessions[connection.id]" type="button" class="ui-icon-btn ui-icon-btn-sm workspace-disconnect-host" :disabled="selectionLocked" :title="t('ai.workspace.disconnectNamed', { name: connection.name })" :aria-label="t('ai.workspace.disconnectNamed', { name: connection.name })" @click.stop="disconnectHost(connection.id)" @dblclick.stop @keydown.enter.stop><AppIcon name="unplug" size="sm" /></button>
             </article>
           </div>
         </section>

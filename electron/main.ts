@@ -6,7 +6,7 @@
  * 2. Register first-window IPC (store / window / SSH / DB / updater stubs)
  * 3. Open the migrated SQLite store, read the theme, then open the first window.
  * 4. After show: AI key migrations, X11 options, Docker/MCP/AI handler modules
- * 5. Quit teardown: AI execution → monitors → docker → ssh sessions → db → MCP HTTP
+ * 5. Quit: stop admission/cancel → bounded AI/scheduler/HTTP drain → transports → storage
  *
  * Three intentional SSH-related modes (keep separate):
  * - Interactive: SSHManager (shell / SFTP / transfer / X11 / monitor)
@@ -53,9 +53,8 @@ import {
   getDbWindow,
   getPrimaryWindow,
 } from './window/windowRegistry'
-import type { McpHttpGateway } from './mcp/httpGateway'
-import type { SshMcpRuntime } from './mcp/runtime'
-import type { AiExecutionService } from './ai/execution/executionService'
+import { DeferredServices } from './application/deferredServices'
+import { createShutdown, installGracefulQuit } from './application/shutdown'
 
 configureDevelopmentUserDataPath()
 const isPrimaryInstance = installSingleInstance(showMainWindow)
@@ -77,9 +76,6 @@ const dbQueryHistoryStore = new DbQueryHistoryStore()
 const shellCommandHistoryStore = new ShellCommandHistoryStore()
 const dbManager = new DatabaseManager()
 const sshManager = new SSHManager(knownHosts)
-let aiExecutionService: AiExecutionService | undefined
-let mcpRuntime: SshMcpRuntime | undefined
-let aiScheduler: import('./ai/schedules/scheduler').AiScheduler | undefined
 let monitorAlerts: MonitorAlerts
 let backgroundMonitor: BackgroundMonitor
 const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, updated) => {
@@ -99,15 +95,38 @@ sshManager.registerSessionTeardownHook((sessionId) => {
   backgroundMonitor.sessionTeardown(sessionId)
 })
 
-let dockerCloser: { closeAll: () => void } | null = null
-let mcpHttpGateway: McpHttpGateway | null = null
-let deferredMain: Promise<void> | null = null
+const deferredServices = new DeferredServices({
+  settings: settingsStore, credentials: credentialStore, ssh: sshManager, monitor: monitorCollector,
+  version: app.getVersion() || '1.0.0',
+  historyId: sessionId => {
+    const snapshot = sshManager.getSessionSnapshot(sessionId)
+    const connection = snapshot && credentialStore.getConnection(snapshot.connectionId)
+    return connection ? aiHistoryIdForHost(connection.host, connection.port || 22) : undefined
+  },
+  schedulesChanged: state => broadcast('ai:schedulesChanged', state),
+})
+let bootstrap: Promise<void> | undefined
+let initialStores: Promise<unknown> | undefined
+const shutdown = createShutdown({
+  stopServices: () => {
+    const services = deferredServices.stop()
+    return Promise.allSettled([services, bootstrap, initialStores]).then(() => undefined)
+  },
+  stopMonitors: [() => backgroundMonitor.dispose(), clearLatencyTimers, () => monitorCollector.stopAll()],
+  sealServices: () => deferredServices.seal(),
+  closeTransports: [() => sshManager.forceDisconnectAll(), () => dbManager.disconnectAll(), () => sessionLog.endAll()],
+  // Keep storage available for the final window-close events. will-quit runs
+  // only after the accepted quit resumes, following the bounded drain above.
+  closeStorage: () => { app.once('will-quit', closeAppDatabase) },
+  onError: error => console.error('[Main Shutdown]', error),
+})
 
 // Register this before the general before-quit cleanup below. When an update
 // download is active, the guard must get the first chance to cancel quitting.
-if (isPrimaryInstance) installUpdateGuard()
+if (isPrimaryInstance) installUpdateGuard(() => shutdown.stopping)
 
 function openMainWindow(theme?: string, customColors?: { fontColor: string; bgColor: string } | null) {
+  if (shutdown.stopping) return
   const resolvedTheme = theme ?? settingsStore.getTheme()
   const resolvedColors =
     customColors !== undefined
@@ -129,103 +148,20 @@ function cleanupSessionsForClosedWindow(webContentsId: number) {
   }
 }
 
-function startDeferredMain(): Promise<void> {
-  if (!deferredMain) {
-    deferredMain = loadDeferredMain().catch((err) => {
-      console.error('[Main Deferred]', err)
-    })
-  }
-  return deferredMain
-}
+app.whenReady().then(() => {
+  if (!isPrimaryInstance || shutdown.stopping) return
+  bootstrap = initializeMain()
+  return bootstrap
+}).catch(error => console.error('[Main Init]', error))
 
-async function loadDeferredMain(): Promise<void> {
-  try {
-    await settingsStore.initMigrations()
-  } catch (err) {
-    console.error('[Main Settings Migration]', err)
-  }
-
-  const x11P = (async () => {
-    try {
-      const { configureX11ServerOptions } = await import('./ssh/x11/x11Server')
-      configureX11ServerOptions({
-        autoStart: settingsStore.getX11AutoStartEnabled(),
-        executablePath: settingsStore.getX11ServerPath(),
-      })
-    } catch (err) {
-      console.error('[Main X11 Config]', err)
-    }
-  })()
-
-  // The command classifier gets its AST engine here. Without it the classifier
-  // silently falls back to text splitting, which cannot see inside `$()`,
-  // `bash -c` or heredocs — so a failure is worth a loud log.
-  const bashAstP = (async () => {
-    try {
-      const { initBashAst } = await import('./mcp/bashParser')
-      const status = await initBashAst()
-      if (!status.ok) console.error('[Main Bash AST] classifier degraded to text mode:', status.reason)
-    } catch (err) {
-      console.error('[Main Bash AST]', err)
-    }
-  })()
-
-  const dockerP = (async () => {
-    const { DockerSshSessionHost } = await import('./docker/sshSessionHost')
-    const { DockerService } = await import('./docker/service')
-    const { registerDockerHandlers } = await import('./ipc/registerDockerHandlers')
-    const dockerService = new DockerService(new DockerSshSessionHost(sshManager))
-    dockerCloser = dockerService
-    registerDockerHandlers(dockerService)
-  })()
-
-  const mcpAiP = (async () => {
-    const { bindSshMcpRuntime } = await import('./mcp/bind')
-    const { createMcpAuditLog } = await import('./mcp/auditLog')
-    const { McpHttpGateway } = await import('./mcp/httpGateway')
-    const { registerMcpHandlers } = await import('./ipc/registerMcpHandlers')
-    const { registerAiHandlers } = await import('./ipc/registerAiHandlers')
-
-    const sshMcpRuntime = bindSshMcpRuntime(sshManager, credentialStore, monitorCollector, {
-      getApprovalMode: () => settingsStore.getMcpApprovalMode(),
-    })
-    mcpRuntime = sshMcpRuntime
-    const gateway = new McpHttpGateway(
-      sshMcpRuntime,
-      settingsStore,
-      { name: 'liteconnect-ssh', version: app.getVersion() || '1.0.0' },
-      createMcpAuditLog(),
-    )
-    mcpHttpGateway = gateway
-    registerMcpHandlers(sshMcpRuntime, gateway)
-    aiExecutionService = registerAiHandlers(settingsStore, sshMcpRuntime, (sessionId) => {
-      const snapshot = sshManager.getSessionSnapshot(sessionId)
-      if (!snapshot) return undefined
-      const connection = credentialStore.getConnection(snapshot.connectionId)
-      if (!connection) return undefined
-      return aiHistoryIdForHost(connection.host, connection.port || 22)
-    })
-    const { registerAiScheduleHandlers } = await import('./ipc/registerAiScheduleHandlers')
-    aiScheduler = registerAiScheduleHandlers(aiExecutionService, sshManager, credentialStore, settingsStore)
-
-    try {
-      await gateway.applyFromSettings()
-    } catch (err) {
-      console.error('[Main MCP HTTP]', err)
-    }
-  })()
-
-  await Promise.all([x11P, dockerP, mcpAiP, bashAstP])
-}
-
-app.whenReady().then(async () => {
-  if (!isPrimaryInstance) return
+async function initializeMain(): Promise<void> {
   registerDevelopmentTaskbarShortcut()
   // This is deliberately the first data operation. Existing JSON/JSONL files are
   // migrated transactionally before any store can read or write the new database.
   try {
     await initializeAppDatabase()
   } catch (error) {
+    if (shutdown.stopping) return
     const detail = error instanceof Error ? error.message : String(error)
     console.error('[Main Storage Migration]', error)
     dialog.showErrorBox(
@@ -235,6 +171,7 @@ app.whenReady().then(async () => {
     app.quit()
     return
   }
+  if (shutdown.stopping) { closeAppDatabase(); return }
   installAppBackgroundProtocol(() => settingsStore.getAppBackgroundDir())
   // First-window IPC so the renderer can call as soon as the window loads.
   registerStoreHandlers(getMainWindow, credentialStore, settingsStore,
@@ -270,13 +207,14 @@ app.whenReady().then(async () => {
   registerUpdaterHandlers(getMainWindow, settingsStore)
 
   const themeReady = settingsStore.readThemeForWindow()
-  const storesReady = Promise.all([
+  const storesReady = initialStores = Promise.all([
     knownHosts.init(),
     credentialStore.init(),
     dbConnectionStore.init(),
     dbQueryHistoryStore.init(),
     shellCommandHistoryStore.init(),
   ])
+  void storesReady.catch(error => console.error('[Main Store Init]', error))
 
   app.on('browser-window-created', (_e, win) => {
     const webContentsId = win.webContents.id
@@ -295,76 +233,56 @@ app.whenReady().then(async () => {
     console.error('[Main Settings Init]', err)
   }
 
+  if (shutdown.stopping) return
+
   openMainWindow(theme, customColors)
-  void storesReady.catch((err) => {
-    console.error('[Main Store Init]', err)
-  })
-  void storesReady.then(() => backgroundMonitor.start()).catch((err) => {
+  void storesReady.then(() => { if (!shutdown.stopping) backgroundMonitor.start() }).catch((err) => {
     console.error('[Background Monitor Init]', err)
   })
-  void startDeferredMain()
+  void deferredServices.start()
 
   // Tray / close-to-tray / global hotkey (reacts to settings via syncTrayFromSettings)
   installCloseToTray(settingsStore, () => openMainWindow())
   void settingsStore.init().then(() => {
-    syncTrayFromSettings(settingsStore)
+    if (!shutdown.stopping) syncTrayFromSettings(settingsStore)
   }).catch((err) => {
     console.error('[Main Tray Init]', err)
   })
 
   app.on('window-all-closed', () => {
+    if (shutdown.stopping) return
     backgroundMonitor.stop()
     clearLatencyTimers()
     monitorCollector.stopAll()
-    dockerCloser?.closeAll()
+    deferredServices.closeWindowSessions()
     sshManager.forceDisconnectAll()
     dbManager.disconnectAll()
     sessionLog.endAll()
-    void mcpHttpGateway?.stop()
     if (process.platform !== 'darwin') {
       app.quit()
     } else {
-      void storesReady.then(() => backgroundMonitor.start()).catch((err) => {
+      void storesReady.then(() => { if (!shutdown.stopping) backgroundMonitor.start() }).catch((err) => {
         console.error('[Background Monitor Restart]', err)
       })
     }
   })
 
   app.on('activate', () => {
+    if (shutdown.stopping) return
     if (BrowserWindow.getAllWindows().length === 0) {
       openMainWindow()
-      void storesReady.then(() => backgroundMonitor.start())
+      void storesReady.then(() => { if (!shutdown.stopping) backgroundMonitor.start() })
     } else {
       showMainWindow()
     }
   })
-})
+}
 
 app.on('browser-window-blur', () => {
   credentialStore.clearDecryptedCache()
 })
 
-app.on('before-quit', (event) => {
-  // The update guard may keep the app alive while a package is downloading.
-  // Do not make `quitting` sticky or tear down live sessions in that case.
-  if (event.defaultPrevented) return
-  markQuitting()
-  aiScheduler?.dispose()
-  aiExecutionService?.dispose()
-  void mcpHttpGateway?.stop()
-  mcpRuntime?.dispose()
-  backgroundMonitor.dispose()
-  clearLatencyTimers()
-  monitorCollector.stopAll()
-  dockerCloser?.closeAll()
-  sshManager.forceDisconnectAll()
-  dbManager.disconnectAll()
-  sessionLog.endAll()
-})
-
-app.on('will-quit', () => {
-  closeAppDatabase()
-})
+installGracefulQuit(app, shutdown, markQuitting, error => console.error('[Main Shutdown]', error))
 
 process.on('unhandledRejection', (reason) => {
   console.error('[Main Unhandled Promise]', reason)

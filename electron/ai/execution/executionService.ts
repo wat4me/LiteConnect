@@ -79,6 +79,7 @@ export class AiExecutionService {
   private readonly jobs: AiBackgroundJobs
   private readonly unsubscribeJobs?: () => void
   private disposed = false
+  private persistenceClosed = false
 
   constructor(private readonly ports: AiExecutionPorts) {
     this.jobs = new AiBackgroundJobs({
@@ -119,6 +120,7 @@ export class AiExecutionService {
   }
 
   selectConversation(ownerId: number | string, sessionId: string, threadId?: string) {
+    if (this.disposed) return
     if (threadId) this.selections.set(selectionKey(ownerId, sessionId), { ownerId, threadId })
     this.jobs.flush()
   }
@@ -185,7 +187,7 @@ export class AiExecutionService {
           force: true, settings, records: thread.messages, checkpoint: thread.contextCheckpoint,
           compactionCount: thread.compactionCount, ...environment,
           signal: control.controller.signal, emit: publisher.publish, onUsage: value => { usage.push(value) },
-          saveCheckpoint: next => this.ports.history.checkpoint(historyId, target.threadId, next, this.ports.settings.limits()),
+          saveCheckpoint: next => this.saveCheckpoint(historyId, target.threadId, next, this.ports.settings.limits()),
         })
         const contextPressure = measureAiContextPressure({ ...settings, extraSystem: environment.extraSystem, toolSchemaTokens: aiToolSchemaTokens(environment.tools), messages: prepared.messages })
         publisher.publish({ type: 'context-pressure', value: contextPressure })
@@ -194,6 +196,7 @@ export class AiExecutionService {
       return await runPersistedAiReply({
         target, backgroundNotice,
         save: async record => {
+          if (this.persistenceClosed) return
           await this.ports.history.save(historyId, record, target.threadId, this.ports.settings.limits())
           try { observer?.onRecord?.({ ...event, record }) } catch { /* Observers cannot break persistence. */ }
         },
@@ -217,6 +220,8 @@ export class AiExecutionService {
           return runAiChatStream({
             emit, checkpoint, requestId, messages, abortController: control.controller,
             workspaceTargets,
+            transferContext: owner.kind === 'interactive' && typeof owner.id === 'number'
+              ? { ownerId: owner.id, conversationId: target.sessionId, threadId: target.threadId } : undefined,
             sessionId: target.sessionId, cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
             settings: { ...settings, toolPermission: permission() }, sshMcpRuntime: this.ports.runtime, foregroundOnly: request.foregroundOnly,
             allowQuestions: owner.kind === 'interactive' && !request.foregroundOnly,
@@ -240,7 +245,7 @@ export class AiExecutionService {
               // Keep its newly delivered result when compaction rebuilds messages.
               continuation: backgroundNotice ? [{ role: 'user', content: backgroundNotice }] : undefined,
               compactionCount: thread.compactionCount, records: thread.messages, checkpoint: thread.contextCheckpoint,
-              saveCheckpoint: next => this.ports.history.checkpoint(historyId, target.threadId, next, limits),
+              saveCheckpoint: next => this.saveCheckpoint(historyId, target.threadId, next, limits),
             },
           })
         },
@@ -298,5 +303,18 @@ export class AiExecutionService {
     this.unsubscribeJobs?.()
     for (const ownerId of [...this.owners.keys()]) this.disposeOwner(ownerId)
     this.jobs.dispose()
+  }
+
+  /** Stop admission with dispose() first; retain final persistence while draining. */
+  async waitForIdle(): Promise<void> {
+    await Promise.all([...this.active.values()].map(active => active.done))
+    await this.jobs.waitForIdle()
+  }
+
+  /** The shutdown deadline expired or all work settled: no more history writes. */
+  sealPersistence(): void { this.persistenceClosed = true }
+
+  private async saveCheckpoint(historyId: string, threadId: string, checkpoint: AiContextCheckpoint, limits: Partial<AiHistoryLimits>) {
+    if (!this.persistenceClosed) await this.ports.history.checkpoint(historyId, threadId, checkpoint, limits)
   }
 }

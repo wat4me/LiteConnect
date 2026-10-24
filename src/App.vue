@@ -5,10 +5,12 @@ import ConnectionsView from './views/ConnectionsView.vue'
 import TabBar from '@/components/app/TabBar.vue'
 import AppTitlebar from '@/components/app/AppTitlebar.vue'
 import AppDialogHost from '@/components/app/AppDialogHost.vue'
+import UploadConflictDialog from '@/components/sftp/UploadConflictDialog.vue'
 
 const SettingsView = defineAsyncComponent(() => import('./views/SettingsView.vue'))
 const DatabaseView = defineAsyncComponent(() => import('./views/DatabaseView.vue'))
 const AiWorkspaceView = defineAsyncComponent(() => import('./views/AiWorkspaceView.vue'))
+const aiWorkspaceViewRef = ref<{ revealConversation: (sessionId: string) => boolean } | null>(null)
 const SshWorkspace = defineAsyncComponent(() => import('@/components/workspace/SshWorkspace.vue'))
 const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
@@ -452,12 +454,17 @@ function guardedAiSelection(text: string, mode: 'send' | 'insert') {
 }
 
 function jumpToAiApproval(sessionId: string) {
-  if (isSplit.value) suspendSplit()
-  const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
-  if (group) {
-    if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
-    if (activeSessionId.value !== sessionId) selectWorkspaceSession(sessionId)
+  if (aiWorkspaceViewRef.value?.revealConversation(sessionId)) {
+    enterAi()
+    return
   }
+  const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
+  if (!group) return
+  enterSsh()
+  ensureSshWorkspaceMounted()
+  if (isSplit.value) suspendSplit()
+  if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
+  if (activeSessionId.value !== sessionId) selectWorkspaceSession(sessionId)
   if (isDockerMode.value) enterTerminal()
   aiSidebarVisible.value = true
 }
@@ -703,8 +710,6 @@ onMounted(async () => {
     })
   })
   unsubAiApprovalNotification = window.LiteConnect.onAiApprovalNotificationClick((sessionId) => {
-    enterSsh()
-    ensureSshWorkspaceMounted()
     jumpToAiApproval(sessionId)
   })
   unsubReplyComplete = onAiReplyComplete((sessionId) => {
@@ -905,7 +910,7 @@ onBeforeUnmount(() => {
           <DatabaseView v-if="databaseMounted" />
         </div>
         <div v-show="isAiMode" class="home-module">
-          <AiWorkspaceView v-if="aiWorkspaceMounted" :active="isAiMode" @open-connections="enterSsh(true)" />
+          <AiWorkspaceView v-if="aiWorkspaceMounted" ref="aiWorkspaceViewRef" :active="isAiMode" @open-connections="enterSsh(true)" />
         </div>
 
         <SshWorkspace
@@ -1024,6 +1029,7 @@ onBeforeUnmount(() => {
     />
 
     <AppDialogHost />
+    <UploadConflictDialog />
 
     <OnboardingTips />
 

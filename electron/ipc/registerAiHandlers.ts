@@ -1,10 +1,10 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
+import { ServiceIpcScope } from './serviceScope'
 import { workspaceScopes, workspaceHistoryId } from '../ai/workspace/workspaceScopes'
-import { AiExecutionService } from '../ai/execution/executionService'
+import type { AiExecutionService } from '../ai/execution/executionService'
 import { readFile, stat } from 'fs/promises'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
-import type { SshMcpRuntime } from '../mcp/runtime'
 import { listAiProviderModels, testAiProviderConfig } from '../ai/providers/providerService'
 import { validateAiSettings } from '../ai/settingsValidation'
 import {
@@ -21,24 +21,29 @@ import {
   updateAiConversationMetadata,
   upsertAiHistoryRecord,
   writeAiHistoryRecords,
-  writeAiContextCheckpoint,
   writeAiSessionStore,
 } from '../ai/history/historyStore'
 import type { AiChatStreamOptions } from '../../shared/types/ai'
 import { runAiChatCompletion } from '../ai/execution/chatCompletion'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { showAiApprovalNotification } from './aiApprovalNotification'
-import { hydrateAiImages } from '../ai/history/imageStore'
 import { listAiWorkspaceConversations } from '../ai/workspace/workspaceConversations'
 import { AI_WORKSPACE_HISTORY_LIMIT } from '../../shared/aiWorkspaceConversations'
 import { normalizeAiHistoryLimits } from '../../shared/aiHistoryLimits'
 
 export function registerAiHandlers(
   settingsStore: SettingsStore,
-  sshMcpRuntime?: SshMcpRuntime,
+  execution: AiExecutionService,
   resolveHistoryId?: (sessionId: string) => string | undefined,
-): AiExecutionService {
-  const ensureSettingsReady = () => settingsStore.init().then(() => settingsStore.initMigrations())
+  scope = new ServiceIpcScope(),
+): void {
+  const ensureSettingsReady = async () => {
+    scope.assertOpen()
+    await settingsStore.init()
+    scope.assertOpen()
+    await settingsStore.initMigrations()
+    scope.assertOpen()
+  }
   const getHistoryLimits = () => {
     const settings = settingsStore.getAiSettings()
     return {
@@ -46,17 +51,6 @@ export function registerAiHandlers(
       maxMessages: settings.historyMaxMessages,
     }
   }
-  const execution = new AiExecutionService({
-    settings: { ready: ensureSettingsReady, config: () => settingsStore.getAiResolvedConfig(), limits: getHistoryLimits },
-    history: { read: readAiSessionStore, save: upsertAiHistoryRecord, checkpoint: writeAiContextCheckpoint, hydrate: hydrateAiImages },
-    runtime: sshMcpRuntime,
-    workspaceOwned: (id, owner) => {
-      if (!id.startsWith('workspace:')) return false
-      try { workspaceScopes.owned(id, owner); return true } catch { return false }
-    },
-    workspaceTargets: (sessionId, ownerId) => workspaceScopes.targets(sessionId, ownerId),
-    onError: error => console.warn('Could not deliver AI background results', error),
-  })
   const historyIdsBySession = new Map<string, string>()
 
   const historyIdForSession = (sessionId: string, ownerId: number): string => {
@@ -73,24 +67,24 @@ export function registerAiHandlers(
     return historyId
   }
 
-  ipcMain.handle('ai:openWorkspaceScope', async (event, input) => {
+  scope.handle('ai:openWorkspaceScope', async (event, input) => {
     await ensureSettingsReady()
     const scope = workspaceScopes.open(event.sender.id, input)
     execution.selectConversation(event.sender.id, scope.id)
     return scope
   })
 
-  ipcMain.handle('settings:getAiSettings', async () => {
+  scope.handle('settings:getAiSettings', async () => {
     await ensureSettingsReady()
     return settingsStore.getAiSettings()
   })
 
-  ipcMain.handle('ai:previewHistoryPrune', async (_event, limits: unknown) => {
+  scope.handle('ai:previewHistoryPrune', async (_event, limits: unknown) => {
     await ensureSettingsReady()
     return previewAiHistoryPrune(normalizeAiHistoryLimits(limits && typeof limits === 'object' ? limits : {}))
   })
 
-  ipcMain.handle('settings:setAiSettings', async (_event, settings: any) => {
+  scope.handle('settings:setAiSettings', async (_event, settings: any) => {
     await ensureSettingsReady()
     const previousLimits = getHistoryLimits()
     await settingsStore.setAiSettings(validateAiSettings(settings))
@@ -101,7 +95,7 @@ export function registerAiHandlers(
     }
   })
 
-  ipcMain.handle('settings:switchAiModel', async (_event, providerId: string, model: string) => {
+  scope.handle('settings:switchAiModel', async (_event, providerId: string, model: string) => {
     await ensureSettingsReady()
     if (typeof providerId !== 'string' || typeof model !== 'string') {
       throw new Error('Invalid provider id or model')
@@ -109,25 +103,25 @@ export function registerAiHandlers(
     return await settingsStore.switchAiModel(providerId, model)
   })
 
-  ipcMain.handle('ai:listModels', (_event, provider) => listAiProviderModels(provider))
+  scope.handle('ai:listModels', (_event, provider) => listAiProviderModels(provider))
 
-  ipcMain.handle('ai:testProvider', async (_event, provider: any) => {
+  scope.handle('ai:testProvider', async (_event, provider: any) => {
     await testAiProviderConfig(provider)
     return { ok: true }
   })
 
-  ipcMain.handle('ai:getSessionHistory', async (event, sessionId: string) => {
+  scope.handle('ai:getSessionHistory', async (event, sessionId: string) => {
     await ensureSettingsReady()
     const store = await readAiSessionStoreAndGc(historyIdForSession(sessionId, event.sender?.id), getHistoryLimits())
     return getActiveThread(store).messages.slice()
   })
 
-  ipcMain.handle('ai:getSessionStore', async (event, sessionId: string) => {
+  scope.handle('ai:getSessionStore', async (event, sessionId: string) => {
     await ensureSettingsReady()
     return await readAiSessionStoreAndGc(historyIdForSession(sessionId, event.sender?.id), getHistoryLimits())
   })
 
-  ipcMain.handle('ai:setSessionStore', async (event, sessionId: string, store: any) => {
+  scope.handle('ai:setSessionStore', async (event, sessionId: string, store: any) => {
     if (!sessionId || typeof sessionId !== 'string') {
       throw new Error('Invalid AI session id')
     }
@@ -137,12 +131,12 @@ export function registerAiHandlers(
     execution.selectConversation(event.sender.id, sessionId, store.activeThreadId)
   })
 
-  ipcMain.handle('ai:suppressBackgroundReplies', async (event, sessionId: string, threadId: string) => {
+  scope.handle('ai:suppressBackgroundReplies', async (event, sessionId: string, threadId: string) => {
     historyIdForSession(sessionId, event.sender?.id)
     if (typeof threadId !== 'string' || !threadId) throw new Error('Invalid AI thread id')
     await execution.suppressBackground(event.sender.id, sessionId, threadId)
   })
-  ipcMain.handle('ai:createConversation', async (event, sessionId: string, payload: any) => {
+  scope.handle('ai:createConversation', async (event, sessionId: string, payload: any) => {
     if (!sessionId || typeof sessionId !== 'string') {
       throw new Error('Invalid AI session id')
     }
@@ -161,7 +155,7 @@ export function registerAiHandlers(
     }
   })
 
-  ipcMain.handle('ai:selectLocalContextFile', async (event) => {
+  scope.handle('ai:selectLocalContextFile', async (event) => {
     const owner = BrowserWindow.fromWebContents(event.sender)
     const options = {
       properties: ['openFile'] as Array<'openFile'>,
@@ -182,7 +176,7 @@ export function registerAiHandlers(
     return file
   })
 
-  ipcMain.handle('ai:checkLocalContextFile', async (_event, path: string) => {
+  scope.handle('ai:checkLocalContextFile', async (_event, path: string) => {
     if (typeof path !== 'string' || path.length > 1024 || !isAiMarkdownFilePath(path) || /[\0\r\n]/.test(path)) {
       throw new Error('Invalid Markdown file path')
     }
@@ -193,7 +187,7 @@ export function registerAiHandlers(
     }
   })
 
-  ipcMain.handle('ai:readLocalContextFile', async (event, sessionId: string, threadId: string, path: string) => {
+  scope.handle('ai:readLocalContextFile', async (event, sessionId: string, threadId: string, path: string) => {
     if (typeof path !== 'string' || path.length > 1024 || !isAiMarkdownFilePath(path) || /[\0\r\n]/.test(path)) {
       throw new Error('Invalid Markdown file path')
     }
@@ -210,7 +204,7 @@ export function registerAiHandlers(
     return file
   })
 
-  ipcMain.handle('ai:updateConversation', async (event, sessionId: string, threadId: string, patch: unknown) => {
+  scope.handle('ai:updateConversation', async (event, sessionId: string, threadId: string, patch: unknown) => {
     if (typeof threadId !== 'string' || !threadId || !patch || typeof patch !== 'object') {
       throw new Error('Invalid AI conversation update')
     }
@@ -218,19 +212,19 @@ export function registerAiHandlers(
     return updateAiConversationMetadata(historyIdForSession(sessionId, event.sender?.id), threadId, patch, getHistoryLimits())
   })
 
-  ipcMain.handle('ai:setContextFile', async (event, sessionId: string, threadId: string, file: unknown) => {
+  scope.handle('ai:setContextFile', async (event, sessionId: string, threadId: string, file: unknown) => {
     if (typeof threadId !== 'string' || !threadId) throw new Error('Invalid AI conversation')
     await ensureSettingsReady()
     return setAiConversationContextFile(historyIdForSession(sessionId, event.sender?.id), threadId, file, getHistoryLimits())
   })
 
-  ipcMain.handle('ai:removeContextFile', async (event, sessionId: string, threadId: string, source: 'local' | 'ssh', path: string, removeFromFuture: boolean) => {
+  scope.handle('ai:removeContextFile', async (event, sessionId: string, threadId: string, source: 'local' | 'ssh', path: string, removeFromFuture: boolean) => {
     if (typeof threadId !== 'string' || !threadId || (source !== 'local' && source !== 'ssh') || typeof path !== 'string' || typeof removeFromFuture !== 'boolean') throw new Error('Invalid AI context file')
     await ensureSettingsReady()
     return removeAiConversationContextFile(historyIdForSession(sessionId, event.sender?.id), threadId, source, path, removeFromFuture, getHistoryLimits())
   })
 
-  ipcMain.handle('ai:appendSessionHistory', async (event, sessionId: string, record: any, threadId?: string) => {
+  scope.handle('ai:appendSessionHistory', async (event, sessionId: string, record: any, threadId?: string) => {
     await ensureSettingsReady()
     await upsertAiHistoryRecord(
       historyIdForSession(sessionId, event.sender?.id),
@@ -240,17 +234,17 @@ export function registerAiHandlers(
     )
   })
 
-  ipcMain.handle('ai:clearSessionHistory', async (event, sessionId: string) => {
+  scope.handle('ai:clearSessionHistory', async (event, sessionId: string) => {
     await ensureSettingsReady()
     await writeAiHistoryRecords(historyIdForSession(sessionId, event.sender?.id), [], getHistoryLimits())
   })
 
-  ipcMain.handle('ai:chat', async (_event, messages: any) => {
+  scope.handle('ai:chat', async (_event, messages: any) => {
     await ensureSettingsReady()
-    return runAiChatCompletion(settingsStore.getAiResolvedConfig(), messages)
+    return runAiChatCompletion(settingsStore.getAiResolvedConfig(), messages, scope.signal)
   })
 
-  ipcMain.handle('ai:chatStream', async (event, requestId: string, _messages: unknown, target: AiChatStreamOptions) => {
+  scope.handle('ai:chatStream', async (event, requestId: string, _messages: unknown, target: AiChatStreamOptions) => {
     const sender = event.sender
     const ownerWindow = BrowserWindow.fromWebContents(sender)
     return execution.run({
@@ -278,14 +272,14 @@ export function registerAiHandlers(
     })
   })
 
-  ipcMain.handle('ai:abortChatStream', async (event, requestId: string) => execution.abort(event.sender.id, requestId))
+  scope.handle('ai:abortChatStream', async (event, requestId: string) => execution.abort(event.sender.id, requestId))
 
-  ipcMain.handle('ai:resolveToolApproval', async (event, requestId: string, callId: string, approved: boolean) =>
+  scope.handle('ai:resolveToolApproval', async (event, requestId: string, callId: string, approved: boolean) =>
     execution.resolveApproval(event.sender.id, requestId, callId, approved))
-  ipcMain.handle('ai:answerQuestion', async (event, requestId: string, callId: string, answer: unknown) =>
+  scope.handle('ai:answerQuestion', async (event, requestId: string, callId: string, answer: unknown) =>
     execution.answerQuestion(event.sender.id, requestId, callId, answer))
 
-  ipcMain.handle('ai:listWorkspaceConversations', (_event, hosts: unknown, limit?: unknown) => {
+  scope.handle('ai:listWorkspaceConversations', (_event, hosts: unknown, limit?: unknown) => {
     if (!Array.isArray(hosts)) return []
     const refs = hosts.flatMap((item: any) => {
       if (!item || typeof item.id !== 'string' || !item.id || typeof item.host !== 'string' || !item.host) return []
@@ -295,5 +289,4 @@ export function registerAiHandlers(
     return listAiWorkspaceConversations(refs, capped)
   })
 
-  return execution
 }

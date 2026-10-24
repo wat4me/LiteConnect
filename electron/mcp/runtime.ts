@@ -12,7 +12,7 @@ import { isSshMcpToolName } from '../../shared/mcp/types'
 import { isValidUUID } from '../utils/validation'
 import { McpJobStore } from './execJobs'
 import { PtySessionStore } from './ptySessions'
-import type { SshMcpRuntimeOptions, SshMcpSessionPort } from './ports'
+import type { McpTransferOptions, SshMcpRuntimeOptions, SshMcpSessionPort } from './ports'
 import { mapThrown, toolError } from './errors'
 import { resultError, resultOk, type McpRuntimeHost } from './runtimeHost'
 import {
@@ -46,6 +46,7 @@ export class SshMcpRuntime {
   private readonly approvalMode: ApprovalMode
   private readonly getApprovalMode?: () => ApprovalMode
   private readonly requestApproval?: SshMcpRuntimeOptions['requestApproval']
+  private readonly getDownloadSettings?: SshMcpRuntimeOptions['getDownloadSettings']
   private readonly jobs = new McpJobStore()
   private readonly ptys: PtySessionStore
   private readonly lastToolAt = new Map<string, number>()
@@ -59,6 +60,7 @@ export class SshMcpRuntime {
     this.approvalMode = opts.approvalMode ?? 'deny-destructive'
     this.getApprovalMode = opts.getApprovalMode
     this.requestApproval = opts.requestApproval
+    this.getDownloadSettings = opts.getDownloadSettings
     this.ptys = new PtySessionStore(async (sessionId, generation, shellOpts) => {
       this.assertGeneration(sessionId, generation)
       const channel = await this.ssh.openShellChannel(sessionId, generation, shellOpts)
@@ -78,6 +80,11 @@ export class SshMcpRuntime {
 
   listTools(): SshMcpToolDefinition[] {
     return SSH_MCP_TOOLS
+  }
+
+  /** Trusted local context, separate from remote session facts and tool arguments. */
+  getLocalEnvironment() {
+    return { platform: process.platform, defaultDownloadDirectory: this.getDownloadSettings?.().directory }
   }
 
   listJobs() {
@@ -116,7 +123,7 @@ export class SshMcpRuntime {
   async call(
     name: unknown,
     args: unknown,
-    opts?: { approvalMode?: ApprovalMode; signal?: AbortSignal },
+    opts?: { approvalMode?: ApprovalMode } & McpTransferOptions,
   ): Promise<SshMcpToolResult> {
     if (this.disposed) return this.error('TOOL_FAILED', 'MCP runtime disposed')
     if (!isSshMcpToolName(name)) {
@@ -159,9 +166,9 @@ export class SshMcpRuntime {
         case 'edit_file':
           return await editFileTool(host, input)
         case 'download_file':
-          return await downloadFile(host, input)
+          return await downloadFile(host, input, opts)
         case 'upload_file':
-          return await uploadFile(host, input)
+          return await uploadFile(host, input, opts)
         case 'list_dir':
           return await listDir(host, input)
         case 'stat_path':

@@ -1,6 +1,7 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '@/i18n'
+import { ensureTransferListeners, teardownTransferListeners } from '@/composables/sftp/useTransfers'
 import {
   createTransferToastCoalescer,
   type TransferToastDirection,
@@ -119,11 +120,13 @@ function onBatchFinished(e: Event) {
 /** SFTP per-file / batch transfer and batch-command completion toasts. */
 export function useTransferToasts() {
   onMounted(() => {
+    ensureTransferListeners()
     window.addEventListener('sftp-transfer-finished', onTransferFinished)
     window.addEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
     window.addEventListener('batch-command-finished', onBatchFinished)
   })
   onBeforeUnmount(() => {
+    teardownTransferListeners()
     sftpToastCoalescer.flushAll()
     window.removeEventListener('sftp-transfer-finished', onTransferFinished)
     window.removeEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
 import SynchronizedInputBar from '@/components/terminal/SynchronizedInputBar.vue'
 import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useI18n } from 'vue-i18n'
@@ -22,21 +22,12 @@ import type {
 import type { SplitMode, SplitSide } from '@/domain/terminal/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { getSnippetContext } from '@/utils/session/sessionDisplay'
-import {
-  ensureTransferListeners,
-  globalActiveTransfers,
-  teardownTransferListeners,
-} from '@/composables/sftp/useTransfers'
+import { globalActiveTransfers } from '@/composables/sftp/useTransfers'
 import { scheduleAfterTerminalVisible } from '@/utils/terminal/workspaceTerminalFocus'
-
-onMounted(() => {
-  ensureTransferListeners()
-})
 
 onBeforeUnmount(() => {
   cancelPendingTerminalFocus?.()
   cancelPendingTerminalFocus = null
-  teardownTransferListeners()
   synchronizedInput.stop()
 })
 
@@ -260,7 +251,7 @@ const approvalHint = computed(() => {
   const session = props.allSessions.find((item) => item.id === sessionId)
   return {
     sessionId,
-    current: sessionId === props.activeSessionId,
+    current: sessionId === props.activeSessionId || !session,
     name: session?.connectionName || '',
     extra: hidden.length - 1,
   }

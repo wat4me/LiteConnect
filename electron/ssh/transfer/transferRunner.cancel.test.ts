@@ -1,3 +1,4 @@
+import { TransferCancelledError } from '../../../shared/transferCancellation'
 import { describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
@@ -5,7 +6,6 @@ import * as os from 'os'
 import * as path from 'path'
 import { TransferRunner } from './transferRunner'
 import type { Session } from '../types'
-import { TransferCancelledError } from './transferHelpers'
 import { MonotonicByteProgress } from './transferHelpers'
 import { sanitizeLocalName } from '../../utils/filePaths'
 

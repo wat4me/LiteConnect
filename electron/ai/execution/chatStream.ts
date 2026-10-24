@@ -20,7 +20,8 @@ import { compactAiLiveMessages, maybeCompactAiContext } from './contextCompactio
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget } from '../../../shared/aiContextPressure'
 import { getAiProviderAdapter } from '../providers/registry'
 import { createAiStreamControl, clearPendingToolApprovals, clearPendingUserQuestions } from '../tools/streamControl'
-import { executeAiToolCall, type AiToolApprovalObserver } from '../tools/toolExecution'
+import { executeAiToolCall } from '../tools/toolExecution'
+import type { AiToolApprovalObserver } from '../tools/toolExecutionContext'
 import type {
   AiChatMessage,
   AiChatStreamPayload,
@@ -32,6 +33,7 @@ import type {
   AiContextPressure,
 } from '../../../shared/types/ai'
 import type { SshMcpRuntime } from '../../mcp/runtime'
+import type { McpTransferContext } from '../../mcp/ports'
 import { readHttpErrorMessage } from '../providers/http'
 import { buildAiRequestEnvironment, packRequestMessages } from './requestContext'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
@@ -47,6 +49,7 @@ export async function runAiChatStream(opts: {
   messages: unknown
   sessionId?: string
   workspaceTargets?: AiWorkspaceTarget[]
+  transferContext?: McpTransferContext
   cwd?: string
   settings: AiResolvedConfig
   contextFiles?: import('../../../shared/types/ai').AiConversationContextFile[]
@@ -350,6 +353,7 @@ export async function runAiChatStream(opts: {
         const result = await executeAiToolCall(call, {
           requestId, boundSessionId, workspaceTargets, sshMcpRuntime,
           signal: abortController.signal, send, getToolPermission: currentToolPermission,
+          transferContext: opts.transferContext,
           checkpoint: opts.checkpoint, foregroundOnly: opts.foregroundOnly,
           allowQuestions,
           availableTools, loadTools,

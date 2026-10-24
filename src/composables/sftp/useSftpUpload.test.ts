@@ -31,7 +31,7 @@ describe('useSftpUpload', () => {
     globalThis.window = originalWindow
   })
 
-  it('queues files and directories with the selected conflict strategy and target path', async () => {
+  it('queues a drop immediately, sharing an ask-on-conflict batch without a remote preflight', async () => {
     const upload = useSftpUpload({
       sessionId: () => 'session-1',
       currentPath: ref('/home'),
@@ -51,7 +51,6 @@ describe('useSftpUpload', () => {
         ],
       },
     } as unknown as DragEvent)
-    await upload.confirmUpload('overwrite')
 
     expect(sftpUpload).toHaveBeenCalledWith(
       'session-1',
@@ -59,7 +58,7 @@ describe('useSftpUpload', () => {
       '/incoming',
       'notes.txt',
       expect.stringMatching(/^ul-/),
-      { conflict: 'overwrite' },
+      { conflict: 'ask', batchId: expect.stringMatching(/^ul-batch-/), batchSize: 2 },
     )
     expect(sftpUpload).toHaveBeenCalledWith(
       'session-1',
@@ -67,12 +66,10 @@ describe('useSftpUpload', () => {
       '/incoming',
       'photos.dcm',
       expect.stringMatching(/^ul-/),
-      { conflict: 'overwrite' },
+      { conflict: 'ask', batchId: sftpUpload.mock.calls[0][5].batchId, batchSize: 2 },
     )
     expect(sftpUploadDirectory).not.toHaveBeenCalled()
     expect(onQueued).toHaveBeenCalledWith('upload')
-    expect(upload.showUploadConfirm.value).toBe(false)
-    expect(upload.uploadFiles.value).toEqual([])
   })
 
   it('ignores an empty drop without opening a confirmation or starting an upload', async () => {
@@ -88,8 +85,6 @@ describe('useSftpUpload', () => {
       dataTransfer: { items: [] },
     } as unknown as DragEvent)
 
-    expect(upload.showUploadConfirm.value).toBe(false)
-    expect(upload.uploadFiles.value).toEqual([])
     expect(sftpUpload).not.toHaveBeenCalled()
     expect(sftpUploadDirectory).not.toHaveBeenCalled()
     expect(onQueued).not.toHaveBeenCalled()

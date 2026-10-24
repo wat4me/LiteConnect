@@ -23,6 +23,8 @@ export class AiBackgroundJobs {
   private readonly delivering = new Set<string>()
   private readonly disposed = new Set<number | string>()
   private timer?: ReturnType<typeof setTimeout>
+  private stopped = false
+  private readonly drains = new Set<Promise<void>>()
 
   constructor(private readonly options: {
     getJob: (id: string) => SshMcpJobResult | undefined
@@ -101,6 +103,7 @@ export class AiBackgroundJobs {
   }
 
   dispose() {
+    this.stopped = true
     if (this.timer) clearTimeout(this.timer)
     this.timer = undefined
     this.owners.clear()
@@ -111,13 +114,17 @@ export class AiBackgroundJobs {
   }
 
   flush() {
-    if (this.timer) return
+    if (this.stopped || this.timer) return
     // Coalesce completions and leave time for the previous IPC reply to reach UI.
     this.timer = setTimeout(() => {
       this.timer = undefined
-      void this.drain()
+      const pending = this.drain()
+      this.drains.add(pending)
+      void pending.then(() => this.drains.delete(pending), () => this.drains.delete(pending))
     }, 50)
   }
+
+  async waitForIdle() { await Promise.allSettled([...this.drains]) }
 
   private async drain() {
     for (const [key, batch] of [...this.pending]) {
@@ -131,7 +138,7 @@ export class AiBackgroundJobs {
       this.delivering.add(batch.owner.historyId)
       let failed = false
       const requeue = () => {
-        if (this.suppressed.has(key) || this.disposed.has(batch.owner.ownerId)) return
+        if (this.stopped || this.suppressed.has(key) || this.disposed.has(batch.owner.ownerId)) return
         const newer = this.pending.get(key)
         for (const [id, job] of newer?.jobs || []) batch.jobs.set(id, job)
         this.pending.set(key, batch)

@@ -30,6 +30,7 @@ export type McpHttpServerOptions = {
 export type McpHttpHandle = {
   listen: (port: number, host?: string) => Promise<number>
   close: () => Promise<void>
+  forceClose: () => void
   address: () => { host: string; port: number } | null
 }
 
@@ -40,13 +41,20 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
   const limiter = new SlidingWindowLimiter(MCP_HTTP_RATE_LIMIT, MCP_HTTP_RATE_WINDOW_MS)
   const sessions = new Map<string, number>()
   const maxBody = opts.maxBodyBytes ?? MCP_HTTP_MAX_BODY_BYTES
+  const controller = new AbortController()
+  const pending = new Set<Promise<void>>()
+  let closing: Promise<void> | undefined
+  let listening: Promise<number> | undefined
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res)
+    const task = handleRequest(req, res)
+    pending.add(task)
+    void task.then(() => pending.delete(task), () => pending.delete(task))
   })
 
   async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     try {
+      controller.signal.throwIfAborted()
       const url = new URL(req.url || '/', 'http://127.0.0.1')
       const origin = header(req, 'origin')
       if (!isAllowedOrigin(origin || undefined)) {
@@ -133,7 +141,7 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         const bodies: unknown[] = []
         let sessionId = sessionHeader
         for (const item of parsed) {
-          const out = await handleMcpJsonRpc(item, opts)
+          const out = await handleMcpJsonRpc(item, { ...opts, signal: controller.signal })
           if (out.kind === 'initialize') {
             sessionId = randomUUID()
             sessions.set(sessionId, Date.now())
@@ -150,7 +158,7 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         return
       }
 
-      const out = await handleMcpJsonRpc(parsed, opts)
+      const out = await handleMcpJsonRpc(parsed, { ...opts, signal: controller.signal })
       if (out.kind === 'notification') {
         res.writeHead(202)
         res.end()
@@ -169,7 +177,7 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
       }
       writeJson(res, out.kind === 'rpc-error' ? out.status : 200, out.body, headers)
     } catch (err) {
-      if (res.headersSent) return
+      if (res.headersSent || res.destroyed) return
       const message = err instanceof Error ? err.message : String(err)
       if (message === 'PAYLOAD_TOO_LARGE') {
         writeJson(res, 413, { error: 'payload too large' })
@@ -193,7 +201,8 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
 
   return {
     listen(port: number, host = '127.0.0.1') {
-      return new Promise((resolve, reject) => {
+      if (controller.signal.aborted) return Promise.reject(new Error('MCP HTTP server is closing'))
+      return listening ??= new Promise<number>((resolve, reject) => {
         const onError = (err: Error) => reject(err)
         server.once('error', onError)
         server.listen(port, host, () => {
@@ -205,10 +214,16 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
       })
     },
     close() {
-      return new Promise((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()))
-      })
+      if (closing) return closing
+      controller.abort()
+      closing = (async () => {
+        await listening?.catch(() => {})
+        await new Promise<void>(resolve => { server.close(() => resolve()) })
+        await Promise.allSettled([...pending])
+      })()
+      return closing
     },
+    forceClose() { server.closeAllConnections() },
     address() {
       const addr = server.address()
       if (!addr || typeof addr === 'string') return null

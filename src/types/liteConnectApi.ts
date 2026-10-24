@@ -11,6 +11,7 @@ import type {
 } from '@shared/types/ai'
 import type { AppResourceStats } from '@shared/appResourceStats'
 import type { AiUserAnswer } from '@shared/aiQuestions'
+import type { SftpApi } from '@shared/ipc/sftp'
 import type { AiHistoryLimits, AiHistoryPrunePreview } from '@shared/aiHistoryLimits'
 import type { UpdateStatus } from '@shared/types/app'
 import type {
@@ -58,10 +59,9 @@ import type {
 import type { MonitorData } from '@shared/types/monitor'
 import type { McpHttpStatus, SshMcpToolCallResult, SshMcpToolDefinition, SshMcpJobSummary } from '@shared/mcp/types'
 import type { AppBootstrapData, AppSettingsAll, AppSettingsAllPatch, WorkspaceTabsState } from '@shared/types/settings'
-import type { FileEntry, TransferConflictStrategy } from '@shared/types/sftp'
 import type { CommandSnippet, ShellCommandHistoryItem } from '@shared/types/snippets'
 
-export interface LiteConnectApi {
+export interface LiteConnectApi extends SftpApi {
   getAppBootstrap: () => Promise<AppBootstrapData>
   getConnections: () => Promise<Connection[]>
   saveConnection: (conn: Partial<Connection> & { name: string; host: string; username: string; password: string }) => Promise<Connection>
@@ -433,82 +433,6 @@ export interface LiteConnectApi {
   monitorRetryBackground: (connectionId: string) => Promise<void>
   onMonitorAlertClick: (callback: (connectionId: string) => void) => () => void
 
-  sftpInit: (sessionId: string) => Promise<void>
-  sftpReaddir: (sessionId: string, remotePath: string) => Promise<FileEntry[]>
-  sftpRealpath: (sessionId: string, remotePath: string) => Promise<string>
-  sftpExecHome: (sessionId: string) => Promise<string>
-  sftpDownload: (
-    sessionId: string,
-    remotePath: string,
-    fileName: string,
-    transferId: string,
-    options?: {
-      conflict?: TransferConflictStrategy
-      resume?: boolean
-      localDir?: string
-      localPath?: string
-    },
-  ) => void
-  sftpUpload: (
-    sessionId: string,
-    localPath: string,
-    remotePath: string,
-    fileName: string,
-    transferId: string,
-    options?: {
-      conflict?: TransferConflictStrategy
-      resume?: boolean
-      remoteFullPath?: string
-    },
-  ) => void
-  sftpCancelTransfer: (transferId: string) => void
-  sftpExtractArchive: (sessionId: string, remotePath: string) => Promise<{ ok: boolean; output?: string }>
-  sftpExists: (sessionId: string, remotePath: string) => Promise<boolean>
-  sftpEditorSnapshot: (sessionId: string, remotePath: string) => Promise<import('@shared/types/sftp').SftpEditorSnapshot>
-  sftpEditorSave: (sessionId: string, remotePath: string, content: string, options: import('@shared/types/sftp').SftpEditorSaveOptions) => Promise<import('@shared/types/sftp').SftpEditorSaveResult>
-  sftpDirectoryPreview: (sessionId: string, localPath: string, remotePath: string) => Promise<import('@shared/types/sftp').SftpDirectoryPreview>
-  sftpReadFile: (sessionId: string, remotePath: string) => Promise<string>
-  sftpWriteFile: (sessionId: string, remotePath: string, content: string) => Promise<void>
-  sftpChmod: (sessionId: string, remotePath: string, mode: string, recursive?: boolean) => Promise<void>
-  sftpChown: (sessionId: string, remotePath: string, owner: string, group?: string, recursive?: boolean) => Promise<void>
-  sftpRename: (sessionId: string, oldPath: string, newPath: string) => Promise<void>
-  sftpMkdir: (sessionId: string, remotePath: string) => Promise<void>
-  sftpDelete: (sessionId: string, remotePath: string, isDirectory?: boolean) => Promise<void>
-  sftpDownloadDirectory: (
-    sessionId: string,
-    remotePath: string,
-    dirName: string,
-    transferId: string,
-    options?: {
-      conflict?: TransferConflictStrategy
-      concurrency?: number
-      failPolicy?: 'continue' | 'stop'
-    },
-  ) => void
-  sftpUploadDirectory: (
-    sessionId: string,
-    localPath: string,
-    remoteParent: string,
-    dirName: string,
-    transferId: string,
-    options?: {
-      conflict?: TransferConflictStrategy
-      concurrency?: number
-      failPolicy?: 'continue' | 'stop'
-    },
-  ) => void
-  sftpStat: (sessionId: string, remotePath: string) => Promise<{
-    mode: string
-    size: number
-    uid: number
-    gid: number
-    atime: number
-    mtime: number
-    owner: string
-    group: string
-    isDirectory: boolean
-  }>
-
   getPathForFile: (file: File) => string
 
   /** Real scratch directory (`os.tmpdir()`), used to refuse archive-viewer drops. */
@@ -581,46 +505,6 @@ export interface LiteConnectApi {
   ) => () => void
   onDockerContainerExecState: (
     callback: (payload: DockerExecStateEvent) => void,
-  ) => () => void
-
-  onTransferStart: (
-    callback: (
-      sessionId: string,
-      transferId: string,
-      fileName: string,
-      localPath: string,
-      direction: 'download' | 'upload',
-      remotePath?: string,
-      kind?: 'file' | 'directory',
-    ) => void,
-  ) => () => void
-  onTransferProgress: (
-    callback: (
-      sessionId: string,
-      transferId: string,
-      transferred: number,
-      total: number,
-      stats?: {
-        completedFiles: number
-        failedFiles: number
-        totalFiles: number
-        phase?: 'scanning' | 'preparing' | 'transferring'
-        preparedDirs?: number
-        totalDirs?: number
-      },
-    ) => void,
-  ) => () => void
-  onTransferComplete: (
-    callback: (
-      sessionId: string,
-      transferId: string,
-      localPath: string,
-      status?: 'skipped' | 'partial',
-      stats?: { completedFiles: number; failedFiles: number; totalFiles: number },
-    ) => void,
-  ) => () => void
-  onTransferError: (
-    callback: (sessionId: string, transferId: string, error: string, code?: 'cancelled') => void,
   ) => () => void
 
   updateTitleBar: (theme: string, colors?: { color: string; symbolColor: string }) => void

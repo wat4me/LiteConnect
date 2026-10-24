@@ -24,6 +24,11 @@ export class McpHttpGateway {
   private handle: McpHttpHandle | null = null
   private lastError: string | null = null
   private listeningPort: number | null = null
+  private disposed = false
+  private generation = 0
+  private operations: Promise<unknown> = Promise.resolve()
+  private closing: Promise<void> = Promise.resolve()
+  private readonly handles = new Set<McpHttpHandle>()
 
   constructor(
     private readonly runtime: SshMcpRuntime,
@@ -32,12 +37,9 @@ export class McpHttpGateway {
     private readonly audit?: McpAuditHook,
   ) {}
 
-  async applyFromSettings(): Promise<void> {
-    if (this.settings.getMcpHttpEnabled()) {
-      await this.start()
-      return
-    }
-    await this.stop()
+  applyFromSettings(): Promise<void> {
+    const generation = this.generation
+    return this.enqueue(() => this.settings.getMcpHttpEnabled() ? this.startListening(generation) : this.closeListener())
   }
 
   getStatus(): McpHttpStatus {
@@ -58,52 +60,79 @@ export class McpHttpGateway {
   }
 
   async setApprovalMode(mode: unknown): Promise<McpHttpStatus> {
-    await this.settings.setMcpApprovalMode(sanitizeMcpApprovalMode(mode))
-    return this.getStatus()
+    return this.enqueue(async () => {
+      await this.settings.setMcpApprovalMode(sanitizeMcpApprovalMode(mode))
+      return this.getStatus()
+    })
   }
 
   async setEnabled(enabled: boolean): Promise<McpHttpStatus> {
-    if (enabled) {
-      await this.settings.setMcpHttpEnabled(true)
-      try {
-        await this.start()
-      } catch (err) {
+    const generation = this.generation
+    return this.enqueue(async () => {
+      if (enabled) {
+        await this.settings.setMcpHttpEnabled(true)
+        try {
+          await this.startListening(generation)
+        } catch (err) {
+          if (!this.disposed) await this.settings.setMcpHttpEnabled(false)
+          throw err
+        }
+      } else {
         await this.settings.setMcpHttpEnabled(false)
-        throw err
+        await this.closeListener()
+        this.lastError = null
       }
-    } else {
-      await this.settings.setMcpHttpEnabled(false)
-      await this.stop()
-      this.lastError = null
-    }
-    return this.getStatus()
+      return this.getStatus()
+    })
   }
 
   async setPort(port: number): Promise<McpHttpStatus> {
-    await this.settings.setMcpHttpPort(sanitizeMcpHttpPort(port))
-    if (this.settings.getMcpHttpEnabled()) await this.start()
-    return this.getStatus()
+    const generation = this.generation
+    return this.enqueue(async () => {
+      await this.settings.setMcpHttpPort(sanitizeMcpHttpPort(port))
+      if (this.settings.getMcpHttpEnabled()) await this.startListening(generation)
+      return this.getStatus()
+    })
   }
 
   async rotateToken(): Promise<McpHttpStatus> {
-    await this.settings.rotateMcpHttpToken()
-    return this.getStatus()
+    return this.enqueue(async () => {
+      await this.settings.rotateMcpHttpToken()
+      return this.getStatus()
+    })
   }
 
-  async start(): Promise<void> {
-    await this.stop()
+  start(): Promise<void> {
+    const generation = this.generation
+    return this.enqueue(() => this.startListening(generation))
+  }
+
+  private async startListening(generation: number): Promise<void> {
+    await this.closeListener()
+    if (this.disposed || generation !== this.generation) return
     await this.settings.ensureMcpHttpToken()
+    if (this.disposed || generation !== this.generation) return
     const port = this.settings.getMcpHttpPort()
-    this.handle = createMcpHttpServer({
+    const handle = createMcpHttpServer({
       runtime: this.runtime,
       getToken: () => this.settings.getMcpHttpToken(),
       serverInfo: this.serverInfo,
       audit: this.audit,
     })
+    this.handles.add(handle)
+    this.handle = handle
     try {
-      this.listeningPort = await this.handle.listen(port, '127.0.0.1')
+      const listeningPort = await handle.listen(port, '127.0.0.1')
+      if (this.disposed || generation !== this.generation) {
+        await handle.close()
+        this.handles.delete(handle)
+        return
+      }
+      this.listeningPort = listeningPort
       this.lastError = null
     } catch (err) {
+      await handle.close().catch(() => {})
+      this.handles.delete(handle)
       this.handle = null
       this.listeningPort = null
       this.lastError = err instanceof Error ? err.message : String(err)
@@ -112,13 +141,43 @@ export class McpHttpGateway {
   }
 
   async stop(): Promise<void> {
-    if (this.handle) {
-      try {
-        await this.handle.close()
-      } catch {}
-      this.handle = null
-    }
+    this.generation++
+    await this.closeListener()
+  }
+
+  private async closeListener(): Promise<void> {
+    const handle = this.handle
+    this.handle = null
     this.listeningPort = null
+    if (handle) {
+      const previous = this.closing
+      const closed = handle.close().finally(() => this.handles.delete(handle))
+      this.closing = Promise.allSettled([previous, closed]).then(() => undefined)
+    }
+    await this.closing
+  }
+
+  /** Irreversible: reject new settings/start operations and invalidate delayed starts. */
+  async dispose(): Promise<void> {
+    this.disposed = true
+    await this.stop()
+    await this.operations
+    await this.closeListener()
+  }
+
+  /** Release stalled sockets when the application's drain budget expires. */
+  forceClose(): void {
+    for (const handle of this.handles) handle.forceClose()
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.disposed) return Promise.reject(new Error('MCP HTTP gateway is disposed'))
+    const next = this.operations.then(() => {
+      if (this.disposed) throw new Error('MCP HTTP gateway is disposed')
+      return operation()
+    })
+    this.operations = next.catch(() => {})
+    return next
   }
 }
 

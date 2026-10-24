@@ -12,6 +12,10 @@ const questions = process.argv.includes('--questions') || questionsIntegrated
 const markdown = process.argv.includes('--markdown')
 const markdownStress = process.argv.includes('--markdown-stress')
 const chatHistory = process.argv.includes('--chat-history')
+const aiRetention = process.argv.includes('--ai-retention')
+const workspaceDisconnect = process.argv.includes('--workspace-disconnect')
+const workspacePending = process.argv.includes('--workspace-pending')
+const aiTransfers = process.argv.includes('--ai-transfers')
 const backgroundTiming = process.argv.includes('--background-timing')
 const server = await createServer({
   configFile: false,
@@ -28,7 +32,7 @@ try {
   const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/${docker ? 'docker' : 'index'}.html`, LITECONNECT_UI_QUESTIONS_INTEGRATED: questionsIntegrated ? '1' : '' }
   delete env.ELECTRON_RUN_AS_NODE
   const electron = createRequire(import.meta.url)('electron')
-  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${docker ? 'docker-runner' : questions ? 'questions-runner' : chatHistory ? 'chat-history-runner' : markdownStress ? 'markdown-stress-runner' : markdown ? 'markdown-runner' : backgroundTiming ? 'background-timing-runner' : 'runner'}.cjs`)], {
+  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${docker ? 'docker-runner' : questions ? 'questions-runner' : aiTransfers ? 'ai-transfers-runner' : workspacePending ? 'workspace-pending-runner' : workspaceDisconnect ? 'workspace-disconnect-runner' : aiRetention ? 'ai-retention-runner' : chatHistory ? 'chat-history-runner' : markdownStress ? 'markdown-stress-runner' : markdown ? 'markdown-runner' : backgroundTiming ? 'background-timing-runner' : 'runner'}.cjs`)], {
     cwd: root, env, stdio: 'inherit', windowsHide: true,
   })
   process.exitCode = await new Promise((accept, reject) => {

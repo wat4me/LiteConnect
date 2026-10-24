@@ -63,6 +63,7 @@ export function disposeAiSessionState(sessionId: string): void {
   closeContextCompressionNotice(sessionId)
   state.input = ''
   state.draftImages = []
+  state.questionDrafts?.clear()
   if (state.loading) {
     state.disposeAfterReply = true
     if (state.activeRequestId) {

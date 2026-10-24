@@ -1,11 +1,12 @@
-import { ipcMain, BrowserWindow, type WebContents } from 'electron'
+import { TransferCancelledError } from '../../shared/transferCancellation'
+import { BrowserWindow, type WebContents } from 'electron'
+import { onSftp, sendSftpEvent as emitTransfer } from './sftpContract'
 import * as path from 'path'
 import {
   isValidUUID,
   isValidTransferId,
   isStrictPath,
   isSafeLocalPath,
-  safeWebContentsSend,
 } from '../utils/validation'
 import { SSHManager } from '../ssh/manager'
 import { SettingsStore } from '../store/settingsStore'
@@ -19,24 +20,10 @@ import {
   sanitizeLocalName,
   type ConflictStrategy,
 } from '../utils/filePaths'
-import { TransferCancelledError } from '../ssh/transfer/transferHelpers'
 import { TransferQueue } from '../ssh/transfer/transferQueue'
 import type { DirTransferResult } from '../ssh/types'
-
-type TransferOptsPayload = {
-  conflict?: ConflictStrategy
-  resume?: boolean
-  /** Explicit local directory for download-to-folder */
-  localDir?: string
-  /** Explicit full local path (resume) */
-  localPath?: string
-  /** Explicit full remote path (resume / rename result) */
-  remoteFullPath?: string
-  /** Directory transfer concurrency (1–8) */
-  concurrency?: number
-  /** Directory transfer: continue or stop on single-file failure */
-  failPolicy?: 'continue' | 'stop'
-}
+import { UploadConflicts } from '../ssh/transfer/uploadConflicts'
+import type { UploadTransferOptions } from '../../shared/types/sftp'
 
 type UploadTarget = { skip: true } | { skip: false; remotePath: string; fileName: string }
 
@@ -55,11 +42,6 @@ function isValidEntryName(name: unknown): name is string {
     !name.includes('\0') &&
     !name.includes('/')
   )
-}
-
-/** Route transfer events only to the window that started the transfer (not all windows). */
-function emitTransfer(sender: WebContents, channel: string, ...args: unknown[]): void {
-  safeWebContentsSend(sender, channel, ...args)
 }
 
 /** A cancel is reported with a code so the renderer can keep its own "cancelled" state quiet. */
@@ -103,8 +85,28 @@ export function registerSftpTransferHandlers(
   const claimedRemotePaths = new Map<string, Set<string>>()
   /** Upload target resolution runs one at a time per session so concurrent uploads see each other's claims. */
   const resolveChains = new Map<string, Promise<unknown>>()
+  const conflicts = new UploadConflicts(cancelRun)
+  const watchedOwners = new WeakSet<WebContents>()
+
+  function cancelRun(transferId: string) {
+    const pending = pendingRuns.get(transferId)
+    if (pending) pending.cancelled = true
+    queue.cancel(transferId)
+    sshManager.cancelTransfer(transferId)
+  }
+
+  function uploadContext(sender: WebContents, sessionId: string, transferId: string, opts?: UploadTransferOptions) {
+    if (!watchedOwners.has(sender)) {
+      watchedOwners.add(sender)
+      sender.once?.('destroyed', () => conflicts.cancelOwner(sender.id))
+    }
+    const batchId = isValidTransferId(opts?.batchId) ? opts.batchId : transferId
+    const batchSize = Number.isInteger(opts?.batchSize) && opts!.batchSize! > 0 && opts!.batchSize! <= 100000 ? opts!.batchSize! : 1
+    return conflicts.register(sender, sessionId, transferId, batchId, batchSize)
+  }
 
   sshManager.registerSessionTeardownHook((sessionId) => {
+    conflicts.cancelSession(sessionId)
     queue.cancelSession(sessionId)
     for (const pending of pendingRuns.values()) {
       if (pending.sessionId === sessionId) pending.cancelled = true
@@ -134,22 +136,25 @@ export function registerSftpTransferHandlers(
   }
 
   /** Where an upload lands, honouring the conflict strategy against the server and against in-flight uploads. */
-  const resolveUploadTarget = (
+  const resolveUploadTarget = async (
     sessionId: string,
     parent: string,
     fileName: string,
     conflict: ConflictStrategy,
-  ): Promise<UploadTarget> =>
-    serializedPerSession<UploadTarget>(sessionId, async (): Promise<UploadTarget> => {
+    ask?: () => Promise<ConflictStrategy>,
+  ): Promise<UploadTarget> => {
+    const result = await serializedPerSession<UploadTarget | 'ask'>(sessionId, async () => {
       const wanted = joinRemote(parent, fileName)
       let exists = claimedRemotePaths.get(sessionId)?.has(wanted) ?? false
       if (!exists) {
         try {
           exists = await sshManager.sftpExists(sessionId, wanted)
-        } catch {
+        } catch (error) {
+          if (ask) throw error
           // Unknown state: attempt the plain upload, as before.
         }
       }
+      if (exists && ask) return 'ask'
       if (!exists || conflict === 'overwrite') {
         claimRemotePath(sessionId, wanted)
         return { skip: false, remotePath: wanted, fileName }
@@ -173,6 +178,10 @@ export function registerSftpTransferHandlers(
       claimRemotePath(sessionId, target)
       return { skip: false, remotePath: target, fileName: newName }
     })
+    // Never hold the session's resolver lock while waiting for a person.
+    if (result === 'ask') return resolveUploadTarget(sessionId, parent, fileName, await ask!())
+    return result
+  }
 
   /**
    * Queue a transfer. `run` gets `cancelledEarly` to consult right before handing the
@@ -183,6 +192,7 @@ export function registerSftpTransferHandlers(
     sessionId: string,
     transferId: string,
     run: (cancelledEarly: () => boolean) => Promise<void>,
+    dispose?: () => void,
   ) => {
     queue.enqueue({
       sessionId,
@@ -198,13 +208,17 @@ export function registerSftpTransferHandlers(
           emitFailure(sender, sessionId, transferId, err)
         } finally {
           pendingRuns.delete(transferId)
+          dispose?.()
         }
       },
-      onDropped: () => emitFailure(sender, sessionId, transferId, new TransferCancelledError()),
+      onDropped: () => {
+        dispose?.()
+        emitFailure(sender, sessionId, transferId, new TransferCancelledError())
+      },
     })
   }
 
-  const dirOptions = (opts: TransferOptsPayload | undefined) => ({
+  const dirOptions = (opts: Pick<UploadTransferOptions, 'concurrency' | 'failPolicy'> | undefined) => ({
     concurrency: opts?.concurrency ?? settingsStore.getDirTransferConcurrency(),
     failPolicy:
       opts?.failPolicy === 'continue' || opts?.failPolicy === 'stop'
@@ -212,15 +226,15 @@ export function registerSftpTransferHandlers(
         : settingsStore.getDirTransferFailPolicy(),
   })
 
-  ipcMain.on(
+  onSftp(
     'sftp:download',
     async (
       event,
-      sessionId: string,
-      remotePath: string,
-      fileName: string,
-      transferId: string,
-      opts?: TransferOptsPayload,
+      sessionId,
+      remotePath,
+      fileName,
+      transferId,
+      opts,
     ) => {
       if (!isValidUUID(sessionId)) return
       if (!isStrictPath(remotePath)) return
@@ -278,8 +292,9 @@ export function registerSftpTransferHandlers(
     },
   )
 
-  ipcMain.on('sftp:cancelTransfer', (_event, transferId: string) => {
+  onSftp('sftp:cancelTransfer', (_event, transferId) => {
     if (!isValidTransferId(transferId)) return
+    conflicts.cancelTransfer(transferId)
     if (queue.cancel(transferId)) return
     if (sshManager.cancelTransfer(transferId)) return
     // Between the queue and the runner: honoured at the run's next check.
@@ -287,16 +302,21 @@ export function registerSftpTransferHandlers(
     if (pending) pending.cancelled = true
   })
 
-  ipcMain.on(
+  onSftp('sftp:resolveUploadConflict', (event, requestId, decision) => {
+    if (typeof requestId !== 'string') return
+    conflicts.respond(event.sender.id, requestId, decision)
+  })
+
+  onSftp(
     'sftp:upload',
     async (
       event,
-      sessionId: string,
-      localPath: string,
-      remotePath: string,
-      fileNameArg: string,
-      transferId: string,
-      opts?: TransferOptsPayload,
+      sessionId,
+      localPath,
+      remotePath,
+      fileNameArg,
+      transferId,
+      opts,
     ) => {
       if (!isValidUUID(sessionId)) return
       if (!isSafeLocalPath(localPath)) return
@@ -310,6 +330,7 @@ export function registerSftpTransferHandlers(
       const explicitTarget =
         opts?.remoteFullPath && isStrictPath(opts.remoteFullPath) ? opts.remoteFullPath : null
       const provisionalTarget = explicitTarget ?? joinRemote(remotePath, fileNameArg)
+      const context = opts?.conflict === 'ask' ? uploadContext(sender, sessionId, transferId, opts) : undefined
 
       emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, fileNameArg, localPath, 'upload', provisionalTarget, 'file')
 
@@ -317,8 +338,11 @@ export function registerSftpTransferHandlers(
         let target = provisionalTarget
         let claimed = false
         try {
+          if (cancelledEarly() || context?.isCancelled()) throw new TransferCancelledError()
           if (!resume && !explicitTarget) {
-            const resolved = await resolveUploadTarget(sessionId, remotePath, fileNameArg, conflict)
+            const resolved = await resolveUploadTarget(sessionId, remotePath, fileNameArg, conflict, context
+              ? () => context.ask(localPath, provisionalTarget, sshManager.getSessionSnapshot(sessionId)?.connectionName)
+              : undefined)
             if (resolved.skip) {
               emitTransfer(sender, 'sftp:transferComplete', sessionId, transferId, localPath, 'skipped')
               return
@@ -330,7 +354,7 @@ export function registerSftpTransferHandlers(
               emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, resolved.fileName, localPath, 'upload', target, 'file')
             }
           }
-          if (cancelledEarly()) throw new TransferCancelledError()
+          if (cancelledEarly() || context?.isCancelled()) throw new TransferCancelledError()
           await sshManager.sftpUpload(
             sessionId,
             localPath,
@@ -345,19 +369,19 @@ export function registerSftpTransferHandlers(
         } finally {
           if (claimed) releaseRemotePath(sessionId, target)
         }
-      })
+      }, context?.dispose)
     },
   )
 
-  ipcMain.on(
+  onSftp(
     'sftp:downloadDirectory',
     async (
       event,
-      sessionId: string,
-      remotePath: string,
-      dirName: string,
-      transferId: string,
-      opts?: TransferOptsPayload,
+      sessionId,
+      remotePath,
+      dirName,
+      transferId,
+      opts,
     ) => {
       if (!isValidUUID(sessionId) || !isStrictPath(remotePath) || !isValidTransferId(transferId)) return
       if (dirName && !isValidEntryName(dirName)) return
@@ -395,26 +419,27 @@ export function registerSftpTransferHandlers(
     },
   )
 
-  ipcMain.on(
+  onSftp(
     'sftp:uploadDirectory',
     async (
       event,
-      sessionId: string,
-      localPath: string,
-      remoteParent: string,
-      dirName: string,
-      transferId: string,
-      opts?: TransferOptsPayload,
+      sessionId,
+      localPath,
+      remoteParent,
+      dirName,
+      transferId,
+      opts,
     ) => {
       if (!isValidUUID(sessionId) || !isSafeLocalPath(localPath) || !isStrictPath(remoteParent) || !isValidTransferId(transferId)) return
       if (!isValidEntryName(dirName)) return
       const sender = event.sender
       const conflict = normalizeConflict(opts?.conflict)
       const remotePath = joinRemote(remoteParent, dirName)
+      const context = opts?.conflict === 'ask' ? uploadContext(sender, sessionId, transferId, opts) : undefined
       emitTransfer(sender, 'sftp:transferStart', sessionId, transferId, dirName, localPath, 'upload', remotePath, 'directory')
 
       enqueue(sender, sessionId, transferId, async (cancelledEarly) => {
-        if (cancelledEarly()) throw new TransferCancelledError()
+        if (cancelledEarly() || context?.isCancelled()) throw new TransferCancelledError()
         const result = await sshManager.sftpUploadDirectory(
           sessionId,
           localPath,
@@ -423,10 +448,12 @@ export function registerSftpTransferHandlers(
           (transferred, total, stats) => {
             emitTransfer(sender, 'sftp:transferProgress', sessionId, transferId, transferred, total, stats)
           },
-          { conflict, ...dirOptions(opts) },
+          { conflict, ...dirOptions(opts), ...(context ? {
+            onFileConflict: (local: string, remote: string, signal: AbortSignal) => context.ask(local, remote, sshManager.getSessionSnapshot(sessionId)?.connectionName, signal),
+          } : {}) },
         )
         emitDirectoryResult(sender, sessionId, transferId, localPath, result)
-      })
+      }, context?.dispose)
     },
   )
 }

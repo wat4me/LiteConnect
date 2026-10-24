@@ -23,6 +23,7 @@
 ```text
 LiteConnect/
 ├── electron/                    # Electron 主进程
+│   ├── application/             # 延迟服务装配、AI/巡检工厂与退出协调
 │   ├── db/                      # 数据库会话、驱动、SSH 隧道、查询与导出
 │   │   └── drivers/             # MySQL / PostgreSQL / Oracle 驱动
 │   ├── docker/                  # Docker API 传输、容器操作、日志与 exec
@@ -64,7 +65,7 @@ LiteConnect/
 
 ### 主进程与渲染进程
 
-- `electron/main.ts` 创建各 service/manager 并注册 IPC。
+- `electron/main.ts` 是入口装配根，通过 `electron/application/` 管理延迟服务、巡检启动与退出收尾；IPC 接收已构造服务。
 - `electron/preload.ts` 通过 context bridge 暴露有限的调用接口。
 - `electron/ipc/` 负责 IPC 参数校验和调用主进程服务。
 - `electron/window/` 管理主窗口与独立会话窗口。
@@ -154,7 +155,7 @@ npm run typecheck
 npm test
 ```
 
-`typecheck` 同时检查 renderer/shared 与 Electron 主进程，CI 和 `build` 也执行这两部分。
+`typecheck` 同时检查 renderer/shared、Electron 主进程/shared 和独立的 SFTP IPC 契约，CI 和 `build` 也执行这三部分。契约检查包含错误参数、返回值、通道类别和事件载荷的类型反例。
 renderer/shared 与主进程/shared 都检查未使用的局部变量和参数；导出函数无引用仍需单独审查，不能仅靠类型检查判定为无用。
 局部修改可单独运行 `npm run typecheck:renderer` 或 `npm run typecheck:main`。
 主进程检查只生成 `node_modules/.cache/litessh/` 下的增量缓存，不输出 JavaScript。
@@ -205,11 +206,13 @@ git push origin v1.0.0
 | `npm run dev` | 使用系统 `LiteConnect-Dev` 独立目录启动 Vite 和 Electron |
 | `npm run dev:isolated` | 使用仓库内 `.liteconnect-dev-data/` 启动一次性隔离环境 |
 | `npm run check:dependencies` | 检查唯一 npm 锁文件、根包版本与依赖声明 |
+| `npm run check:architecture` | 用真实 ESLint 配置检查架构边界正反例，不向源码写入探针文件 |
 | `npm run lint` | 检查依赖基线、架构边界与图标规范 |
 | `npm run i18n:check` | 检查国际化键和消息格式 |
 | `npm run typecheck` | 运行 renderer/shared 和 Electron 主进程的严格类型检查 |
 | `npm run typecheck:renderer` | 单独检查 Vue renderer/shared |
 | `npm run typecheck:main` | 单独检查 Electron 主进程/shared |
+| `npm run typecheck:contracts` | 单独检查 SFTP IPC 契约与类型正反例 |
 | `npm test` | 运行 Vitest 测试 |
 | `npm run test:watch` | 以 watch 模式运行测试 |
 | `npm run build` | 类型检查并构建 renderer 和 Electron 代码 |

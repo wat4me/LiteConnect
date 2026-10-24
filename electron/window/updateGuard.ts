@@ -13,9 +13,10 @@ import { getActiveUpdateDownload } from '../ipc/registerUpdaterHandlers'
 let confirming = false
 let quitConfirmed = false
 
-export function installUpdateGuard(): void {
+export function installUpdateGuard(isQuitting: () => boolean = () => false): void {
   app.on('before-quit', (event) => {
-    if (quitConfirmed || confirming) return
+    if (quitConfirmed || isQuitting()) return
+    if (confirming) { event.preventDefault(); return }
     const active = getActiveUpdateDownload()
     if (!active) return
 

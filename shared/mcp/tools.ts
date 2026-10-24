@@ -19,7 +19,7 @@ const REMOTE_PATH = {
 const LOCAL_PATH = {
   type: 'string',
   description:
-    'Absolute path on the machine running LiteConnect (the operator PC). Parent-directory segments are rejected.',
+    'Absolute path on the machine running LiteConnect (the operator PC), not the SSH server. On Windows use a drive-qualified path such as C:\\Users\\name\\Downloads\\file.log or a complete UNC share path; /tmp and \\tmp are rejected. Parent-directory segments are rejected.',
 } as const
 
 export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
@@ -397,15 +397,15 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'download_file',
     title: 'Download a remote file to the operator PC',
     description:
-      'SFTP-download a remote file to an absolute local path on the machine running LiteConnect. Max 64 MiB. Use this for logs, configs, and artifacts instead of base64-in-exec.',
+      'SFTP-download a remote file to the operator PC. Unless the user explicitly requests a particular local destination, omit localPath and let the app use the configured downloads folder. Do not invent a local directory or reuse a remote /tmp path. Explicit localPath must match the operator PC operating system. Uses the operator’s download conflict setting (rename, skip, or overwrite) and returns the actual localPath; report that returned path. Max 64 MiB.',
     inputSchema: {
       type: 'object',
       properties: {
         sessionId: SESSION_ID,
         remotePath: REMOTE_PATH,
-        localPath: LOCAL_PATH,
+        localPath: { ...LOCAL_PATH, description: `${LOCAL_PATH.description} Optional for download: omit unless the user explicitly specifies a local destination; the app selects the default downloads folder.` },
       },
-      required: ['sessionId', 'remotePath', 'localPath'],
+      required: ['sessionId', 'remotePath'],
       additionalProperties: false,
     },
     annotations: {

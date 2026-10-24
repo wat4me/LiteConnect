@@ -37,6 +37,8 @@ type LegacyPayload = {
 
 export class AppDatabase {
   private readonly db: DatabaseSync
+  private closed = false
+  get isOpen(): boolean { return !this.closed }
   private transactionDepth = 0
 
   constructor(filePath: string) {
@@ -212,12 +214,15 @@ export class AppDatabase {
   }
 
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.db.close()
   }
 }
 
 let sharedDatabase: AppDatabase | null = null
 let initializationPromise: Promise<AppDatabase> | null = null
+let databaseGeneration = 0
 
 export function aiSessionKey(sessionId: string): string {
   if (!sessionId || typeof sessionId !== 'string') throw new Error('Invalid AI session id')
@@ -235,10 +240,12 @@ export function rendererStateKey(key: string): string {
 export async function initializeAppDatabase(userData = app.getPath('userData')): Promise<AppDatabase> {
   if (sharedDatabase) return sharedDatabase
   if (!initializationPromise) {
+    const generation = databaseGeneration
     initializationPromise = (async () => {
       const database = new AppDatabase(join(userData, DB_FILE_NAME))
       try {
         await migrateLegacyStorage(userData, database)
+        if (generation !== databaseGeneration) throw new Error('App database closed during initialization')
         sharedDatabase = database
         return database
       } catch (error) {
@@ -259,6 +266,7 @@ export function getAppDatabase(): AppDatabase {
 }
 
 export function closeAppDatabase(): void {
+  databaseGeneration++
   sharedDatabase?.close()
   sharedDatabase = null
   initializationPromise = null

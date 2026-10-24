@@ -10,6 +10,7 @@ import type { SshMcpRuntime } from '../../mcp/runtime'
 import { isValidUUID } from '../../utils/validation'
 import { AI_QUESTION_GUIDANCE, AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import type { AiToolGroup } from '../../../shared/aiToolCatalog'
+import { localFileTransferSystemAddendum } from './localEnvironment'
 
 export async function buildAiRequestEnvironment(opts: {
   sessionId?: string; cwd?: string; workspaceTargets?: AiWorkspaceTarget[]
@@ -28,7 +29,8 @@ export async function buildAiRequestEnvironment(opts: {
     extraSystem = sshToolSystemAddendum({ sessionId: boundSessionId, ...snap, cwd: opts.cwd })
   }
   if (opts.allowQuestions === false) extraSystem = extraSystem.split('\n').filter(line => line !== AI_QUESTION_GUIDANCE).join('\n') + '\n本次为无人值守任务，不提供交互提问工具。缺少信息时报告限制并完成可执行的检查，不等待人工回答，也不自行扩大范围。'
-  extraSystem = [extraSystem, ...(opts.contextFiles || []).map(formatAiConversationContextFile)].filter(text => text?.trim()).join('\n\n')
+  const localEnvironment = useTools ? localFileTransferSystemAddendum(opts.sshMcpRuntime?.getLocalEnvironment?.() ?? { platform: process.platform }) : ''
+  extraSystem = [extraSystem, localEnvironment, ...(opts.contextFiles || []).map(formatAiConversationContextFile)].filter(text => text?.trim()).join('\n\n')
   const tools = useTools ? (opts.workspaceTargets ? workspaceToolsForChat(opts.toolGroups) : sshToolsForChat(opts.toolGroups)).filter(tool => opts.allowQuestions !== false || tool.function.name !== AI_QUESTION_TOOL) : undefined
   return { boundSessionId, useTools, extraSystem, tools }
 }

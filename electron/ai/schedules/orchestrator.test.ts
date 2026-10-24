@@ -10,6 +10,25 @@ function setup() {
   const progress = vi.fn()
   return { controller, execute, summarize, progress, ports: { execute, summarize, progress, name: (id: string) => `host-${id}` } }
 }
+
+it('waits for every parallel host cleanup after cancellation before releasing the run', async () => {
+  const { controller, ports, summarize } = setup()
+  const finish: (() => void)[] = []
+  const execute = vi.fn((_plan, _id, signal: AbortSignal) => new Promise<never>((_resolve, reject) => {
+    signal.addEventListener('abort', () => { finish.push(() => reject(signal.reason)) }, { once: true })
+  }))
+  let finished = false
+  const running = orchestrateInspection({ ...plan, concurrency: 3 }, 'run', controller.signal, { ...ports, execute })
+  const stopped = expect(running).rejects.toThrow()
+  void running.then(() => { finished = true }, () => { finished = true })
+  expect(execute).toHaveBeenCalledTimes(3)
+  controller.abort()
+  finish[0](); finish[1]()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(finished).toBe(false)
+  finish[2](); await stopped
+  expect(summarize).not.toHaveBeenCalled()
+})
 it('executes distinct hosts serially, continues after a host fails, and summarizes with provenance', async () => {
   const { controller, execute, summarize, progress, ports } = setup()
   execute.mockRejectedValueOnce(new Error('host offline'))

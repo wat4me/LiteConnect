@@ -37,7 +37,10 @@ it('resumes the original conversation from a main-process completion without ren
     return { content: 'Container restarted and verified.' }
   })
   const { registerAiHandlers } = await import('./registerAiHandlers')
-  registerAiHandlers({ init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}), getAiResolvedConfig: () => ({ apiKey: 'test-only', toolPermission: 'ask' }) } as any, runtime, () => 'host-a')
+  const { createAiExecutionService } = await import('../application/aiExecution')
+  const settings = { init: async () => {}, initMigrations: async () => {}, getAiSettings: () => ({}), getAiResolvedConfig: () => ({ apiKey: 'test-only', toolPermission: 'ask' }) } as any
+  const service = createAiExecutionService(settings, runtime)
+  registerAiHandlers(settings, service, () => 'host-a')
   const initial = mocks.handlers.get('ai:chatStream')!({ sender }, 'manual-request', [], { sessionId: 'ssh-a', threadId: 'thread-a', assistantMessageId: 'initial-assistant', createdAt: 2 })
   await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1))
   Object.assign(job, { status: 'completed', stdout: 'container is healthy', exitCode: 0 })
@@ -52,4 +55,6 @@ it('resumes the original conversation from a main-process completion without ren
   expect(sender.send.mock.calls.some(([channel, event]) => channel === 'ai:backgroundReply' && event.record.status === 'completed')).toBe(true)
   expect(sender.listenerCount('destroyed')).toBe(1) // One lifecycle observer per renderer, not per reply.
   sender.emit('destroyed')
+  service.dispose()
+  await service.waitForIdle()
 })

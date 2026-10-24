@@ -1,8 +1,8 @@
+import { TransferCancelledError } from '../../../shared/transferCancellation'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { ActiveTransfer, Session, SftpTransferOptions } from '../types'
 import { t } from '../../i18n'
-import { TransferCancelledError } from './transferHelpers'
 
 export type FileTransferDeps = {
   getSession: (sessionId: string) => Session | undefined

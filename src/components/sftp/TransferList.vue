@@ -54,12 +54,13 @@ function getProgress(item: TransferItem): number {
         <div class="transfer-text">
           <span class="transfer-name" :title="item.localPath">{{ item.fileName }}</span>
           <span v-if="item.status === 'downloading' || item.status === 'uploading'" class="transfer-detail">
-            <template v-if="item.phase === 'scanning'">{{ t('sftp.transferScanning') }}</template>
+            <template v-if="item.waitingForConflict">{{ t('sftp.transferWaitingConflict') }}</template>
+            <template v-else-if="item.phase === 'scanning'">{{ item.totalFiles ? t('sftp.transferScanningCount', { count: item.totalFiles }) : t('sftp.transferScanning') }}</template>
             <template v-else-if="item.phase === 'preparing'">
               {{ t('sftp.transferPreparingDirs', { done: item.preparedDirs ?? 0, total: item.totalDirs ?? 0 }) }}
             </template>
             <template v-else>{{ formatBytes(item.transferred) }} / {{ formatBytes(item.total) }}</template>
-            <span v-if="item.phase !== 'scanning' && item.phase !== 'preparing' && getSpeed && getSpeed(id) > 0" class="transfer-speed">· {{ formatSpeed(getSpeed(id)) }}</span>
+            <span v-if="!item.waitingForConflict && item.phase !== 'scanning' && item.phase !== 'preparing' && getSpeed && getSpeed(id) > 0" class="transfer-speed">· {{ formatSpeed(getSpeed(id)) }}</span>
             <span
               v-if="item.phase !== 'scanning' && item.phase !== 'preparing' && item.totalFiles != null && item.totalFiles > 0"
               class="transfer-files"
@@ -91,6 +92,14 @@ function getProgress(item: TransferItem): number {
           ></div>
         </div>
       </div>
+      <button
+        v-if="item.status === 'completed' && direction === 'download'"
+        type="button"
+        class="transfer-action transfer-open-folder"
+        :title="t('sftp.openLocalFolder')"
+        :aria-label="t('sftp.openLocalFolder')"
+        @click.stop="emit('openFolder', item.localPath)"
+      ><AppIcon name="folder" size="xs" /></button>
       <button
         v-if="item.status === 'downloading' || item.status === 'uploading'"
         class="transfer-action"

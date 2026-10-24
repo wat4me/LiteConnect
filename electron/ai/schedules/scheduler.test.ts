@@ -5,6 +5,47 @@ import type { AiRunNotification, AiSchedule, AiScheduleHostRun, AiScheduleInput,
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
 const input: AiScheduleInput = { name: '巡检', connectionId: 'host', prompt: '检查磁盘', intervalMinutes: 5, enabled: true }
+
+it('drains aborted inspection cleanup before reporting idle and rejects writes after disposal', async () => {
+  const { service, execute, save } = setup()
+  let finish!: () => void
+  execute.mockImplementationOnce((_plan, _id, signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => { finish = () => reject(signal.reason) }, { once: true })
+  }))
+  const plan = service.save(input)
+  const running = service.runNow(plan.id)
+  service.dispose()
+  service.dispose()
+  const writes = save.mock.calls.length
+  expect(() => service.remove(plan.id)).toThrow('unavailable')
+  expect(() => service.save(input)).toThrow('unavailable')
+  let idle = false
+  const drained = service.waitForIdle().then(() => { idle = true })
+  await Promise.resolve()
+  expect(idle).toBe(false)
+  finish(); await running; await drained
+  expect(save).toHaveBeenCalledTimes(writes)
+  expect(service.snapshot().runs[0].status).toBe('cancelled')
+})
+
+it('waits for cancelled Webhook delivery to unwind without persisting a late response', async () => {
+  let finish!: () => void
+  const notify = vi.fn((_plan, _run, signal: AbortSignal) => new Promise<AiRunNotification>(resolve => {
+    signal.addEventListener('abort', () => { finish = () => resolve({ status: 'sent' }) }, { once: true })
+  }))
+  const { service, save } = setup(undefined, notify)
+  const plan = service.save(input)
+  await service.runNow(plan.id)
+  service.dispose()
+  const writes = save.mock.calls.length
+  let idle = false
+  const drained = service.waitForIdle().then(() => { idle = true })
+  await Promise.resolve()
+  expect(idle).toBe(false)
+  finish(); await drained
+  expect(service.snapshot().runs[0].notification?.status).toBe('failed')
+  expect(save).toHaveBeenCalledTimes(writes)
+})
 function setup(initial: AiScheduleSnapshot = { plans: [], runs: [] }, notify?: ConstructorParameters<typeof AiScheduler>[0]['notify']) {
   vi.useFakeTimers()
   vi.setSystemTime(1000)

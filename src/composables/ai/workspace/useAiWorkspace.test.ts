@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { effectScope, onBeforeUnmount, onMounted } from 'vue'
+import { effectScope, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import type { Connection } from '@shared/types/connection'
 import type { AiWorkspaceConnectionEvent } from '@shared/aiWorkspace'
 import type { AiWorkspaceConversationItem } from '@shared/aiWorkspaceConversations'
@@ -244,4 +244,130 @@ it('refuses to close a running conversation without silently dropping its active
   expect(workspace.currentConversations.value).toHaveLength(1)
   expect(api.aiSuppressBackgroundReplies).not.toHaveBeenCalled()
   expect(api.aiCloseWorkspaceConnection).not.toHaveBeenCalled()
+})
+
+it('disconnects the clicked host only and stops only conversations sharing that connection', async () => {
+  const { workspace, api } = setup()
+  await workspace.openScope({ connectionIds: ['a', 'b'] })
+  const affected = workspace.sessionId.value
+  mocks.states.set(affected, { activeThreadId: 'affected-thread', loading: true, threads: [] })
+  await workspace.openScope({ connectionIds: ['b', 'c'] })
+  const unaffected = workspace.sessionId.value
+  mocks.states.set(unaffected, { activeThreadId: 'unaffected-thread', loading: true, threads: [] })
+  workspace.browserSelection.value = ['a', 'c']
+  workspace.backToHosts()
+  await workspace.disconnectHost('a')
+  expect(mocks.confirm.mock.calls[0][0].message).toContain('"hosts":"server-a"')
+  expect(api.aiCloseWorkspaceConnection).toHaveBeenCalledExactlyOnceWith('ssh-a')
+  expect(mocks.stop).toHaveBeenCalledExactlyOnceWith(affected)
+  expect(api.aiSuppressBackgroundReplies).toHaveBeenCalledWith(affected, 'affected-thread')
+  expect(api.aiSuppressBackgroundReplies).not.toHaveBeenCalledWith(unaffected, expect.anything())
+  expect(workspace.sessions.value).toEqual({ b: 'ssh-b', c: 'ssh-c' })
+  expect(workspace.scopeReady.value).toBe(true)
+  expect(workspace.browserSelection.value).toEqual(['a', 'c'])
+  expect(workspace.browsing.value).toBe(true)
+})
+
+it('stays on the host browser when disconnecting the last selected legacy host with another session open', async () => {
+  const { workspace } = setup()
+  await workspace.startChat(workspace.connections.value[0])
+  await workspace.startChat(workspace.connections.value[1])
+  await workspace.openCurrent({ connectionId: 'a', sessionId: 'ssh-a' })
+  workspace.backToHosts()
+  await workspace.disconnectHost('a')
+  expect(workspace.selectedId.value).toBe('b')
+  expect(workspace.browsing.value).toBe(true)
+})
+
+it('keeps a host connected after a failed disconnect and ignores hosts with no connection', async () => {
+  const { workspace, api } = setup()
+  await workspace.openScope({ connectionIds: ['a', 'b'] })
+  api.aiCloseWorkspaceConnection.mockRejectedValueOnce(new Error('close failed'))
+  await workspace.disconnectHost('a')
+  expect(workspace.sessions.value).toEqual({ a: 'ssh-a', b: 'ssh-b' })
+  expect(mocks.warning).toHaveBeenCalledWith('ai.workspace.disconnectSshFailed')
+  expect(workspace.closing.value).toBe(false)
+  await workspace.disconnectHost('missing')
+  expect(mocks.confirm).toHaveBeenCalledTimes(1)
+  expect(api.aiCloseWorkspaceConnection).toHaveBeenCalledTimes(1)
+})
+
+it('never interrupts a replacement connection while confirmation is pending', async () => {
+  const { workspace, api } = setup()
+  await workspace.openScope({ connectionIds: ['a'] })
+  const confirmation = deferred<string>()
+  mocks.confirm.mockReturnValueOnce(confirmation.promise)
+  const pending = workspace.disconnectHost('a')
+  workspace.sessions.value.a = 'replacement-session'
+  confirmation.resolve('confirm')
+  await pending
+  expect(api.aiCloseWorkspaceConnection).not.toHaveBeenCalled()
+  expect(api.aiSuppressBackgroundReplies).not.toHaveBeenCalled()
+  expect(mocks.stop).not.toHaveBeenCalled()
+  expect(workspace.sessions.value.a).toBe('replacement-session')
+  expect(workspace.closing.value).toBe(false)
+})
+
+it.each([false, true])('reveals the exact pending AI conversation without changing its running request (scoped=%s)', async scoped => {
+  const { workspace, api } = setup()
+  if (scoped) await workspace.openScope({ connectionIds: ['a', 'b'] })
+  else await workspace.startChat(workspace.connections.value[0])
+  const pendingSession = workspace.sessionId.value
+  const state = { activeThreadId: 'pending-thread', loading: true, threads: [] as [] }
+  mocks.states.set(pendingSession, state)
+  await workspace.startChat(workspace.connections.value[2])
+  workspace.backToHosts()
+  workspace.openSchedules()
+  workspace.hostPicker.value = 'create'
+  workspace.browserSelection.value = ['b']
+  const openCount = api.aiOpenWorkspaceConnection.mock.calls.length
+  const scopeCount = api.aiOpenWorkspaceScope.mock.calls.length
+  const loadCount = mocks.load.mock.calls.length
+
+  expect(workspace.revealConversation(pendingSession)).toBe(true)
+  expect(workspace.sessionId.value).toBe(pendingSession)
+  expect(workspace.browsing.value).toBe(false)
+  expect(workspace.showSchedules.value).toBe(false)
+  expect(workspace.hostPicker.value).toBeNull()
+  expect(workspace.browserSelection.value).toEqual(['b'])
+  expect(mocks.states.get(pendingSession)).toBe(state)
+  expect(state.loading).toBe(true)
+  expect(api.aiOpenWorkspaceConnection).toHaveBeenCalledTimes(openCount)
+  expect(api.aiOpenWorkspaceScope).toHaveBeenCalledTimes(scopeCount)
+  expect(mocks.load).toHaveBeenCalledTimes(loadCount)
+  expect(mocks.switch).not.toHaveBeenCalled()
+  expect(mocks.stop).not.toHaveBeenCalled()
+})
+
+it.each([false, true])('rejects stale or foreign pending destinations without changing the current view (scoped=%s)', async scoped => {
+  const { workspace } = setup()
+  if (scoped) await workspace.openScope({ connectionIds: ['a'] })
+  else await workspace.startChat(workspace.connections.value[0])
+  const closedSession = workspace.sessionId.value
+  await workspace.closeCurrentConversation()
+  await workspace.startChat(workspace.connections.value[1])
+  const current = workspace.sessionId.value
+  expect(workspace.revealConversation(closedSession)).toBe(false)
+  expect(workspace.revealConversation('terminal-session')).toBe(false)
+  expect(workspace.revealConversation('')).toBe(false)
+  expect(workspace.sessionId.value).toBe(current)
+  expect(workspace.browsing.value).toBe(false)
+})
+
+it('finishes an in-flight connection before revealing the requested pending conversation', async () => {
+  const { workspace, api } = setup()
+  await workspace.openScope({ connectionIds: ['a'] })
+  const pendingSession = workspace.sessionId.value
+  const connecting = deferred<string>()
+  api.aiOpenWorkspaceConnection.mockReturnValueOnce(connecting.promise)
+  const opening = workspace.startChat(workspace.connections.value[1])
+  expect(workspace.selectionLocked.value).toBe(true)
+  expect(workspace.revealConversation(pendingSession)).toBe(true)
+  connecting.resolve('ssh-b')
+  await opening
+  await nextTick()
+  expect(workspace.sessionId.value).toBe(pendingSession)
+  expect(workspace.browsing.value).toBe(false)
+  expect(workspace.sessions.value.b).toBe('ssh-b')
+  expect(mocks.stop).not.toHaveBeenCalled()
 })

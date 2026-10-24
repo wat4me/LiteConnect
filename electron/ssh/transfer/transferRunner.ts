@@ -1,3 +1,4 @@
+import { TransferCancelledError } from '../../../shared/transferCancellation'
 import * as fs from 'fs'
 import * as path from 'path'
 import type {
@@ -19,7 +20,6 @@ import {
   MonotonicByteProgress,
   runPool,
   sanitizeTransferError,
-  TransferCancelledError,
   walkLocalTree,
 } from './transferHelpers'
 import type { DirProgressCallback } from './transferHelpers'
@@ -61,6 +61,7 @@ export class TransferRunner {
   /** Cancel streams; directory parents stay in the map until their finally block. */
   private cancelOne(transferId: string, transfer: ActiveTransfer, removeParent: boolean) {
     transfer.cancelled = true
+    transfer.abortPending?.()
     this.destroyStreams(transfer)
     if (transfer.childIds) {
       for (const childId of [...transfer.childIds]) {
@@ -365,6 +366,8 @@ export class TransferRunner {
     const concurrency = clampConcurrency(options?.concurrency)
     const failPolicy = options?.failPolicy ?? 'stop'
     const job = this.registerDirJob(sessionId, transferId)
+    const conflictAbort = new AbortController()
+    job.abortPending = () => conflictAbort.abort()
     const parentCancel = () => job.cancelled
 
     try {
@@ -377,6 +380,7 @@ export class TransferRunner {
 
       const walked = await walkLocalTree(localPath, {
         isCancelled: parentCancel,
+        onProgress: (totalFiles) => onProgress(0, 0, { completedFiles: 0, failedFiles: 0, totalFiles, phase: 'scanning' }),
       })
 
       if (job.cancelled) throw new TransferCancelledError()
@@ -412,7 +416,7 @@ export class TransferRunner {
       emit()
 
       let rootRemote = remotePath
-      if (conflict === 'rename') {
+      if (conflict === 'rename' && !options?.onFileConflict) {
         const rootExists = await this.sftpOps.sftpExists(sessionId, rootRemote)
         if (rootExists) {
           const parent = rootRemote.includes('/')
@@ -475,6 +479,13 @@ export class TransferRunner {
 
       const ensured = new Set<string>([rootRemote, ...dirRels.map((r) => joinRemoteRelative(rootRemote, r))])
       const dirListingCache = new Map<string, Set<string>>()
+      const plannedNames = new Map<string, Set<string>>()
+      for (const file of files) {
+        const dir = remoteDirname(file.remote)
+        const names = plannedNames.get(dir) ?? new Set<string>()
+        names.add(remoteBasename(file.remote))
+        plannedNames.set(dir, names)
+      }
       let conflictChain: Promise<void> = Promise.resolve()
 
       const ensureDir = async (remoteDir: string) => {
@@ -491,10 +502,11 @@ export class TransferRunner {
         try {
           const listing = await this.sftpOps.sftpReaddir(sessionId, dir)
           const set = new Set(listing.map((e) => e.name))
+          for (const name of plannedNames.get(dir) ?? []) set.add(name)
           dirListingCache.set(dir, set)
           return set
         } catch {
-          const set = new Set<string>()
+          const set = new Set(plannedNames.get(dir))
           dirListingCache.set(dir, set)
           return set
         }
@@ -511,7 +523,12 @@ export class TransferRunner {
         const exists = await this.sftpOps.sftpExists(sessionId, remoteFile)
         if (!exists) return { remote: remoteFile, skip: false, skipSize: 0 }
 
-        if (conflict === 'skip') {
+        const decision = options?.onFileConflict
+          ? await options.onFileConflict(localFile, remoteFile, conflictAbort.signal)
+          : conflict
+        if (job.cancelled) throw new TransferCancelledError()
+
+        if (decision === 'skip') {
           let skipSize = 0
           try {
             skipSize = fs.statSync(localFile).size
@@ -519,12 +536,17 @@ export class TransferRunner {
           return { remote: remoteFile, skip: true, skipSize }
         }
 
-        if (conflict === 'rename') {
+        if (decision === 'rename') {
           return new Promise((resolve, reject) => {
             conflictChain = conflictChain
               .then(async () => {
                 const names = await namesInDir(dir)
-                const newName = nextRemoteName(names, baseName)
+                names.add(baseName)
+                let newName = nextRemoteName(names, baseName)
+                while (await this.sftpOps.sftpExists(sessionId, joinRemote(dir, newName))) {
+                  names.add(newName)
+                  newName = nextRemoteName(names, baseName)
+                }
                 names.add(newName)
                 resolve({ remote: joinRemote(dir, newName), skip: false, skipSize: 0 })
               })
@@ -541,7 +563,18 @@ export class TransferRunner {
         files,
         async (f) => {
           if (job.cancelled) throw new TransferCancelledError()
-          const target = await resolveRemoteTarget(f.local, f.remote)
+          let target: Awaited<ReturnType<typeof resolveRemoteTarget>>
+          try {
+            target = await resolveRemoteTarget(f.local, f.remote)
+          } catch (error) {
+            if (failPolicy === 'stop' || error instanceof TransferCancelledError) conflictAbort.abort()
+            if (!job.cancelled && !(error instanceof TransferCancelledError)) {
+              failedFiles++
+              emit()
+            }
+            throw error
+          }
+          if (job.cancelled) throw new TransferCancelledError()
           if (target.skip) {
             progress.add(target.skipSize)
             completedFiles++
@@ -572,6 +605,7 @@ export class TransferRunner {
             if (names) names.add(remoteBasename(target.remote))
             emit()
           } catch (err) {
+            if (failPolicy === 'stop' || job.cancelled || err instanceof TransferCancelledError) conflictAbort.abort()
             if (
               job.cancelled ||
               err instanceof TransferCancelledError ||

@@ -4,6 +4,8 @@ import { createSshMcpRuntime, type SshMcpRuntime } from './runtime'
 import type { SshMcpSessionPort } from './ports'
 import type { SessionSnapshot } from '../ssh/types'
 import type { SessionExecResult } from '../ssh/sessionExec'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 const SESSION_ID = '550e8400-e29b-41d4-a716-446655440000'
 const CONNECTION_ID = '660e8400-e29b-41d4-a716-446655440000'
@@ -88,7 +90,7 @@ function fakeSsh(over: Partial<SshMcpSessionPort> = {}): SshMcpSessionPort {
   }
 }
 
-function makeRuntime(over: Partial<SshMcpSessionPort> = {}, extras?: { approvalMode?: 'auto' | 'ask-destructive' | 'deny-destructive'; requestApproval?: (req: any) => Promise<boolean> }) {
+function makeRuntime(over: Partial<SshMcpSessionPort> = {}, extras?: { approvalMode?: 'auto' | 'ask-destructive' | 'deny-destructive'; requestApproval?: (req: any) => Promise<boolean>; getDownloadSettings?: () => import('./ports').McpDownloadSettings }) {
   const ssh = fakeSsh(over)
   const listed = [
     {
@@ -123,12 +125,45 @@ function makeRuntime(over: Partial<SshMcpSessionPort> = {}, extras?: { approvalM
     },
     approvalMode: extras?.approvalMode,
     requestApproval: extras?.requestApproval,
+    getDownloadSettings: extras?.getDownloadSettings,
   })
   runtimes.push(runtime)
   return { runtime, ssh }
 }
 
 describe('SshMcpRuntime', () => {
+  it('exposes current local download settings separately from remote sessions', () => {
+    let directory = join(tmpdir(), 'downloads-one')
+    const { runtime } = makeRuntime({}, { getDownloadSettings: () => ({ directory, conflict: 'rename' }) })
+    expect(runtime.getLocalEnvironment()).toEqual({ platform: process.platform, defaultDownloadDirectory: directory })
+    directory = join(tmpdir(), 'downloads-two')
+    expect(runtime.getLocalEnvironment().defaultDownloadDirectory).toBe(directory)
+  })
+
+  it.skipIf(process.platform !== 'win32')('rejects remote-style local destinations before touching SFTP on Windows', async () => {
+    const { runtime, ssh } = makeRuntime()
+    const result = await runtime.call('download_file', { sessionId: SESSION_ID, remotePath: '/var/app.log', localPath: '/tmp/app.log' })
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent).toMatchObject({ code: 'INVALID_PATH', message: expect.stringContaining('omit localPath') })
+    expect(ssh.sftpStat).not.toHaveBeenCalled()
+    expect(ssh.sftpDownload).not.toHaveBeenCalled()
+  })
+  it('allows omitting the local path and returns the actual renamed download destination', async () => {
+    const localPath = join(tmpdir(), 'downloaded (1).log')
+    const { runtime, ssh } = makeRuntime({ sftpDownload: vi.fn(async () => ({ localPath })) })
+    const result = await runtime.call('download_file', { sessionId: SESSION_ID, remotePath: '/app.log' })
+    expect(result.isError).toBe(false)
+    expect(result.structuredContent).toMatchObject({ localPath, bytes: 9 })
+    expect(ssh.sftpDownload).toHaveBeenCalledWith(SESSION_ID, '/app.log', undefined, undefined)
+  })
+  it('passes trusted conversation metadata and request cancellation through a file download', async () => {
+    const { runtime, ssh } = makeRuntime()
+    const options = { signal: new AbortController().signal, transferContext: { ownerId: 3, conversationId: 'workspace:download', threadId: 'thread-download' } }
+    const local = join(tmpdir(), 'liteai-runtime-transfer-test.log')
+    const result = await runtime.call('download_file', { sessionId: SESSION_ID, remotePath: '/var/app.log', localPath: local }, options)
+    expect(result.isError).toBe(false)
+    expect(ssh.sftpDownload).toHaveBeenCalledWith(SESSION_ID, '/var/app.log', local, options)
+  })
   it('disposes jobs and subscriptions once without closing user SSH or waking observers', async () => {
     let settle!: (value: SessionExecResult) => void
     const promise = new Promise<SessionExecResult>(resolve => { settle = resolve })

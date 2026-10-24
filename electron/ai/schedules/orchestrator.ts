@@ -47,7 +47,11 @@ export async function orchestrateInspection(plan: AiSchedule, runId: string, sig
     }
   }
   try {
-    await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()))
+    // A failed/aborted host must not release the scheduler while siblings still
+    // own transports or temporary histories.
+    const results = await Promise.allSettled(Array.from({ length: Math.max(1, concurrency) }, () => worker()))
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failed) throw failed.reason
   } catch (error) {
     if (signal.aborted) {
       for (const pending of hosts) if (pending.status === 'running' || pending.status === 'queued') pending.status = 'cancelled'

@@ -233,7 +233,12 @@ export function useDockerWorkspaceMode(deps: {
     }
 
     ensureSessionTracked(nextSessionId)
-    if (isDockerMode.value) return
+    if (isDockerMode.value) {
+      // Another host may have restored terminal panels before this switch.
+      // Re-selecting Docker must hide them without replacing its saved layout.
+      hideAllSidebars(deps.panels)
+      return
+    }
     applySnapshot(deps.panels, getChrome(nextSessionId).sidebarSnapshot ?? EMPTY_SNAPSHOT)
   }
 

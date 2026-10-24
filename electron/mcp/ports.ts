@@ -1,6 +1,29 @@
 import type { SessionExecResult } from '../ssh/sessionExec'
 import type { FileEntry, McpShellChannel, SessionSnapshot } from '../ssh/types'
 import type { ApprovalMode, CommandClass, SshMcpPublicConnection } from '../../shared/mcp/types'
+import type { TransferConflictStrategy } from '../../shared/types/sftp'
+
+export type McpTransferContext = { ownerId: number; conversationId: string; threadId: string }
+export type McpTransferOptions = { signal?: AbortSignal; transferContext?: McpTransferContext }
+export type McpDownloadSettings = { directory: string; conflict: TransferConflictStrategy }
+export type McpLocalEnvironment = { platform: NodeJS.Platform; defaultDownloadDirectory?: string }
+export type McpDownloadResult = { localPath: string; skipped?: boolean }
+
+/** File-transfer backend contract. Only bind.ts adapts the concrete SSH manager. */
+export interface McpFileTransferPort {
+  getConnectionName(sessionId: string): string | undefined
+  sftpDownload(
+    sessionId: string, remotePath: string, localPath: string, transferId: string,
+    onProgress: (transferred: number, total: number) => void,
+    options?: { keepPartial?: boolean; isCancelled?: () => boolean },
+  ): Promise<void>
+  sftpUpload(
+    sessionId: string, localPath: string, remotePath: string, transferId: string,
+    onProgress: (transferred: number, total: number) => void,
+    options?: { keepPartial?: boolean; isCancelled?: () => boolean },
+  ): Promise<void>
+  cancelTransfer(transferId: string): boolean
+}
 
 export type SshMcpSessionPort = {
   listSessionSnapshots(): SessionSnapshot[]
@@ -31,8 +54,8 @@ export type SshMcpSessionPort = {
   ): Promise<{ buffer: Buffer; size: number; eof: boolean }>
   sftpWriteFile(sessionId: string, remotePath: string, content: string, maxBytes: number): Promise<void>
   sftpWriteBuffer(sessionId: string, remotePath: string, buffer: Buffer): Promise<void>
-  sftpDownload(sessionId: string, remotePath: string, localPath: string): Promise<void>
-  sftpUpload(sessionId: string, localPath: string, remotePath: string): Promise<void>
+  sftpDownload(sessionId: string, remotePath: string, localPath: string | undefined, options?: McpTransferOptions): Promise<void | McpDownloadResult>
+  sftpUpload(sessionId: string, localPath: string, remotePath: string, options?: McpTransferOptions): Promise<void>
   sftpStat(sessionId: string, remotePath: string): Promise<{
     mode: string
     size: number
@@ -101,4 +124,5 @@ export type SshMcpRuntimeOptions = {
   /** Live setting; preferred over the constructor snapshot. */
   getApprovalMode?: () => ApprovalMode
   requestApproval?: SshMcpApprovalFn
+  getDownloadSettings?: () => McpDownloadSettings
 }

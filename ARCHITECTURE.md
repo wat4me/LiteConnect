@@ -10,13 +10,14 @@ UI (components / views)
       → shared/ (main + renderer pure logic, no Electron/DOM)
 ```
 
-**Main process** is organized by service domain under `electron/` (`ssh`, `docker`, `db`, `ipc`, `store`, `window`). `electron/main.ts` is the only composition root.
+**Main process** is organized by service domain under `electron/` (`ssh`, `docker`, `db`, `ipc`, `store`, `window`). `electron/main.ts` is the entry composition root; `electron/application/` contains its delayed service assembly and shutdown coordination. IPC registration receives constructed services.
 
 ## Electron directory map
 
 | Area | Path | Owns |
 |------|------|------|
 | Composition root | `electron/main.ts` | Wire stores/services/IPC; teardown order |
+| Application lifecycle | `electron/application/` | Delayed AI/MCP/Docker assembly, scheduler construction/start, bounded shutdown |
 | SSH core | `electron/ssh/` | `manager`, `connectionService`, `types`, `auth`, `localForwards` |
 | SSH trust | `electron/ssh/trust/` | known_hosts, host-key verify |
 | SSH SFTP | `electron/ssh/sftp/` | SFTP session ops |
@@ -65,13 +66,19 @@ npm run lint   # architecture-focused ESLint (dependency zones)
 | `electron/ssh` | `docker`, `db`, `mcp`, `ai` | interactive SSH does not own those modes |
 | `electron/docker` | `ssh`, `db`, `mcp`, `ai` | Docker uses `DockerSshBackend` / `DockerSessionHost` |
 | `electron/db` | `docker`, `mcp`, `ai`; `ssh` except `trust` / `auth` / `loadSsh2` | tunnel is a dedicated ssh2 client |
-| `electron/mcp` | `docker`, `db`, `ai` | MCP may import `ssh` types/`sessionExec`; only `bind.ts` should take `SSHManager` |
+| `electron/mcp` | `docker`, `db`, `ai`; SSH implementations outside `bind.ts` | Only `bind.ts` (and its integration test) adapts `SSHManager`; other MCP modules may import `ssh/types` / `ssh/sessionExec` as types and the pure `ssh/shellQuote` helper |
 | `electron/ai` | `ssh`, `docker`, `db` | AI tools go through MCP runtime |
 | `electron/store` | `ssh`, `docker`, `mcp`, `ai` | persistence stays below services |
+| Production services and `electron/ipc` | `electron/application`, `electron/main.ts` | composition roots own assembly; lower modules cannot call back into them |
 | `electron/ai/providers` | AI orchestration/tools/history; `ipc`, `store`, `mcp` | protocol codecs stay below application services |
 | OpenAI / Anthropic adapter | each other's implementation | share canonical validation rather than another wire format |
 
 Also: `src/composables/**` must not import `*.vue` SFCs (`no-restricted-imports`).
+Production `shared/**` and `src/domain/**` cannot import Node built-ins (bare or
+`node:`), Electron, Vue, `@vue/*` or vue-i18n, including type imports, re-exports,
+literal dynamic imports and require. Test files retain access to test-platform APIs.
+`npm run check:architecture` verifies allowed/forbidden imports against the real
+ESLint configuration without writing fixture modules; `npm run lint` runs it in CI.
 
 `npm run typecheck` checks both renderer/shared (`vue-tsc`) and Electron main/shared
 (`tsc -p tsconfig.node.json --noEmit`). CI and `build` run both checks; Vite bundling
@@ -124,7 +131,7 @@ Within history, `historyModel.ts` owns normalization, retention and recovery rul
 Model and codec cannot import database storage, image files or the history service.
 Idle write chains are released after their last task settles.
 Schedulers consume injected execution/persistence/notification ports rather than
-importing the execution service. IPC wires these services together; OS approval
+importing the execution service. Application assembly wires these services together; IPC adapts calls and OS approval
 notifications belong to `electron/ipc/aiApprovalNotification.ts`. Tests stay next
 to their owning module; cross-module provider scenarios live in `tests/`.
 
@@ -211,6 +218,16 @@ Do not merge these — they have different lifecycles and security boundaries:
 
 Renderer `Window.LiteConnect` lives in `src/types/liteConnectApi.ts`. `src/env.d.ts` only declares `Window` and re-exports shared types.
 
+SFTP's 28 public methods are defined once in `shared/ipc/sftp.ts`; `LiteConnectApi`
+extends that contract. It covers 17 invoke channels, 6 send-only commands and 5 event
+subscriptions without changing their names or positional payloads. The preload
+adapter is `electron/preload/sftpApi.ts`; `electron/ipc/sftpContract.ts` checks main
+handler arguments/results and transfer events. MCP transfer events and upload-conflict
+prompts use the same event tuples. Electron's untyped invoke result is asserted only
+at the preload transport boundary; runtime input validation stays in main handlers.
+`npm run typecheck:contracts` checks positive/negative fixtures in
+`scripts/typechecks/` and runs as part of typecheck, build and CI.
+
 AI chat IPC wiring is `electron/ipc/registerAiHandlers.ts`; it adapts Electron events to the transport-independent `electron/ai/execution/executionService.ts`. The execution service owns request serialization, persistence, cancellation, approval routing and background-result continuation. Settings/history ports and optional observers allow unattended read-only execution without a renderer; explicit history/thread identities remain separate from SSH session and caller identities. Protocol codecs live in `electron/ai/providers/`, discovery/probing in `electron/ai/providers/providerService.ts`, request packing in `electron/ai/execution/requestContext.ts`, settings validation in `electron/ai/settingsValidation.ts`, and session persistence in `electron/ai/history/historyStore.ts`. The turn loop in `electron/ai/execution/chatStream.ts` delegates individual calls to `toolExecution.ts`; `streamControl.ts` owns cancellation and pending approvals. See `docs/AI-RUNTIME.md` for the execution contract. `electron/mcp/bashParser.ts` installs the wasm bash parser into `shared/mcp/classify.ts` at startup (started from `electron/main.ts`, awaited in `SshMcpRuntime.call`); the grammar is vendored at `shared/mcp/vendor/tree-sitter-bash.wasm` and copied next to `main.js` by `scripts/copy-bash-wasm.mjs`. `electron/ai/tools/commandFloor.ts` is the escalate-only floor that stops a model from labelling a destructive command as `read`.
 
 All main-process application data is stored in `liteconnect.sqlite`, managed by `electron/store/appDatabase.ts`. The database uses WAL, foreign-key enforcement, full synchronous commits, schema versions, and transactional legacy migration. Collection rows are updated only when their order or payload changes. JSON/JSONL remains an import/export format and a one-time upgrade source, not a live application store.
@@ -241,7 +258,7 @@ MySQL streaming row caps and connection discard behavior live in `electron/db/dr
 AI sidebar context-file availability checks live in `src/composables/ai/useAiContextFileStatus.ts`; its scoped presentation rules live in `src/components/ai/AiSidebar.css`.
 AI sidebar history filtering and mutations live in `src/composables/ai/useAiSidebarHistory.ts`.
 `src/views/AiWorkspaceView.vue` reuses the chat sidebar in the standalone LiteAI module. `electron/ai/workspace/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
-`electron/ai/schedules/scheduler.ts` owns persisted interval/daily/weekly local plans and bounded, serialized inspection runs. `shared/aiSchedules.ts` validates timing and calculates the next local-calendar occurrence, including DST and timezone changes. `electron/ipc/aiScheduleExecutor.ts` creates a dedicated saved-profile SSH transport and temporary history for each read-only execution. `registerAiScheduleHandlers.ts` adapts persistence and renderer events; `components/ai/AiSchedulePanel.vue` configures plans and shows reports. The scheduler runs while the app is alive, skips catch-up bursts and aborts work at shutdown.
+`electron/ai/schedules/scheduler.ts` owns persisted interval/daily/weekly local plans and bounded, serialized inspection runs. `shared/aiSchedules.ts` validates timing and calculates the next local-calendar occurrence, including DST and timezone changes. `electron/ipc/aiScheduleExecutor.ts` creates a dedicated saved-profile SSH transport and temporary history for each read-only execution. `electron/application/aiSchedules.ts` binds persistence, notification and execution ports; `registerAiScheduleHandlers.ts` registers IPC against the constructed scheduler/notifier. `components/ai/AiSchedulePanel.vue` configures plans and shows reports. The scheduler runs while the app is alive, skips catch-up bursts and aborts work at shutdown.
 `electron/ai/schedules/orchestrator.ts` runs selected-host inspections serially or with bounded parallelism and synthesizes reports through ports; each host retains its own context and transport. Plans may pin a provider/model or fall back to the active pair. `electron/ai/schedules/notifications.ts` handles opt-in generic JSON Webhooks with encrypted endpoint/token storage, bounded requests and delivery state independent of inspection results. Notification settings never enter model context. Windows window/taskbar icon lookup lives in `electron/window/appIcon.ts`; development shortcut registration and legacy Electron shortcut conflict handling live in `electron/window/developmentTaskbar.ts`.
 AI chat message footer display and controls live in `src/components/ai/AiMessageFooter.vue`; `AiChatView.vue` keeps scroll and timeline coordination, with scoped rules in `AiChatView.css`.
 SFTP bookmark dialogs and mutations live in `src/composables/sftp/useSftpBookmarkActions.ts`; `FileSidebar.vue` keeps navigation sequencing and uses `FileSidebar.css` for scoped presentation rules.
@@ -274,6 +291,8 @@ services or each other's codecs; ESLint enforces those dependency directions.
 - Window close → disconnect owned SSH sessions (composition root)
 - SSH MCP runtime → interactive `SSHManager` sessions only (not Docker sock, not DB tunnels)
 - MCP HTTP gateway (optional) → same runtime; loopback + Bearer only; default off
+- MCP file transfers → `McpFileTransferPort` in `electron/mcp/ports.ts`, adapted in
+  `bind.ts`; SSH, MCP and IPC share `shared/transferCancellation.ts` for cancellation.
 
 ## Out of scope for casual refactors
 
@@ -313,3 +332,133 @@ Architecture rules and progress stay in this document. User behavior belongs in
 `docs/DEVELOPMENT.md`, and UI/icon contracts in `docs/UI_STYLES.md` / `docs/ICONS.md`.
 Historical release notes and third-party provenance remain versioned records.
 Avoid creating standalone audit or plan documents that duplicate these sources.
+
+### 2026-10-22 架构治理扫描基线
+
+本轮基于当前工作区（包含未提交的新功能）扫描，不等同于已发布版本。
+检查范围为源码依赖、IPC 契约、装配与释放流程、前端职责、现有质量门禁；
+没有运行真实 SSH、数据库、模型请求或安装包验收。下列观察记录扫描时状态，
+后续实施情况见本节末尾的交付记录。
+
+**总体判断：继续现有分层，以契约、依赖约束和生命周期治理为先。**
+SSH / Docker / DB 的不同连接生命周期、AI 执行服务与协议适配器分离、
+共享纯逻辑、双端严格类型检查和现有回归测试均应保留。
+
+| 基线 | 当前观察与口径 |
+| --- | --- |
+| 生产源码 | `src/`、`electron/`、`shared/` 共 610 个 `.ts` / `.vue` 文件，约 12.6 万物理行，包含声明、模板、样式与空行，排除 `.test.ts` |
+| 测试文件 | 源码及脚本目录扫描到 326 个 `.test` / `.spec` 文件；文件数不代表覆盖率 |
+| 跨进程 API | preload 与 `LiteConnectApi` 各 324 个成员，名称集合一致；这不证明参数、返回值或事件载荷一致 |
+| UI 直接 IPC | `components/` 和 `views/` 中有 38 个文件包含 `window.LiteConnect`；其中简单展示操作与业务编排需分别评估 |
+| 依赖环 | 本地静态导入、导出与字面量动态导入扫描仅发现 `toolExecution.ts` ↔ `userQuestion.ts`；反向边为 `import type`，不能据此认定运行时循环故障 |
+
+#### 优先治理项
+
+| 顺序 | 证据与影响 | 建议与验收 |
+| --- | --- | --- |
+| 1. 补齐可执行边界 | `eslint.config.mjs` 已限制本地跨层路径，但未限制纯层的平台依赖。内存 lint 探针确认 `shared` 导入 `node:fs`、`src/domain` 导入 Vue `ref` 都不会报错；正常的 AI → SFTP composable 越界能被拦截 | 明确纯层允许的运行时依赖，覆盖 Node 内置模块两种写法、Electron 和 Vue 状态依赖；添加正反例规则验证。探针是约束缺口证据，并非断言当前生产纯层已有这些违规 |
+| 2. 收紧 MCP 适配边界 | 文档约定仅 `bind.ts` 接触 `SSHManager`，但没有相应 lint 限制；当前未提交的 `electron/mcp/fileTransfers.ts` 用 `Pick<SSHManager, ...>` 并导入 SSH 的传输异常 | 为文件传输定义最小端口，将具体 SSH 实现的适配归入明确的适配文件；统一取消语义。允许的适配路径应显式列入规则，保持 AI 和 SFTP 进度、取消、冲突处理行为不变 |
+| 3. 统一 IPC 契约来源 | `electron/preload.ts:6` 直接暴露对象，`src/types/liteConnectApi.ts:65` 独立声明接口；主进程另行维护通道和载荷，preload 有 `any` 且 invoke 返回值没有跨端类型约束 | 将 API / 通道契约按域放入 `shared`，preload 实现校验其形状，typed invoke/handle 绑定参数和结果。保持现有通道名与 `window.LiteConnect` 形状；选择 SFTP 传输作为首个纵向试点，保留 IPC 入口的运行时校验 |
+| 4. 明确装配与释放所有权 | `main.ts` 被定义为唯一装配根，但 `registerAiHandlers.ts:49` 构造执行服务，`registerAiScheduleHandlers.ts:19` 构造调度器并在注册末尾启动。退出路径的 `dispose()` / `disconnectAll()` 与 HTTP stop 混合使用同步取消及未等待的异步清理 | 把服务构造、start 和 stop 收敛至 main 调用的装配模块，IPC 接收已构造服务。定义停止接单→取消→限时等待任务/持久化→关闭存储的顺序；覆盖退出期间流式回复、后台续答和延迟初始化。当前是生命周期风险，尚未复现退出丢数据 |
+| 5. 按职责收敛前端 | `App.vue` 约 840 行 script，同时承担导航、分屏、会话、功能面板和事件生命周期；`AiSchedulePanel.vue:147` 起直接维护巡检 IPC 操作、请求版本及事件订阅 | 先提取巡检用例与订阅生命周期到 composable，再拆 App 的导航/会话命令和启动订阅；组件保留渲染与交互。为迟到响应、切换目标和卸载后回调保留行为测试，不建立第二份 AI 会话状态 |
+| 6. 让门禁覆盖治理成果 | CI 已含 typecheck、依赖 lint、i18n、单测、构建及加载/打包检查；现有 UI 回归未接入工作流。两个 tsconfig 都排除了 `.test.ts` | 按变更路径接入关键 UI smoke；增加独立测试类型检查配置（Vitest 转译运行不等于类型检查）。将依赖边界负例和 IPC 契约测试纳入 CI，区分静态检查、mock 回归和真实集成验收 |
+
+#### 建议的增量交付顺序
+
+1. **边界基线 PR**：补纯层依赖规则、明确 MCP 适配白名单；迁移传输端口；
+   将 `AiToolExecutionContext` 移至工具契约模块以消除类型反向依赖。
+   验收为原有 lint/typecheck 和相关回归通过，新增禁止导入的负例确实失败。
+2. **IPC 试点 PR**：从 SFTP 传输请求、进度、取消、冲突决策开始建立共享契约；
+   同时校验 preload 和 main handler，既有 UI 与 AI 调用保持兼容，再逐域扩展。
+   仅给暴露对象加 `satisfies` 不能消除 `invoke(): Promise<any>` 带来的返回值盲区。
+3. **生命周期 PR**：明确 AI/MCP/调度器的装配和停止接口，补退出与延迟启动竞态测试。
+   保留 SSH、Docker、DB 各自的关闭策略，并确保最终存储关闭发生在允许的收尾之后。
+4. **前端职责 PR**：先巡检面板，再 App 编排；关联关键 UI smoke。
+   每次仅迁移一个责任，保持现有 facade、状态所有者和跨会话隔离语义。
+
+不按总行数机械拆组件：例如 `GroupPanel.vue` 的 1324 行包含约 517 行样式，
+`MonitorPanel.vue` 的 1071 行包含约 505 行样式；文件长度只是定位线索。
+本轮没有充分依据要求引入微服务、全局状态框架或重新组织整个目录树。
+
+#### 本轮验证
+
+- `npm run typecheck`：renderer/shared 与 main/shared 均通过。
+- `npm run lint`：依赖基线、架构规则与统一图标检查通过。
+- `npm run i18n:check`：缺失 key 为 0，消息编译错误为 0。
+- 架构规则探针使用 ESLint `lintText`，没有向源码目录写入伪造模块。
+- `npm test -- --maxWorkers=4 --reporter=dot`：首轮 311/326 个文件通过，
+  2282 项通过、80 项失败、1 项跳过，并有 1 项未处理错误；失败涉及沙箱内
+  loopback 连接 `EACCES` 与临时文件重命名 `EPERM`。在沙箱外仅复跑这 15 个
+  失败文件，147 项全部通过，无未处理错误；确认首轮这些失败与运行环境有关。
+  合并两轮，326 个文件均有通过记录，2362 项通过、1 项跳过，非单次全绿运行。
+- 本轮未执行构建和 UI 回归；文档修改通过 `git diff --check`。
+
+#### 第一批交付：边界规则与 MCP 传输端口
+
+- 已补齐生产 shared/domain 的平台导入限制，并收紧 MCP → SSH 依赖。
+  `bind.ts` 是 SSH 具体实现适配点，`bind.test.ts` 预留适配集成测试入口；
+  其他模块仅可复用 SSH 类型契约和纯 `shellQuote`，不能运行时加载类型契约模块。
+- `McpFileTransferPort` 由 MCP 声明所需的上传、下载、取消和连接名称查询能力，
+  `fileTransfers.ts` 不再引用 `SSHManager` 或 SSH 传输实现。`bind.ts` 显式委托并保留 manager 的方法接收者。
+- `TransferCancelledError` 移到共享纯模块，SSH、MCP、IPC 及测试直接使用同一类型，
+  不留旧路径转导出；消息、异常名称与取消判定保持不变。
+- 工具上下文和审批观察者类型移到 `toolExecutionContext.ts`，提问处理器不再反向导入
+  `toolExecution.ts`；新增依赖规则阻止这个反向边重新出现。
+- 架构正反例通过真实 ESLint 配置检查，随 lint 进入现有 CI；不添加运行时依赖。
+- 验证：双端 typecheck 通过；相关 44 个测试文件 411 项通过、1 项跳过。
+  随后新增无 AI abort 信号的后端取消回归，文件传输测试 9 项全部通过。
+  完整 lint（含依赖基线、74 个架构正反例、源码 ESLint 和图标检查）通过；
+  AI tools 内部静态依赖图含类型导入无环，`git diff --check` 通过。
+  未执行构建、UI 或真实服务回归。
+
+#### 第二批交付：SFTP 跨进程契约
+
+- 传输请求、取消、冲突决策、进度及结果事件，以及 SFTP 目录/编辑/属性查询，
+  统一使用 `shared/ipc/sftp.ts`。渲染端 API 继承共享定义，preload 按通道绑定实现；
+  主进程 handler 的参数和 Promise 返回值同样接受编译检查。
+- 移除 preload、渲染端接口和传输 handler 中重复的 SFTP 参数声明。
+  UI、MCP 发出的传输事件及 SSH 冲突提示复用同一事件载荷。
+- 保持 IPC 通道名、API 方法名、参数顺序、send/invoke 语义、事件解绑及现有运行时校验；
+  不修改传输队列、冲突归属、取消或重试策略，也不引入依赖。
+- 新增独立契约类型检查，负例覆盖错误参数、返回值、错误通道类别与事件载荷，
+  并随现有 typecheck/build/CI 执行。Electron 原始接口的 `any` 不再泄漏至 SFTP 调用方；
+  这不是运行时 schema 校验，也不代表其他域的 IPC 已迁移。
+- 新增 preload 回归覆盖实际桥接暴露、全部 SFTP 通道映射、参数顺序、返回/拒绝透传、
+  事件过滤与单独解绑；与现有 SFTP/AI 传输回归合计 14 个文件、94 项通过。
+- renderer/main 类型检查、15 个契约类型反例及相应正例、完整 lint 均通过。
+  传输 UI 回归通过（18 个布局场景及取消、跨会话隔离、离开面板后完成等流程），
+  `npm run build` 通过。构建后的 preload 在隔离 mock Electron 环境中成功暴露原有
+  324 个 API，SFTP send/invoke 冒烟通过。
+- 现有 `check-main-load.mjs` 的 TDZ 检查通过；它在普通 Node 中遇到 Electron 专属 API
+  不可用后退出，不能视为完整桌面启动验收。本轮未访问真实 SSH/数据库/模型服务。
+
+#### 第三批交付：服务装配与退出生命周期
+
+- `main.ts` 调用 `application/deferredServices.ts` 装配延迟服务；AI 执行服务、巡检
+  调度器和通知器由 application 工厂构造，IPC 注册函数只接收现成实例。
+  调度器的 start 由装配层调用，SSH / Docker / DB 继续各自管理连接；新增 ESLint
+  规则阻止生产服务和 IPC 反向依赖装配层，并用内存正反例检查该约束。
+  DB 驱动的既有异步断连与隧道立即关闭策略保持不变。
+- 退出先封闭 AI/MCP/巡检 IPC 接单、取消流式请求/后台续答/巡检/Webhook 并停止
+  HTTP 入口和监控，再以共用的 5 秒预算等待这些服务已接请求、最终回复保存和临时资源收尾。
+  随后封闭后续保存和审计回调、强制释放残留 HTTP socket、关闭 Docker/SSH/DB
+  和会话日志；SQLite 最终在恢复退出后的 `will-quit` 关闭。
+- 超时会记录错误并继续退出，不保证忽略取消的外部任务完成；保留最后成功保存的
+  checkpoint，下一次启动仍沿用既有中断恢复。附件异步保存持有原数据库实例，
+  不会在该实例关闭后提交；数据库迁移迟到也不能重新发布已关闭的存储。
+- 迁移、动态导入、主题和初始 store 就绪后均检查退出状态，避免退出后再注册
+  handler、开窗或启动后台监控。HTTP 设置操作串行执行，stop/dispose 使迟到的
+  token/listen 启动失效；macOS 全窗口关闭仍保留可恢复的应用生命周期。
+- 更新下载确认继续优先拦截退出；确认尚未完成时，重复退出同样被拦截。
+  一旦进入正式退出收尾，恢复退出不会被新的下载状态再次拦截。
+- 新增退出顺序、5 秒超时、重复退出、迁移/导入/主题迟到、回复最终落盘、后台续答、
+  Webhook 释放、HTTP 取消和监听竞态回归。并行巡检等待所有主机的 finally 收尾，
+  避免一台主机取消后调度器提前释放执行槽。
+- 验证：renderer/main/契约 typecheck、完整 lint（83 个架构正反例）和生产构建通过。
+  最终固定版本全量单测单次通过：334 个文件、2422 项通过、1 项跳过；另对
+  11 个生命周期相关测试文件执行严格 TypeScript 检查，诊断为 0。
+  构建产物在隔离 mock Electron 中完成初始装配与 ready 前退出，没有开窗或启动
+  业务服务；普通 Node 加载检查仅确认未触发 TDZ，不代表完整桌面启动。
+  本轮未执行 UI、安装包或真实 SSH/数据库/模型服务验收。
+
+整体进度：第一、二、三批已实现；巡检面板/App 职责治理仍待后续交付。

@@ -9,6 +9,7 @@ import pluginVue from 'eslint-plugin-vue'
 import importPlugin from 'eslint-plugin-import'
 import tseslint from 'typescript-eslint'
 import vueParser from 'vue-eslint-parser'
+import purePlatformImports from './scripts/eslint/pure-platform-imports.mjs'
 
 function peerZone(targetDir, fromDir, message) {
   return {
@@ -64,6 +65,27 @@ for (const peer of ['sftp', 'docker', 'terminal', 'ai', 'snippets', 'connections
 }
 
 const architectureZones = [
+  ...['ai', 'mcp', 'ssh', 'docker', 'db', 'store', 'ipc'].map(area => ({
+    target: `./electron/${area}/**/!(*.test).ts`,
+    from: ['./electron/application', './electron/main.ts'],
+    message: 'Services and IPC must not import the application composition root',
+  })),
+  {
+    target: './electron/ai/tools/toolExecutionContext.ts',
+    from: ['./electron/ai/tools/toolExecution.ts', './electron/ai/tools/userQuestion.ts'],
+    message: 'Tool contracts must not depend on dispatch or handler implementations',
+  },
+  {
+    target: './electron/ai/tools/userQuestion.ts',
+    from: './electron/ai/tools/toolExecution.ts',
+    message: 'Question handlers must consume toolExecutionContext, not the dispatcher',
+  },
+  {
+    target: './electron/mcp/**/!(bind|bind.test).ts',
+    from: './electron/ssh',
+    except: ['./types.ts', './sessionExec.ts', './shellQuote.ts'],
+    message: 'MCP must use its ports; only bind.ts may adapt SSH implementations',
+  },
   // History data rules and legacy decoding must remain independent of persistence.
   {
     target: './electron/ai/history/historyModel.ts',
@@ -366,6 +388,34 @@ export default tseslint.config(
           zones: architectureZones,
         },
       ],
+    },
+  },
+
+  {
+    files: ['shared/**/*.ts', 'src/domain/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    plugins: { architecture: { rules: { 'pure-platform-imports': purePlatformImports } } },
+    rules: { 'architecture/pure-platform-imports': 'error' },
+  },
+
+  {
+    files: ['electron/mcp/**/*.ts'],
+    ignores: ['electron/mcp/bind.ts', 'electron/mcp/bind.test.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/ssh/types', '**/ssh/types.ts', '**/ssh/sessionExec', '**/ssh/sessionExec.ts'],
+          allowTypeImports: true,
+          message: 'MCP may reuse SSH contracts only as types; bind.ts adapts implementations',
+        }],
+      }],
+      'no-restricted-syntax': ['error', {
+        selector: [
+          String.raw`ImportExpression[source.value=/\/ssh\/(types|sessionExec)(\.ts)?$/]`,
+          String.raw`CallExpression[callee.name='require'] > Literal[value=/\/ssh\/(types|sessionExec)(\.ts)?$/]`,
+        ].join(', '),
+        message: 'SSH contract modules are type-only dependencies of MCP; bind.ts adapts implementations',
+      }],
     },
   },
 

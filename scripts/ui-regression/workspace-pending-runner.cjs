@@ -1,0 +1,81 @@
+const { app, BrowserWindow } = require('electron')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-workspace-pending-'))
+app.setPath('userData', path.join(artifacts, 'profile'))
+const timeout = setTimeout(() => { console.error('Workspace pending UI timed out', { artifacts }); app.exit(1) }, 120_000)
+app.whenReady().then(async () => {
+  const win = new BrowserWindow({ show: false, width: 1320, height: 1000, webPreferences: { contextIsolation: true, backgroundThrottling: false } })
+  const run = code => win.webContents.executeJavaScript(code)
+  const wait = async code => {
+    const start = Date.now()
+    while (!await run(code)) {
+      if (Date.now() - start > 10_000) throw new Error(`Timeout: ${code}`)
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+  }
+  const root = '.lite-ai-workspace-fixture'
+  const row = id => `${root} .rail-current-list .rail-item[data-connection-id="${id}"]`
+  const frames = () => run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  await win.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+  await wait('!!window.__uiRegression')
+  await run('window.__uiRegression.openLiteAi()')
+  await run(`document.querySelector('${root} .titlebar-brand-module').click()`)
+  await wait(`!!document.querySelector('.titlebar-mode-menu')`)
+  await run(`document.querySelector('.titlebar-mode-menu .titlebar-mode-item:last-child').click()`)
+  await wait(`document.querySelectorAll('${root} .workspace-card').length===2`)
+  for (const id of ['one', 'two']) {
+    await run(`document.querySelector('${root} .workspace-card[data-connection-id="${id}"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`)
+    await wait(`!!document.querySelector('${root} .lite-ai-chat .composer-input')`)
+    const scopeId = await run('window.__uiRegression.workspaceScopes.at(-1).id')
+    await run(`window.__uiRegression.seedWorkspacePending('${scopeId}','${id === 'one' ? 'question' : 'approval'}')`)
+    await wait(`!!document.querySelector('${row(scopeId)} .rail-pending-badge')`)
+    await run(`document.querySelector('${root} .workspace-back').click()`)
+    await wait(`!!document.querySelector('${root} .workspace-card')`)
+  }
+  const [question, approval] = await run('window.__uiRegression.workspaceScopes.map(scope=>scope.id)')
+  assert.equal(await run(`document.querySelectorAll('${root} .rail-pending-badge').length`), 2)
+  assert.ok(await run(`document.querySelector('${row(question)}').title.includes('等待你回答问题') && document.querySelector('${row(approval)}').title.includes('等待你确认操作')`), 'One unified badge keeps specific question and approval descriptions')
+  assert.ok(await run(`document.querySelector('${root} .rail-pending-summary').textContent.includes('2')`))
+  assert.equal(await run(`document.querySelectorAll('${root} .rail-current-list .connection-dot.connected').length`), 2, 'Connection and pending states remain independent')
+  let layouts = 0
+  for (const theme of ['light', 'dark', 'eyecare']) {
+    await run(`window.__uiRegression.setTheme('${theme}')`)
+    for (const width of [780, 1150]) {
+      await run(`Object.assign(document.querySelector('${root}').style,{width:'${width}px',height:'720px'});document.querySelector('${root}').scrollIntoView({block:'center'})`)
+      await frames()
+      assert.ok(await run(`Array.from(document.querySelectorAll('${root} .rail-pending-badge')).every(badge=>{const r=badge.getBoundingClientRect(),p=badge.closest('.rail-item').getBoundingClientRect();return r.width>0 && r.left>=p.left && r.right<=p.right && badge.scrollWidth<=badge.clientWidth+1})`), `${theme}/${width}: pending labels fit the rail`)
+      const rect = await run(`(()=>{const r=document.querySelector('${root}').getBoundingClientRect();return {x:Math.max(0,Math.floor(r.x)),y:Math.max(0,Math.floor(r.y)),width:Math.floor(r.width),height:Math.floor(r.height)}})()`)
+      fs.writeFileSync(path.join(artifacts, `pending-${theme}-${width}.png`), (await win.webContents.capturePage(rect)).toPNG())
+      layouts++
+    }
+  }
+  await run(`document.querySelector('${root} .rail-collapse').click()`)
+  await wait(`!!document.querySelector('${root} .workspace-pending-dot')`)
+  assert.ok(await run(`document.querySelector('${root} .workspace-pending-dot').getAttribute('aria-label').includes('2')`))
+  await run(`document.querySelector('${root} .rail-collapse').click();document.querySelector('${row(question)}').click()`)
+  await wait(`!!document.querySelector('${root} .ai-question-card textarea')`)
+  await run(`(()=>{const input=document.querySelector('${root} .ai-question-card textarea');input.value='保留这份回答草稿';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('${root} .ai-conversation-menu-trigger').click()})()`)
+  await wait(`!!document.querySelector('.ai-conversation-menu [data-action="history"]')`)
+  await run(`document.querySelector('.ai-conversation-menu [data-action="history"]').click()`)
+  await wait(`!!document.querySelector('${root} .ai-history-page')`)
+  await run(`document.querySelector('${row(question)}').click()`)
+  await wait(`!document.querySelector('${root} .ai-history-page')`)
+  assert.equal(await run(`document.querySelector('${root} .ai-question-card textarea').value`), '保留这份回答草稿')
+  await run(`document.querySelector('${row(approval)}').click()`)
+  await wait(`!!document.querySelector('${root} .tool-approval-btn.primary')`)
+  await run(`document.querySelector('${root} .tool-approval-btn.primary').click()`)
+  await wait(`!document.querySelector('${row(approval)} .rail-pending-badge')`)
+  assert.equal(await run(`document.querySelectorAll('${root} .rail-pending-badge').length`), 1, 'Approving a command does not clear another conversation question')
+  await run(`window.__uiRegression.seedWorkspacePending('${question}','mixed')`)
+  await wait(`document.querySelector('${row(question)}').title.includes('等待你回答问题并确认操作')`)
+  await run(`document.querySelector('${root} .workspace-back').click();window.__uiRegression.seedWorkspacePending('${question}','done')`)
+  await wait(`!document.querySelector('${root} .rail-pending-badge') && !document.querySelector('${root} .rail-pending-summary')`)
+  assert.equal(await run('window.__uiRegression.workspaceScopes.length'), 2, 'Revealing work never creates a new conversation')
+  assert.equal(await run('window.__uiRegression.calls.aiRequests.length'), 0, 'Revealing work never resubmits a chat request')
+  assert.equal(await run('window.__uiError || null'), null)
+  console.log(JSON.stringify({ passed: true, layouts, flows: ['shared pending badges', 'question and approval hints', 'mixed state', 'collapsed rail indicator', 'exact pending navigation', 'draft preservation', 'approval cleanup', 'offscreen completion cleanup'], artifacts }))
+  clearTimeout(timeout); win.destroy(); app.quit()
+}).catch(error => { console.error(error, { artifacts }); clearTimeout(timeout); app.exit(1) })

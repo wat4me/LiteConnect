@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SftpEditorSaveOptions, SftpDirectoryDiffEntry } from '../../shared/types/sftp'
-import { ipcMain } from 'electron'
+import { handleSftp } from './sftpContract'
 import {
   isValidUUID,
   isValidPath,
@@ -12,14 +12,14 @@ import { shellQuote } from '../ssh/shellQuote'
 import { SFTP_EDITOR_MAX_BYTES } from '../utils/constants'
 
 export function registerSftpHandlers(sshManager: SSHManager): void {
-  ipcMain.handle('sftp:init', async (_event, sessionId: string) => {
+  handleSftp('sftp:init', async (_event, sessionId: string) => {
     if (!isValidUUID(sessionId)) {
       throw new Error('Invalid session id')
     }
     await sshManager.initSftp(sessionId)
   })
 
-  ipcMain.handle('sftp:readdir', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:readdir', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) {
       throw new Error('Invalid session id')
     }
@@ -30,7 +30,7 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     return await sshManager.sftpReaddir(sessionId, cleanPath)
   })
 
-  ipcMain.handle('sftp:realpath', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:realpath', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) {
       throw new Error('Invalid session id')
     }
@@ -41,39 +41,39 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     return await sshManager.sftpRealpath(sessionId, cleanPath)
   })
 
-  ipcMain.handle('sftp:execHome', async (_event, sessionId: string) => {
+  handleSftp('sftp:execHome', async (_event, sessionId: string) => {
     if (!isValidUUID(sessionId)) {
       throw new Error('Invalid session id')
     }
     return await sshManager.sftpExec(sessionId, 'printf "%s" "$HOME"')
   })
 
-  ipcMain.handle('sftp:extractArchive', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:extractArchive', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     const out = await sshManager.sftpExtractArchive(sessionId, remotePath)
     return { ok: true, output: out }
   })
 
-  ipcMain.handle('sftp:exists', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:exists', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     return await sshManager.sftpExists(sessionId, remotePath)
   })
 
-  ipcMain.handle('sftp:readFile', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:readFile', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     return await sshManager.sftpReadFile(sessionId, remotePath, SFTP_EDITOR_MAX_BYTES)
   })
 
-  ipcMain.handle('sftp:editorSnapshot', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:editorSnapshot', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     return sshManager.sftpReadEditorSnapshot(sessionId, remotePath, SFTP_EDITOR_MAX_BYTES)
   })
 
-  ipcMain.handle('sftp:editorSave', async (_event, sessionId: string, remotePath: string, content: string, options: SftpEditorSaveOptions) => {
+  handleSftp('sftp:editorSave', async (_event, sessionId: string, remotePath: string, content: string, options: SftpEditorSaveOptions) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     if (typeof content !== 'string' || !options || typeof options.revision !== 'string' || !/^[a-f0-9]{64}$/.test(options.revision)) throw new Error('Invalid editor save')
@@ -81,7 +81,7 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     return sshManager.sftpSaveEditor(sessionId, remotePath, content, options, SFTP_EDITOR_MAX_BYTES)
   })
 
-  ipcMain.handle('sftp:directoryPreview', async (_event, sessionId: string, localPath: string, remotePath: string) => {
+  handleSftp('sftp:directoryPreview', async (_event, sessionId: string, localPath: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath) || !isValidPath(localPath) || !path.isAbsolute(localPath)) throw new Error('Invalid path')
     const local = await fs.readdir(localPath, { withFileTypes: true })
@@ -101,21 +101,21 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     return { localPath, remotePath, entries, skipped }
   })
 
-  ipcMain.handle('sftp:writeFile', async (_event, sessionId: string, remotePath: string, content: string) => {
+  handleSftp('sftp:writeFile', async (_event, sessionId: string, remotePath: string, content: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     if (typeof content !== 'string') throw new Error('Invalid content')
     await sshManager.sftpWriteFile(sessionId, remotePath, content, SFTP_EDITOR_MAX_BYTES)
   })
 
-  ipcMain.handle('sftp:chmod', async (_event, sessionId: string, remotePath: string, mode: string, recursive?: boolean) => {
+  handleSftp('sftp:chmod', async (_event, sessionId: string, remotePath: string, mode: string, recursive?: boolean) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     if (!/^[0-7]{3,4}$/.test(mode)) throw new Error('Invalid mode')
     await sshManager.sftpChmod(sessionId, remotePath, mode, !!recursive)
   })
 
-  ipcMain.handle('sftp:chown', async (_event, sessionId: string, remotePath: string, owner: string, group?: string, recursive?: boolean) => {
+  handleSftp('sftp:chown', async (_event, sessionId: string, remotePath: string, owner: string, group?: string, recursive?: boolean) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     if (!owner || typeof owner !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(owner)) throw new Error('Invalid owner')
@@ -123,26 +123,26 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     await sshManager.sftpChown(sessionId, remotePath, owner, group, !!recursive)
   })
 
-  ipcMain.handle('sftp:rename', async (_event, sessionId: string, oldPath: string, newPath: string) => {
+  handleSftp('sftp:rename', async (_event, sessionId: string, oldPath: string, newPath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(oldPath)) throw new Error('Invalid old path')
     if (!isStrictPath(newPath)) throw new Error('Invalid new path')
     await sshManager.sftpRename(sessionId, oldPath, newPath)
   })
 
-  ipcMain.handle('sftp:mkdir', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:mkdir', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     await sshManager.sftpMkdir(sessionId, remotePath)
   })
 
-  ipcMain.handle('sftp:delete', async (_event, sessionId: string, remotePath: string, isDirectory?: boolean) => {
+  handleSftp('sftp:delete', async (_event, sessionId: string, remotePath: string, isDirectory?: boolean) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     await sshManager.sftpDelete(sessionId, remotePath, !!isDirectory)
   })
 
-  ipcMain.handle('sftp:stat', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:stat', async (_event, sessionId: string, remotePath: string) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
     const stat = await sshManager.sftpStat(sessionId, remotePath)

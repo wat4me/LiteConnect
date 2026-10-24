@@ -27,7 +27,6 @@ import SftpToolbar from './SftpToolbar.vue'
 import SftpPathBar from './SftpPathBar.vue'
 import SftpContextMenu from './SftpContextMenu.vue'
 import TransferList from './TransferList.vue'
-import UploadConfirmModal from './UploadConfirmModal.vue'
 import FileEditorModal from './FileEditorModal.vue'
 import DirectorySyncModal from './DirectorySyncModal.vue'
 import FilePropertiesModal from './FilePropertiesModal.vue'
@@ -213,10 +212,6 @@ function openTransfersTab(direction: 'upload' | 'download') {
 }
 
 const {
-  showUploadConfirm,
-  uploadFiles,
-  uploadTargetPath,
-  uploadTargetFiles,
   dropTargetPath,
   downloadConflict,
   isDragOver,
@@ -228,14 +223,11 @@ const {
   onDropTarget,
   loadDownloadConflict,
   pickAndUploadDirectory,
-  confirmUpload,
-  cancelUpload,
   bindConflictSettingsListener,
   unbindConflictSettingsListener,
 } = useSftpUpload({
   sessionId: () => props.sessionId,
   currentPath,
-  currentFiles: files,
   onQueued: () => openTransfersTab('upload'),
   onDropRejected: () => {
     ElMessage.warning(t('sftp.uploadRejectedArchive'))
@@ -930,15 +922,6 @@ defineExpose({ handleTerminalCd, clearSessionState })
       @rename="onContextMenuRename"
       @properties="onContextMenuProperties"
       @delete="onContextMenuDelete"
-    />
-
-    <UploadConfirmModal
-      :visible="showUploadConfirm"
-      :files="uploadFiles"
-      :target-path="uploadTargetPath"
-      :existing-files="uploadTargetFiles"
-      @confirm="(c) => confirmUpload(c)"
-      @cancel="cancelUpload"
     />
 
     <DirectorySyncModal :visible="showDirectorySync" :session-id="sessionId" :remote-path="currentPath" @close="showDirectorySync = false" @queued="activeTab = 'transfers'" />

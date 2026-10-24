@@ -2,31 +2,22 @@ import { ref, watch, type Ref } from 'vue'
 import { useDragDrop, type DropUploadItem } from './useDragDrop'
 import { localBaseName } from '@/utils/sftp/sftpEditable'
 import { beginTransferBatch } from './useTransfers'
-import type { FileEntry } from '../../env.d.ts'
 
 export type DownloadConflictStrategy = 'overwrite' | 'skip' | 'rename'
 
 /**
  * Upload queue + drag-drop target for SFTP sidebar.
- * Host switches tab to transfers after confirm.
+ * Host switches tab to transfers immediately; main asks only on a real conflict.
  */
 export function useSftpUpload(deps: {
   sessionId: () => string
   currentPath: Ref<string>
-  /** Listing of `currentPath`; lets the confirm dialog flag conflicts without a readdir. */
-  currentFiles?: Ref<FileEntry[]>
   onQueued: (direction: 'upload') => void
   /** Surfaces a rejected drop (nothing uploadable) as a user-visible hint. */
   onDropRejected?: () => void
 }) {
-  const showUploadConfirm = ref(false)
-  const uploadFiles = ref<DropUploadItem[]>([])
-  const uploadTargetPath = ref('')
-  /** Entries already inside the upload target (the drop folder, not necessarily the current one). */
-  const uploadTargetFiles = ref<FileEntry[]>([])
   const dropTargetPath = ref<string | null>(null)
   const downloadConflict = ref<DownloadConflictStrategy>('rename')
-  let targetListingSeq = 0
 
   async function loadDownloadConflict() {
     try {
@@ -49,30 +40,10 @@ export function useSftpUpload(deps: {
 
   function handleItemsDropped(items: DropUploadItem[], targetPath?: string) {
     if (items.length === 0) return
-    uploadFiles.value = items
-    uploadTargetPath.value =
+    const target =
       (targetPath || dropTargetPath.value || deps.currentPath.value || '/').replace(/\/+$/, '') || '/'
     dropTargetPath.value = null
-    showUploadConfirm.value = true
-    void loadTargetListing(uploadTargetPath.value)
-  }
-
-  /** Conflict badges must reflect the drop folder, which is not always the listed directory. */
-  async function loadTargetListing(target: string) {
-    const seq = ++targetListingSeq
-    const current = (deps.currentPath.value || '/').replace(/\/+$/, '') || '/'
-    if (target === current && deps.currentFiles) {
-      uploadTargetFiles.value = deps.currentFiles.value
-      return
-    }
-    uploadTargetFiles.value = []
-    try {
-      const listing = await window.LiteConnect.sftpReaddir(deps.sessionId(), target)
-      if (seq !== targetListingSeq) return
-      uploadTargetFiles.value = listing.filter((e) => e.name !== '.' && e.name !== '..')
-    } catch {
-      // Unknown listing: the dialog simply shows no "exists" badges.
-    }
+    queueItems(items, target, deps.sessionId())
   }
 
   function onDropTarget(path: string | null) {
@@ -98,9 +69,11 @@ export function useSftpUpload(deps: {
   })
 
   async function pickAndUploadDirectory() {
+    const sid = deps.sessionId()
+    const target = deps.currentPath.value || '/'
     const dir = await window.LiteConnect.selectDirectory()
     if (!dir) return
-    handleItemsDropped(
+    queueItems(
       [
         {
           name: localBaseName(dir),
@@ -108,18 +81,17 @@ export function useSftpUpload(deps: {
           isDirectory: true,
         },
       ],
-      deps.currentPath.value || '/',
+      target,
+      sid,
     )
   }
 
-  async function confirmUpload(conflict: DownloadConflictStrategy = 'rename') {
-    const target = uploadTargetPath.value || deps.currentPath.value
-    const sid = deps.sessionId()
-    const items = uploadFiles.value
+  function queueItems(items: DropUploadItem[], target: string, sid: string) {
     const transferIds = items.map(() => `ul-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`)
+    const batchId = `ul-batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     // One toast for the whole drop; main throttles how many actually run at once.
     beginTransferBatch({
-      batchId: `ul-batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      batchId,
       sessionId: sid,
       direction: 'upload',
       transferIds,
@@ -128,20 +100,13 @@ export function useSftpUpload(deps: {
       const transferId = transferIds[i]
       if (item.isDirectory) {
         window.LiteConnect.sftpUploadDirectory(sid, item.path, target, item.name, transferId, {
-          conflict,
+          conflict: 'ask', batchId, batchSize: items.length,
         })
       } else {
-        window.LiteConnect.sftpUpload(sid, item.path, target, item.name, transferId, { conflict })
+        window.LiteConnect.sftpUpload(sid, item.path, target, item.name, transferId, { conflict: 'ask', batchId, batchSize: items.length })
       }
     })
-    showUploadConfirm.value = false
-    uploadFiles.value = []
     deps.onQueued('upload')
-  }
-
-  function cancelUpload() {
-    showUploadConfirm.value = false
-    uploadFiles.value = []
   }
 
   function bindConflictSettingsListener() {
@@ -153,10 +118,6 @@ export function useSftpUpload(deps: {
   }
 
   return {
-    showUploadConfirm,
-    uploadFiles,
-    uploadTargetPath,
-    uploadTargetFiles,
     dropTargetPath,
     downloadConflict,
     isDragOver,
@@ -168,8 +129,6 @@ export function useSftpUpload(deps: {
     onDropTarget,
     loadDownloadConflict,
     pickAndUploadDirectory,
-    confirmUpload,
-    cancelUpload,
     bindConflictSettingsListener,
     unbindConflictSettingsListener,
   }

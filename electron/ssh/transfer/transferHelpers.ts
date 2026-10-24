@@ -1,3 +1,4 @@
+import { TransferCancelledError } from '../../../shared/transferCancellation'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -44,13 +45,8 @@ export interface WalkLocalOptions {
   symlinkPolicy?: SymlinkPolicy
   /** Yield to event loop every N processed dir entries. */
   yieldEvery?: number
-}
-
-export class TransferCancelledError extends Error {
-  constructor(message = 'Transfer cancelled') {
-    super(message)
-    this.name = 'TransferCancelledError'
-  }
+  /** Counts discovered so far, throttled during large scans. */
+  onProgress?: (files: number, directories: number) => void
 }
 
 function joinPosix(parent: string, name: string): string {
@@ -76,6 +72,13 @@ export async function walkLocalTree(
   const dirs: LocalWalkDir[] = []
   let totalSize = 0
   let processed = 0
+  let lastReport = 0
+  const report = () => {
+    const now = Date.now()
+    if (now - lastReport < 150) return
+    lastReport = now
+    options?.onProgress?.(files.length, dirs.length)
+  }
 
   // BFS queue of directories to visit (absolute path + relative posix)
   type Q = { abs: string; rel: string }
@@ -206,6 +209,7 @@ export async function walkLocalTree(
           totalSize += st.size
         }
         // ignore sockets, fifos, devices
+        report()
       }
     }
 
@@ -213,6 +217,7 @@ export async function walkLocalTree(
   })
 
   throwIfCancelled()
+  options?.onProgress?.(files.length, dirs.length)
   return { files, dirs, totalSize }
 }
 

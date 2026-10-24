@@ -96,3 +96,23 @@ it('re-arms the guard when the user chooses to stay', async () => {
   expect(await quit()).toBe(true)
   expect(mocks.dialog).toHaveBeenCalledTimes(2)
 })
+
+it('keeps repeated quit requests blocked while the download confirmation is pending', async () => {
+  mocks.downloads = { version: '1.0.15', progress: 10 }
+  let answer!: (value: { response: number }) => void
+  mocks.dialog.mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
+  expect(await quit()).toBe(true)
+  expect(await quit()).toBe(true)
+  expect(mocks.dialog).toHaveBeenCalledOnce()
+  answer({ response: 0 })
+  await Promise.resolve()
+  expect(mocks.quit).not.toHaveBeenCalled()
+})
+
+it('does not re-arm after the application has committed to shutdown', async () => {
+  mocks.downloads = { version: '1.0.15', progress: 10 }
+  const { installUpdateGuard } = await import('./updateGuard')
+  installUpdateGuard(() => true)
+  expect(await quit()).toBe(false)
+  expect(mocks.dialog).not.toHaveBeenCalled()
+})

@@ -225,9 +225,13 @@ export class SftpSession {
   sftpExists(sessionId: string, remotePath: string): Promise<boolean> {
     const session = this.getSession(sessionId)
     if (!session?.sftp) return Promise.reject(new Error(t('sftp.notInitialized')))
-    return new Promise((resolve) => {
-      session.sftp!.stat(remotePath, (err) => {
-        resolve(!err)
+    return new Promise((resolve, reject) => {
+      session.sftp!.lstat(remotePath, (err) => {
+        if (!err) resolve(true)
+        // Only NO_SUCH_FILE means absent. Permission/connection failures must
+        // not turn into permission to overwrite a file we could not inspect.
+        else if ((err as Error & { code?: number }).code === 2) resolve(false)
+        else reject(err)
       })
     })
   }

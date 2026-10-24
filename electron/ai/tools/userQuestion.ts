@@ -1,6 +1,6 @@
 import { validateAiQuestions, AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import type { AiFunctionToolCall } from '../../../shared/types/ai'
-import type { AiToolExecutionContext } from './toolExecution'
+import type { AiToolExecutionContext } from './toolExecutionContext'
 import { waitForUserAnswer } from './streamControl'
 
 export async function executeUserQuestion(call: AiFunctionToolCall, opts: AiToolExecutionContext) {

@@ -1,5 +1,5 @@
 import http from 'http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMcpHttpServer, type McpHttpHandle } from './httpServer'
 import { createSshMcpRuntime } from './runtime'
 import type { SshMcpSessionPort } from './ports'
@@ -21,9 +21,18 @@ function runtime() {
     getSessionSnapshot: (id) => (id === SESSION_ID ? snap : undefined),
     getSessionGeneration: () => snap.generation,
     executeSessionExec: async () => ({ stdout: 'ok', stderr: '', exitCode: 0, truncated: false }),
+    beginSessionExec: async () => ({ promise: Promise.resolve({ stdout: 'ok', stderr: '', exitCode: 0, truncated: false }), cancel: () => {} }),
     initSftp: async () => {},
     sftpReaddir: async () => [],
     sftpReadFile: async () => '',
+    sftpReadFileRange: async () => ({ buffer: Buffer.alloc(0), size: 0, eof: true }),
+    sftpWriteFile: async () => {},
+    sftpWriteBuffer: async () => {},
+    sftpDownload: async () => {},
+    sftpUpload: async () => {},
+    connectSaved: async () => ({ sessionId: SESSION_ID, reused: true }),
+    disconnectSession: () => {},
+    openShellChannel: async () => { throw new Error('unused shell') },
     sftpStat: async () => ({ mode: '644', size: 0, uid: 0, gid: 0, atime: 0, mtime: 0 }),
   }
   return createSshMcpRuntime({
@@ -70,6 +79,43 @@ describe('MCP HTTP server', () => {
   afterEach(async () => {
     if (handle) await handle.close()
     handle = undefined
+  })
+
+  it('cancels accepted tool requests and waits for their cleanup when the listener closes', async () => {
+    let signal!: AbortSignal
+    let finish!: () => void
+    const tools = runtime()
+    vi.spyOn(tools, 'call').mockImplementationOnce(async (_name, _args, opts) => {
+      signal = opts!.signal!
+      await new Promise<void>(resolve => { finish = resolve })
+      return { content: 'cancelled', structuredContent: {}, isError: true }
+    })
+    const audit = vi.fn()
+    handle = createMcpHttpServer({ runtime: tools, getToken: () => TOKEN, serverInfo: { name: 'test', version: '1' }, audit })
+    const port = await handle.listen(0)
+    const request = rpc(`http://127.0.0.1:${port}`, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_sessions', arguments: {} } })
+    await vi.waitFor(() => expect(signal).toBeDefined())
+    let stopped = false
+    const stopping = handle.close().then(() => { stopped = true })
+    expect(signal.aborted).toBe(true)
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+    finish()
+    const response = await request
+    await response.text()
+    await stopping
+    expect(audit).toHaveBeenCalledOnce()
+    expect(handle.address()).toBeNull()
+    tools.dispose()
+  })
+
+  it('closes a listen started in the same turn without leaving a bound server', async () => {
+    handle = createMcpHttpServer({ runtime: runtime(), getToken: () => TOKEN, serverInfo: { name: 'test', version: '1' } })
+    const listening = handle.listen(0)
+    const stopping = handle.close()
+    await listening; await stopping
+    expect(handle.address()).toBeNull()
+    await expect(handle.listen(0)).rejects.toThrow('closing')
   })
 
   it('serves health without a token and MCP with a token', async () => {

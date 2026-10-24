@@ -85,6 +85,20 @@ describe('validation', () => {
     expect(isAbsolute('/tmp')).toBe(true)
   })
 
+  it.each(['/tmp/app.log', '\\tmp\\app.log', '/Users/name/Downloads/app.log', 'C:app.log', 'C:Downloads\\app.log', '\\\\server', '\\\\?\\C:\\app.log', '\\\\.\\pipe\\app'])('rejects drive-dependent and device paths on Windows: %s', path => {
+    expect(isSafeLocalPath(path, 'win32')).toBe(false)
+  })
+
+  it.each(['C:\\Users\\name\\Downloads\\app.log', 'D:/downloads/app.log', '\\\\server\\share\\app.log', '//server/share/app.log'])('accepts fully qualified Windows local paths: %s', path => {
+    expect(isSafeLocalPath(path, 'win32')).toBe(true)
+  })
+
+  it('keeps POSIX local paths valid on Linux and macOS', () => {
+    expect(isSafeLocalPath('/tmp/app.log', 'linux')).toBe(true)
+    expect(isSafeLocalPath('/Users/name/Downloads/app.log', 'darwin')).toBe(true)
+    expect(isSafeLocalPath('C:/Downloads/app.log', 'linux')).toBe(false)
+  })
+
   it('validates exec command and transfer id', () => {
     expect(isValidExecCommand('ls -la')).toBe(true)
     expect(isValidExecCommand('')).toBe(false)

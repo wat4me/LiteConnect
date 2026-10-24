@@ -20,6 +20,7 @@ import AiImageStrip from './AiImageStrip.vue'
 import AiToolApprovals from './AiToolApprovals.vue'
 import AiConversationMenu, { type AiConversationMenuItem } from './AiConversationMenu.vue'
 import AiBackgroundTasks from './AiBackgroundTasks.vue'
+import AiFileTransfers from './AiFileTransfers.vue'
 import AiUserQuestion from './AiUserQuestion.vue'
 import { useAiComposerImages } from '@/composables/ai/useAiComposerImages'
 import AiSettingsPanel from './AiSettingsPanel.vue'
@@ -90,6 +91,7 @@ const {
   editUserMessageAndResend,
   deleteMessage,
   answerQuestion,
+  getQuestionDraft,
 } = chat
 
 const contextFiles = computed(() => getSessionState(props.sessionId).contextFiles)
@@ -146,7 +148,8 @@ function detachSidebarDomListeners() {
 function resizeComposer() {
   const el = composerInputRef.value
   const panel = sidebarRef.value
-  if (!el || !panel || !el.getClientRects().length) return
+  if (!panel) return
+  if (!el || !el.getClientRects().length) { updateComposerOverlayInset(); return }
   const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 19.5
   const form = el.closest('form')!
   const formStyle = getComputedStyle(form)
@@ -329,6 +332,13 @@ const pendingApprovals = computed(() => {
   return runs
 })
 const pendingQuestions = computed(() => messages.value.filter(message => message.streaming).flatMap(message => (message.toolRuns || []).filter(run => run.status === 'question')))
+
+watch(() => props.openGeneration, () => {
+  if (!pendingApprovals.value.length && !pendingQuestions.value.length) return
+  closeSettingsPanel()
+  closeHistoryPanel()
+  closeModelSwitcher()
+})
 
 const currentThreadTitle = computed(() => {
   const active = threadSummaries.value.find((t) => t.active)
@@ -575,6 +585,7 @@ async function runCodeToTerminal(code: string) {
     </div>
 
     <AiBackgroundTasks v-show="!showSettings && !showHistory" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
+    <AiFileTransfers v-show="!showSettings && !showHistory" :key="reminderKey" :session-id="sessionId" :thread-id="getSessionState(sessionId).activeThreadId" :targets="workspaceTargets" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
         :conversation-key="reminderKey"
@@ -600,7 +611,7 @@ async function runCodeToTerminal(code: string) {
     <AiToolApprovals v-if="!showSettings && !showHistory" :key="sessionId" :session-id="sessionId" :runs="pendingApprovals" />
 
     <div ref="composerAreaRef" v-show="!showSettings && !showHistory" class="composer-area" :class="{ 'has-question': pendingQuestions.length }">
-    <AiUserQuestion v-for="run in pendingQuestions" :key="run.id" :run="run" :submit="answer => answerQuestion(sessionId, run.id, answer)" allow-stop @stop="handleStop" />
+    <AiUserQuestion v-for="run in pendingQuestions" :key="JSON.stringify([reminderKey, getSessionState(sessionId).activeRequestId, run.id, run.args])" :run="run" :draft="getQuestionDraft(sessionId, run)" :submit="answer => answerQuestion(sessionId, run.id, answer)" allow-stop @stop="handleStop" />
     <form v-show="!pendingQuestions.length" class="composer" :class="{ 'image-drag-over': imageDragOver }" @submit.prevent="sendMessage">
       <div v-if="showLongSessionReminder" class="composer-long-session" role="status">
         <p>{{ t('ai.longSessionReminder', { n: compactionCount }) }}</p>

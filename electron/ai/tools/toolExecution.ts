@@ -1,9 +1,7 @@
-import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
-import type { AiChatMessage, AiChatStreamPayload, AiFunctionToolCall, AiToolRun, AiToolPermissionMode, AiToolRunStatus } from '../../../shared/types/ai'
+import type { AiChatMessage, AiFunctionToolCall, AiToolRun, AiToolRunStatus } from '../../../shared/types/ai'
 import { assessAiToolCall, formatAiRiskReclassifyContent, omitDeclaredRiskArg } from '../../../shared/aiToolPolicy'
 import { serializeToolRunForHistory } from '../../../shared/aiToolRunDisplay'
 import { clampToolResultForModel } from '../../../shared/mcp/toolResultClamp'
-import type { SshMcpRuntime } from '../../mcp/runtime'
 import { routeWorkspaceTool, callWorkspaceTool } from './workspaceToolRouting'
 import { bindSessionArgs, parseToolCallArguments } from './sshToolChat'
 import { applyCommandFloor, commandContentRisk } from './commandFloor'
@@ -11,26 +9,8 @@ import { buildFileChangeDiffPreview } from './toolDiffPreview'
 import { waitForToolApproval } from './streamControl'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { executeUserQuestion } from './userQuestion'
-import { AI_LOAD_TOOLS, parseAiToolGroupRequest, type AiToolGroup } from '../../../shared/aiToolCatalog'
-
-export type AiToolApprovalObserver = (input: { requestId: string; callId: string; sessionId: string; toolName: string }) => void | (() => void)
-export type AiToolExecutionContext = {
-  requestId: string
-  boundSessionId: string
-  workspaceTargets?: AiWorkspaceTarget[]
-  sshMcpRuntime: SshMcpRuntime
-  signal: AbortSignal
-  send: (payload: AiChatStreamPayload) => void
-  getToolPermission: () => AiToolPermissionMode
-  checkpoint?: () => Promise<void>
-  foregroundOnly?: boolean
-  allowQuestions?: boolean
-  availableTools?: ReadonlySet<string>
-  loadTools?: (groups: AiToolGroup[]) => { loadedGroups: AiToolGroup[]; tools: string[] }
-  onToolApprovalRequested?: AiToolApprovalObserver
-  onBackgroundJobsStarted?: (jobIds: string[]) => void
-  onBackgroundJobCollected?: (jobId: string) => void
-}
+import { AI_LOAD_TOOLS, parseAiToolGroupRequest } from '../../../shared/aiToolCatalog'
+import type { AiToolExecutionContext } from './toolExecutionContext'
 
 /** Policy/routing/execution only; conversation history remains with the caller. */
 export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolExecutionContext): Promise<{ run: AiToolRun; message: AiChatMessage } | undefined> {
@@ -69,8 +49,8 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   const executeTool = async () => {
     try {
       return await (workspaceTargets
-        ? callWorkspaceTool(sshMcpRuntime, call.function.name, mcpArgs, { approvalMode: 'auto', signal })
-        : sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal }))
+        ? callWorkspaceTool(sshMcpRuntime, call.function.name, mcpArgs, { approvalMode: 'auto', signal, transferContext: opts.transferContext })
+        : sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal, transferContext: opts.transferContext }))
     } catch (error) {
       if (signal.aborted) throw error
       const message = error instanceof Error ? error.message : String(error)

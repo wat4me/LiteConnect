@@ -18,6 +18,7 @@ import LeftToolbar from '../../src/components/workspace/LeftToolbar.vue'
 import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJobs'
 import type { SshMcpJobSummary } from '../../shared/mcp/types'
 import { useAiChat } from '../../src/composables/ai/useAiChat'
+import { useTransfers } from '../../src/composables/sftp/useTransfers'
 import type { AiSessionStore, AiSettings, AiToolRun, AiUsage } from '../../shared/types/ai'
 import type { AiScheduleInput, AiScheduleRun, AiScheduleSnapshot } from '../../shared/aiSchedules'
 import { aiScheduleConnectionIds, nextAiScheduleRun } from '../../shared/aiSchedules'
@@ -26,6 +27,7 @@ import DirectorySyncModal from '../../src/components/sftp/DirectorySyncModal.vue
 import SftpToolbar from '../../src/components/sftp/SftpToolbar.vue'
 import SftpDirTree from '../../src/components/sftp/SftpDirTree.vue'
 import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
+import UploadConflictDialog from '../../src/components/sftp/UploadConflictDialog.vue'
 import type { ChatItem } from '@/domain/ai/chat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
@@ -88,6 +90,11 @@ const backgroundNetworkCalls = { list: 0, tools: 0 }
 let cancelJobFails = false
 const jobListeners = new Set<(jobs: SshMcpJobSummary[]) => void>()
 const backgroundReplyListeners = new Set<(event: any) => void>()
+const transferListeners = Object.fromEntries(['start', 'progress', 'complete', 'error'].map(name => [name, new Set<(...args: any[]) => void>()]))
+const transferSessions = new Map<string, string>()
+const transferActions = { cancelled: [] as string[], opened: [] as string[] }
+const uploadConflictListeners = new Set<(request: any) => void>()
+const uploadConflictDecisions: any[] = []
 const workspaceListeners = new Set<(event: any) => void>()
 const workspaceSessions = new Map<string, string>()
 const workspaceOpens: string[] = []
@@ -122,6 +129,14 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
 }
 // This test window has no production preload, credentials, SSH or disk writes.
 ;(window as any).LiteConnect = {
+  onUploadConflict: (callback: (request: any) => void) => { uploadConflictListeners.add(callback); return () => uploadConflictListeners.delete(callback) },
+  resolveUploadConflict: (requestId: string, decision: any) => { uploadConflictDecisions.push({ requestId, ...decision }); uploadConflictListeners.forEach(callback => callback(null)) },
+  onTransferStart: (callback: (...args: any[]) => void) => { transferListeners.start.add(callback); return () => transferListeners.start.delete(callback) },
+  onTransferProgress: (callback: (...args: any[]) => void) => { transferListeners.progress.add(callback); return () => transferListeners.progress.delete(callback) },
+  onTransferComplete: (callback: (...args: any[]) => void) => { transferListeners.complete.add(callback); return () => transferListeners.complete.delete(callback) },
+  onTransferError: (callback: (...args: any[]) => void) => { transferListeners.error.add(callback); return () => transferListeners.error.delete(callback) },
+  sftpCancelTransfer: (id: string) => { transferActions.cancelled.push(id); transferListeners.error.forEach(callback => callback(transferSessions.get(id), id, 'Cancelled', 'cancelled')) },
+  shellShowItemInFolder: (path: string) => { transferActions.opened.push(path) },
   clipboardWriteText: async (text: string) => { calls.clipboardWrites.push(text) },
   getAiSettings: async () => JSON.parse(JSON.stringify(imageSettings)),
   setAiSettings: async (settings: AiSettings) => { settingsSaves.push(structuredClone(settings)); Object.assign(imageSettings, structuredClone(settings)) },
@@ -220,6 +235,7 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
   },
   onAiChatStream: () => () => {},
   aiAnswerQuestion: async (_requestId: string, _runId: string, answer: AiUserAnswer) => submitQuestion(answer),
+  aiResolveToolApproval: async () => true,
   aiAbortChatStream: async () => { questionStops++ },
   aiChatStream: async (_id: string, messages: any[], options: any) => {
     if (options?.compactOnly) { manualCompactions.push(options.threadId); return { content: '', contextCompacted: false } }
@@ -267,6 +283,8 @@ const bookmarksOpen = ref(false)
 const editorOpen = ref(false)
 const syncOpen = ref(false)
 const aiMessages = ref<ChatItem[]>([])
+const aiTargets = ref<AiWorkspaceTarget[]>()
+const aiConversationKey = ref('fixture-thread')
 const imageComposerOpen = ref(false)
 const liteAiOpen = ref(false)
 const liteAiActive = ref(true)
@@ -345,7 +363,19 @@ onMounted(() => {
       await nextTick()
     },
     getQuestionStops() { return questionStops },
+    questionDraftCount(id = imageComposerSession.value) { return useAiChat().getSessionState(id).questionDrafts?.size || 0 },
     calls,
+    transferActions,
+    uploadConflictDecisions,
+    async emitUploadConflict(request: any) { uploadConflictListeners.forEach(callback => callback(request)); await nextTick() },
+    transferFixtureState() {
+      return JSON.parse(JSON.stringify({ threadId: useAiChat().getSessionState(imageComposerSession.value).activeThreadId, listeners: transferListeners.start.size, items: [...useTransfers(() => imageComposerSession.value).transfers.values()].map(item => ({ id: item.id, origin: item.origin })) }))
+    },
+    async emitTransfer(type: string, args: any[]) {
+      if (type === 'start') transferSessions.set(args[1], args[0])
+      transferListeners[type].forEach(callback => callback(...args))
+      await nextTick()
+    },
     settingsSaves,
     providerTests,
     manualCompactions,
@@ -368,6 +398,16 @@ onMounted(() => {
       thread.messages.push(message)
     },
     workspaceScopes,
+    async seedWorkspacePending(id: string, kind: 'question' | 'approval' | 'mixed' | 'done') {
+      const state = useAiChat().getSessionState(id)
+      const toolRuns: AiToolRun[] = []
+      if (kind === 'question' || kind === 'mixed') toolRuns.push({ id: 'rail-question', name: 'ask_user', args: JSON.stringify({ questions: [{ id: 'note', question: '这次希望检查哪些内容？' }] }), content: '', isError: false, status: 'question' })
+      if (kind === 'approval' || kind === 'mixed') toolRuns.push({ id: 'rail-approval', name: 'exec', args: '{"command":"systemctl restart app"}', content: '', isError: false, status: 'ask' })
+      backgroundReplyListeners.forEach(listener => listener({ sessionId: id, threadId: state.activeThreadId, requestId: `pending-${id}`, record: {
+        id: `pending-reply-${id}`, role: 'assistant', status: kind === 'done' ? 'completed' : 'running', createdAt: Date.now(), content: '请处理待办后继续。', toolRuns,
+      } }))
+      await nextTick()
+    },
     async setWorkspaceActive(active: boolean) { liteAiActive.value = active; await nextTick() },
     setWorkspacePreview(hosts: Connection[], history: AiWorkspaceConversationItem[]) {
       connections = hosts
@@ -542,6 +582,25 @@ onMounted(() => {
       }]
       await nextTick()
     },
+    async aiLazyWorkspace(hosts = 20) {
+      aiTargets.value = Array.from({ length: hosts }, (_, index) => ({
+        connectionId: `host-${index}`, name: `主机 ${index}`, host: `server-${index}.test`, username: 'ops', port: 22,
+      }))
+      const unit = '服务 **正常**。\n\n| 项目 | 状态 |\n| --- | --- |\n| 服务 | 正常 |\n\n```bash\nsystemctl status app\n```\n\n'
+      aiMessages.value = [{ id: 'workspace-lazy', role: 'assistant', createdAt: 1,
+        content: '# 检查汇总\n\n全部检查完成。\n\n' + aiTargets.value.map(target => `## ${target.host}\n\n${unit.repeat(30)}`).join('\n') }]
+      await nextTick()
+    },
+    async aiDisclosure(restore = true) {
+      aiTargets.value = undefined
+      aiMessages.value = [{ id: 'disclosure-reply', role: 'assistant', createdAt: 1, content: '检查完成。',
+        reasoningContent: restore ? '分析 **服务状态**。' : undefined,
+        segments: restore ? [{ kind: 'reasoning', text: '分析 **服务状态**。' }, { kind: 'tool', runId: 'disclosure-tool' }, { kind: 'content', text: '检查完成。' }] : [{ kind: 'content', text: '检查完成。' }],
+        toolRuns: restore ? [{ id: 'disclosure-tool', name: 'exec', args: '{"command":"uptime"}', content: 'ok', status: 'done', isError: false }] : [],
+      }]
+      await nextTick()
+    },
+    async setAiConversationKey(key: string) { aiConversationKey.value = key; await nextTick() },
     async aiMarkdownStress(rounds: number, historyTurns = 0) {
       const unit = '检查 **服务状态**，查看 `systemctl status app`。\n\n| 项目 | 状态 |\n| --- | --- |\n| app | 正常 |\n\n```bash\nsystemctl status app\n```\n\n'
       const body = unit.repeat(8)
@@ -650,12 +709,13 @@ onMounted(() => {
     <section class="label-fixture">
       <InlineLabel text="很长的中文与英文数据库名称 Production database"><span class="fixture-count">123456</span></InlineLabel>
     </section>
-    <section class="ai-fixture"><AiChatView :messages="aiMessages" :has-api-configured="true" :terminal-actions="true" /></section>
+    <section class="ai-fixture"><AiChatView :messages="aiMessages" :conversation-key="aiConversationKey" :workspace-targets="aiTargets" :has-api-configured="true" :terminal-actions="true" /></section>
     <section v-if="imageComposerOpen" class="ai-image-composer-fixture"><AiSidebar :session-id="imageComposerSession" :open-generation="imageOpenGeneration" :workspace="imageComposerWorkspace" :active="imageComposerActive" :workspace-targets="backgroundFixtureTargets"><template v-if="imageComposerWorkspace" #workspace-toolbar><span>本会话管理 3 台 · 已连接 3 / 3</span></template></AiSidebar></section>
     <section class="background-toolbar-fixture"><LeftToolbar :ai-active="imageComposerOpen" :files-active="false" :monitor-active="false" :batch-active="false" :snippets-active="false" :show-ai-unread="false" :background-task-count="backgroundTaskCount" /></section>
     <FileEditorModal :visible="editorOpen" session-id="ui-fixture" remote-path="/tmp/config" file-name="config" @close="editorOpen = false" />
     <DirectorySyncModal :visible="syncOpen" session-id="ui-fixture" remote-path="/tmp" @close="syncOpen = false" />
     <AppDialogHost />
+    <UploadConflictDialog />
     <section v-if="liteAiOpen" class="lite-ai-workspace-fixture">
       <AppTitlebar :app-mode="liteAiMode" :show-settings-page="false" @enter-ai="liteAiMode = 'ai'" @enter-ssh="liteAiMode = 'ssh'" />
       <AiWorkspaceView v-if="liteAiMode === 'ai'" :active="liteAiActive" />

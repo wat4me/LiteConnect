@@ -1,44 +1,34 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
-import { useMarkdownRenderer } from '@/composables/ai/useMarkdownRenderer'
 import { workspaceResponseSections } from '@/utils/ai/workspaceResponse'
 import AppIcon from '../icons/AppIcon.vue'
+import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
 
 const props = defineProps<{ text: string; targets: AiWorkspaceTarget[] }>()
 const { t } = useI18n()
-const { parseMarkdown } = useMarkdownRenderer()
-const sections = computed(() => workspaceResponseSections(props.text, props.targets).map(section => ({ ...section, blocks: parseMarkdown(section.text) })))
-const copied = ref('')
-let timer: ReturnType<typeof setTimeout> | undefined
-onBeforeUnmount(() => clearTimeout(timer))
-async function copy(text: string, key: string) {
-  try {
-    await window.LiteConnect.clipboardWriteText(text.trim())
-    copied.value = key
-    clearTimeout(timer)
-    timer = setTimeout(() => { copied.value = '' }, 1400)
-  } catch { ElMessage.warning(t('common.copyFailed')) }
+const sections = computed(() => workspaceResponseSections(props.text, props.targets).map((section, index) => ({
+  ...section, key: JSON.stringify([section.connectionId, section.title, index]),
+})))
+const openSections = reactive(new Set<string>())
+watch(sections, values => {
+  const keys = new Set(values.map(section => section.key))
+  for (const key of openSections) if (!keys.has(key)) openSections.delete(key)
+})
+function onToggle(key: string, event: Event) {
+  if (event.target !== event.currentTarget || !(event.currentTarget instanceof HTMLDetailsElement)) return
+  if (event.currentTarget.open) openSections.add(key)
+  else openSections.delete(key)
 }
 </script>
 
 <template>
   <div class="workspace-response">
-    <component :is="section.connectionId ? 'details' : 'div'" v-for="(section, sectionIndex) in sections" :key="sectionIndex" :class="section.connectionId ? 'workspace-response-host' : 'workspace-response-overview'" :data-connection-id="section.connectionId">
+    <component :is="section.connectionId ? 'details' : 'div'" v-for="section in sections" :key="section.key" :open="section.connectionId ? openSections.has(section.key) : undefined" :class="section.connectionId ? 'workspace-response-host' : 'workspace-response-overview'" :data-connection-id="section.connectionId" @toggle="onToggle(section.key, $event)">
       <summary v-if="section.connectionId" :title="t('ai.workspace.serverDetails')"><AppIcon name="chevron-right" size="xs" /><span>{{ section.title }}</span></summary>
-      <div :class="{ 'workspace-response-body': section.connectionId }">
-        <template v-for="(block, index) in section.blocks" :key="index">
-          <div v-if="block.type === 'code'" class="code-block">
-            <div class="code-block-header">
-              <span class="code-language">{{ block.language || 'text' }}</span>
-              <button type="button" class="copy-btn" :title="copied === `${sectionIndex}-${index}` ? t('common.copied') : t('ai.copyCode')" @click="copy(block.content, `${sectionIndex}-${index}`)"><AppIcon :name="copied === `${sectionIndex}-${index}` ? 'check' : 'copy'" size="sm" /></button>
-            </div>
-            <pre class="markdown-code"><code>{{ block.content }}</code></pre>
-          </div>
-          <div v-else class="markdown-block" v-html="block.content"></div>
-        </template>
+      <div v-if="!section.connectionId || openSections.has(section.key)" :class="{ 'workspace-response-body': section.connectionId }">
+        <AiStreamingMarkdown :content="section.text" :streaming="false" :terminal-actions="false" />
       </div>
     </component>
   </div>
