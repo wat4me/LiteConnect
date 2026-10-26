@@ -31,6 +31,24 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('theme highlights and preset compatibility', () => {
   it.each([
+    { theme: 'light', palette: 'auto', expected: 4.5 },
+    { theme: 'eyecare', palette: 'auto', expected: 4.5 },
+    { theme: 'dark', palette: 'auto', expected: 1 },
+    { theme: 'dark', palette: 'light', expected: 4.5 },
+    { theme: 'light', palette: 'dark', expected: 1 },
+    { theme: 'dark', palette: 'solarized-light', expected: 4.5 },
+  ] as const)('uses the actual terminal palette for contrast protection: $theme / $palette', async ({ theme, palette, expected }) => {
+    const { getTerminalMinimumContrastRatio } = await import('./useTheme')
+    expect(getTerminalMinimumContrastRatio(theme, undefined, palette)).toBe(expected)
+  })
+
+  it('updates contrast protection when a custom terminal background changes brightness', async () => {
+    const { getTerminalMinimumContrastRatio } = await import('./useTheme')
+    expect(getTerminalMinimumContrastRatio('custom', { bgColor: '#ffffff', fontColor: '#222222' })).toBe(4.5)
+    expect(getTerminalMinimumContrastRatio('custom', { bgColor: '#15101b', fontColor: '#ffffff' })).toBe(1)
+  })
+
+  it.each([
     { bgColor: '#15101b', fontColor: '#f2e9ff', accentStrength: 10, selectionStrength: 30 },
     { bgColor: '#fff4dc', fontColor: '#372a16', accentStrength: 8, selectionStrength: 20 },
     { bgColor: '#163b2e', fontColor: '#e3ffee', accentStrength: 10, selectionStrength: 30 },

@@ -218,6 +218,7 @@ export default {
       filterTitle: '在当前结果中本地搜索（不请求服务器）',
       copy: '复制',
       copyTitle: '复制表格（可粘贴到 Excel）',
+      exportResults: '导出结果',
       exportCsvTitle: '导出为 CSV 文件',
       exportJsonTitle: '导出为 JSON 文件',
       execOk: '执行成功',

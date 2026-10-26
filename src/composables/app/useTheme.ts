@@ -492,6 +492,16 @@ export function getTerminalColors(
   return { ...(presetPalettes[t] || presetPalettes.dark) }
 }
 
+/** Protect colored text on colored backgrounds (for example ls 34;42) in light palettes. */
+export function getTerminalMinimumContrastRatio(
+  theme: Theme,
+  colors?: CustomColors,
+  palette: TerminalPaletteId = 'auto',
+): number {
+  const background = getTerminalColors(theme, colors, palette).background
+  return getLuminance(background) >= 0.5 ? 4.5 : 1
+}
+
 export const KEYBOARD_SHORTCUTS: Array<{ keys: string; descKey: string; scopeKey: string; keysKey?: string }> = [
   { keys: 'Ctrl+/ / ?', keysKey: 'settingsShortcuts.keys.shortcutsHelp', descKey: 'settingsShortcuts.items.shortcutsHelp', scopeKey: 'settingsShortcuts.scopes.global' },
   { keys: 'Ctrl+B', descKey: 'settingsShortcuts.items.toggleSftp', scopeKey: 'settingsShortcuts.scopes.workspace' },

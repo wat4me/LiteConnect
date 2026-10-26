@@ -3,6 +3,7 @@ import { computed, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
+import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{ sessions: BatchCommandTarget[]; open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 const sync = inject(synchronizedInputKey)!
@@ -20,7 +21,7 @@ function toggle(id: string, checked: boolean) {
       <span v-else>{{ t('terminal.syncHint') }}</span>
       <button v-if="sync.enabled.value" class="ui-btn ui-btn-sm" type="button" @click="sync.stop()">{{ t('terminal.syncStop') }}</button>
       <button v-else class="ui-btn ui-btn-sm ui-btn-primary" type="button" :disabled="sync.targets.value.length < 2" @click="sync.start()">{{ t('terminal.syncStart') }}</button>
-      <button v-if="open" class="ui-btn ui-btn-sm" type="button" @click="emit('close')">{{ t('common.close') }}</button>
+      <button v-if="open" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" type="button" :title="t('common.close')" :aria-label="t('common.close')" @click="emit('close')"><AppIcon name="close" size="sm" /></button>
     </div>
     <div v-if="open" class="sync-targets">
       <label v-for="session in sessions" :key="session.id" class="sync-target" :title="session.sshAddress">

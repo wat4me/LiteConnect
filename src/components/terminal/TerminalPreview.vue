@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import type { CustomColors, TerminalPaletteId, Theme } from '@/composables/app/useTheme'
-import { getTerminalColors } from '@/composables/app/useTheme'
+import { getTerminalColors, getTerminalMinimumContrastRatio } from '@/composables/app/useTheme'
 
 const props = defineProps<{
   theme: Theme
@@ -25,6 +25,7 @@ const SAMPLE = [
   '\x1b[36mdrwxr-xr-x\x1b[0m  5 user staff  160 Jul  9 10:00 src',
   '\x1b[33m-rw-r--r--\x1b[0m  1 user staff 1204 Jul  9 10:00 README.md',
   '  0O l1I | [] {} <> == !==  =>  /* font sample */',
+  '\x1b[1;34;42m shared-777 \x1b[0m  \x1b[1;32mdeploy.sh\x1b[0m',
   '\x1b[32muser@host\x1b[0m:\x1b[34m~/proj\x1b[0m$ ',
 ].join('\r\n')
 
@@ -39,6 +40,7 @@ function applyOptions() {
   terminal.options.fontSize = props.fontSize
   terminal.options.fontFamily = props.fontFamily
   terminal.options.theme = getTerminalColors(props.theme, props.customColors, props.palette)
+  terminal.options.minimumContrastRatio = getTerminalMinimumContrastRatio(props.theme, props.customColors, props.palette)
   requestAnimationFrame(() => {
     fitAddon?.fit()
     writeSample()
@@ -50,10 +52,14 @@ onMounted(() => {
 
   terminal = new Terminal({
     cursorBlink: true,
+    cursorStyle: 'bar',
+    cursorWidth: 2,
+    cursorInactiveStyle: 'bar',
     disableStdin: true,
     fontSize: props.fontSize,
     fontFamily: props.fontFamily,
     theme: getTerminalColors(props.theme, props.customColors, props.palette),
+    minimumContrastRatio: getTerminalMinimumContrastRatio(props.theme, props.customColors, props.palette),
     scrollback: 20,
     convertEol: true,
     allowTransparency: false,

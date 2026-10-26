@@ -32,6 +32,7 @@ const props = withDefaults(defineProps<{
   connectionStage?: import('@shared/sshConnectionProgress').SshConnectionStage
   connectionError?: string
   groupName?: string
+  compact?: boolean
 }>(), {
   reorderDisabled: false,
   keyboardActive: false,
@@ -331,6 +332,7 @@ function onMenuAction(action: MenuAction) {
       pinned: connection.pinned,
       'has-color-tag': hasColorTag,
       connecting,
+      compact,
     }"
     :style="{ '--tag-color': tagColor }"
     @pointerdown="onRowPointerDown"
@@ -374,11 +376,11 @@ function onMenuAction(action: MenuAction) {
             <span class="meta-sep" aria-hidden="true">·</span>
             <span class="conn-group" :title="groupName">{{ t('connections.resultGroup', { name: groupName }) }}</span>
           </template>
-          <template v-if="statsInline">
+          <template v-if="statsInline && !compact">
             <span class="meta-sep" aria-hidden="true">·</span>
             <span class="conn-stats">{{ statsInline }}</span>
           </template>
-          <template v-if="connection.note">
+          <template v-if="connection.note && !compact">
             <span class="meta-sep" aria-hidden="true">·</span>
             <span class="conn-note" :title="connection.note">{{ connection.note }}</span>
           </template>
@@ -515,20 +517,20 @@ function onMenuAction(action: MenuAction) {
               :disabled="testStatus.state === 'testing'"
               @click="onMenuAction('test')"
             >
-              <AppIcon name="circle-check" size="sm" class="more-item-icon" />
+              <AppIcon name="connection-test" size="sm" class="more-item-icon" />
               {{ t('connections.testConnection') }}
             </button>
-            <div v-if="menuMode === 'context'" class="ui-menu-sep" role="separator"></div>
-            <button v-if="menuMode === 'context'" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
+            <div v-if="menuMode === 'context' || compact" class="ui-menu-sep" role="separator"></div>
+            <button v-if="menuMode === 'context' || compact" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
               <AppIcon name="copy" size="sm" class="more-item-icon" />
               {{ t('connections.copyConnection') }}
             </button>
-            <button v-if="menuMode === 'context'" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
+            <button v-if="menuMode === 'context' || compact" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
               <AppIcon name="edit" size="sm" class="more-item-icon" />
               {{ t('connections.edit') }}
             </button>
             <button
-              v-if="menuMode === 'context'"
+              v-if="menuMode === 'context' || compact"
               type="button"
               class="ui-menu-item"
               role="menuitem"
@@ -910,4 +912,17 @@ function onMenuAction(action: MenuAction) {
   }
 
 }
+
+.connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: 4px; box-shadow: none; }
+.connection-row.compact .drag-handle { height: 28px; width: 18px; }
+.connection-row.compact .row-main { gap: 8px; }
+.connection-row.compact .row-info { flex-direction: row; align-items: center; gap: 12px; }
+.connection-row.compact .conn-name { flex: 0 1 34%; min-width: 0; }
+.connection-row.compact .conn-meta { flex: 1; }
+.connection-row.compact .row-info:has(.conn-error) { flex-wrap: wrap; row-gap: 2px; }
+.connection-row.compact .conn-error { flex: 1 0 100%; }
+.connection-row.compact .secondary-action:not(.more-wrap) { display: none; }
+.connection-row.compact .row-actions { gap: 2px; }
+.connection-row.compact .connect-label { display: none; }
+.connection-row.compact .action-btn.connect { width: 28px; padding-inline: 0; }
 </style>

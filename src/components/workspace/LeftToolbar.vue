@@ -113,7 +113,7 @@ const sftpTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-monitor')"
       >
-        <AppIcon name="monitor" size="lg" />
+        <AppIcon name="monitor-activity" size="lg" />
       </button>
     </el-tooltip>
 
@@ -127,13 +127,13 @@ const sftpTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-batch')"
       >
-        <AppIcon name="terminal" size="lg" />
+        <AppIcon name="batch-command" size="lg" />
       </button>
     </el-tooltip>
 
     <el-tooltip :content="t('terminal.syncTitle')" placement="right" :show-after="300">
       <button class="toolbar-icon-btn" type="button" :class="{ active: syncActive }" :aria-label="t('terminal.syncTitle')" :aria-pressed="!!syncActive" :disabled="sidePanelsDisabled" @click="emit('toggle-sync')">
-        <AppIcon name="broadcast" size="lg" />
+        <AppIcon name="terminal-sync" size="lg" />
       </button>
     </el-tooltip>
     <el-tooltip :content="t('toolbar.snippetsShortcut')" placement="right" :show-after="300">
@@ -146,7 +146,7 @@ const sftpTooltip = computed(() => {
         :disabled="sidePanelsDisabled"
         @click="emit('toggle-snippets')"
       >
-        <AppIcon name="file-text" size="lg" />
+        <AppIcon name="file-terminal" size="lg" />
       </button>
     </el-tooltip>
 

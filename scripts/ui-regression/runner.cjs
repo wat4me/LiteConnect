@@ -385,7 +385,7 @@ app.whenReady().then(async () => {
     row.querySelector('.action-btn').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
     return row.dispatchEvent(new DragEvent('dragstart', {bubbles:true,cancelable:true,dataTransfer:new DataTransfer()}));
   })()`), false, 'Dragging from action buttons is prevented')
-  await run('document.querySelector(".group-item").click()')
+  await run('document.querySelector(".group-item:not(.active)").click()')
   await waitFor('document.querySelector(".search-scope").dataset.value === "group"')
 
   for (const width of [280, 320, 360, 600]) {
@@ -1052,14 +1052,14 @@ app.whenReady().then(async () => {
   await run(`window.__uiRegression.setBackgroundJobs([{jobId:'cancel-on-new',sessionId:'image-fixture',command:'sleep 120',status:'running',startedAt:Date.now()}])`)
   await run('window.__uiRegression.seedConversationMessage()')
   const beforeNew = await run('({creates:window.__uiRegression.calls.aiCreates.length,requests:window.__uiRegression.calls.aiRequests.length,thread:window.__uiRegression.imageSessionState("image-fixture").threadId})')
-  await run(`document.querySelector('.ai-header-actions button:first-child').click()`)
+  await run(`document.querySelector('.ai-image-composer-fixture .ai-header-actions button[title^="保留当前对话"]').click()`)
   await waitFor('document.querySelector(".app-dialog-actions .ui-btn") && document.body.textContent.includes("中断后台任务并新建对话")')
   assert.equal(await run('window.__uiRegression.calls.aiCreates.length'), beforeNew.creates, 'Opening confirmation does not create a conversation')
   await run(`document.querySelector('.app-dialog-actions .ui-btn:first-child').click()`)
   await waitFor('!document.querySelector(".app-dialog-actions")')
   assert.equal(await run('window.__uiRegression.imageSessionState("image-fixture").threadId'), beforeNew.thread, 'Cancelling retains the current conversation')
   assert.ok(await run('document.querySelector(".ai-background-tasks.running") !== null'), 'Cancelling retains the running job')
-  await run(`document.querySelector('.ai-header-actions button:first-child').click()`)
+  await run(`document.querySelector('.ai-image-composer-fixture .ai-header-actions button[title^="保留当前对话"]').click()`)
   await waitFor('document.querySelector(".app-dialog-actions .ui-btn-danger-solid")')
   await run(`document.querySelector('.app-dialog-actions .ui-btn-danger-solid').click()`)
   await waitFor(`window.__uiRegression.calls.aiCreates.length === ${beforeNew.creates + 1} && !document.querySelector('.ai-background-tasks.running')`)
@@ -1198,7 +1198,7 @@ app.whenReady().then(async () => {
   await saveScreenshot('lite-ai-conversation.png')
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');return toolbar.contains(document.querySelector('.workspace-target')) && toolbar.getBoundingClientRect().height<100})()`), 'Conversation title and server controls share one compact toolbar')
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');const centers=['.workspace-back','.ai-title','.workspace-target','.ai-header-actions','.workspace-session-action'].map(selector=>{const r=toolbar.querySelector(selector).getBoundingClientRect();return r.top+r.height/2});return Math.max(...centers)-Math.min(...centers)<=1})()`), 'Title, server information and session actions align on one row in a wide window')
-  assert.equal(await run(`document.querySelectorAll('.lite-ai-chat .ai-header-actions button').length`), 2, 'Workspace exposes clear beside the single more button')
+  assert.equal(await run(`document.querySelectorAll('.lite-ai-chat .ai-header-actions button').length`), 3, 'Workspace exposes execution history, clear, and the conversation menu')
   assert.equal(await run(`document.querySelector('.lite-ai-chat .workspace-clear-chat').textContent.trim()`), '清空', 'The current conversation has a visible clear action')
   assert.equal(await run(`document.querySelector('.workspace-session-action').textContent.trim()`), '关闭会话', 'Legacy and scoped chats use the same close action')
   await openConversationMenu()

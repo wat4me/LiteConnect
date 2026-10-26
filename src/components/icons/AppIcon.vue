@@ -31,6 +31,12 @@ export type AppIconName =
   | 'plug'
   | 'unplug'
   | 'broadcast'
+  | 'terminal-sync'
+  | 'terminal-history'
+  | 'batch-command'
+  | 'file-terminal'
+  | 'connection-test'
+  | 'monitor-activity'
   | 'skip'
   | 'close'
   | 'plus'
@@ -387,6 +393,11 @@ const iconStyle = computed(() => {
       <line x1="12" y1="17" x2="12" y2="21" />
     </template>
     <!-- activity / resource usage -->
+    <template v-else-if="name === 'monitor-activity'">
+      <!-- Custom: a resource waveform inside a monitor. -->
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8m-4-4v4M5 10h3l2-4 3 8 2-4h4" />
+    </template>
     <template v-else-if="name === 'activity'">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
     </template>
@@ -541,6 +552,34 @@ const iconStyle = computed(() => {
       <path d="M7.5 13.5 10 11" />
       <path d="M10.5 16.5 13 14" />
       <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+    </template>
+    <template v-else-if="name === 'terminal-sync'">
+      <!-- Custom: overlapping terminal windows for synchronized input. -->
+      <path d="M8 5V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-1" />
+      <rect x="3" y="8" width="13" height="13" rx="1" />
+      <path d="m6 12 3 3-3 3m5 0h2" />
+    </template>
+    <template v-else-if="name === 'terminal-history'">
+      <!-- Custom: terminal output with a history clock. -->
+      <path d="M11 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5" />
+      <path d="m6 8 3 3-3 3m5 0h2" />
+      <circle cx="18" cy="18" r="4" />
+      <path d="M18 16v2l1.5 1" />
+    </template>
+    <template v-else-if="name === 'batch-command'">
+      <!-- Custom: one command fans out to multiple targets. -->
+      <path d="m2 8 3 4-3 4m5 0h2M10 12h3m0-7v14m0-14h4m-4 14h4" />
+      <rect x="17" y="2" width="5" height="6" rx="1" />
+      <rect x="17" y="16" width="5" height="6" rx="1" />
+    </template>
+    <template v-else-if="name === 'file-terminal'">
+      <!-- Custom: a reusable command document. -->
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6m-12 4 3 3-3 3m5 0h3" />
+    </template>
+    <template v-else-if="name === 'connection-test'">
+      <!-- Custom: a plug and diagnostic pulse; not a success indicator. -->
+      <path d="M5 3v4m4-4v4M3 7h8v4a4 4 0 0 1-8 0V7m4 8v6m6-7h2l2-5 2 10 2-5h2" />
     </template>
     <template v-else-if="name === 'broadcast'">
       <!-- Lucide: radio-tower; source and license: docs/ICONS.md -->

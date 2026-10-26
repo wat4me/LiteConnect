@@ -87,7 +87,7 @@ const { t } = useI18n()
           <span>{{ t('terminal.insertToAi') }}</span>
         </button>
         <button type="button" class="ui-menu-item" @click="emit('save-as-snippet')">
-          <AppIcon name="file-text" size="sm" />
+          <AppIcon name="file-terminal" size="sm" />
           <span>{{ t('terminal.saveAsSnippet') }}</span>
         </button>
       </template>

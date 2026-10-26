@@ -12,6 +12,7 @@ import {
 import { nextOutputPanel, outputPanelDomIds } from '@/utils/database/queryUiController'
 import { filterRows, sortRows } from '@/utils/database/dbSql'
 import AppIcon from '../icons/AppIcon.vue'
+import ToolbarDropdown from '../common/ToolbarDropdown.vue'
 
 const { t } = useI18n()
 
@@ -39,6 +40,15 @@ const emit = defineEmits<{
   clearHistory: []
   applyHistory: [item: QueryHistoryItem]
 }>()
+
+const exportItems = computed(() => [
+  { id: 'csv', label: t('database.query.exportCsvTitle') },
+  { id: 'json', label: t('database.query.exportJsonTitle') },
+])
+function exportResult(format: string) {
+  if (format === 'csv') emit('exportCsv')
+  else if (format === 'json') emit('exportJson')
+}
 
 const isPlan = computed(() => props.tab.outputKind === 'plan')
 
@@ -245,15 +255,10 @@ watch(
               <AppIcon name="close" size="xs" />
             </button>
           </div>
-          <button type="button" class="ui-btn ui-btn-xs" :title="t('database.query.copyTitle')" @click="emit('copyResult')">
-            {{ t('database.query.copy') }}
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('database.query.copyTitle')" :aria-label="t('database.query.copyTitle')" @click="emit('copyResult')">
+            <AppIcon name="copy" size="sm" />
           </button>
-          <button type="button" class="ui-btn ui-btn-xs" :title="t('database.query.exportCsvTitle')" @click="emit('exportCsv')">
-            CSV
-          </button>
-          <button type="button" class="ui-btn ui-btn-xs" :title="t('database.query.exportJsonTitle')" @click="emit('exportJson')">
-            JSON
-          </button>
+          <ToolbarDropdown :label="t('database.query.exportResults')" :items="exportItems" icon-only trigger-icon="download" show-chevron teleport align="right" @select="exportResult" />
         </div>
       </div>
       <DbResultGrid
@@ -360,11 +365,10 @@ watch(
         </span>
         <span v-else class="dim">{{ t('database.query.planEmpty') }}</span>
         <div v-if="showPlanGrid" class="result-actions">
-          <button type="button" class="ui-btn ui-btn-xs" :title="t('database.query.copyTitle')" @click="emit('copyResult')">
-            {{ t('database.query.copy') }}
+          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('database.query.copyTitle')" :aria-label="t('database.query.copyTitle')" @click="emit('copyResult')">
+            <AppIcon name="copy" size="sm" />
           </button>
-          <button type="button" class="ui-btn ui-btn-xs" @click="emit('exportCsv')">CSV</button>
-          <button type="button" class="ui-btn ui-btn-xs" @click="emit('exportJson')">JSON</button>
+          <ToolbarDropdown :label="t('database.query.exportResults')" :items="exportItems" icon-only trigger-icon="download" show-chevron teleport align="right" @select="exportResult" />
         </div>
       </div>
       <DbResultGrid

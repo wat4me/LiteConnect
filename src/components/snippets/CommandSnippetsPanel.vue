@@ -15,6 +15,17 @@ import {
   type SnippetContext,
 } from '@/utils/snippets/commandSnippets'
 import AppIcon from '@/components/icons/AppIcon.vue'
+import ToolbarDropdown from '@/components/common/ToolbarDropdown.vue'
+
+const headerMenuItems = computed(() => [
+  { id: 'export', label: t('snippets.export') },
+  { id: 'append', label: t('snippets.importAppend') },
+  { id: 'replace', label: t('snippets.importReplace') },
+])
+function onHeaderAction(id: string) {
+  if (id === 'export') void exportSnippets()
+  else if (id === 'append' || id === 'replace') void importSnippets(id)
+}
 
 const props = defineProps<{
   sessionId: string | null
@@ -474,9 +485,7 @@ onBeforeUnmount(() => {
       <span class="snippets-title">{{ t('snippets.title') }}</span>
       <div class="header-actions">
         <button type="button" class="ui-btn ui-btn-xs ui-btn-primary" :title="t('snippets.new')" @click="openCreateForm">{{ t('snippets.new') }}</button>
-        <button type="button" class="ui-btn ui-btn-xs" :title="t('snippets.export')" @click="exportSnippets">{{ t('snippets.export') }}</button>
-        <button type="button" class="ui-btn ui-btn-xs" :title="t('snippets.importAppend')" @click="importSnippets('append')">{{ t('snippets.import') }}</button>
-        <button type="button" class="ui-btn ui-btn-xs" :title="t('snippets.importReplace')" @click="importSnippets('replace')">{{ t('snippets.replace') }}</button>
+        <ToolbarDropdown :label="t('snippets.more')" :items="headerMenuItems" icon-only teleport align="right" @select="onHeaderAction" />
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close snippets-close" :aria-label="t('snippets.close')" @click="emit('close')">
           <AppIcon name="close" size="sm" />
         </button>

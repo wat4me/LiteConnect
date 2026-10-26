@@ -572,7 +572,7 @@ defineExpose({ applyExternal })
     </div>
     <footer v-if="!showingOverview || generalDirty" class="provider-edit-actions">
       <div class="settings-save-scope"><span>{{ t(`ai.settingsUi.${editingProvider ? 'provider' : section === 'conversation' ? 'history' : 'general'}SaveScope${isPanel ? 'Compact' : ''}`) }}</span><small v-if="historyDirty && section !== 'conversation'">{{ t('ai.settingsUi.pendingHistory') }}</small></div>
-      <button v-if="editingProvider" type="button" class="ui-btn ui-btn-sm" :disabled="testingProvider || saving" @click="testProvider"><AppIcon name="circle-check" size="sm" />{{ testingProvider ? t('ai.testingProvider') : t('ai.testProvider') }}</button>
+      <button v-if="editingProvider" type="button" class="ui-btn ui-btn-sm" :disabled="testingProvider || saving" @click="testProvider"><AppIcon name="connection-test" size="sm" />{{ testingProvider ? t('ai.testingProvider') : t('ai.testProvider') }}</button>
       <button type="button" class="ui-btn ui-btn-sm ui-btn-primary settings-save" :disabled="saving || testingProvider || !hasChanges || (!editingProvider && section === 'conversation' && (previewBusy || !!previewError))" @click="saveSettings"><AppIcon name="check" size="sm" />{{ saving ? t('common.saving') : editingProvider ? t('ai.settingsUi.saveProvider') : section === 'conversation' ? t('ai.settingsUi.applyHistory') : t('ai.saveSettings') }}</button>
     </footer>
     <AiModelPicker :open="showModelPicker" :provider-name="editingProvider?.name || ''" :models="fetchedModels" :added="editingProvider?.models.map(model => model.id.trim()) || []" :loading="fetchingModels" :error="fetchError" :return-focus="modelFetchButton" @close="showModelPicker = false" @retry="fetchModels" @add="addSelectedModels" />

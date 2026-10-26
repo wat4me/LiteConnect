@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { SftpDirectoryPreview } from '@shared/types/sftp'
 import { beginTransferBatch } from '@/composables/sftp/useTransfers'
+import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{ visible: boolean; sessionId: string; remotePath: string }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'queued'): void }>()
 const { t } = useI18n()
@@ -80,7 +81,7 @@ watch(() => [props.visible, props.sessionId, props.remotePath] as const, ([visib
       <p v-if="preview">{{ t('sftp.directorySyncSkipped', { count: preview.skipped }) }}</p>
       <label><input v-model="allowOverwrite" type="checkbox" :disabled="busy" /> {{ t('sftp.directorySyncOverwrite') }}</label>
       <footer>
-        <button type="button" class="ui-btn ui-btn-sm" :disabled="busy" @click="compare(preview?.localPath)">{{ t('sftp.directorySyncRefresh') }}</button>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.directorySyncRefresh')" :aria-label="t('sftp.directorySyncRefresh')" :disabled="busy" @click="compare(preview?.localPath)"><AppIcon name="refresh" size="sm" /></button>
         <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" :disabled="busy || !candidates.length" @click="queueUpload">{{ t('sftp.directorySyncUpload') }} ({{ candidates.length }})</button>
         <button type="button" class="ui-btn ui-btn-sm" @click="emit('close')">{{ t('common.close') }}</button>
       </footer>

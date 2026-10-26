@@ -16,7 +16,7 @@ import {
   shouldResetForTarget,
   type ReconcileController,
 } from '../../composables/docker/dockerContainerTerminalReconcile'
-import { useTheme, getTerminalColors, type TerminalPaletteId } from '@/composables/app/useTheme'
+import { useTheme, getTerminalColors, getTerminalMinimumContrastRatio, type TerminalPaletteId } from '@/composables/app/useTheme'
 import {
   PASTE_CONFIRM_MAX_CHARS,
   normalizePasteConfirmMaxChars,
@@ -291,6 +291,7 @@ async function loadSettings(): Promise<void> {
 function applyTheme(): void {
   if (!terminal) return
   terminal.options.theme = getTerminalColors(theme.value, customColors.value, terminalPalette.value)
+  terminal.options.minimumContrastRatio = getTerminalMinimumContrastRatio(theme.value, customColors.value, terminalPalette.value)
   try {
     if (terminal.rows > 0) terminal.refresh(0, terminal.rows - 1)
   } catch {}
@@ -335,9 +336,13 @@ function createXterm(): void {
   if (!terminalHostRef.value || terminal) return
   terminal = new Terminal({
     cursorBlink: true,
+    cursorStyle: 'bar',
+    cursorWidth: 2,
+    cursorInactiveStyle: 'bar',
     fontSize: fontSize.value,
     fontFamily: fontFamily.value,
     theme: getTerminalColors(theme.value, customColors.value, terminalPalette.value),
+    minimumContrastRatio: getTerminalMinimumContrastRatio(theme.value, customColors.value, terminalPalette.value),
     allowProposedApi: true,
     scrollback: scrollbackLines.value,
   })

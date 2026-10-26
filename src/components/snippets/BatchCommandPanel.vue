@@ -181,7 +181,7 @@ function handleCancel() {
   ElMessage.info(t('batch.cancelRequested'))
 }
 
-async function handleExport() {
+async function handleCopyResults() {
   const text = exportResults()
   if (!text.trim()) {
     ElMessage.info(t('batch.nothingToExport'))
@@ -292,11 +292,13 @@ onMounted(loadSnippets)
         <button
           v-if="recentHistory.length"
           type="button"
-          class="ui-btn ui-btn-xs"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
           :class="{ active: showHistory }"
           :title="t('batch.recentCommands')"
+          :aria-label="t('batch.recentCommands')"
+          :aria-expanded="showHistory"
           @click="showHistory = !showHistory"
-        >{{ t('batch.history') }}</button>
+        ><AppIcon name="history" size="sm" /></button>
       </div>
       <div v-if="showHistory" class="history-list">
         <button
@@ -332,10 +334,14 @@ onMounted(loadSnippets)
         </label>
         <button
           type="button"
-          class="ui-btn ui-btn-xs"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+          :class="{ active: showPreview }"
+          :title="t(showPreview ? 'batch.collapsePreview' : 'batch.expandPreview')"
+          :aria-label="t(showPreview ? 'batch.collapsePreview' : 'batch.expandPreview')"
+          :aria-expanded="showPreview"
           :disabled="!commandInput.trim() || selectedSessions.size === 0"
           @click="showPreview = !showPreview"
-        >{{ showPreview ? t('batch.collapsePreview') : t('batch.expandPreview') }}</button>
+        ><AppIcon name="eye" size="sm" /></button>
       </div>
       <div v-if="showPreview && previewRows.length" class="preview-box">
         <div class="preview-title">{{ t('batch.previewTitle', { count: previewRows.length }) }}</div>
@@ -362,11 +368,11 @@ onMounted(loadSnippets)
         type="button"
         @click="handleCancel"
       >
-        <AppIcon name="refresh" size="sm" class="spin-icon" />
+        <AppIcon name="stop" size="sm" />
         <span>{{ t('batch.cancel') }}</span>
       </button>
-      <button v-if="hasResults && !isRunning" type="button" class="ui-btn ui-btn-sm" @click="handleExport">{{ t('batch.exportResults') }}</button>
-      <button v-if="hasResults" type="button" class="ui-btn ui-btn-sm" :disabled="isRunning" @click="clearResults">{{ t('batch.clearResults') }}</button>
+      <button v-if="hasResults && !isRunning" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('batch.copyResults')" :aria-label="t('batch.copyResults')" @click="handleCopyResults"><AppIcon name="copy" size="sm" /></button>
+      <button v-if="hasResults" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('batch.clearResults')" :aria-label="t('batch.clearResults')" :disabled="isRunning" @click="clearResults"><AppIcon name="clear" size="sm" /></button>
     </div>
 
     <div v-if="hasResults" class="batch-results">
@@ -687,14 +693,6 @@ onMounted(loadSnippets)
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-
-.spin-icon {
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .batch-results {

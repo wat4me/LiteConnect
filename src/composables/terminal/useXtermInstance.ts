@@ -5,7 +5,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
-import { getTerminalColors, type TerminalPaletteId } from '@/composables/app/useTheme'
+import { getTerminalColors, getTerminalMinimumContrastRatio, type TerminalPaletteId } from '@/composables/app/useTheme'
 import { withWallpaperTerminalTheme } from '@/composables/app/useAppBackground'
 import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import {
@@ -228,6 +228,7 @@ export function useXtermInstance(deps: {
     const nextTheme = resolveTerminalTheme()
     // xterm needs both options.theme assignment and a refresh to repaint existing cells
     terminal.options.theme = nextTheme
+    terminal.options.minimumContrastRatio = getTerminalMinimumContrastRatio(deps.theme.value, deps.customColors.value, terminalPalette.value)
     try {
       const rows = terminal.rows
       if (rows > 0) terminal.refresh(0, rows - 1)
@@ -315,9 +316,13 @@ export function useXtermInstance(deps: {
 
     terminal = new Terminal({
       cursorBlink: true,
+      cursorStyle: 'bar',
+      cursorWidth: 2,
+      cursorInactiveStyle: 'bar',
       fontSize: fontSize.value,
       fontFamily: fontFamily.value,
       theme: resolveTerminalTheme(),
+      minimumContrastRatio: getTerminalMinimumContrastRatio(deps.theme.value, deps.customColors.value, terminalPalette.value),
       allowProposedApi: true,
       scrollback: scrollbackLines.value,
     })

@@ -17,6 +17,7 @@ export default {
     execute: '执行',
     cancel: '取消',
     exportResults: '导出结果',
+    copyResults: '复制结果',
     clearResults: '清空结果',
     countSuccess: '{count} 成功',
     countError: '{count} 失败',

@@ -47,6 +47,13 @@ const pageRootRef = ref<HTMLElement | null>(null)
 const connectionsListRef = ref<HTMLElement | null>(null)
 const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
 
+const DENSITY_KEY = 'LiteConnect.connections.density'
+const compactList = ref(false)
+try { compactList.value = localStorage.getItem(DENSITY_KEY) === 'compact' } catch { /* Keep the standard view if storage is unavailable. */ }
+watch(compactList, compact => {
+  try { localStorage.setItem(DENSITY_KEY, compact ? 'compact' : 'standard') } catch { /* The current view remains usable without persistence. */ }
+})
+
 /** useCount / lastConnected display & sort; default on */
 const usageStatsEnabled = ref(true)
 let sortModeReady = false
@@ -385,6 +392,10 @@ defineExpose({ loadData, editConnection: onEditConnection })
             </button>
           </div>
         </div>
+        <div class="density-switch" role="group" :aria-label="t('connections.listDensity')">
+          <button type="button" :class="{ active: !compactList }" :aria-pressed="!compactList" :title="t('connections.standardListHint')" @click="compactList = false">{{ t('connections.standardList') }}</button>
+          <button type="button" :class="{ active: compactList }" :aria-pressed="compactList" :title="t('connections.compactListHint')" @click="compactList = true">{{ t('connections.compactList') }}</button>
+        </div>
         <button
           v-if="searchQuery || colorTagFilter"
           type="button"
@@ -414,6 +425,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       <div
         ref="connectionsListRef"
         class="connections-list"
+        :class="{ compact: compactList }"
         @dragleave="onConnListDragLeave"
       >
         <div
@@ -432,6 +444,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
         >
           <ConnectionRow
             :connection="conn"
+            :compact="compactList"
             :test-status="getTestStatus(conn.id)"
             :reorder-disabled="reorderDisabled"
             :group-name="searchScope === 'all' || inSmartView || conn.group !== activeGroupId ? getConnectionGroupName(conn) : undefined"
@@ -730,6 +743,13 @@ defineExpose({ loadData, editConnection: onEditConnection })
   padding-top: 6px;
   padding-bottom: 8px;
 }
+
+.density-switch { display: inline-flex; flex-shrink: 0; gap: 2px; padding: 2px; border: 1px solid var(--border-color); border-radius: 6px; }
+.density-switch button { padding: 3px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.density-switch button:hover { background: var(--hover-bg); color: var(--text-primary); }
+.density-switch button.active { background: var(--accent-bg); color: var(--accent); }
+.density-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.connections-list.compact .connection-row-wrap:not(.drop-tail) + .connection-row-wrap:not(.drop-tail) { margin-top: 3px; }
 
 .connection-row-wrap {
   position: relative;

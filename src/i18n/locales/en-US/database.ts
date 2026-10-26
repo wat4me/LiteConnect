@@ -218,6 +218,7 @@ export default {
       filterTitle: 'Search the current result locally (no server request)',
       copy: 'Copy',
       copyTitle: 'Copy the table (you can paste it into Excel)',
+      exportResults: 'Export results',
       exportCsvTitle: 'Export as a CSV file',
       exportJsonTitle: 'Export as a JSON file',
       execOk: 'Completed',

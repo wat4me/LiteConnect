@@ -568,7 +568,7 @@ async function runCodeToTerminal(code: string) {
       </div>
       <div v-if="$slots['workspace-toolbar']" class="ai-header-context"><slot name="workspace-toolbar" /></div>
       <div class="ai-header-actions">
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-execution-history-trigger" :title="t('ai.execution.title')" :aria-label="t('ai.execution.title')" aria-haspopup="dialog" @click="openExecutionHistory()"><AppIcon name="terminal" size="sm" /></button>
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-execution-history-trigger" :title="t('ai.execution.title')" :aria-label="t('ai.execution.title')" aria-haspopup="dialog" @click="openExecutionHistory()"><AppIcon name="terminal-history" size="sm" /></button>
         <button v-if="workspace" type="button" class="ui-btn ui-btn-xs workspace-clear-chat"
           :disabled="!messages.length || loading || clearingConversation || newConversationBusy || contextFileBusy || imageBusy || savingComposer || historyBusy || connectionBusy"
           :title="t('ai.clearConversationTitle')" :aria-label="t('ai.clearConversationTitle')" :aria-busy="clearingConversation"

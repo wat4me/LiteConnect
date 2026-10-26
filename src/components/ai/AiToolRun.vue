@@ -63,7 +63,7 @@ function onToggle(event: Event) {
           </span>
         </summary>
         <template v-if="isOpen">
-        <div v-if="executionHistoryAvailable && run.name === 'exec'" class="tool-run-section"><button type="button" class="ui-btn ui-btn-xs tool-run-view-execution" @click="emit('view-execution')"><AppIcon name="terminal" size="xs" />{{ t('ai.execution.view') }}</button></div>
+        <div v-if="executionHistoryAvailable && run.name === 'exec'" class="tool-run-section"><button type="button" class="ui-btn ui-btn-xs tool-run-view-execution" @click="emit('view-execution')"><AppIcon name="terminal-history" size="xs" />{{ t('ai.execution.view') }}</button></div>
         <div v-if="explanation" class="tool-run-section tool-run-explanation-section">
           <div class="tool-run-section-label">{{ t('ai.toolExplanationLabel') }}</div>
           <div class="tool-run-explanation">{{ explanation }}</div>

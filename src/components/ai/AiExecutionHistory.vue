@@ -63,7 +63,7 @@ onBeforeUnmount(() => {
     <div class="execution-history-layer" @click.self="emit('close')" @keydown.esc.stop.prevent="emit('close')">
       <section ref="panel" class="execution-history" role="dialog" aria-modal="true" :aria-labelledby="titleId" @keydown.tab="trapFocus">
         <header class="execution-header">
-          <AppIcon name="terminal" size="md" />
+          <AppIcon name="terminal-history" size="md" />
           <div><h2 :id="titleId">{{ t('ai.execution.title') }} <span>{{ records.length }}</span></h2><p>{{ t('ai.execution.hint') }}</p></div>
           <button ref="closeButton" type="button" class="ui-icon-btn" :title="t('common.close')" :aria-label="t('ai.execution.close')" @click="emit('close')"><AppIcon name="close" size="sm" /></button>
         </header>

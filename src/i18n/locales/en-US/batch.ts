@@ -17,6 +17,7 @@ export default {
     execute: 'Run',
     cancel: 'Cancel',
     exportResults: 'Export results',
+    copyResults: 'Copy results',
     clearResults: 'Clear results',
     countSuccess: '{count} succeeded',
     countError: '{count} failed',
