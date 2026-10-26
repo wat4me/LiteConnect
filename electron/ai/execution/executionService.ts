@@ -14,6 +14,8 @@ import { buildAiRequestEnvironment } from './requestContext'
 import { maybeCompactAiContext } from './contextCompaction'
 import { aiToolSchemaTokens, measureAiContextPressure } from '../../../shared/aiContextPressure'
 import { aggregateAiUsage } from '../../../shared/aiUsage'
+import { readAiCommandResult } from '../../../shared/aiCommandResult'
+import type { SshMcpJobResult } from '../../../shared/mcp/types'
 import type { AiUsage } from '../../../shared/types/ai'
 
 export type AiExecutionOwner = {
@@ -37,6 +39,7 @@ export interface AiExecutionRequest {
 }
 
 export interface AiExecutionEvent {
+  passive?: boolean
   requestId: string
   target: AiChatStreamOptions
   trigger: 'interactive' | 'automation' | 'background'
@@ -99,6 +102,7 @@ export class AiExecutionService {
         }, destination.observer, 'background', backgroundJobNotice(jobs, owner.targets))
       },
       onError: error => ports.onError?.(error),
+      cancelled: (owner, job) => this.recordCancelledJob(owner, job),
     })
     this.unsubscribeJobs = ports.runtime?.onJobSettled(job => this.jobs.settled(job))
   }
@@ -110,6 +114,33 @@ export class AiExecutionService {
       return !this.disposed && Boolean(destination && destination.owner.isAlive?.() !== false &&
         (owner.sessionId.startsWith('workspace:') && workspaceOwned !== undefined ? workspaceOwned : this.executionAvailable(owner)))
     } catch { return false }
+  }
+
+  private async recordCancelledJob(owner: AiJobOwner, job: SshMcpJobResult): Promise<void> {
+    // A launch acknowledgement may still be checkpointing when cancellation arrives.
+    const active = [...this.active.values()].find(item => item.owner.id === owner.ownerId
+      && item.event.target.sessionId === owner.sessionId && item.event.target.threadId === owner.threadId)
+    if (active) await active.done
+    if (this.disposed || this.persistenceClosed || !this.jobs.canRetainResult(owner)) return
+    const limits = this.ports.settings.limits()
+    const store = await this.ports.history.read(owner.historyId, limits)
+    const thread = store.threads.find(item => item.id === owner.threadId)
+    // Never recreate cleared/deleted conversations or inject results into another thread.
+    if (!thread?.messages.some(message => message.toolRuns?.some(run => run.name === 'exec'
+      && (run.jobIds?.includes(job.jobId) || readAiCommandResult(run.content)?.jobId === job.jobId)))) return
+    if (this.disposed || this.persistenceClosed || !this.jobs.canRetainResult(owner)) return
+    const now = Date.now()
+    const record: AiHistoryRecord = {
+      id: `ai-job-result-${job.jobId}`, role: 'assistant', content: '', status: 'completed',
+      createdAt: now, completedAt: now, backgroundNotice: backgroundJobNotice([job], owner.targets),
+    }
+    await this.ports.history.save(owner.historyId, record, owner.threadId, limits)
+    try {
+      this.owners.get(owner.ownerId)?.observer?.onRecord?.({
+        requestId: record.id, passive: true, trigger: 'background',
+        target: { sessionId: owner.sessionId, threadId: owner.threadId, assistantMessageId: record.id, createdAt: now }, record,
+      })
+    } catch { /* A closed view cannot affect the saved task result. */ }
   }
 
   private executionAvailable(owner: AiJobOwner) {

@@ -37,6 +37,14 @@ describe('applySettingsPatch', () => {
     expect(settings.connectionSortMode).toBe('manual')
   })
 
+  it('accepts only supported interface locales', () => {
+    const settings: Record<string, any> = { locale: 'zh-CN' }
+    applySettingsPatch(settings, { locale: 'en-US' }, current(settings))
+    expect(settings.locale).toBe('en-US')
+    applySettingsPatch(settings, { locale: 'fr-FR' as 'en-US' }, current(settings))
+    expect(settings.locale).toBe('en-US')
+  })
+
   it('persists the optional terminal local echo switch', () => {
     const settings: Record<string, any> = {}
     applySettingsPatch(settings, { terminalLocalEchoEnabled: true }, current(settings))

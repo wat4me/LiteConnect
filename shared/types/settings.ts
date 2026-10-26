@@ -1,6 +1,7 @@
 import type { Connection, Group } from './connection'
 import type { ConnectionSortMode } from '../connectionSort'
 import type { DbOpenMode } from '../dbOpenMode'
+import type { AppLocale } from '../appLocale'
 
 export type AppBackgroundFit = 'cover' | 'contain' | 'fill'
 
@@ -73,10 +74,13 @@ export type AppSettingsAll = {
   x11AutoStartEnabled: boolean
   x11ServerPath: string
   recentDownloadPaths: string[]
+  locale: AppLocale
+  /** False until a locale has been written. Not a stored field. */
+  localeConfigured: boolean
 }
 
 export type AppSettingsAllPatch = Partial<
-  Omit<AppSettingsAll, 'appBackground' | 'configuredDownloadPath' | 'defaultDownloadPath' | 'recentDownloadPaths'>
+  Omit<AppSettingsAll, 'appBackground' | 'configuredDownloadPath' | 'defaultDownloadPath' | 'recentDownloadPaths' | 'localeConfigured'>
 > & {
   appBackground?: {
     token?: string

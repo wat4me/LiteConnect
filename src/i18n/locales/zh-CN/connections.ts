@@ -66,7 +66,7 @@ export default {
     renameGroup: '重命名分组',
     renameGroupMessage: '请输入新的分组名称',
     deleteGroupTitle: '确认删除分组',
-    deleteGroupMessage: '删除分组后，该分组下的连接将移至默认分组。',
+    deleteGroupMessage: '删除分组后，直属连接将移至默认分组；子分组将提升到上一级，并保留其中的连接。',
     moved: '已移动',
     reorderDisabled: '当前列表不可排序，请选择一个分组、手动排序并清除筛选',
     reorderFailed: '排序失败',

@@ -32,6 +32,7 @@ export class AiBackgroundJobs {
     available: (owner: AiJobOwner) => boolean
     alive?: (owner: AiJobOwner) => boolean
     deliver: (owner: AiJobOwner, jobs: SshMcpJobResult[]) => Promise<void | boolean>
+    cancelled?: (owner: AiJobOwner, job: SshMcpJobResult) => Promise<void>
     onError: (error: unknown) => void
   }) {}
 
@@ -53,7 +54,16 @@ export class AiBackgroundJobs {
     const key = keyFor(owner)
     // User cancellation, session teardown and new-conversation cancellation
     // must never restart the agent.
-    if (job.status === 'cancelled' || this.suppressed.has(key)) return
+    if (this.suppressed.has(key)) return
+    if (job.status === 'cancelled') {
+      if (this.options.cancelled) {
+        const pending = Promise.resolve().then(() => this.options.cancelled!({ ...owner }, { ...job }))
+          .catch(error => this.options.onError(error))
+        this.drains.add(pending)
+        void pending.finally(() => this.drains.delete(pending))
+      }
+      return
+    }
     let batch = this.pending.get(key)
     if (!batch) {
       batch = { owner, jobs: new Map() }
@@ -88,6 +98,8 @@ export class AiBackgroundJobs {
   }
 
   canDeliver(owner: AiJobOwner) { return !this.disposed.has(owner.ownerId) && !this.suppressed.has(keyFor(owner)) && this.options.available(owner) }
+
+  canRetainResult(owner: AiJobOwner) { return !this.stopped && !this.disposed.has(owner.ownerId) && !this.suppressed.has(keyFor(owner)) }
 
   suppress(sessionId: string, threadId: string, ownerId: number | string) {
     const key = JSON.stringify([ownerId, sessionId, threadId])
@@ -167,7 +179,7 @@ export function backgroundJobNotice(jobs: SshMcpJobResult[], targets?: AiWorkspa
   let limit = Math.max(8, Math.floor(12000 / Math.max(1, jobs.length)))
   const render = () => JSON.stringify(jobs.map(job => ({
     jobId: job.jobId, connectionId: targets?.find(target => target.sessionId === job.sessionId)?.connectionId, command: job.command.slice(0, Math.min(500, limit)), status: job.status,
-    exitCode: job.exitCode, error: job.error?.slice(0, Math.min(300, limit)),
+    exitCode: job.exitCode, signal: job.signal, error: job.error?.slice(0, Math.min(300, limit)),
     stdout: job.stdout?.slice(-limit), stderr: job.stderr?.slice(-Math.min(limit, 500)),
     truncated: job.truncated || job.command.length > Math.min(500, limit) || (job.stdout?.length || 0) > limit || (job.stderr?.length || 0) > Math.min(limit, 500),
   })))

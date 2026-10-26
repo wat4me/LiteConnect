@@ -105,18 +105,18 @@ export async function runPersistedAiReply(opts: {
     // A terminated request can no longer receive approval, including checkpoint failures.
     for (const run of record.toolRuns || []) {
       if (run.name === AI_QUESTION_TOOL && run.status === 'question') {
-        emit({ type: 'tool', value: { id: run.id, name: run.name, phase: 'aborted', status: 'aborted', isError: false, content: 'QUESTION_CANCELLED: The request ended before the user answered. No answer or approval was given.' } })
+        emit({ type: 'tool', value: { id: run.id, name: run.name, phase: 'aborted', status: 'aborted', isError: false, content: `QUESTION_CANCELLED: ${t('notice.questionRequestEnded')}` } })
       } else if (run.status === 'ask') {
         emit({ type: 'tool', value: {
           id: run.id, name: run.name, phase: 'denied',
-          content: 'REQUEST_ENDED: The request ended before this tool was approved; it was not executed.',
+          content: `REQUEST_ENDED: ${t('notice.requestEndedBeforeApproval')}`,
           isError: true,
         } })
       } else if (run.status === 'running') {
         emit({ type: 'tool', value: {
           id: run.id, name: run.name, phase: aborted ? 'aborted' : 'done', status: aborted ? 'aborted' : 'done',
           isError: true,
-          content: 'TOOL_RESULT_UNKNOWN: 请求已中断，无法确认远端操作是否已执行或完成。请先检查实际状态，再决定是否重试；停止请求不代表远端修改已回滚。',
+          content: `TOOL_RESULT_UNKNOWN: ${t('notice.toolResultUnknown')}`,
         } })
       }
     }

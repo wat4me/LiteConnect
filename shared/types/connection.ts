@@ -64,6 +64,8 @@ export interface Group {
   name: string
   order: number
   isDefault: boolean
+  /** Missing/null means a top-level group (including legacy groups). */
+  parentId?: string | null
 }
 
 export interface SavedCredential {

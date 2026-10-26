@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { aiScheduleConcurrency, aiScheduleConnectionIds, aiScheduleHasToolFailure, type AiSchedule, type AiScheduleExecutionResult, type AiScheduleHealth, type AiScheduleHostRun } from '../../../shared/aiSchedules'
 
 export function scheduleHealth(content: string): { content: string; health: AiScheduleHealth } {
@@ -68,7 +69,7 @@ export async function orchestrateInspection(plan: AiSchedule, runId: string, sig
     try { content = await ports.summarize(plan, structuredClone(hosts), signal) }
     catch (failure) {
       signal.throwIfAborted()
-      error = `跨服务器汇总失败：${failure instanceof Error ? failure.message : String(failure)}`
+      error = t('notice.scheduleSummaryFailed', { error: failure instanceof Error ? failure.message : String(failure) })
     }
   } else if (hosts.length === 1) content = hosts[0].content || hosts[0].error || ''
   return { content: content.slice(0, 30000), hosts, health, error,

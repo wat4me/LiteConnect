@@ -1,4 +1,5 @@
 import type { AiToolRun } from './types/ai'
+import { sharedT, type SharedTranslate } from './i18n'
 
 export type AiScheduleTiming = { kind: 'interval' } | { kind: 'daily'; time: string } | { kind: 'weekly'; time: string; weekday: number }
 export type AiScheduleHealth = 'healthy' | 'warning' | 'critical' | 'unknown'
@@ -55,24 +56,24 @@ export interface AiScheduleRun {
 }
 export interface AiScheduleSnapshot { plans: AiSchedule[]; runs: AiScheduleRun[] }
 
-export function validateAiSchedule(input: AiScheduleInput): AiScheduleInput {
+export function validateAiSchedule(input: AiScheduleInput, translate: SharedTranslate = sharedT): AiScheduleInput {
   if (!input || typeof input !== 'object' || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 100 ||
     typeof input.connectionId !== 'string' || !input.connectionId || typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 8000 ||
     !Number.isInteger(input.intervalMinutes) || input.intervalMinutes < 5 || input.intervalMinutes > 10080 || typeof input.enabled !== 'boolean' ||
-    (input.id !== undefined && (typeof input.id !== 'string' || !input.id))) throw new Error('Invalid AI schedule')
+    (input.id !== undefined && (typeof input.id !== 'string' || !input.id))) throw new Error(translate('sharedText.scheduleInvalid'))
   const timing = input.timing
   if (input.connectionIds !== undefined && (!Array.isArray(input.connectionIds) || input.connectionIds.length < 1 || input.connectionIds.length > 10 ||
-    input.connectionIds.some(id => typeof id !== 'string' || !id))) throw new Error('请选择 1 至 10 台服务器。')
+    input.connectionIds.some(id => typeof id !== 'string' || !id))) throw new Error(translate('sharedText.scheduleHostsInvalid'))
   const ids = [...new Set(input.connectionIds || [input.connectionId])]
   if (timing !== undefined && (!timing || typeof timing !== 'object' || !['interval', 'daily', 'weekly'].includes(timing.kind) ||
     (timing.kind !== 'interval' && (typeof timing.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d(?::00)?$/.test(timing.time))) ||
-    (timing.kind === 'weekly' && (!Number.isInteger(timing.weekday) || timing.weekday < 0 || timing.weekday > 6)))) throw new Error('Invalid AI schedule time')
+    (timing.kind === 'weekly' && (!Number.isInteger(timing.weekday) || timing.weekday < 0 || timing.weekday > 6)))) throw new Error(translate('sharedText.scheduleTimeInvalid'))
   const hasProvider = input.providerId !== undefined && input.providerId !== ''
   const hasModel = input.model !== undefined && input.model !== ''
   if (hasProvider !== hasModel || (hasProvider && (typeof input.providerId !== 'string' || typeof input.model !== 'string' ||
-    input.providerId.length > 120 || input.model.trim().length < 1 || input.model.length > 200))) throw new Error('请选择完整的 AI 服务商和模型，或使用当前默认模型。')
+    input.providerId.length > 120 || input.model.trim().length < 1 || input.model.length > 200))) throw new Error(translate('sharedText.scheduleModelInvalid'))
   if (input.concurrency !== undefined && (!Number.isInteger(input.concurrency) || input.concurrency < 1 || input.concurrency > 5)) {
-    throw new Error('并行主机数需在 1 至 5 之间。')
+    throw new Error(translate('sharedText.scheduleConcurrencyInvalid'))
   }
   const normalized: AiScheduleTiming | undefined = !timing || timing.kind === 'interval' ? undefined
     : timing.kind === 'daily' ? { kind: 'daily', time: timing.time.slice(0, 5) } : { kind: 'weekly', time: timing.time.slice(0, 5), weekday: timing.weekday }

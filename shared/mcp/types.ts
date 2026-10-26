@@ -189,13 +189,13 @@ export type SshMcpJobSummary = {
   startedAt: number
   finishedAt?: number
   exitCode?: number | null
+  signal?: string
 }
 
 export type SshMcpJobResult = SshMcpJobSummary & {
   stdout?: string
   stderr?: string
   truncated?: boolean
-  signal?: string
   error?: string
   class?: CommandClass
 }

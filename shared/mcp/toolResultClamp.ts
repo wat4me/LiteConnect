@@ -1,10 +1,7 @@
+import { sharedT, type SharedTranslate } from '../i18n'
 import { MCP_AI_RESULT_MAX_CHARS, MCP_AI_RESULT_MAX_LINES } from './limits'
 
-export const AI_TOOL_TRUNCATION_NOTICE = [
-  '[截断] 工具输出过长，LiteConnect 已截断，没有把全文交给你。',
-  '不要用 cat / head / tail / sed 继续灌文件。',
-  '请用 grep 精确定位，或 read_file(startLine, limit) 分段读取。',
-].join(' ')
+export const AI_TOOL_TRUNCATION_NOTICE = sharedT('sharedText.promptTruncation')
 
 export function clampTextWindow(
   text: string,
@@ -31,7 +28,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>
 }
 
-function clampStructured(raw: unknown): { value: unknown; truncated: boolean } {
+function clampStructured(raw: unknown, translate: SharedTranslate): { value: unknown; truncated: boolean } {
   const rec = asRecord(raw)
   if (!rec) return { value: raw, truncated: false }
   let truncated = rec.truncated === true
@@ -55,7 +52,7 @@ function clampStructured(raw: unknown): { value: unknown; truncated: boolean } {
 
   if (truncated) {
     next.truncated = true
-    next.notice = AI_TOOL_TRUNCATION_NOTICE
+    next.notice = translate('sharedText.promptTruncation')
   }
   return { value: next, truncated }
 }
@@ -67,8 +64,8 @@ type ToolResultLike = {
 }
 
 /** Shrink a tool result before the model sees it. */
-export function clampToolResultForModel(result: ToolResultLike): ToolResultLike {
-  const structured = clampStructured(result.structuredContent)
+export function clampToolResultForModel(result: ToolResultLike, translate: SharedTranslate = sharedT): ToolResultLike {
+  const structured = clampStructured(result.structuredContent, translate)
   let content = result.content || ''
   let truncated = structured.truncated
 
@@ -81,8 +78,9 @@ export function clampToolResultForModel(result: ToolResultLike): ToolResultLike 
   truncated = truncated || body.truncated
 
   if (!truncated) return result
-  if (!content.includes('[截断]')) {
-    content = `${content.replace(/\s+$/, '')}\n\n${AI_TOOL_TRUNCATION_NOTICE}`
+  const notice = translate('sharedText.promptTruncation')
+  if (!content.includes(notice) && !content.includes(AI_TOOL_TRUNCATION_NOTICE)) {
+    content = `${content.replace(/\s+$/, '')}\n\n${notice}`
   }
   return {
     isError: result.isError,

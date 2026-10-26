@@ -31,6 +31,8 @@ import UploadConflictDialog from '../../src/components/sftp/UploadConflictDialog
 import type { ChatItem } from '@/domain/ai/chat'
 import type { AiActivityPhase } from '../../src/utils/ai/chatActivity'
 import type { Connection, Group } from '../../shared/types/connection'
+import { serializeToolRunForHistory } from '../../shared/aiToolRunDisplay'
+import { AI_BACKGROUND_RESULT_PREFIX } from '../../shared/aiBackgroundResults'
 import type { AiWorkspaceConversationItem } from '../../shared/aiWorkspaceConversations'
 import type { AiWorkspaceTarget } from '../../shared/aiWorkspace'
 import type { SshConnectionStage } from '../../shared/sshConnectionProgress'
@@ -41,6 +43,7 @@ const groups: Group[] = [
   { id: 'dev', name: '默认分组', order: 0, isDefault: true },
   { id: 'prod', name: '生产环境 Production', order: 1, isDefault: false },
 ]
+let groupSequence = 0
 const stylePreviewOpen = ref(false)
 const styleDraft = ref({
   sftpFontSize: 12, downloadPath: 'D:/Downloads/很长的下载目录 Production files',
@@ -252,6 +255,27 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
     return { ...connection }
   },
   getGroups: async () => groups.map(group => ({ ...group })),
+  saveGroup: async (input: Partial<Group> & { name: string }) => {
+    const existing = groups.find(group => group.id === input.id)
+    if (existing) {
+      Object.assign(existing, input)
+      return { ...existing }
+    }
+    const group: Group = { id: `group-${++groupSequence}`, name: input.name,
+      parentId: input.parentId ?? null, order: groups.length, isDefault: false }
+    groups.push(group)
+    return { ...group }
+  },
+  deleteGroup: async (id: string) => {
+    const index = groups.findIndex(group => group.id === id)
+    if (index < 0) return false
+    const [removed] = groups.splice(index, 1)
+    for (const group of groups) if (group.parentId === id) group.parentId = removed.parentId ?? null
+    const fallback = groups.find(group => group.isDefault)?.id || groups[0].id
+    connections = connections.map(conn => conn.group === id ? { ...conn, group: fallback } : conn)
+    return true
+  },
+  reorderGroups: async (ids: string[]) => { for (const group of groups) group.order = ids.indexOf(group.id) },
   setManySettings: async () => {},
   updateConnectionGroup: async (id: string, group: string) => {
     calls.moves.push(`${id}:${group}`)
@@ -505,6 +529,19 @@ onMounted(() => {
       await nextTick()
     },
     async openImageComposer() { imageOpenGeneration.value++; imageComposerOpen.value = true; await nextTick() },
+    async seedExecutionHistory(runs: AiToolRun[]) {
+      const state = useAiChat().getSessionState(imageComposerSession.value)
+      state.messages.splice(0, state.messages.length, { id: 'execution-fixture', role: 'assistant', content: '', status: 'completed',
+        createdAt: Date.now(), toolRuns: runs.map(run => ({ ...run, ...serializeToolRunForHistory(run) })) })
+      await nextTick()
+    },
+    async emitCancelledExecution(jobId: string) {
+      const state = useAiChat().getSessionState(imageComposerSession.value)
+      backgroundReplyListeners.forEach(listener => listener({ sessionId: imageComposerSession.value, threadId: state.activeThreadId,
+        requestId: `job-result-${jobId}`, passive: true, record: { id: `job-result-${jobId}`, role: 'assistant', content: '',
+          status: 'completed', createdAt: Date.now(), backgroundNotice: `${AI_BACKGROUND_RESULT_PREFIX}\n${JSON.stringify([{ jobId, command: 'background-command', status: 'cancelled' }])}` } }))
+      await nextTick()
+    },
     async closeImageComposer() { imageComposerOpen.value = false; await nextTick() },
     async switchImageSession(id: string) { imageComposerSession.value = id; await nextTick() },
     imageSessionState(id: string) {

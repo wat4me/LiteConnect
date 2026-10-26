@@ -272,11 +272,11 @@ watch(
         <span class="ui-empty-title">{{ t('database.query.resultEmpty') }}</span>
         <div class="empty-tips">
           <div class="tip-item">
-            <span class="tip-label">执行选区/语句:</span>
+            <span class="tip-label">{{ t('database.query.runSelectionTip') }}</span>
             <kbd class="tip-key">Ctrl + Enter</kbd>
           </div>
           <div class="tip-item">
-            <span class="tip-label">快速收藏脚本:</span>
+            <span class="tip-label">{{ t('database.query.saveScriptTip') }}</span>
             <kbd class="tip-key">Ctrl + S</kbd>
           </div>
         </div>

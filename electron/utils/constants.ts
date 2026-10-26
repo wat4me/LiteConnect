@@ -1,15 +1,28 @@
-import { t } from '../i18n'
+import { getMainLocale, t } from '../i18n'
+import {
+  defaultAiSystemPromptForLocale,
+  isBuiltinAiSystemPrompt,
+  LEGACY_AI_SYSTEM_PROMPT,
+} from '../../shared/aiDefaultSystemPrompt'
 
-/** Default AI system prompt (locale-aware; content lives in electron/i18n). */
+export { LEGACY_AI_SYSTEM_PROMPT, isBuiltinAiSystemPrompt }
+
+/** Default AI system prompt for the current main-process locale. */
 export function getDefaultAiSystemPrompt(): string {
-  return t('ai.defaultSystemPrompt')
+  return defaultAiSystemPromptForLocale(getMainLocale())
+}
+
+/**
+ * Keep a stored prompt only when it is not one of the known built-in defaults.
+ * An empty string is a user choice and is preserved.
+ */
+export function resolveStoredAiSystemPrompt(stored: unknown): string {
+  if (typeof stored === 'string' && !isBuiltinAiSystemPrompt(stored)) return stored
+  return getDefaultAiSystemPrompt()
 }
 
 /** @deprecated Prefer getDefaultAiSystemPrompt() so locale can change. */
-export const DEFAULT_AI_SYSTEM_PROMPT = getDefaultAiSystemPrompt()
-
-export const LEGACY_AI_SYSTEM_PROMPT =
-  'You are a concise SSH assistant. Help explain commands, errors, Linux operations, and troubleshooting steps.'
+export const DEFAULT_AI_SYSTEM_PROMPT = t('ai.defaultSystemPrompt')
 
 /** In-app SFTP editor max file size (bytes). */
 export const SFTP_EDITOR_MAX_BYTES = 5 * 1024 * 1024

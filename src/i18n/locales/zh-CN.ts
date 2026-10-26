@@ -1,4 +1,5 @@
 import common from './zh-CN/common'
+import sharedText from '../../../shared/i18n/zh-CN'
 import dialog from './zh-CN/dialog'
 import app from './zh-CN/app'
 import settings from './zh-CN/settings'
@@ -31,6 +32,7 @@ import ai from './zh-CN/ai'
 import about from './zh-CN/about'
 
 export default {
+  ...sharedText,
   ...common,
   ...dialog,
   ...app,

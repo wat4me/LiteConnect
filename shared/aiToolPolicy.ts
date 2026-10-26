@@ -1,3 +1,8 @@
+import { sharedT, type SharedTranslate } from './i18n'
+
+/** Stable boundary between model-authored explanations and application notices. */
+export const AI_TOOL_REASON_SEPARATOR = '\n[LiteConnect policy] '
+
 export const AI_TOOL_PERMISSION_MODES = ['ask', 'readonly', 'auto'] as const
 export type AiToolPermissionMode = (typeof AI_TOOL_PERMISSION_MODES)[number]
 export const DEFAULT_AI_TOOL_PERMISSION: AiToolPermissionMode = 'ask'
@@ -40,26 +45,18 @@ export function omitDeclaredRiskArg(args: Record<string, unknown>): Record<strin
   return rest
 }
 
-export const AI_DECLARED_RISK_PROMPT_ZH = [
-  '每次服务器操作工具调用都必须在 JSON 参数中提供 risk 和 explanation，不能只在聊天正文中说明。',
-  '- read（只读）：只查看，不改变文件、配置、进程或服务',
-  '- write（修改）：会创建、改写、删除、移动，或改变进程/服务/配置',
-  '- privileged（提权）：需要提升权限才能执行',
-  'explanation 必须是 1–500 字符的一句简洁中文，直接说明本次操作的目的、目标及具体影响。不要添加“操作说明”“只读排查”等前缀，不要重复 risk 中的权限标签；涉及修改时说明影响，不包含密码或密钥。',
-  '应用按你申报的 risk 和用户的权限设置决定是否执行；同时对 exec / service_control 的目标命令独立判级。执行需确认模式下，实际风险高于申报时会要求用户审批；自动执行模式下会按应用判级提高显示风险并继续执行，但明确高危的命令仍需审批。你必须根据实际行为如实申报。',
-  '需要审批时等待用户允许；被拒绝后不要换命令或改标签重复尝试。缺失或无效的 JSON 字段会导致本次不执行，请补全申请。',
-].join('\n')
+export const AI_DECLARED_RISK_PROMPT_ZH = sharedT('sharedText.promptRiskDeclaration')
 
 export const AI_DECLARED_RISK_PARAM_DESCRIPTION =
   'Declare actual risk; follow the shared system permission rules.'
 export const AI_TOOL_EXPLANATION_DESCRIPTION =
-  'Concise Chinese action, purpose, target and impact; no secrets.'
+  'Action, purpose, target and impact; UI language; no secrets.'
 
-export function formatAiRiskReclassifyContent(gate: Extract<AiToolGate, { action: 'reclassify' }>): string {
+export function formatAiRiskReclassifyContent(gate: Extract<AiToolGate, { action: 'reclassify' }>, translate: SharedTranslate = sharedT): string {
   return [
-    gate.code + ': 未执行。' + gate.reason,
-    '请补全同一工具调用的 JSON 参数：risk 必须为 read / write / privileged，explanation 必须是 1–500 字符的非空操作说明。',
-    AI_DECLARED_RISK_PROMPT_ZH,
+    translate('sharedText.reclassifyNotExecuted', { code: gate.code, reason: gate.reason }),
+    translate('sharedText.reclassifyInstructions'),
+    translate('sharedText.promptRiskDeclaration'),
   ].join('\n')
 }
 
@@ -68,15 +65,15 @@ export function formatAiRiskReclassifyContent(gate: Extract<AiToolGate, { action
  * model; `applyCommandFloor` (electron/ai/commandFloor) is the half that does
  * not, and callers should compose the two.
  */
-export function assessAiToolCall(_name: string, args: unknown, mode: AiToolPermissionMode = DEFAULT_AI_TOOL_PERMISSION): AiToolGate {
+export function assessAiToolCall(_name: string, args: unknown, mode: AiToolPermissionMode = DEFAULT_AI_TOOL_PERMISSION, translate: SharedTranslate = sharedT): AiToolGate {
   const input = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : {}
   const risk = parseAiDeclaredRisk(input.risk)
   if (!risk) {
-    return { action: 'reclassify', risk: 'write', code: 'RISK_REQUIRED', reason: '缺少有效的 risk 权限声明。' }
+    return { action: 'reclassify', risk: 'write', code: 'RISK_REQUIRED', reason: translate('sharedText.riskRequired') }
   }
   const explanation = typeof input.explanation === 'string' ? input.explanation.trim() : ''
   if (!explanation || explanation.length > AI_TOOL_EXPLANATION_MAX_CHARS || /[\0]/.test(explanation)) {
-    return { action: 'reclassify', risk, code: 'EXPLANATION_REQUIRED', reason: 'explanation 必须是 1–500 字符的非空操作说明。' }
+    return { action: 'reclassify', risk, code: 'EXPLANATION_REQUIRED', reason: translate('sharedText.explanationRequired') }
   }
   if (mode === 'readonly' && risk !== 'read') {
     return { action: 'deny', risk, code: 'READONLY_MODE', reason: explanation }

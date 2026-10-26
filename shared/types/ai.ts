@@ -193,6 +193,8 @@ export interface AiHistoryRecord {
 }
 
 export interface AiBackgroundReplyEvent {
+  /** A saved task update, with no model request or generation lifecycle change. */
+  passive?: boolean
   sessionId: string
   threadId: string
   requestId: string

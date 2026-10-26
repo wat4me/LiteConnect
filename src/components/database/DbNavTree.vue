@@ -6,7 +6,7 @@ import InlineLabel from '../common/InlineLabel.vue'
 import type { DbConnection, DbTableInfo } from '../../env.d'
 import { formatRows } from '@/domain/database/dbFormat'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const props = defineProps<{
   connections: DbConnection[]
@@ -88,7 +88,7 @@ const groupedConnections = computed(() => {
   const keys = [...map.keys()].sort((a, b) => {
     if (!a) return 1
     if (!b) return -1
-    return a.localeCompare(b, 'zh-CN')
+    return a.localeCompare(b, locale.value)
   })
   return keys.map((name) => ({ name, items: map.get(name)! }))
 })
@@ -155,7 +155,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
         type="button"
         class="ui-icon-btn ui-icon-btn-ghost system-db-toggle"
         :class="{ active: showSystemDbs }"
-        :title="showSystemDbs ? '隐藏系统数据库' : '显示系统数据库'"
+        :title="showSystemDbs ? t('database.nav.hideSystemDbs') : t('database.nav.showSystemDbs')"
         @click="showSystemDbs = !showSystemDbs"
       >
         <AppIcon :name="showSystemDbs ? 'eye' : 'eye-off'" size="sm" />

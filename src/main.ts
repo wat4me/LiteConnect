@@ -10,7 +10,7 @@ import 'element-plus/es/components/tooltip/style/css'
 import App from './App.vue'
 import './styles/main.css'
 import './styles/settings.css'
-import i18n, { initLocaleFromStorage } from './i18n'
+import i18n, { initLocaleFromStorage, listenForLocaleChanges, reconcileStoredLocale } from './i18n'
 import { migrateDurableLocalStorage, migrateLegacyLocalStorage } from '@/utils/shared/legacyStorageMigrate'
 import { setScratchDirs } from '@/composables/sftp/useDragDrop'
 
@@ -19,6 +19,8 @@ initLocaleFromStorage()
 
 async function mountRenderer(): Promise<void> {
   await migrateDurableLocalStorage()
+  listenForLocaleChanges()
+  await reconcileStoredLocale()
 
   // Teach the drop handler where this machine's scratch directory lives, so files
   // unpacked there by an archive viewer (dragged out of a .zip/.rar) can be

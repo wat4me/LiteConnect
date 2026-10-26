@@ -2,10 +2,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, reactive, watchEffect } from 'vue'
 import * as formatting from '@shared/aiToolRunDisplay'
 import { createToolRunDisplayCache, TOOL_ARGS_MAX_CHARS, TOOL_DISPLAY_MAX_CHARS } from './toolRunDisplayCache'
+import { createSharedTranslator } from '@shared/i18n'
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('tool run display cache', () => {
+  it('invalidates translated output when the application language changes', () => {
+    const language = reactive({ locale: 'zh-CN' })
+    const cache = createToolRunDisplayCache((key, params) => createSharedTranslator(language.locale)(key, params))
+    const run = { name: 'ask_user', args: JSON.stringify({ questions: [{ id: 'q', question: 'Choose a service' }] }), content: '{"cancelled":true}' }
+    const first = cache.toolView(run)
+    expect(first.body).toContain('用户暂不回答')
+    language.locale = 'en-US'
+    const second = cache.toolView(run)
+    expect(second).not.toBe(first)
+    expect(second.body).toContain('The user skipped')
+  })
   it('does not parse oversized payloads and bounds their rendered previews', () => {
     const displaySpy = vi.spyOn(formatting, 'formatToolRunDisplay')
     const argsSpy = vi.spyOn(formatting, 'formatToolRunArgs')

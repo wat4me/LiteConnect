@@ -601,6 +601,12 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     return () => ipcRenderer.removeListener('app:globalHotkeyFailed', listener)
   },
 
+  onLocaleChanged: (callback: (locale: string) => void) => {
+    const listener = (_event: any, locale: string) => callback(locale)
+    ipcRenderer.on('app:localeChanged', listener)
+    return () => ipcRenderer.removeListener('app:localeChanged', listener)
+  },
+
   updateTitleBar: (theme: string, colors?: { color: string; symbolColor: string }) => ipcRenderer.send('titlebar:theme', theme, colors),
 
   // Database (MySQL / PostgreSQL; optional SSH tunnel)

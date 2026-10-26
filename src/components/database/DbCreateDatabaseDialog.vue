@@ -147,7 +147,7 @@ async function copyOracleSql() {
           <label class="cdb-field">
             <span class="cdb-label">{{ t('database.msg.createDatabaseEncodingLabel') }}</span>
             <select v-model="encoding" class="ui-select">
-              <option value="">（默认）</option>
+              <option value="">{{ t('database.msg.createDatabaseDefault') }}</option>
               <option v-for="enc in PG_ENCODINGS" :key="enc" :value="enc">{{ enc }}</option>
             </select>
           </label>
@@ -156,14 +156,14 @@ async function copyOracleSql() {
           <label class="cdb-field">
             <span class="cdb-label">{{ t('database.msg.createDatabaseCharsetLabel') }}</span>
             <select v-model="charset" class="ui-select">
-              <option value="">（默认）</option>
+              <option value="">{{ t('database.msg.createDatabaseDefault') }}</option>
               <option v-for="cs in MYSQL_CHARSETS" :key="cs" :value="cs">{{ cs }}</option>
             </select>
           </label>
           <label class="cdb-field">
             <span class="cdb-label">{{ t('database.msg.createDatabaseCollateLabel') }}</span>
             <select v-model="collate" class="ui-select" :disabled="!charset">
-              <option value="">（默认）</option>
+              <option value="">{{ t('database.msg.createDatabaseDefault') }}</option>
               <option v-for="col in mysqlCollateOptions" :key="col" :value="col">{{ col }}</option>
             </select>
           </label>

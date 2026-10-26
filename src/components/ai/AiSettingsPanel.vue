@@ -5,7 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../../env.d.ts'
-import { DEFAULT_SYSTEM_PROMPT } from '@/utils/shared/constants'
+import { currentDefaultSystemPrompt, isBuiltinAiSystemPrompt } from '@/utils/shared/constants'
 import { DEFAULT_AI_TOOL_PERMISSION, sanitizeAiToolPermission } from '@shared/aiToolPolicy'
 import { firstAiModelId, modelContextSource, parseAiModels } from '@shared/aiContext'
 import type { AiDiscoveredModel } from '@shared/types/ai'
@@ -23,7 +23,7 @@ import AiModelPicker from './AiModelPicker.vue'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import type { AiHistoryPrunePreview } from '@shared/aiHistoryLimits'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const props = defineProps<{
   modelValue?: AiSettings
@@ -42,7 +42,7 @@ function cloneSettings(settings?: AiSettings | null): AiSettings {
         providers: [] as AiProvider[],
         activeProviderId: null,
         activeModel: '',
-        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        systemPrompt: currentDefaultSystemPrompt(),
         temperature: 0.7,
         toolPermission: DEFAULT_AI_TOOL_PERMISSION,
       }
@@ -59,14 +59,20 @@ function cloneSettings(settings?: AiSettings | null): AiSettings {
   return raw
 }
 
-const permissionModes: Array<{ id: AiToolPermissionMode; label: string; desc: string }> = [
-  { id: 'ask', label: t('ai.toolPermissionAsk'), desc: t('ai.toolPermissionAskDesc') },
-  { id: 'readonly', label: t('ai.toolPermissionReadonly'), desc: t('ai.toolPermissionReadonlyDesc') },
-  { id: 'auto', label: t('ai.toolPermissionAuto'), desc: t('ai.toolPermissionAutoDesc') },
-]
+const permissionModes = computed(() => [
+  { id: 'ask' as AiToolPermissionMode, label: t('ai.toolPermissionAsk'), desc: t('ai.toolPermissionAskDesc') },
+  { id: 'readonly' as AiToolPermissionMode, label: t('ai.toolPermissionReadonly'), desc: t('ai.toolPermissionReadonlyDesc') },
+  { id: 'auto' as AiToolPermissionMode, label: t('ai.toolPermissionAuto'), desc: t('ai.toolPermissionAutoDesc') },
+])
 
 const persistedSettings = ref<AiSettings>(cloneSettings(props.modelValue))
 const draftSettings = ref<AiSettings>(cloneSettings(props.modelValue))
+
+watch(locale, () => {
+  const next = currentDefaultSystemPrompt()
+  if (isBuiltinAiSystemPrompt(draftSettings.value.systemPrompt)) draftSettings.value.systemPrompt = next
+  if (isBuiltinAiSystemPrompt(persistedSettings.value.systemPrompt)) persistedSettings.value.systemPrompt = next
+})
 const providerDraft = ref<AiProvider | null>(null)
 const editingProviderId = ref<string | null>(null)
 const testingProvider = ref(false)
@@ -152,7 +158,7 @@ const anyChanges = computed(() => generalDirty.value || historyDirty.value || pr
 const sectionSummaries = computed(() => ({
   providers: draftSettings.value.providers.find(provider => provider.id === draftSettings.value.activeProviderId)?.name || t('ai.noProviders'),
   conversation: t('ai.settingsUi.historySummary', { threads: normalizeAiHistoryMaxThreads(draftSettings.value.historyMaxThreads), messages: normalizeAiHistoryMaxMessages(draftSettings.value.historyMaxMessages) }),
-  permissions: permissionModes.find(mode => mode.id === draftSettings.value.toolPermission)?.label || '',
+  permissions: permissionModes.value.find(mode => mode.id === draftSettings.value.toolPermission)?.label || '',
   notifications: t(draftSettings.value.approvalNotifications ? 'ai.settingsUi.notificationsOn' : 'ai.settingsUi.notificationsOff'),
 }))
 const sectionChanges = computed(() => ({

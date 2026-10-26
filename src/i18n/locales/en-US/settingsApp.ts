@@ -1,0 +1,25 @@
+export default {
+  settingsApp: {
+    title: 'App',
+    intro: 'Manage the interface language, window, global shortcut, and workspace restore on startup.',
+    language: 'Language',
+    languageHint: 'Takes effect after you save, and applies to every window. SSH connections stay up, and conversations are kept.',
+    languageZh: '简体中文',
+    languageEn: 'English',
+    window: 'Window and startup',
+    closeToTray: 'Minimize to the tray when the window is closed',
+    closeToTrayHint: 'Keep SSH sessions running after the main window closes. Reopen or quit from the system tray.',
+    globalHotkey: 'Global show shortcut',
+    globalHotkeyHint:
+      'When enabled, the shortcut shows or hides LiteConnect from other apps. Click the button below to set a new shortcut. It takes effect after you save, and registration fails if another app already uses it.',
+    globalHotkeyCurrent: 'Show shortcut',
+    globalHotkeyCaptureTitle: 'Click, then press a new shortcut (Esc to cancel)',
+    globalHotkeyCapturing: 'Press a shortcut. Esc cancels.',
+    globalHotkeyInvalid: 'Use at least one modifier (Ctrl, Alt, Shift, or ⌘) plus a letter, number, or function key.',
+    globalHotkeyReset: 'Restore default',
+    globalHotkeyResetDone: 'Restored the default shortcut {accel}. It takes effect after you save.',
+    globalHotkeyConflict: 'Could not register {accel}. Another app may already use it. Choose a different shortcut.',
+    workspaceRestore: 'Restore SSH tabs on startup',
+    workspaceRestoreHint: 'Restores the host tabs that were open last time. It does not connect automatically. Turning this off clears the remembered tabs.',
+  },
+}

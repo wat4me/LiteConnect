@@ -1,6 +1,5 @@
 import {
   AI_DECLARED_RISK_PARAM_DESCRIPTION,
-  AI_DECLARED_RISK_PROMPT_ZH,
   AI_DECLARED_RISKS,
   AI_TOOL_EXPLANATION_DESCRIPTION,
   AI_TOOL_EXPLANATION_MAX_CHARS,
@@ -8,7 +7,8 @@ import {
 import { packAiMessages, type AiContextPack } from './aiContext'
 import { formatAiConversationContextFile } from './aiFixedContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
-import { aiUserQuestionTool, AI_QUESTION_GUIDANCE } from './aiQuestions'
+import { aiUserQuestionTool } from './aiQuestions'
+import { sharedT, type SharedTranslate } from './i18n'
 import { aiChatServerToolNames, aiLoadToolsDefinition, normalizeAiToolGroups, type AiToolGroup } from './aiToolCatalog'
 import type { AiChatMessage, AiConversationContextFile } from './types/ai'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget, type AiContextBudgetConfig } from './aiContextPressure'
@@ -29,25 +29,24 @@ export function sshToolSystemAddendum(session: {
   username?: string
   connectionName?: string
   cwd?: string
-}): string {
+}, translate: SharedTranslate = sharedT, options: { workspace?: boolean; allowQuestions?: boolean } = {}): string {
   const cwd = sanitizeTrackedCwd(session.cwd)
   return [
-    '你可以使用 SSH 工具查看和操作当前对话绑定的这台主机，不要空口猜测磁盘、进程、日志或配置。',
-    'exec / read_file / grep / write_file / edit_file 默认就在这台机上执行，不要传 sessionId，也不要切换到其它主机。',
-    '服务器操作工具的权限按你在 JSON 中声明的级别和用户设置处理；需要确认的调用会暂停，等待用户在对话里点「允许」。',
-    `服务器操作工具的申报要求：${AI_DECLARED_RISK_PROMPT_ZH}`,
-    AI_QUESTION_GUIDANCE,
-    '长任务用 exec(background=true)。任务完成后应用会自动将状态和标准输出/错误送回当前对话并继续处理，收到后直接分析，不要再用 get_job 确认完成。后台执行期间可处理独立工作，或结束本次回复等待自动续接；不要轮询 get_job / list_jobs、sleep 等待或重复执行同一任务。仅在用户要求查看进度，或推送输出被截断且确需补读时使用 get_job。不要去连其它主机或结束用户正在用的终端。',
-    '默认提供常用工具；需要文件传输、交互式终端或后台任务总览时，先单独调用 load_tools，仅传 groups 加载 file_transfer / interactive_terminal / job_overview，不需要 risk / explanation。加载只增加本会话可用工具，不是执行授权；返回后再规划操作。已加载能力在本会话持续有效。',
-    '交互式终端加载后，用 pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户终端，用完关闭。exec 仍是非交互命令。文件传输加载后用 upload_file / download_file。',
-    '目录、文件属性、查找路径、日志尾部、服务管理和资源状态通过 exec 调用目标系统的命令。查日志和配置不要整文件 read_file；先找到路径、grep 定位行号，再 read_file(startLine, limit) 读附近几十行。read_file 默认只返回前 200 行（约 50KiB）。',
-    '改已存在的文件用 edit_file：它只传改动片段、其余内容原样不动，审批卡上给出的是小而可读的 diff。只有新建文件或整体重写才用 write_file。',
-    'edit_file 的 oldString 必须逐字来自 read_file 返回的内容（含缩进与引号），不要带行号前缀；匹配不唯一时补上足够上下文，或明确用 replaceAll。行首的行号只是定位标记，任何时候都不要复制进 oldString / newString / write_file 的 content。',
-    '工具结果已经显示在卡片里。回复只给简短结论和下一步，不要原样粘贴大段 stdout/JSON。能用工具拿到的信息，不要让用户去终端复制。',
-    '修改文件、部署、安装或重启后，须在同一台服务器上用只读工具复查用户要求的实际结果（如配置内容、服务状态、端口响应或近期日志）。命令返回成功、退出码为 0 或后台任务启动成功，都不等于用户目标已完成。只做与本次请求相关且必要的验证，不自行扩展修改范围。',
-    '最终说明已验证的结果、失败项和未验证项；没有复查依据时明确写「尚未验证」，不要声称已修复。多服务器分别验证和报告；一台失败不代表其他主机失败，也不能用其他主机成功的结果代替本机验证。',
-    '超时、断线或取消后，远端修改可能已经生效，也可能只完成了一部分；不要假定已回滚或直接重复执行。继续任务时先读取实际状态，再决定剩余操作；后台结果中的失败也要复核，不能只看任务状态 completed。',
-    ...(cwd ? [`当前工作目录: ${cwd}。未写绝对路径时默认相对此目录。`] : []),
+    ...(options.workspace ? [] : [translate('sharedText.promptSshBound'), translate('sharedText.promptSshRouting')]),
+    translate('sharedText.promptSshPermission'),
+    translate('sharedText.promptRiskRequirements', { rules: translate('sharedText.promptRiskDeclaration') }),
+    translate(options.allowQuestions === false ? 'sharedText.promptUnattended' : 'sharedText.promptQuestionGuidance'),
+    translate('sharedText.promptBackground'),
+    translate('sharedText.promptOptionalTools'),
+    translate('sharedText.promptPty'),
+    translate('sharedText.promptReadFiles'),
+    translate('sharedText.promptEditFiles'),
+    translate('sharedText.promptExactEdit'),
+    translate('sharedText.promptReply'),
+    translate('sharedText.promptVerify'),
+    translate('sharedText.promptReport'),
+    translate('sharedText.promptInterrupted'),
+    ...(cwd ? [translate('sharedText.promptCwd', { cwd })] : []),
   ].join('\n')
 }
 
@@ -163,13 +162,14 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
   contextWindowTokens?: number
   contextFiles?: AiConversationContextFile[]
   toolGroups?: readonly AiToolGroup[]
+  translate?: SharedTranslate
 }): SidebarAiRequestEstimate {
   const bound = Boolean(opts.sessionId)
   const extraSystem = opts.toolContext?.system ?? (bound
     ? sshToolSystemAddendum({
         sessionId: opts.sessionId || '',
         cwd: opts.cwd,
-      })
+      }, opts.translate)
     : '')
   const files = opts.contextFiles || []
   const fixedContext = files.map(formatAiConversationContextFile).join('\n\n')
@@ -202,6 +202,7 @@ export function sidebarContextFilesFit(opts: AiContextBudgetConfig & {
   contextWindowTokens?: number
   contextFiles: AiConversationContextFile[]
   toolGroups?: readonly AiToolGroup[]
+  translate?: SharedTranslate
 }): boolean {
   if (!opts.contextFiles.length) return true
   const system = estimateSidebarAiRequest({ ...opts, messages: [] }).messages[0]?.content || ''

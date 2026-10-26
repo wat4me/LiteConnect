@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import type { AiDiscoveredModel, AiResolvedConfig } from '../../../shared/types/ai'
 import { getAiProviderAdapter } from './registry'
 import type { AiProviderCredentials } from './types'
@@ -17,7 +18,7 @@ export async function listAiProviderModels(provider: AiProviderCredentials): Pro
     do {
       const request = adapter.modelsRequest(provider, cursor)
       const response = await fetch(request.url, { headers: request.headers, signal: controller.signal })
-      if (!response.ok) throw new Error(`获取模型失败 (HTTP ${response.status})，请检查 API 地址和密钥，或手动添加模型`)
+      if (!response.ok) throw new Error(t('notice.fetchModelsFailed', { status: response.status }))
       const page = adapter.parseModelsPage(await response.json())
       for (const model of page.models) {
         if (!models.has(model.id) || model.contextWindowTokens) models.set(model.id, model)
@@ -30,7 +31,7 @@ export async function listAiProviderModels(provider: AiProviderCredentials): Pro
     } while (cursor)
     return [...models.values()].sort((a, b) => a.id.localeCompare(b.id))
   } catch (error: any) {
-    if (error?.name === 'AbortError') throw new Error('获取模型超时，请重试或手动添加模型')
+    if (error?.name === 'AbortError') throw new Error(t('notice.fetchModelsTimeout'))
     throw error
   } finally {
     clearTimeout(timeout)

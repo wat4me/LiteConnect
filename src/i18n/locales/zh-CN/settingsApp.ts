@@ -1,7 +1,11 @@
 export default {
   settingsApp: {
     title: '应用',
-    intro: '管理窗口、全局快捷键和启动时的工作区恢复。',
+    intro: '管理界面语言、窗口、全局快捷键和启动时的工作区恢复。',
+    language: '界面语言 / Language',
+    languageHint: '保存后立即生效，并同步到所有窗口。不会因此重连 SSH 或清空对话。',
+    languageZh: '简体中文',
+    languageEn: 'English',
     window: '窗口与启动',
     closeToTray: '关闭窗口时最小化到托盘',
     closeToTrayHint: '关闭主窗口后保持 SSH 会话，可从系统托盘重新打开或退出。',

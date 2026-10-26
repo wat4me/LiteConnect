@@ -8,7 +8,7 @@ import AiToolRunRow from './AiToolRun.vue'
 
 const props = defineProps<{ runs: AiToolRun[] }>()
 const { t } = useI18n()
-const { toolView } = createToolRunDisplayCache()
+const { toolView } = createToolRunDisplayCache(t)
 const counts = computed(() => {
   const result = { completed: 0, failed: 0, blocked: 0, running: 0, stopped: 0 }
   for (const run of props.runs) {

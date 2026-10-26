@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AiChatStreamPayload, AiHistoryRecord, AiResolvedConfig } from '../../../shared/types/ai'
 import { compactAiLiveMessages, maybeCompactAiContext } from './contextCompaction'
+import { setMainLocale } from '../../i18n'
 
 const settings: AiResolvedConfig = {
   baseUrl: 'https://example.test/v1',
@@ -21,9 +22,20 @@ function records(): AiHistoryRecord[] {
   ]
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); setMainLocale('zh-CN') })
 
 describe('maybeCompactAiContext', () => {
+  it('sends the English compaction instruction after changing the interface language', async () => {
+    setMainLocale('en-US')
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ message: { content: '## User goals and intent\n- Continue inspecting the server.' }, finish_reason: 'stop' }] }))
+    vi.stubGlobal('fetch', fetcher)
+    await maybeCompactAiContext({ records: records(), settings, signal: new AbortController().signal, emit: () => {}, saveCheckpoint: async () => {} })
+    expect(fetcher).toHaveBeenCalled()
+    const request = JSON.parse(fetcher.mock.calls[0][1].body)
+    const instruction = request.messages.at(-1).content
+    expect(instruction).toContain('## User goals and intent')
+    expect(instruction).not.toMatch(/\p{Script=Han}/u)
+  })
   it.each([false, true])('retains a new completion event outside the durable history when summarization fails: %s', async fail => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {

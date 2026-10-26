@@ -119,7 +119,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
     </summary>
     <div class="background-task-body">
     <ul>
-      <li v-for="job in displayedJobs" :key="job.jobId" :data-status="backgroundJobState(job.status, job.exitCode)">
+      <li v-for="job in displayedJobs" :key="job.jobId" :data-status="backgroundJobState(job.status, job.exitCode, job.signal)">
         <details class="background-job tool-run" @toggle="onToggle(job, $event)">
           <summary class="tool-run-head">
             <AppIcon name="chevron-right" size="xs" class="details-chevron" />
@@ -129,7 +129,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
               <code class="tool-run-desc" :title="job.command">{{ job.command }}</code>
             </span>
             <span class="tool-run-outcome">
-              <span class="tool-run-state">{{ t(toolStateKeys[backgroundJobState(job.status, job.exitCode)]) }}</span>
+              <span class="tool-run-state">{{ t(toolStateKeys[backgroundJobState(job.status, job.exitCode, job.signal)]) }}</span>
               <span class="background-job-elapsed" :title="fullTimeRange(job)">{{ durationLabel(job) }}</span>
             </span>
             <button v-if="job.status === 'running'" type="button" class="ui-icon-btn ui-icon-btn-sm background-job-stop" :disabled="stopping[job.jobId]" :aria-busy="stopping[job.jobId] || undefined" :title="t(stopping[job.jobId] ? 'ai.backgroundStopping' : 'ai.backgroundStopHint')" :aria-label="stopping[job.jobId] ? t('ai.backgroundStopping') : t('ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)"><AppIcon :name="stopping[job.jobId] ? 'refresh' : 'stop'" size="sm" /></button>

@@ -52,7 +52,7 @@ export function useDbSavedQueries(deps: DbSavedQueriesDeps) {
       }
     }
 
-    const title = sqlTitleSummary(sql) || '未命名脚本'
+    const title = sqlTitleSummary(sql) || t('database.query.untitledScript')
     const newQuery: SavedQuery = {
       id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       title,

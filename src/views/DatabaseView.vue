@@ -169,10 +169,10 @@ async function importSqlScript() {
   try {
     const file = await window.LiteConnect.dbSelectSqlScript()
     if (!file) return
-    const accepted = window.confirm(
-      `将执行 SQL 文件：${file.name}（${formatBytes(file.size)}）。\n` +
-      '脚本会直接写入当前数据库连接，执行后无法自动撤销。是否继续？',
-    )
+    const accepted = window.confirm(t('database.msg.importSqlConfirm', {
+      name: file.name,
+      size: formatBytes(file.size),
+    }))
     if (!accepted) return
     const result = await window.LiteConnect.dbRunSqlScript(
       live.sessionId,
@@ -180,9 +180,9 @@ async function importSqlScript() {
       activeQueryTab.value?.database || undefined,
     )
     scriptJobId.value = result.jobId
-    scriptStatus.value = `正在导入 ${file.name}…`
+    scriptStatus.value = t('database.msg.importSqlRunning', { name: file.name })
   } catch (err: any) {
-    window.alert(`导入 SQL 失败：${err?.message || err}`)
+    window.alert(t('database.msg.importSqlFailed', { error: err?.message || err }))
   }
 }
 
@@ -194,12 +194,18 @@ onMounted(() => {
   stopScriptProgress = window.LiteConnect.onDbScriptProgress((progress) => {
     if (progress.jobId !== scriptJobId.value) return
     const pct = progress.size ? Math.min(100, Math.round((progress.bytesRead / progress.size) * 100)) : 0
-    scriptStatus.value = `${progress.name} · ${pct}% · 已执行 ${progress.statements} 条`
+    scriptStatus.value = t('database.msg.importSqlProgress', {
+      name: progress.name,
+      pct,
+      count: progress.statements,
+    })
     if (progress.state === 'failed') {
-      scriptStatus.value += ` · 失败：${progress.error || '未知错误'}`
+      scriptStatus.value += ` · ${t('database.msg.importSqlFailedDetail', { error: progress.error || t('database.msg.importSqlUnknownError') })}`
       scriptJobId.value = null
     } else if (progress.state === 'completed' || progress.state === 'cancelled') {
-      scriptStatus.value += progress.state === 'completed' ? ' · 完成' : ' · 已取消'
+      scriptStatus.value += progress.state === 'completed'
+        ? ` · ${t('database.msg.importSqlDone')}`
+        : ` · ${t('database.msg.importSqlCancelled')}`
       scriptJobId.value = null
     }
   })

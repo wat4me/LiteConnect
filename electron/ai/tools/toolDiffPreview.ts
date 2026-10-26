@@ -7,6 +7,7 @@ import {
 import { applyExactEdit, type ExactEditFailureCode } from '../../../shared/exactEdit'
 import { MCP_READ_MAX_LINES } from '../../../shared/mcp/limits'
 import type { SshMcpRuntime } from '../../mcp/runtime'
+import { t } from '../../i18n'
 
 /** Approval-card payload: a one-line summary plus the raw unified diff. */
 export type FileChangePreview = {
@@ -18,10 +19,10 @@ export type FileChangePreview = {
 export type WriteFileDiffPreview = FileChangePreview
 
 const EDIT_FAILURE_LABELS: Record<ExactEditFailureCode, string> = {
-  NOT_FOUND: 'old_string 在当前文件里找不到',
-  NOT_UNIQUE: 'old_string 出现多次，无法确定改哪一处',
-  NO_OP: '新旧内容相同，没有改动',
-  EMPTY_SEARCH: 'old_string 为空',
+  NOT_FOUND: 'toolPolicy.editNotFound',
+  NOT_UNIQUE: 'toolPolicy.editNotUnique',
+  NO_OP: 'toolPolicy.editNoOp',
+  EMPTY_SEARCH: 'toolPolicy.editEmptySearch',
 }
 
 function readTarget(args: Record<string, unknown>): { path: string; sessionId: string } | undefined {
@@ -51,9 +52,9 @@ async function readCurrentText(
 }
 
 function summarize(preview: ToolDiffPreview, complete: boolean): string {
-  const summary = formatToolDiffSummary(preview)
-  if (preview.truncated) return `${summary}（已截断）`
-  if (!complete) return `${summary}（文件较大，仅预览开头部分）`
+  const summary = formatToolDiffSummary(preview, t)
+  if (preview.truncated) return t('toolPolicy.diffTruncated', { summary })
+  if (!complete) return t('toolPolicy.diffPartial', { summary })
   return summary
 }
 
@@ -75,10 +76,10 @@ export async function buildWriteFileDiffPreview(
 
   const current = await readCurrentText(runtime, target.sessionId, target.path).catch(() => undefined)
   if (!current) {
-    return { summary: '无法读取原文件，不能确认是否为新文件或预览删除内容；此操作会写入并覆盖目标文件。', diff: '' }
+    return { summary: t('toolPolicy.diffReadFailed'), diff: '' }
   }
   if (!current.complete) {
-    return { summary: '原文件读取不完整，无法提供完整差异；此操作会覆盖整个文件，未读取的剩余内容也会被替换或删除。', diff: '' }
+    return { summary: t('toolPolicy.diffReadIncomplete'), diff: '' }
   }
   const preview = buildUnifiedDiff(current.text, next, { path: target.path })
   if (!preview.diff && !preview.truncated) return undefined
@@ -111,13 +112,13 @@ export async function buildEditFileDiffPreview(
   const edit = applyExactEdit(current.text, oldString, newString, args.replaceAll === true)
   if (!edit.ok) {
     if (!current.complete) return undefined
-    const label = EDIT_FAILURE_LABELS[edit.code]
-    const summary = edit.code === 'NOT_UNIQUE' ? `${label}（${edit.occurrences} 处）` : label
+    const label = t(EDIT_FAILURE_LABELS[edit.code])
+    const summary = edit.code === 'NOT_UNIQUE' ? t('toolPolicy.editOccurrences', { label, count: edit.occurrences }) : label
     return { summary, diff: '' }
   }
 
   const preview = buildUnifiedDiff(current.text, edit.text, { path: target.path })
-  if (!preview.diff) return { summary: '内容无变化', diff: '' }
+  if (!preview.diff) return { summary: t('sharedText.diffUnchanged'), diff: '' }
   return { summary: summarize(preview, current.complete), diff: preview.diff }
 }
 

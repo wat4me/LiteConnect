@@ -85,6 +85,25 @@ it('does not wake AI for an interrupted job and still delivers other jobs in the
   expect(deliver).toHaveBeenCalledExactlyOnceWith(owner, [job('other', 'completed')])
 })
 
+it('persists cancellation through a passive callback once without waking AI', async () => {
+  const getJob = vi.fn(() => job('one'))
+  const cancelled = vi.fn(async () => {})
+  const deliver = vi.fn(async () => {})
+  const queue = new AiBackgroundJobs({ getJob, cancelled, deliver, busy: () => false, available: () => true, onError: vi.fn() })
+  queue.bind(owner, ['one'])
+  queue.settled(job('one', 'cancelled'))
+  queue.settled(job('one', 'cancelled'))
+  await queue.waitForIdle()
+  expect(cancelled).toHaveBeenCalledExactlyOnceWith(owner, job('one', 'cancelled'))
+  expect(deliver).not.toHaveBeenCalled()
+  queue.bind(owner, ['one'])
+  queue.suppress(owner.sessionId, owner.threadId, owner.ownerId)
+  queue.settled(job('one', 'cancelled'))
+  await queue.waitForIdle()
+  expect(cancelled).toHaveBeenCalledOnce()
+  queue.dispose()
+})
+
 it('delivers a command that finished before its tool acknowledgement', async () => {
   const { jobs, queue, deliver } = setup()
   jobs.set('fast', job('fast', 'completed'))

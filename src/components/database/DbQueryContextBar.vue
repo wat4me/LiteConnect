@@ -311,7 +311,7 @@ defineExpose({
         type="button"
         class="saved-picker-btn"
         :class="{ open: showSavedPicker }"
-        title="查看收藏的 SQL 脚本"
+        :title="t('database.query.viewSavedScripts')"
         @click.stop="toggleSavedPicker"
       >
         <AppIcon name="folder" size="xs" />
@@ -350,7 +350,7 @@ defineExpose({
                 <span
                   v-else
                   class="saved-picker-title-text"
-                  title="双击重命名"
+                  :title="t('database.query.dblClickRename')"
                   @dblclick="beginRenameSavedQuery(row.id, row.title)"
                 >
                   {{ row.title }}
@@ -360,7 +360,7 @@ defineExpose({
                   <button
                     type="button"
                     class="saved-picker-action-btn"
-                    title="重命名"
+                    :title="t('database.query.rename')"
                     @click="beginRenameSavedQuery(row.id, row.title)"
                   >
                     <AppIcon name="edit" size="xs" />
@@ -368,7 +368,7 @@ defineExpose({
                   <button
                     type="button"
                     class="saved-picker-action-btn danger"
-                    title="删除"
+                    :title="t('common.delete')"
                     @click="emit('deleteSavedQuery', row.id)"
                   >
                     <AppIcon name="delete" size="xs" />

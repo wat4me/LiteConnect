@@ -5,6 +5,7 @@ import {
 import type { DockerServiceContext } from './serviceContext'
 import { probeKey } from './serviceContext'
 import { dockerHttpRequest } from './transport'
+import { t } from '../i18n'
 import {
   DockerTransportError,
   type DockerAvailability,
@@ -85,7 +86,7 @@ export async function runProbe(
       return {
         status: 'daemon-unavailable',
         message:
-          '已建立 SSH Docker 通道，但 /_ping 未返回 OK。请确认远端 Docker 守护进程正在运行，且 Socket 为 /var/run/docker.sock。',
+          t('notice.dockerPingInvalid'),
       }
     }
 
@@ -107,7 +108,7 @@ export async function runProbe(
       return {
         status: 'daemon-unavailable',
         message:
-          'Docker /version 响应缺少 Version/ApiVersion 字段，无法确认 Engine 状态。请在服务器上检查 Docker 版本与 API。',
+          t('notice.dockerVersionInvalid'),
       }
     }
 

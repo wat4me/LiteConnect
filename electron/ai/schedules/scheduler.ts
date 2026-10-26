@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { t } from '../../i18n'
 import { aiScheduleHasToolFailure, aiScheduleTimingKey, nextAiScheduleRun, validateAiSchedule, type AiRunNotification, type AiScheduleExecutionResult, type AiScheduleHostRun, type AiSchedule, type AiScheduleInput, type AiScheduleRun, type AiScheduleSnapshot } from '../../../shared/aiSchedules'
 
 /** Local scheduler. The clock checks plans; it never polls SSH or AI. */
@@ -24,7 +25,7 @@ export class AiScheduler {
     // A closed app cannot retain a live SSH execution. Do not leave stale spinners.
     let recovered = false
     for (const run of this.state.runs) if (run.status === 'running' || (run.status === 'cancelled' && run.finishedAt == null)) {
-      Object.assign(run, { status: 'cancelled', finishedAt: this.now(), error: '应用关闭，执行已中断。' })
+      Object.assign(run, { status: 'cancelled', finishedAt: this.now(), error: t('notice.scheduleClosedInterrupted') })
       recovered = true
     }
     for (const plan of this.state.plans) if (plan.timing && plan.timing.kind !== 'interval' && plan.timeZone !== this.timeZone) {
@@ -33,7 +34,7 @@ export class AiScheduler {
       recovered = true
     }
     for (const run of this.state.runs) if (run.notification?.status === 'sending') {
-      run.notification = { status: 'failed', at: this.now(), error: '应用关闭，未确认通知送达。' }; recovered = true
+      run.notification = { status: 'failed', at: this.now(), error: t('notice.scheduleClosedNotifyUnconfirmed') }; recovered = true
     }
     for (const run of this.state.runs) if (run.status !== 'running') for (const host of run.hosts || []) if (host.status === 'queued' || host.status === 'running') {
       host.status = 'cancelled'; recovered = true
@@ -57,11 +58,11 @@ export class AiScheduler {
   }
   save(input: AiScheduleInput) {
     if (this.disposed) throw new Error('Scheduler is unavailable')
-    if (this.active) throw new Error('请先中断正在执行的巡检。')
-    const value = validateAiSchedule(input)
+    if (this.active) throw new Error(t('notice.scheduleInterruptFirst'))
+    const value = validateAiSchedule(input, t)
     const previous = value.id ? this.state.plans.find(plan => plan.id === value.id) : undefined
     if (value.id && !previous) throw new Error('Schedule not found')
-    if (!previous && this.state.plans.length >= 50) throw new Error('最多保存 50 个巡检计划。')
+    if (!previous && this.state.plans.length >= 50) throw new Error(t('notice.schedulePlanLimit'))
     const time = this.now()
     const plan: AiSchedule = { ...value, id: previous?.id || randomUUID(), createdAt: previous?.createdAt ?? time, updatedAt: time,
       timeZone: value.timing && value.timing.kind !== 'interval' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
@@ -78,7 +79,7 @@ export class AiScheduler {
   }
   remove(id: string) {
     if (this.disposed) throw new Error('Scheduler is unavailable')
-    if (this.active) throw new Error('请先中断正在执行的巡检。')
+    if (this.active) throw new Error(t('notice.scheduleInterruptFirst'))
     const next = this.snapshot()
     next.plans = next.plans.filter(plan => plan.id !== id)
     next.runs = next.runs.filter(run => run.scheduleId !== id)
@@ -109,7 +110,7 @@ export class AiScheduler {
   async waitForIdle() { await Promise.allSettled([...this.tasks]) }
   private async executeRun(id: string, scheduled: boolean) {
     if (this.disposed) throw new Error('Scheduler is unavailable')
-    if (this.active) throw new Error('已有巡检正在执行，请稍后重试。')
+    if (this.active) throw new Error(t('notice.scheduleAlreadyRunning'))
     const plan = this.state.plans.find(item => item.id === id)
     if (!plan) throw new Error('Schedule not found')
     const before = this.snapshot()
@@ -123,7 +124,7 @@ export class AiScheduler {
     this.state.runs = this.state.runs.slice(0, 200)
     try { this.persist() } catch (error) { this.state = before; throw error }
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(new Error('巡检超过 10 分钟，已中断。')), this.ports.timeoutMs ?? 600_000)
+    const timeout = setTimeout(() => controller.abort(new Error(t('notice.scheduleTimedOut'))), this.ports.timeoutMs ?? 600_000)
     this.active = { run, controller, timeout }
     try {
       const result = await this.ports.execute(structuredClone(plan), run.id, controller.signal, hosts => {
@@ -134,7 +135,7 @@ export class AiScheduler {
       controller.signal.throwIfAborted()
       Object.assign(run, result, { status: 'completed' })
       if (result.error || result.hosts?.some(host => host.status === 'failed') || aiScheduleHasToolFailure(result.toolRuns)) {
-        Object.assign(run, { status: 'failed', error: result.error || '部分主机或巡检工具未能执行，请查看执行详情。' })
+        Object.assign(run, { status: 'failed', error: result.error || t('notice.schedulePartialFailure') })
       }
     } catch (error) {
       if (run.status !== 'cancelled') Object.assign(run, { status: 'failed', error: error instanceof Error ? error.message : String(error) })
@@ -159,7 +160,7 @@ export class AiScheduler {
     try {
       let notification: AiRunNotification
       try { notification = await this.ports.notify!(plan, run, controller.signal) }
-      catch { notification = { status: 'failed', at: this.now(), error: '通知发送失败。' } }
+      catch { notification = { status: 'failed', at: this.now(), error: t('notice.scheduleNotifyFailed') } }
       if (this.disposed) return
       // Editing/deleting plans replaces the snapshot; never mutate a stale run reference.
       const current = this.state.runs.find(item => item.id === run.id)
@@ -185,7 +186,7 @@ export class AiScheduler {
     for (const [id, controller] of this.deliveries) {
       const run = this.state.runs.find(item => item.id === id)
       if (run?.notification?.status === 'sending') {
-        run.notification = { status: 'failed', at: this.now(), error: '应用关闭，未确认通知送达。' }
+        run.notification = { status: 'failed', at: this.now(), error: t('notice.scheduleClosedNotifyUnconfirmed') }
         changed = true
       }
       controller.abort()

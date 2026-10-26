@@ -362,10 +362,10 @@ export function useAiChat() {
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
     const content = text.trim()
-    const images = normalizeAiImages(attachments)
+    const images = normalizeAiImages(attachments, t)
     if (!content && !images?.length) return false
     if (images?.length) {
-      assertAiImageCapability([{ role: 'user', content, images }], activeProvider.value?.models.find(model => model.id === displayModelName.value)?.supportsImages)
+      assertAiImageCapability([{ role: 'user', content, images }], activeProvider.value?.models.find(model => model.id === displayModelName.value)?.supportsImages, t)
     }
     if (state.loading) {
       ElMessage.warning(t('ai.busy'))
@@ -825,6 +825,11 @@ export function useAiChat() {
       }
       if (previous) Object.assign(previous, message)
       else state.messages.push(message)
+      if (event.passive) {
+        const summary = state.threads.find(thread => thread.id === event.threadId)
+        if (summary) { summary.messageCount = state.messages.length; summary.updatedAt = Date.now() }
+        return
+      }
       state.activeRequestId = message.streaming ? event.requestId : null
       setSessionLoading(event.sessionId, !!message.streaming)
       if (!message.streaming) {

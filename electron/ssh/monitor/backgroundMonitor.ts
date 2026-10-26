@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import type { CredentialStore } from '../../store/credentialStore'
 import type { SSHManager } from '../manager'
 import { isNonRetryableSshError } from '../../../shared/sshErrorRetry'
@@ -106,7 +107,7 @@ export class BackgroundMonitor {
       this.clearSampleTimer(backgroundId)
       this.sessions.delete(backgroundId)
       if (this.shouldRun(backgroundId) && !this.alerts.hasSession(backgroundId)) {
-        this.scheduleRetry(backgroundId, '后台 SSH 连接已断开')
+        this.scheduleRetry(backgroundId, t('notice.monitorBackgroundDisconnected'))
       }
       return
     }
@@ -165,7 +166,7 @@ export class BackgroundMonitor {
     let connectedSessionId: string | undefined
     try {
       const connection = this.credentials.getConnectionForAuth(connectionId)
-      if (!connection) throw new Error('服务器连接已删除')
+      if (!connection) throw new Error(t('notice.monitorConnectionDeleted'))
       const sessionId = await this.ssh.connect({
         ...connection,
         x11Forwarding: false,
@@ -186,7 +187,7 @@ export class BackgroundMonitor {
         return
       }
       if (!this.ssh.hasSession(sessionId)) {
-        this.scheduleRetry(connectionId, '后台 SSH 连接在采样前已断开')
+        this.scheduleRetry(connectionId, t('notice.monitorBackgroundDisconnectedBeforeSample'))
         return
       }
       this.sessions.set(connectionId, sessionId)
@@ -197,7 +198,7 @@ export class BackgroundMonitor {
         if (this.sessions.get(connectionId) === sessionId && this.statuses.get(connectionId)?.state === 'sampling') {
           this.statuses.set(connectionId, {
             state: 'unavailable',
-            detail: 'SSH 已连接，但未能获取 CPU 或内存数据；请检查服务器监控命令',
+            detail: t('notice.monitorSampleUnavailable'),
           })
         }
       }, SAMPLE_TIMEOUT_MS))
@@ -213,7 +214,7 @@ export class BackgroundMonitor {
       }
       const detail = error instanceof Error ? error.message : String(error)
       if (isNonRetryableSshError(detail) || /decrypt|解密/i.test(detail)) {
-        this.statuses.set(connectionId, { state: 'needs-attention', detail: '请手动连接服务器，检查主机密钥或认证信息' })
+        this.statuses.set(connectionId, { state: 'needs-attention', detail: t('notice.monitorNeedsAttention') })
       } else {
         this.scheduleRetry(connectionId, detail.slice(0, 160))
       }

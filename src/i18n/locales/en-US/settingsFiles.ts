@@ -1,0 +1,27 @@
+export default {
+  settingsFiles: {
+    title: 'File transfer',
+    intro: 'Manage SFTP file display, the download location, and directory transfers.',
+    sftpFontSize: 'SFTP file font size',
+    sftpFontSizeHint: 'Name size in the file tree and file list (10–24 px, default 12 px).',
+    downloadPath: 'Default download path',
+    browse: 'Browse',
+    systemDefault: 'System default',
+    resetDownloadTitle: 'Use the system Downloads folder again',
+    usingSystemDownload: 'Using the system default: the local Downloads folder',
+    usingCustomDownload: 'Using a custom path. Choose System default to use the local Downloads folder again.',
+    addDownloadPath: '+ Choose download path',
+    conflictStrategy: 'Download name conflicts',
+    conflictRename: 'Rename automatically (recommended)',
+    conflictOverwrite: 'Overwrite the existing file',
+    conflictSkip: 'Skip existing files',
+    conflictHint:
+      'When a local download target already exists: Rename creates a path such as "file (1).ext"; Overwrite replaces the file; Skip does not download that item.',
+    dirTransferConcurrency: 'Directory transfer concurrency',
+    dirTransferConcurrencyHint: 'Files transferred at the same time (1–8, default 3). A higher value can overload the SSH/SFTP channel.',
+    dirTransferFailPolicy: 'Directory transfer failure policy',
+    dirFailStop: 'Stop on the first error (default)',
+    dirFailContinue: 'Record the failure and continue with the remaining files',
+    dirTransferFailPolicyHint: 'What happens when one file fails during a directory upload or download. A partial success is marked Partially complete.',
+  },
+}

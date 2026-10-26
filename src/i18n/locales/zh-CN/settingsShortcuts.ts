@@ -1,5 +1,6 @@
 export default {
   settingsShortcuts: {
+    keys: { shortcutsHelp: 'Ctrl+/ 或 ?' },
     title: '快捷键',
     intro: '查看工作区、终端和连接列表的常用快捷键。',
     overlayIntro: '随时可按 Ctrl+/ 或标题栏「?」打开；在输入框内时不会拦截。',

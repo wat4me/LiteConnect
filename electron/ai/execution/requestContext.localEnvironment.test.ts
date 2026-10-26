@@ -1,11 +1,26 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { setMainLocale } from '../../i18n'
 import { buildAiRequestEnvironment } from './requestContext'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 
 const sessionId = '550e8400-e29b-41d4-a716-446655440000'
 const targets = [{ sessionId, connectionId: 'host-one', name: 'Linux server', host: 'linux.test', port: 22, username: 'ops' }]
+afterEach(() => setMainLocale('zh-CN'))
 
 describe('local context for file transfers', () => {
+  it.each([false, true])('uses English for actual unattended request guidance (workspace: %s)', async workspace => {
+    setMainLocale('en-US')
+    const runtime = {
+      call: async () => ({ structuredContent: { sessions: [{ sessionId, connectionName: 'Linux server' }] } }),
+      getLocalEnvironment: () => ({ platform: 'win32', defaultDownloadDirectory: 'C:\\Downloads' }),
+    } as unknown as SshMcpRuntime
+    const environment = await buildAiRequestEnvironment({ sessionId, workspaceTargets: workspace ? targets : undefined, sshMcpRuntime: runtime, allowQuestions: false })
+    expect(environment.extraSystem).not.toMatch(/\p{Script=Han}/u)
+    expect(environment.extraSystem).toContain('The local operating system is Windows')
+    expect(environment.extraSystem).toContain('This is an unattended task')
+    expect(environment.extraSystem).not.toContain('use ask_user and wait for the actual answer')
+    expect(environment.tools?.some(tool => tool.function.name === 'ask_user')).toBe(false)
+  })
   it.each([false, true])('includes the local OS and live default download directory (workspace: %s)', async workspace => {
     let directory = 'C:\\Users\\operator\\Downloads'
     const runtime = {

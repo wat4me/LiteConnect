@@ -303,6 +303,9 @@ export function registerStoreHandlers(
     if (group.id !== undefined && !isValidUUID(group.id)) {
       throw new Error('Invalid group id')
     }
+    if (group.parentId !== undefined && group.parentId !== null && !isValidUUID(group.parentId)) {
+      throw new Error('Invalid group parent id')
+    }
     return await credentialStore.saveGroup(group)
   })
 

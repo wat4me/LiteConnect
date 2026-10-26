@@ -1,5 +1,6 @@
 import type { AiChatMessage, AiFunctionToolCall, AiImageAttachment, AiToolRun } from './types/ai'
 import { normalizeAiImages } from './aiImages'
+import { sharedT, type SharedTranslate } from './i18n'
 import { normalizeAnthropicContent } from './anthropicContent'
 import { MAX_AI_TOOL_CALLS_PER_ROUND, MAX_AI_TURN_API_MESSAGES } from './aiToolLimits'
 import { interruptedAiExecutionEvidence } from './aiExecutionEvidence'
@@ -30,7 +31,7 @@ export function normalizeToolCalls(raw: unknown): AiFunctionToolCall[] {
   return out
 }
 
-export function normalizeAiChatMessage(raw: unknown): AiChatMessage | null {
+export function normalizeAiChatMessage(raw: unknown, translate: SharedTranslate = sharedT): AiChatMessage | null {
   if (!raw || typeof raw !== 'object') return null
   const m = raw as Record<string, unknown>
   const role = m.role
@@ -53,7 +54,7 @@ export function normalizeAiChatMessage(raw: unknown): AiChatMessage | null {
   }
 
   if (role === 'user' || role === 'system') {
-    const images = role === 'user' ? normalizeAiImages(m.images) : undefined
+    const images = role === 'user' ? normalizeAiImages(m.images, translate) : undefined
     if (!content.trim() && !images?.length) return null
     return { role, content, ...(images ? { images } : {}) }
   }
@@ -75,10 +76,10 @@ export function normalizeAiChatMessage(raw: unknown): AiChatMessage | null {
   return out
 }
 
-export function validateAiMessages(messages: unknown): AiChatMessage[] {
+export function validateAiMessages(messages: unknown, translate: SharedTranslate = sharedT): AiChatMessage[] {
   if (!Array.isArray(messages)) throw new Error('Invalid AI messages')
   return messages.map((message) => {
-    const next = normalizeAiChatMessage(message)
+    const next = normalizeAiChatMessage(message, translate)
     if (!next) throw new Error('Invalid AI message')
     return next
   })
@@ -90,9 +91,9 @@ export function validateAiMessages(messages: unknown): AiChatMessage[] {
  * trimming can leave half of that protocol behind; drop the incomplete unit
  * instead of sending a request the provider must reject.
  */
-export function sanitizeAiToolProtocol(messages: readonly unknown[]): AiChatMessage[] {
+export function sanitizeAiToolProtocol(messages: readonly unknown[], translate: SharedTranslate = sharedT): AiChatMessage[] {
   const normalized = messages
-    .map(normalizeAiChatMessage)
+    .map(message => normalizeAiChatMessage(message, translate))
     .filter((message): message is AiChatMessage => message !== null)
   const out: AiChatMessage[] = []
 

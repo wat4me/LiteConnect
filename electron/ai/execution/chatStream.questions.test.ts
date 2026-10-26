@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { runAiChatStream } from './chatStream'
 import { runPersistedAiReply } from './streamPersistence'
+import { t } from '../../i18n'
 import { createAiStreamControl, resolveUserAnswer, waitForUserAnswer, clearPendingUserQuestions } from '../tools/streamControl'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import type { AiChatStreamPayload, AiHistoryRecord, AiResolvedConfig } from '../../../shared/types/ai'
@@ -76,7 +77,8 @@ it('persists the pending card and stops it cleanly without claiming any remote c
     const result = await pending
     expect(result.aborted).toBe(true)
     expect(result.toolRuns?.[0]).toMatchObject({ status: 'aborted', isError: false })
-    expect(result.toolRuns?.[0].content).toContain('No answer or approval')
+    expect(result.toolRuns?.[0].content).toBe(`QUESTION_CANCELLED: ${t('notice.questionRequestEnded')}`)
+    expect(call).not.toHaveBeenCalledWith('exec', expect.anything())
     expect(result.toolRuns?.[0].content).not.toContain('TOOL_RESULT_UNKNOWN')
     expect(resolveUserAnswer('ask-stop', 'question-1', answer, 7)).toBe(false)
   } finally { control.controller.abort(); control.cleanup(); await pending }

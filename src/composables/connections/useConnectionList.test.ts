@@ -102,6 +102,36 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('nested group connection scope', () => {
+  it('aggregates descendant connections and counts while keeping leaf scope precise', () => {
+    const list = setup()
+    list.groups.value = groups.map(group => group.id === 'test' ? { ...group, parentId: 'production' } : group)
+    expect(list.connectionCounts.value).toEqual({ production: 3, test: 1 })
+    expect(list.filteredConnections.value.map(conn => conn.id)).toEqual(['one', 'two', 'three'])
+    expect(list.groupConnectionTotal.value).toBe(3)
+    expect(list.reorderDisabled.value).toBe(true)
+    list.searchQuery.value = 'web-two'
+    expect(list.filteredConnections.value.map(conn => conn.id)).toEqual(['two'])
+    expect(list.crossGroupSearchHits.value).toBe(0)
+    list.onSelectGroup('test')
+    list.searchQuery.value = ''
+    expect(list.filteredConnections.value.map(conn => conn.id)).toEqual(['two'])
+    expect(list.activeGroupName.value).toBe('生产 / 测试')
+    expect(list.getConnectionGroupName(connections[1])).toBe('生产 / 测试')
+    expect(list.reorderDisabled.value).toBe(false)
+  })
+
+  it('finds nested hosts by ancestor names in global search', () => {
+    const list = setup()
+    list.groups.value = groups.map(group => group.id === 'test' ? { ...group, parentId: 'production' } : group)
+    list.searchScope.value = 'all'
+    list.searchQuery.value = '生产'
+    expect(list.filteredConnections.value).toHaveLength(3)
+    list.searchQuery.value = '生产 / 测试'
+    expect(list.filteredConnections.value.map(conn => conn.id)).toEqual(['two'])
+  })
+})
+
 describe('connection search scope', () => {
   it('searches the current group by default and includes other groups in all scope', () => {
     const list = setup()

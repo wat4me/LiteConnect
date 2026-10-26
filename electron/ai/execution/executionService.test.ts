@@ -45,6 +45,47 @@ function setup(workspaceTargets?: import('./executionService').AiExecutionPorts[
   return { service, request, store, config, save, jobs, hasSession, unsubscribe, settle: (job: SshMcpJobResult) => settled(job) }
 }
 
+it.each([false, true])('saves cancellation without waking the model (%s while launch is still running)', async duringLaunch => {
+  const { service, request, store, jobs, settle } = setup()
+  const job: SshMcpJobResult = { jobId: 'cancelled-job', sessionId: 'ssh-a', command: 'inspect', status: 'running', startedAt: 1 }
+  jobs.set(job.jobId, job)
+  mocks.run.mockImplementationOnce(async opts => {
+    opts.onBackgroundJobsStarted([job.jobId])
+    if (duringLaunch) settle({ ...job, status: 'cancelled', finishedAt: 3, error: 'cancelled' })
+    opts.emit({ type: 'tool', value: { id: 'launch', name: 'exec', phase: 'done', args: '{"command":"inspect"}',
+      content: '{"jobId":"cancelled-job","status":"running"}', jobIds: [job.jobId] } })
+    return { content: 'Started.' }
+  })
+  const onRecord = vi.fn()
+  await service.run(request, { onRecord })
+  if (!duringLaunch) settle({ ...job, status: 'cancelled', finishedAt: 3, error: 'cancelled' })
+  await service.waitForIdle()
+  expect(mocks.run).toHaveBeenCalledOnce()
+  const result = store.threads[0].messages.find(message => message.id === 'ai-job-result-cancelled-job')!
+  expect(result.backgroundNotice).toContain('"status":"cancelled"')
+  expect(result.status).toBe('completed')
+  expect(onRecord).toHaveBeenCalledWith(expect.objectContaining({ passive: true, trigger: 'background', record: result }))
+  expect(store.threads[0].messages.find(message => message.id === 'assistant-a')?.content).toBe('Started.')
+})
+
+it('does not restore a cleared conversation when cancellation persistence is pending', async () => {
+  const { service, request, store, jobs, settle } = setup()
+  const job: SshMcpJobResult = { jobId: 'cleared-job', sessionId: 'ssh-a', command: 'inspect', status: 'running', startedAt: 1 }
+  jobs.set(job.jobId, job)
+  mocks.run.mockImplementationOnce(async opts => {
+    opts.onBackgroundJobsStarted([job.jobId])
+    opts.emit({ type: 'tool', value: { id: 'launch', name: 'exec', phase: 'done', args: '{}',
+      content: '{"jobId":"cleared-job","status":"running"}', jobIds: [job.jobId] } })
+    return { content: 'Started.' }
+  })
+  await service.run(request)
+  settle({ ...job, status: 'cancelled' })
+  store.threads[0].messages = []
+  await service.waitForIdle()
+  expect(store.threads[0].messages).toEqual([])
+  expect(mocks.run).toHaveBeenCalledOnce()
+})
+
 it('drains an aborted stream through its final persisted record before reporting idle', async () => {
   const { service, request, store, save } = setup()
   let finishSave!: () => void

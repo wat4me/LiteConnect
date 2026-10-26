@@ -12,8 +12,9 @@ import { applySettingsPatch } from './settingsPatch'
 import { AiSettingsService, type AiResolvedSettings, type AiSettingsSnapshot } from './aiSettingsService'
 import { decryptSettingsSecretOrEmpty, encryptSettingsSecret, settingsEncryptionAvailable } from './settingsSecrets'
 import { appBackgroundImageUrl, sanitizeWallpaperFileName } from '../window/appBackgroundProtocol'
-import { getDefaultAiSystemPrompt, LEGACY_AI_SYSTEM_PROMPT } from '../utils/constants'
-import { t } from '../i18n'
+import { resolveStoredAiSystemPrompt } from '../utils/constants'
+import { setMainLocale, t } from '../i18n'
+import { isAppLocale, type AppLocale } from '../../shared/appLocale'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
 import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
 import type { ApprovalMode } from '../../shared/mcp/types'
@@ -112,6 +113,7 @@ export class SettingsStore {
 
   private async loadCore(): Promise<void> {
     this.settings = getAppDatabase().getSingleton<Record<string, any>>(SINGLETONS.settings) || {}
+    setMainLocale(this.getLocale())
   }
 
   private async runMigrations(): Promise<void> {
@@ -154,9 +156,7 @@ export class SettingsStore {
       ],
       activeProviderId: providerId,
       activeModel: model,
-      systemPrompt: typeof ai.systemPrompt === 'string' && ai.systemPrompt !== LEGACY_AI_SYSTEM_PROMPT
-        ? ai.systemPrompt
-        : getDefaultAiSystemPrompt(),
+      systemPrompt: resolveStoredAiSystemPrompt(ai.systemPrompt),
     }
     await this.save()
   }
@@ -782,6 +782,15 @@ export class SettingsStore {
     return this.settings.workspaceRestoreEnabled === true
   }
 
+  /** Interface language. Missing or unknown values stay on Simplified Chinese. */
+  getLocale(): AppLocale {
+    return isAppLocale(this.settings.locale) ? this.settings.locale : 'zh-CN'
+  }
+
+  isLocaleConfigured(): boolean {
+    return isAppLocale(this.settings.locale)
+  }
+
   /** Hide to tray on window close instead of quitting. Default off. */
   getCloseToTrayEnabled(): boolean {
     return this.settings.closeToTrayEnabled === true
@@ -1031,6 +1040,8 @@ export class SettingsStore {
       x11AutoStartEnabled: this.getX11AutoStartEnabled(),
       x11ServerPath: this.getX11ServerPath(),
       recentDownloadPaths: this.getRecentDownloadPaths(),
+      locale: this.getLocale(),
+      localeConfigured: this.isLocaleConfigured(),
     }
   }
 

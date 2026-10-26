@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import type { AiChatMessage, AiFunctionToolCall, AiToolRun, AiToolRunStatus } from '../../../shared/types/ai'
 import { assessAiToolCall, formatAiRiskReclassifyContent, omitDeclaredRiskArg } from '../../../shared/aiToolPolicy'
 import { serializeToolRunForHistory } from '../../../shared/aiToolRunDisplay'
@@ -56,7 +57,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
       const message = error instanceof Error ? error.message : String(error)
       return {
         isError: true,
-        content: `TOOL_RESULT_UNKNOWN: ${message}\nThe tool call failed unexpectedly. The remote operation may have run or partially completed. Check the current state before retrying; do not assume rollback or automatically repeat a write.`,
+        content: `TOOL_RESULT_UNKNOWN: ${message}\n${t('notice.toolResultUnknown')}`,
         structuredContent: { code: 'TOOL_RESULT_UNKNOWN', message },
       }
     }
@@ -67,7 +68,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   // really a delete cannot ride through `auto` mode unexamined.
   const toolPermission = opts.getToolPermission()
   const gate = applyCommandFloor(
-    assessAiToolCall(call.function.name, boundArgs, toolPermission),
+    assessAiToolCall(call.function.name, boundArgs, toolPermission, t),
     commandContentRisk(call.function.name, boundArgs),
     toolPermission,
   )
@@ -130,7 +131,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
     status = 'reclassify'
     result = {
       isError: true,
-      content: formatAiRiskReclassifyContent(gate),
+      content: formatAiRiskReclassifyContent(gate, t),
       structuredContent: {
         code: gate.code,
         message: gate.reason,
@@ -140,7 +141,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
     status = 'blocked'
     result = {
       isError: true,
-      content: `${gate.code}: 当前设置仅允许申报为 read 的操作；本次申报为 ${gate.risk}，未执行。`,
+      content: t('notice.toolReadonlyDenied', { code: gate.code, risk: gate.risk }),
       structuredContent: { code: gate.code, message: gate.reason },
     }
   } else if (gate.action === 'ask') {
@@ -187,7 +188,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   }
   if (signal.aborted) return undefined
 
-  result = clampToolResultForModel(result)
+  result = clampToolResultForModel(result, t)
 
   const stored = serializeToolRunForHistory({
     name: call.function.name,

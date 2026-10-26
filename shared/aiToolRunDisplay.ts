@@ -1,5 +1,7 @@
 import { AI_QUESTION_ARGS_MAX, AI_QUESTION_TOOL, validateAiQuestions, validateAiUserAnswer } from './aiQuestions'
-import { AI_LOAD_TOOLS, AI_TOOL_GROUP_LABELS, parseAiToolGroupRequest } from './aiToolCatalog'
+import { AI_LOAD_TOOLS, AI_TOOL_GROUP_LABEL_KEYS, parseAiToolGroupRequest } from './aiToolCatalog'
+import { sharedT, type SharedTranslate } from './i18n'
+import { serializeAiCommandResult } from './aiCommandResult'
 
 export const AI_TOOL_RUN_CONTENT_MAX = 20_000
 export const AI_TOOL_RUN_ARGS_MAX = 4_000
@@ -324,7 +326,7 @@ export function formatToolRunDisplay(input: {
   content?: string
   isError?: boolean
   structured?: unknown
-}): ToolRunDisplay {
+}, translate: SharedTranslate = sharedT): ToolRunDisplay {
   const args = input.args || ''
   const content = input.content || ''
   const argsObj = asRecord(parseJsonValue(args))
@@ -333,12 +335,12 @@ export function formatToolRunDisplay(input: {
       const questions = validateAiQuestions(argsObj)
       const hint = questions.map(question => [question.question, ...(question.options || []).map(option => `• ${option.label}${option.description ? `：${option.description}` : ''}`)].join('\n')).join('\n\n')
       const answer = content ? validateAiUserAnswer(parseJsonValue(content), questions) : undefined
-      const body = !answer ? '' : answer.cancelled ? '用户暂不回答；未提供答案或操作许可。' : answer.answers.map(item => `${questions.find(question => question.id === item.id)!.question}\n${[...item.selected, item.text].filter(Boolean).join('\n')}`).join('\n\n')
+      const body = !answer ? '' : answer.cancelled ? translate('sharedText.questionSkipped') : answer.answers.map(item => `${questions.find(question => question.id === item.id)!.question}\n${[...item.selected, item.text].filter(Boolean).join('\n')}`).join('\n\n')
       return { summary: { kind: 'ok' }, hint, body }
     } catch { /* Malformed legacy records retain the generic display. */ }
   }
   const hint = input.name === AI_LOAD_TOOLS
-    ? (parseAiToolGroupRequest(argsObj?.groups) || []).map(group => AI_TOOL_GROUP_LABELS[group]).join('、')
+    ? (parseAiToolGroupRequest(argsObj?.groups) || []).map(group => translate(AI_TOOL_GROUP_LABEL_KEYS[group])).join(translate('sharedText.listSeparator'))
     : hintFromArgs(args, argsObj)
 
   if (input.isError) {
@@ -429,12 +431,17 @@ export function serializeToolRunForHistory(input: {
   if (input.name === AI_QUESTION_TOOL) return { args: input.args.slice(0, AI_QUESTION_ARGS_MAX), content: input.content.slice(0, AI_TOOL_RUN_CONTENT_MAX) }
   const view = formatToolRunDisplay(input)
   const args = input.args.slice(0, input.name === AI_QUESTION_TOOL ? AI_QUESTION_ARGS_MAX : AI_TOOL_RUN_ARGS_MAX)
+  const structured = input.structured ?? parseJsonValue(input.content)
+  const obj = asRecord(structured)
+  if (obj && ((['exec', 'get_job', 'cancel_job'].includes(input.name)
+    && (obj.exitCode === null || ['jobId', 'status', 'signal', 'code', 'error', 'message'].some(key => typeof obj[key] === 'string')))
+    || typeof obj.stdout === 'string' || typeof obj.stderr === 'string' || typeof obj.exitCode === 'number')) {
+    return { args, content: serializeAiCommandResult(obj) }
+  }
   if (input.isError) {
     return { args, content: (view.body || input.content).slice(0, AI_TOOL_RUN_CONTENT_MAX) }
   }
 
-  const structured = input.structured ?? parseJsonValue(input.content)
-  const obj = asRecord(structured)
   if ((input.name === 'grep' || input.name === 'glob') && view.summary.kind === 'entries') {
     const key = input.name === 'grep' ? 'matchCount' : 'fileCount'
     // Leave room for JSON escaping while preserving the count independently of output.
@@ -446,22 +453,6 @@ export function serializeToolRunForHistory(input: {
     }
     return { args, content }
   }
-  if (obj && (typeof obj.stdout === 'string' || typeof obj.stderr === 'string' || typeof obj.exitCode === 'number')) {
-    const stderrMarker = '\n\n[stderr]\n'
-    const split = view.body.indexOf(stderrMarker)
-    const stdout = (split >= 0 ? view.body.slice(0, split) : view.body).slice(0, AI_TOOL_RUN_CONTENT_MAX - 240)
-    const stderr = (split >= 0 ? view.body.slice(split + stderrMarker.length) : str(obj.stderr)).slice(0, 2_000)
-    const payload: Record<string, unknown> = {
-      exitCode: num(obj.exitCode),
-      stdout,
-    }
-    if (stderr) payload.stderr = stderr
-    const host = str(obj.connectionName).trim()
-    if (host) payload.connectionName = host
-    if (obj.truncated === true) payload.truncated = true
-    return { args, content: JSON.stringify(payload).slice(0, AI_TOOL_RUN_CONTENT_MAX) }
-  }
-
   return {
     args,
     content: (view.body || input.content).slice(0, AI_TOOL_RUN_CONTENT_MAX),

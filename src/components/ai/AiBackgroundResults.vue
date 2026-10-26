@@ -20,7 +20,7 @@ const jobs = computed(() => {
 const counts = computed(() => {
   const result = { completed: 0, failed: 0, running: 0, stopped: 0 }
   for (const job of jobs.value) {
-    const state = backgroundJobState(String(job.status), typeof job.exitCode === 'number' ? job.exitCode : undefined)
+    const state = backgroundJobState(String(job.status), typeof job.exitCode === 'number' ? job.exitCode : undefined, typeof job.signal === 'string' ? job.signal : undefined)
     if (state === 'completed') result.completed++
     else if (state === 'running') result.running++
     else if (state === 'stopped') result.stopped++
@@ -39,6 +39,7 @@ const runs = computed<AiToolRun[]>(() => jobs.value.map((job, index) => {
       stdout: text('stdout') || (!stderr ? t('ai.backgroundNoOutput') : ''), stderr,
       exitCode: typeof job.exitCode === 'number' ? job.exitCode : undefined,
       truncated: job.truncated === true, code: job.status === 'timeout' ? 'EXEC_TIMEOUT' : undefined,
+      signal: text('signal') || undefined,
     }),
     isError: job.status === 'failed' || job.status === 'timeout',
     status: job.status === 'cancelled' ? 'aborted' : job.status === 'running' ? 'running' : 'done',

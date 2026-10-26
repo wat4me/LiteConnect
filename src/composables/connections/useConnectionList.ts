@@ -10,6 +10,7 @@ import {
 } from '@/utils/shared/legacyStorageMigrate'
 import { t } from '@/i18n'
 import type { ConnectionSortMode } from '@shared/connectionSort'
+import { buildGroupTree } from '@shared/groupTree'
 
 /** Virtual sidebar layers (not persisted groups). */
 export type ConnectionSmartView = 'pinned' | 'recent' | `tag:${string}`
@@ -31,6 +32,7 @@ export function useConnectionList(options: {
 }) {
   const connections = ref<Connection[]>([])
   const groups = ref<Group[]>([])
+  const groupTree = computed(() => buildGroupTree(groups.value))
   const activeGroupId = ref<string | null>(null)
   /** Smart/virtual view; when set, list ignores current-group scope. */
   const smartView = ref<ConnectionSmartView | null>(null)
@@ -55,11 +57,10 @@ export function useConnectionList(options: {
     }
     const fallback = groups.value.find((g) => g.isDefault)?.id || groups.value[0]?.id
     for (const conn of connections.value) {
-      if (conn.group && counts[conn.group] !== undefined) {
-        counts[conn.group]++
-      } else if (fallback && counts[fallback] !== undefined) {
-        // Orphan / missing group id — attribute to default until store migration runs
-        counts[fallback]++
+      const groupId = conn.group && counts[conn.group] !== undefined ? conn.group : fallback
+      if (groupId) {
+        counts[groupId]++
+        for (const ancestor of groupTree.value.getAncestors(groupId)) counts[ancestor.id]++
       }
     }
     return counts
@@ -76,14 +77,13 @@ export function useConnectionList(options: {
       return CONNECTION_COLOR_TAGS.find((tag) => tag.id === tagId)?.label || t('connections.colorTag')
     }
     if (searchScope.value === 'all') return t('connections.allConnections')
-    const g = groups.value.find((item) => item.id === activeGroupId.value)
-    return g?.name || t('connections.allConnections')
+    return groupTree.value.getPath(activeGroupId.value || '') || t('connections.allConnections')
   })
 
   function connectionMatchesQuery(c: Connection, q: string): boolean {
     const tag = c.colorTag || ''
     const tagLabel = CONNECTION_COLOR_TAGS.find((item) => item.id === tag)?.label || ''
-    const groupName = groups.value.find((g) => g.id === c.group)?.name || ''
+    const groupName = groupTree.value.getPath(c.group || '')
     return (
       c.name.toLowerCase().includes(q) ||
       c.host.toLowerCase().includes(q) ||
@@ -131,7 +131,8 @@ export function useConnectionList(options: {
       const tagId = view.slice(4)
       list = list.filter((c) => (c.colorTag || '') === tagId)
     } else if (searchScope.value === 'group' && activeGroupId.value) {
-      list = list.filter((c) => c.group === activeGroupId.value)
+      const groupIds = groupTree.value.getSubtreeIds(activeGroupId.value)
+      list = list.filter((c) => groupIds.has(c.group || ''))
     }
 
     if (searchQuery.value.trim()) {
@@ -175,8 +176,9 @@ export function useConnectionList(options: {
     if (searchScope.value !== 'group' || !activeGroupId.value) return 0
     const q = searchQuery.value.trim().toLowerCase()
     if (!q) return 0
+    const groupIds = groupTree.value.getSubtreeIds(activeGroupId.value)
     return connections.value.filter(
-      (c) => c.group !== activeGroupId.value && connectionMatchesQuery(c, q),
+      (c) => !groupIds.has(c.group || '') && connectionMatchesQuery(c, q),
     ).length
   })
 
@@ -202,12 +204,13 @@ export function useConnectionList(options: {
       !!colorTagFilter.value ||
       searchScope.value === 'all' ||
       !!smartView.value ||
+      !!groupTree.value.children.get(activeGroupId.value)?.length ||
       !activeGroupId.value,
   )
 
   function getConnectionGroupName(connection: Connection): string {
     const groupId = resolveTargetGroupId(connection.group)
-    return groups.value.find((g) => g.id === groupId)?.name || t('connections.ungrouped')
+    return groupTree.value.getPath(groupId || '') || t('connections.ungrouped')
   }
 
   async function togglePin(connectionId: string) {
@@ -282,19 +285,22 @@ export function useConnectionList(options: {
     smartView.value = null
   }
 
-  async function onAddGroup() {
+  async function onAddGroup(parentId?: string) {
     try {
       const value = await appPrompt({
-        title: t('connections.newGroup'),
+        title: t(parentId ? 'groups.newSubgroup' : 'connections.newGroup'),
         message: t('connections.newGroupMessage'),
+        detail: parentId ? groupTree.value.getPath(parentId) : undefined,
         confirmText: t('connections.create'),
         inputPlaceholder: t('connections.groupNamePlaceholder'),
         requiredMessage: t('connections.groupNameRequired'),
       })
-      const saved = await window.LiteConnect.saveGroup({ name: value })
+      const saved = await window.LiteConnect.saveGroup({ name: value, parentId: parentId || null })
       await loadData()
       onSelectGroup(saved.id)
-    } catch {}
+    } catch (err: any) {
+      if (err instanceof Error) ElMessage.error(err.message || t('groups.saveFailed'))
+    }
   }
 
   async function onRenameGroup(group: Group) {
@@ -311,6 +317,18 @@ export function useConnectionList(options: {
     } catch {}
   }
 
+  async function onMoveGroup(groupId: string, parentId: string | null) {
+    const group = groups.value.find(item => item.id === groupId)
+    if (!group || (group.parentId ?? null) === parentId) return
+    if (parentId && groupTree.value.getSubtreeIds(groupId).has(parentId)) return
+    try {
+      await window.LiteConnect.saveGroup({ id: groupId, name: group.name, parentId })
+      await loadData()
+    } catch (err: any) {
+      ElMessage.error(err?.message || t('groups.moveFailed'))
+    }
+  }
+
   async function onDeleteGroup(groupId: string) {
     try {
       await appConfirm({
@@ -322,7 +340,7 @@ export function useConnectionList(options: {
       })
       await window.LiteConnect.deleteGroup(groupId)
       await loadData()
-      if (activeGroupId.value === groupId) {
+      if (!groups.value.some(group => group.id === activeGroupId.value)) {
         selectInitialGroup()
       }
     } catch {}
@@ -684,6 +702,7 @@ export function useConnectionList(options: {
     expandSearchToAllGroups,
     onAddGroup,
     onRenameGroup,
+    onMoveGroup,
     onDeleteGroup,
     onSetDefault,
     onReorderGroups,

@@ -74,9 +74,9 @@ export function toApiChatMessages(messages: unknown[], withTools: boolean): unkn
   if (!Array.isArray(messages)) return []
   const out: unknown[] = []
   const validMessages = withTools
-    ? sanitizeAiToolProtocol(messages)
-    : messages.map(normalizeAiChatMessage).filter((message): message is AiChatMessage => message !== null)
-  validateAiRequestImages(validMessages)
+    ? sanitizeAiToolProtocol(messages, t)
+    : messages.map(message => normalizeAiChatMessage(message, t)).filter((message): message is AiChatMessage => message !== null)
+  validateAiRequestImages(validMessages, t)
   for (const m of validMessages) {
     if (m.role === 'tool') {
       if (!withTools) continue

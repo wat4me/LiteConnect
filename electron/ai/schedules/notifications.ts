@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { validateAiNotification, type AiNotificationInput, type AiNotificationSettings } from '../../../shared/aiNotifications'
 import type { AiRunNotification, AiSchedule, AiScheduleRun } from '../../../shared/aiSchedules'
 
@@ -17,7 +18,7 @@ export class AiScheduleNotifier {
     return { enabled: stored.enabled, mode: stored.mode, url: this.ports.unseal(stored.sealedUrl), hasToken: !!stored.sealedToken }
   }
   save(input: AiNotificationInput) {
-    const value = validateAiNotification(input)
+    const value = validateAiNotification(input, t)
     const previous = this.stored()
     // Never silently forward a saved bearer token to a different endpoint.
     let sameUrl = false
@@ -34,7 +35,7 @@ export class AiScheduleNotifier {
         summary: run.content?.slice(0, 6000), error: run.error?.slice(0, 500),
         hosts: run.hosts?.map(host => ({ name: host.name, status: host.status, health: host.health || 'unknown', error: host.error?.slice(0, 300) })) } }, signal)
   }
-  test(signal = new AbortController().signal) { return this.send({ event: 'liteconnect.notification.test', version: 1, message: 'LiteConnect 巡检通知测试' }, signal) }
+  test(signal = new AbortController().signal) { return this.send({ event: 'liteconnect.notification.test', version: 1, message: t('notice.notifyTest') }, signal) }
   private async send(body: unknown, parent: AbortSignal): Promise<AiRunNotification> {
     const controller = new AbortController()
     const abort = () => controller.abort()
@@ -49,10 +50,10 @@ export class AiScheduleNotifier {
       const response = await (this.ports.post || fetch)(url, { method: 'POST', redirect: 'error', signal: controller.signal,
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
       await response.body?.cancel().catch(() => {})
-      return response.ok ? { status: 'sent', at: Date.now() } : { status: 'failed', at: Date.now(), error: `通知服务返回 HTTP ${response.status}。` }
+      return response.ok ? { status: 'sent', at: Date.now() } : { status: 'failed', at: Date.now(), error: t('notice.notifyHttp', { status: response.status }) }
     } catch {
       // Network/provider errors may embed endpoint query tokens. Never persist them.
-      return { status: 'failed', at: Date.now(), error: controller.signal.aborted ? '通知发送超时或已取消，未确认送达。' : '通知发送失败，请检查地址、网络或凭据。' }
+      return { status: 'failed', at: Date.now(), error: controller.signal.aborted ? t('notice.notifyTimeout') : t('notice.notifyFailed') }
     } finally { clearTimeout(timer); parent.removeEventListener('abort', abort) }
   }
 }

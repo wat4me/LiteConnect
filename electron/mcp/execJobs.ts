@@ -136,6 +136,7 @@ export class McpJobStore {
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
       exitCode: job.result?.exitCode,
+      signal: job.result?.signal,
     }
   }
 

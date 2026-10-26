@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { UpdateStatus } from '../../shared/types/app'
 import { ipcMain, BrowserWindow } from 'electron'
 import type { AppUpdater, UpdateCheckResult } from 'electron-updater'
@@ -78,8 +79,8 @@ export function userFacingUpdaterError(err: unknown, operation: UpdaterOperation
     || text.includes('request timed out')
   ) {
     return operation === 'check'
-      ? '检查更新超时，请检查网络后重试'
-      : '下载更新超时，请检查网络后重试'
+      ? t('notice.updaterCheckTimeout')
+      : t('notice.updaterDownloadTimeout')
   }
 
   if (
@@ -88,7 +89,7 @@ export function userFacingUpdaterError(err: unknown, operation: UpdaterOperation
     text.includes('cannot find latest-linux.yml') ||
     (/latest(?:-mac|-linux)?\.yml/.test(text) && /\b404\b/.test(text))
   ) {
-    return '新版本仍在发布中，请稍后重试'
+    return t('notice.updaterPublishing')
   }
 
   if (
@@ -96,14 +97,14 @@ export function userFacingUpdaterError(err: unknown, operation: UpdaterOperation
     text.includes('network failed') ||
     text.includes('net::err_')
   ) {
-    return '无法连接 GitHub Releases，请检查网络后重试'
+    return t('notice.updaterNetwork')
   }
 
   if (/\b(http(?:error)?\s*[: ]\s*)?(401|403|429)\b/.test(text)) {
-    return '更新服务器暂时拒绝了请求，请稍后重试'
+    return t('notice.updaterRejected')
   }
 
-  return operation === 'download' ? '下载更新失败，请稍后重试' : '检查更新失败，请稍后重试'
+  return operation === 'download' ? t('notice.updaterDownloadFailed') : t('notice.updaterCheckFailed')
 }
 
 /**

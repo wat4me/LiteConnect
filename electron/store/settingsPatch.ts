@@ -1,4 +1,5 @@
 import type { AppSettingsAllPatch } from '../../shared/types/settings'
+import { isAppLocale } from '../../shared/appLocale'
 import { normalizeConnectionSortMode } from '../../shared/connectionSort'
 import { sanitizeDbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
@@ -155,6 +156,9 @@ export function applySettingsPatch(
   }
   if (patch.autoReconnectMaxRetries !== undefined) {
     settings.autoReconnectMaxRetries = Math.max(0, Math.min(20, Math.round(patch.autoReconnectMaxRetries)))
+  }
+  if (patch.locale !== undefined && isAppLocale(patch.locale)) {
+    settings.locale = patch.locale
   }
   if (patch.x11AutoStartEnabled !== undefined) {
     settings.x11AutoStartEnabled = !!patch.x11AutoStartEnabled

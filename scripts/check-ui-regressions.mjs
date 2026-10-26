@@ -17,6 +17,8 @@ const workspaceDisconnect = process.argv.includes('--workspace-disconnect')
 const workspacePending = process.argv.includes('--workspace-pending')
 const aiTransfers = process.argv.includes('--ai-transfers')
 const backgroundTiming = process.argv.includes('--background-timing')
+const groupsOnly = process.argv.includes('--groups')
+const executionHistory = process.argv.includes('--execution-history')
 const server = await createServer({
   configFile: false,
   root,
@@ -29,10 +31,10 @@ const server = await createServer({
 try {
   await server.listen()
   const address = server.httpServer.address()
-  const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/${docker ? 'docker' : 'index'}.html`, LITECONNECT_UI_QUESTIONS_INTEGRATED: questionsIntegrated ? '1' : '' }
+  const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/${docker ? 'docker' : 'index'}.html`, LITECONNECT_UI_QUESTIONS_INTEGRATED: questionsIntegrated ? '1' : '', LITECONNECT_UI_GROUPS_ONLY: groupsOnly ? '1' : '' }
   delete env.ELECTRON_RUN_AS_NODE
   const electron = createRequire(import.meta.url)('electron')
-  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${docker ? 'docker-runner' : questions ? 'questions-runner' : aiTransfers ? 'ai-transfers-runner' : workspacePending ? 'workspace-pending-runner' : workspaceDisconnect ? 'workspace-disconnect-runner' : aiRetention ? 'ai-retention-runner' : chatHistory ? 'chat-history-runner' : markdownStress ? 'markdown-stress-runner' : markdown ? 'markdown-runner' : backgroundTiming ? 'background-timing-runner' : 'runner'}.cjs`)], {
+  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${docker ? 'docker-runner' : executionHistory ? 'execution-history-runner' : questions ? 'questions-runner' : aiTransfers ? 'ai-transfers-runner' : workspacePending ? 'workspace-pending-runner' : workspaceDisconnect ? 'workspace-disconnect-runner' : aiRetention ? 'ai-retention-runner' : chatHistory ? 'chat-history-runner' : markdownStress ? 'markdown-stress-runner' : markdown ? 'markdown-runner' : backgroundTiming ? 'background-timing-runner' : 'runner'}.cjs`)], {
     cwd: root, env, stdio: 'inherit', windowsHide: true,
   })
   process.exitCode = await new Promise((accept, reject) => {

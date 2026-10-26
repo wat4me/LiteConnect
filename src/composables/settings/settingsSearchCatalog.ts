@@ -45,6 +45,13 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['窗口', '启动', '行为'],
   },
   {
+    id: 'app.language',
+    tab: 'app',
+    titleKey: 'settingsApp.language',
+    hintKey: 'settingsApp.languageHint',
+    keywords: ['语言', 'language', 'english', 'locale', '中文'],
+  },
+  {
     id: 'app.closeToTray',
     tab: 'app',
     titleKey: 'settingsApp.closeToTray',

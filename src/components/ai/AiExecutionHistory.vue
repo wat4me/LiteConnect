@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ChatItem } from '@/domain/ai/chat'
-import { commandExecutionCommand, commandExecutionDetail, commandExecutionRecords, type CommandExecutionRecord } from '@/utils/ai/commandExecutionHistory'
+import { commandExecutionCommand, commandExecutionDetail, commandExecutionJobId, commandExecutionRecords, type CommandExecutionRecord } from '@/utils/ai/commandExecutionHistory'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { toolRunPresentation, toolStateKeys } from '@/utils/ai/toolRunPresentation'
 import AppIcon from '../icons/AppIcon.vue'
+import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 
 const props = defineProps<{ messages: ChatItem[]; fallbackTarget?: string; initialRecordKey?: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -15,8 +16,11 @@ const panel = ref<HTMLElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
 const selectedKey = ref('')
 const query = ref('')
-const { toolView } = createToolRunDisplayCache()
-const records = computed(() => commandExecutionRecords(props.messages))
+const { toolView } = createToolRunDisplayCache(t)
+const jobIds = computed(() => props.messages.flatMap(message => (message.toolRuns || [])
+  .filter(run => run.name === 'exec').map(commandExecutionJobId).filter(Boolean)))
+const { sessionJobs } = useAiBackgroundJobs(() => undefined, () => jobIds.value)
+const records = computed(() => commandExecutionRecords(props.messages, sessionJobs.value))
 const visible = computed(() => {
   const text = query.value.trim().toLocaleLowerCase()
   return records.value.filter(record => !text || `${commandExecutionCommand(record.run)} ${record.run.target || ''}`.toLocaleLowerCase().includes(text))
@@ -27,6 +31,13 @@ const presentation = (record: CommandExecutionRecord) => toolRunPresentation(rec
 const state = computed(() => selected.value ? presentation(selected.value).state : undefined)
 const noOutputLabel = computed(() => t(state.value === 'running' ? 'ai.execution.outputPending' : state.value === 'started' ? 'ai.execution.backgroundPending' : ['waiting', 'denied', 'blocked', 'invalid'].includes(state.value || '') ? 'ai.execution.notExecuted' : state.value === 'stopped' || state.value === 'timeout' ? 'ai.execution.outputUnavailable' : 'ai.backgroundNoOutput'))
 let previousFocus: HTMLElement | null = null
+let resizeObserver: ResizeObserver | undefined
+
+async function revealSelected() {
+  await nextTick()
+  panel.value?.querySelector('.execution-item.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+watch(() => selected.value?.key, revealSelected, { flush: 'post' })
 
 function trapFocus(event: KeyboardEvent) {
   const elements = [...(panel.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input, [tabindex="0"]') || [])].filter(element => element.checkVisibility())
@@ -38,8 +49,13 @@ onMounted(() => {
   previousFocus = document.activeElement as HTMLElement | null
   selectedKey.value = props.initialRecordKey || records.value.at(-1)?.key || ''
   closeButton.value?.focus()
+  resizeObserver = new ResizeObserver(() => { void revealSelected() })
+  if (panel.value) resizeObserver.observe(panel.value)
 })
-onBeforeUnmount(() => { if (previousFocus?.isConnected) void nextTick(() => previousFocus?.focus({ preventScroll: true })) })
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  if (previousFocus?.isConnected) void nextTick(() => previousFocus?.focus({ preventScroll: true }))
+})
 </script>
 
 <template>

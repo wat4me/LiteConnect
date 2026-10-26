@@ -148,7 +148,7 @@ async function save() {
       id: form.id, name: form.name, connectionId: form.connectionIds[0] || '', connectionIds: [...form.connectionIds],
       prompt: form.prompt, intervalMinutes: Number(form.intervalMinutes), timing, enabled: form.enabled,
       providerId: selected.providerId, model: selected.model, concurrency: Number(form.concurrency),
-    }))
+    }, t))
     editing.value = false
   })
 }
@@ -168,7 +168,7 @@ async function runNow(plan: AiSchedule) {
   } catch (failure: any) { error.value = failure?.message || t('ai.schedule.operationFailed') }
   finally { starting.value = false }
 }
-function toggle(plan: AiSchedule) { return act(() => window.LiteConnect.aiSaveSchedule(validateAiSchedule({ ...plan, enabled: !plan.enabled }))) }
+function toggle(plan: AiSchedule) { return act(() => window.LiteConnect.aiSaveSchedule(validateAiSchedule({ ...plan, enabled: !plan.enabled }, t))) }
 function stop(id: string) { return act(() => window.LiteConnect.aiStopScheduleRun(id)) }
 watch(() => form.connectionIds.length, count => {
   if (count <= 1 && form.concurrency !== 1) form.concurrency = 1

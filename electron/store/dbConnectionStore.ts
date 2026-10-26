@@ -6,7 +6,7 @@ import type { DbConnection, DbEngine, DbSslOptions } from '../db/types'
 import { DEFAULT_DB_PORT, normalizeDbEngine } from '../db/types'
 import { normalizeExtraOptions } from '../../shared/dbConnectionUrl'
 import { DecryptionError, isValidHost, isValidPort, isValidUsername } from '../utils/validation'
-import { t } from '../i18n'
+import { getMainLocale, t } from '../i18n'
 
 export type SaveDbConnectionInput = {
   id?: string
@@ -115,7 +115,7 @@ export class DbConnectionStore {
     return this.connections
       .map((c) => this.toPublic(c))
       .sort((a, b) => {
-        const ag = (a.group || '').localeCompare(b.group || '', 'zh-CN')
+        const ag = (a.group || '').localeCompare(b.group || '', getMainLocale())
         if (ag !== 0) return ag
         const ao = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER
         const bo = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER
@@ -150,7 +150,7 @@ export class DbConnectionStore {
     for (const c of this.connections) {
       if (c.group) set.add(c.group)
     }
-    return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    return [...set].sort((a, b) => a.localeCompare(b, getMainLocale()))
   }
 
   async reorderConnections(orderedIds: string[]): Promise<DbConnection[]> {

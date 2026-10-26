@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import {
   DockerTransportError,
   type DockerAvailability,
@@ -5,21 +6,15 @@ import {
   type DockerTransportErrorCode,
 } from './types'
 
-/** Stable user-facing messages (status is the contract; do not parse these in UI logic). */
+/** User-facing messages resolved at read time (status is the contract; do not parse these in UI logic). */
 export const DOCKER_AVAILABILITY_MESSAGES = {
-  'daemon-unavailable':
-    '无法确认 Docker 守护进程是否可用：通过 SSH 访问 /var/run/docker.sock 失败，或守护进程未响应。可在服务器上执行 docker info 与 curl --unix-socket /var/run/docker.sock http://localhost/_ping 对照。',
-  'permission-denied':
-    '当前 SSH 用户无权访问 /var/run/docker.sock。请将用户加入 docker 组，或使用有权限的账号（Socket 权限近似 root）。',
-  'transport-unsupported':
-    'SSH 服务器不支持 Unix Socket 转发（StreamLocal / direct-streamlocal）。请检查 OpenSSH 版本与 AllowStreamLocalForwarding 等配置。',
-  'socket-forward-failed':
-    'SSH 已连接，但无法通过 StreamLocal 打开 /var/run/docker.sock（常见于 SELinux 拦截 sshd 访问 Docker Socket，或 sshd 策略限制）。服务器本机 docker info 可能仍正常。可临时 setenforce 0 验证，或检查 audit 日志与 sshd StreamLocal 配置。',
-  'request-timeout':
-    'Docker 检测超时：经 SSH 转发访问 Docker API 未在时限内响应。请确认网络与远端 Docker 状态后刷新。',
-  'request-failed':
-    'Docker 检测请求失败：经 SSH 转发调用 Docker API 出错。请确认 SSH 仍连接后刷新重试。',
-} as const
+  get 'daemon-unavailable'() { return t('notice.dockerDaemonUnavailable') },
+  get 'permission-denied'() { return t('notice.dockerPermissionDenied') },
+  get 'transport-unsupported'() { return t('notice.dockerTransportUnsupported') },
+  get 'socket-forward-failed'() { return t('notice.dockerSocketForwardFailed') },
+  get 'request-timeout'() { return t('notice.dockerRequestTimeout') },
+  get 'request-failed'() { return t('notice.dockerRequestFailed') },
+}
 
 /**
  * Map transport/request errors to DockerAvailability.

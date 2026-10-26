@@ -24,7 +24,7 @@ export function showAiApprovalNotification(
 
   const notification = new Notification({
     title: t('ai.approvalNotificationTitle'),
-    body: t('ai.approvalNotificationBody', { tool: input.toolName || 'AI 工具' }),
+    body: t('ai.approvalNotificationBody', { tool: input.toolName || t('notice.aiToolFallback') }),
     silent: false,
   })
 

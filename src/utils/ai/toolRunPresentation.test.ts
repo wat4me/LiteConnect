@@ -10,6 +10,14 @@ const run = (patch: Partial<AiToolRun> = {}): AiToolRun => ({
 })
 
 describe('tool outcome presentation', () => {
+  it('uses the same stopped outcome for signalled background jobs and command records', () => {
+    const stored = serializeToolRunForHistory({ name: 'exec', args: '{}', isError: false,
+      content: JSON.stringify({ exitCode: null, signal: 'TERM', stdout: 'partial' }) })
+    const command = run({ name: 'exec', ...stored })
+    expect(toolRunPresentation(command, formatToolRunDisplay(command).summary).state).toBe('stopped')
+    expect(backgroundJobState('completed', null, 'TERM')).toBe('stopped')
+    expect(backgroundJobState('timeout', null, 'TERM')).toBe('timeout')
+  })
   it('uses the same completion state for command and file tools', () => {
     expect(toolRunPresentation(run(), { kind: 'ok' }).state).toBe('completed')
     expect(toolRunPresentation(run({ name: 'exec' }), { kind: 'exit', code: 0 }).state).toBe('completed')

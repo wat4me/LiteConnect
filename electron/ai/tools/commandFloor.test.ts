@@ -1,9 +1,11 @@
-import { beforeAll, describe, expect, it } from 'vitest'
-import { assessAiToolCall, type AiDeclaredRisk, type AiToolPermissionMode } from '../../../shared/aiToolPolicy'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { setMainLocale } from '../../i18n'
+import { AI_TOOL_REASON_SEPARATOR, assessAiToolCall, type AiDeclaredRisk, type AiToolPermissionMode } from '../../../shared/aiToolPolicy'
 import { initBashAst } from '../../mcp/bashParser'
 import { applyCommandFloor, commandContentRisk } from './commandFloor'
 
 const classOf = (tool: string, args: unknown) => commandContentRisk(tool, args)?.class ?? null
+afterEach(() => setMainLocale('zh-CN'))
 
 /** The production path: declaration gate first, then the escalate-only floor. */
 function gateFor(command: string, risk: AiDeclaredRisk, mode: AiToolPermissionMode) {
@@ -49,6 +51,18 @@ describe('commandContentRisk', () => {
     expect(gateFor(executeDownloadedScript, 'read', 'auto').action).toBe('ask')
   })
 
+  it('continues database-client and TCP connectivity probes in auto mode after promoting declared risk', () => {
+    const command = "echo '=== database clients ==='; ls /usr/bin /usr/local/bin /usr/local/mysql/bin 2>/dev/null | grep -iE '^mysqldump$|^mysql$|^mariadb' | head; "
+      + "docker images --format '{{.Repository}}:{{.Tag}}  {{.Size}}' 2>/dev/null | head -20; "
+      + "python3 -c 'import importlib.util; print(importlib.util.find_spec(\"pymysql\"))'; "
+      + "timeout 5 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' && echo reachable || echo unreachable"
+    expect(classOf('exec', { command })).toBe('destructive')
+    expect(gateFor(command, 'read', 'auto')).toMatchObject({ action: 'allow', risk: 'write' })
+    expect(gateFor(command, 'read', 'ask').action).toBe('ask')
+    expect(gateFor(command, 'read', 'readonly').action).toBe('deny')
+    expect(gateFor('echo payload > /dev/sda', 'read', 'auto').action).toBe('ask')
+  })
+
   it('sees through the indirection that let a labelled read delete things', () => {
     expect(classOf('exec', { command: 'cat $(rm -rf ~)' })).not.toBe('read-only')
     expect(classOf('exec', { command: `bash -c "rm -rf /etc"` })).not.toBe('read-only')
@@ -70,6 +84,17 @@ describe('commandContentRisk', () => {
 })
 
 describe('applyCommandFloor', () => {
+  it('changes notice language immediately without changing permission decisions', () => {
+    const chinese = gateFor('rm -rf /tmp/a', 'read', 'ask')
+    setMainLocale('en-US')
+    const english = gateFor('rm -rf /tmp/a', 'read', 'ask')
+    expect(english.action).toBe(chinese.action)
+    expect(english.risk).toBe(chinese.risk)
+    const [explanation, notice] = english.reason.split(AI_TOOL_REASON_SEPARATOR)
+    expect(explanation).toBe('执行该命令')
+    expect(notice).toContain('command risk exceeds its declaration')
+    expect(notice).not.toMatch(/\p{Script=Han}/u)
+  })
   it('leaves an honest declaration alone', () => {
     expect(gateFor('ls -la', 'read', 'ask').action).toBe('allow')
     expect(gateFor('mkdir /tmp/a', 'write', 'ask').action).toBe('ask')

@@ -7,7 +7,7 @@ import { useAiWorkspace } from './useAiWorkspace'
 
 const mocks = vi.hoisted(() => ({ confirm: vi.fn(), warning: vi.fn(), states: new Map<string, { activeThreadId: string; loading: boolean; threads: [] }>(), stop: vi.fn(), load: vi.fn(), switch: vi.fn() }))
 vi.mock('vue', async importOriginal => ({ ...await importOriginal<typeof import('vue')>(), onMounted: vi.fn(), onBeforeUnmount: vi.fn() }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: object) => key + (params ? JSON.stringify(params) : '') }) }))
+vi.mock('vue-i18n', async importOriginal => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string, params?: object) => key + (params ? JSON.stringify(params) : '') }) }))
 vi.mock('@/composables/app/useAppDialog', () => ({ appConfirm: mocks.confirm }))
 vi.mock('element-plus/es/components/message/index', () => ({ ElMessage: { warning: mocks.warning } }))
 vi.mock('@/composables/ai/useAiChat', () => ({ disposeAiSessionState: vi.fn(), useAiChat: () => ({

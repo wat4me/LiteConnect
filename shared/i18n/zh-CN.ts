@@ -1,0 +1,31 @@
+import prompts from './prompts.zh-CN'
+
+export default {
+  sharedText: {
+    ...prompts,
+    groupFileTransfer: '文件传输', groupInteractiveTerminal: '交互式终端', groupJobOverview: '后台任务总览', listSeparator: '、',
+    imageLimit: '每条消息最多添加 4 张图片',
+    imageAttachmentInvalid: '无效的图片附件',
+    imageDataInvalid: '无效的图片数据',
+    imageFormatInvalid: '图片格式无效或超过 5 MB',
+    imageUnsupported: '当前模型未启用图片支持。请在模型设置中启用支持图片，或切换支持图片的模型；历史含图片时也需要使用支持图片的模型。',
+    imageMissing: '图片 {name} 已丢失，请重新添加图片或开始新会话',
+    imageRequestTooLarge: '会话图片总量超过 20 MB，请开始新会话或移除旧图片消息',
+    notificationInvalid: '通知配置无效。',
+    notificationUrlRequired: '请输入完整的 HTTP 或 HTTPS Webhook 地址。',
+    notificationUrlInvalid: 'Webhook 地址仅支持 HTTP/HTTPS，不能包含用户密码或片段。',
+    scheduleInvalid: '巡检配置无效。',
+    scheduleTimeInvalid: '巡检时间无效。',
+    scheduleHostsInvalid: '请选择 1 至 10 台服务器。',
+    scheduleModelInvalid: '请选择完整的 AI 服务商和模型，或使用当前默认模型。',
+    scheduleConcurrencyInvalid: '并行主机数需在 1 至 5 之间。',
+    riskRequired: '缺少有效的 risk 权限声明。',
+    explanationRequired: 'explanation 必须是 1–500 字符的非空操作说明。',
+    reclassifyNotExecuted: '{code}: 未执行。{reason}',
+    reclassifyInstructions: '请补全同一工具调用的 JSON 参数：risk 必须为 read / write / privileged，explanation 必须是 1–500 字符的非空操作说明。',
+    diffCreated: '新文件，+{added} 行',
+    diffUnchanged: '内容无变化',
+    diffChanged: '+{added} 行 / -{removed} 行',
+    questionSkipped: '用户暂不回答；未提供答案或操作许可。',
+  },
+} as const

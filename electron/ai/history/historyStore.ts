@@ -84,7 +84,7 @@ export async function writeAiSessionStore(
   limits?: Partial<AiHistoryLimits>,
 ): Promise<void> {
   for (const thread of store?.threads || []) {
-    for (const message of thread.messages || []) if (message.images !== undefined) normalizeAiImages(message.images)
+    for (const message of thread.messages || []) if (message.images !== undefined) normalizeAiImages(message.images, t)
   }
   let snapshot: AiSessionStore
   try {

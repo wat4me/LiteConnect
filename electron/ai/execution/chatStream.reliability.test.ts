@@ -4,6 +4,7 @@ import { runPersistedAiReply } from './streamPersistence'
 import { runAiChatCompletion } from './chatCompletion'
 import { flattenConversationForApi } from '../../../shared/aiMessages'
 import { workspaceToolSystemAddendum } from '../../../shared/aiWorkspacePrompt'
+import { t } from '../../i18n'
 import type { AiHistoryRecord, AiResolvedConfig } from '../../../shared/types/ai'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 
@@ -68,7 +69,7 @@ it('records an unexpected failure per server and still executes the other select
   ])
   const request = JSON.parse(fetcher.mock.calls[1][1].body)
   expect(request.messages.filter((message: { role: string }) => message.role === 'tool')).toHaveLength(2)
-  expect(request.messages.some((message: { content: string | null }) => message.content?.includes('do not assume rollback'))).toBe(true)
+  expect(request.messages.some((message: { role: string; content: string | null }) => message.role === 'tool' && message.content?.includes(t('notice.toolResultUnknown')))).toBe(true)
 })
 
 it('stops remaining tool calls after cancellation and preserves earlier completed operations', async () => {

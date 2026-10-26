@@ -1,15 +1,23 @@
 import zhCN from './zh-CN'
+import enUS from './en-US'
+import { sanitizeAppLocale, type AppLocale } from '../../shared/appLocale'
 
 type Dict = Record<string, unknown>
 
 const catalogs: Record<string, Dict> = {
   'zh-CN': zhCN as unknown as Dict,
+  'en-US': enUS as unknown as Dict,
 }
 
-let currentLocale = 'zh-CN'
+let currentLocale: AppLocale = 'zh-CN'
+
+export function getMainLocale(): AppLocale {
+  return currentLocale
+}
 
 export function setMainLocale(locale: string) {
-  if (catalogs[locale]) currentLocale = locale
+  const next = sanitizeAppLocale(locale)
+  if (catalogs[next]) currentLocale = next
 }
 
 function lookup(dict: Dict, path: string): string | undefined {

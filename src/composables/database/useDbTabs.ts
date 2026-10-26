@@ -328,7 +328,7 @@ export function useDbTabs(deps: DbTabsDeps) {
 
   function tabBarTitle(tab: WsTab): string {
     if (tab.kind === 'query') {
-      if (tab.database) return `${tab.database} 璺?${tab.title}`
+      if (tab.database) return `${tab.database} · ${tab.title}`
       return tab.title
     }
     return `${tab.database}.${tab.table}`

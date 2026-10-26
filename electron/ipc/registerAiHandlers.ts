@@ -260,9 +260,10 @@ export function registerAiHandlers(
       onStream: ({ requestId: id, payload }) => {
         if (!sender.isDestroyed()) sender.send(`ai:chatStream:${id}`, payload)
       },
-      onRecord: ({ trigger, requestId: id, target: destination, record }) => {
+      onRecord: ({ trigger, requestId: id, target: destination, record, passive }) => {
         if (trigger === 'background' && !sender.isDestroyed()) sender.send('ai:backgroundReply', {
           sessionId: destination.sessionId, threadId: destination.threadId, requestId: id, record,
+          ...(passive ? { passive: true } : {}),
         })
       },
       onApproval: ({ sessionId, toolName }) => {

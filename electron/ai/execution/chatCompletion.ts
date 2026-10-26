@@ -17,8 +17,8 @@ export async function runAiChatCompletion(
   requiredContext?: string,
 ) {
   const provider = getAiProviderAdapter(settings.protocol)
-  const chatMessages = validateAiMessages(messages)
-  assertAiImageCapability(chatMessages, settings.supportsImages)
+  const chatMessages = validateAiMessages(messages, t)
+  assertAiImageCapability(chatMessages, settings.supportsImages, t)
   if (!settings.apiKey.trim()) {
     throw new Error(t('ai.apiKeyRequired'))
   }

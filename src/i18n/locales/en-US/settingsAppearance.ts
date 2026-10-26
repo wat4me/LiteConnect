@@ -1,0 +1,48 @@
+export default {
+  settingsAppearance: {
+    title: 'Appearance',
+    intro: 'Adjust the interface theme, background image, and mouse cursor. Set terminal colors under Terminal.',
+    theme: 'Interface theme',
+    bgColor: 'Background',
+    fontColor: 'Font',
+    bgImage: 'Background image',
+    bgImagePick: 'Choose image',
+    bgImageChange: 'Change image',
+    bgImageClear: 'Clear',
+    bgImageHint:
+      'PNG, JPG, WebP, GIF, and BMP are supported, up to 8 MB. It applies everywhere immediately, including a slightly transparent SSH terminal. A stronger overlay makes the interface easier to read. It is written to settings when you save.',
+    bgImagePickFailed: 'Could not choose the image',
+    bgImageFitLabel: 'Fit',
+    bgImageFit: {
+      cover: 'Cover and crop',
+      contain: 'Show entire image',
+      fill: 'Stretch to fill',
+    },
+    bgImageOverlay: 'Overlay strength',
+    bgImageOverlayHint: 'Covers the image with the theme color. Higher values make the interface clearer and the image fainter.',
+    fancyCursor: 'Fancy cursor',
+    fancyCursorOn: 'On (everywhere)',
+    fancyCursorOff: 'Off (default)',
+    fancyCursorHint:
+      'Takes effect everywhere immediately. Choose Save to write it to settings. The terminal and text fields keep the system cursor.',
+    fancyCursorPreviewTip: 'Already applied · hover here to compare styles',
+    fancyCursorStyles: {
+      ring: 'Ring',
+      dot: 'Soft dot',
+      trail: 'Trail',
+      cross: 'Crosshair',
+    },
+    fancyCursorStyleDescs: {
+      ring: 'Outer ring and center dot; grows over buttons',
+      dot: 'A single soft point with a slight delay',
+      trail: 'A short fading trail',
+      cross: 'A thin crosshair with a tool-like feel',
+    },
+    preview: 'Interface preview',
+    draftBadge: 'Draft',
+    previewConnections: 'Connections',
+    previewGroupA: 'Group A',
+    previewGroupB: 'Group B',
+    previewConnect: 'Connect',
+  },
+}

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { Group, SavedCredential } from '../../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import type { ConnectionFormModel } from './connectionFormTypes'
+import { buildGroupTree } from '@shared/groupTree'
 
-defineProps<{
+const props = defineProps<{
   form: ConnectionFormModel
   groups: Group[]
   savedCredentials: SavedCredential[]
@@ -16,6 +17,11 @@ defineProps<{
   privateKeyFileName: string
   keepStoredPrivateKey: boolean
 }>()
+
+const groupOptions = computed(() => {
+  const tree = buildGroupTree(props.groups)
+  return tree.rows.map(({ group }) => ({ ...group, path: tree.getPath(group.id) }))
+})
 
 const emit = defineEmits<{
   (e: 'update:selectedCredentialId', value: string): void
@@ -111,8 +117,8 @@ defineExpose({ nameInputRef })
       <div class="form-row">
         <label class="label">{{ t('connectionForm.group') }}</label>
         <select v-model="form.group" class="ui-select">
-          <option v-for="g in groups" :key="g.id" :value="g.id">
-            {{ g.name }}{{ g.isDefault ? ` (${t('groups.defaultGroup')})` : '' }}
+          <option v-for="g in groupOptions" :key="g.id" :value="g.id">
+            {{ g.path }}{{ g.isDefault ? ` (${t('groups.defaultGroup')})` : '' }}
           </option>
         </select>
       </div>

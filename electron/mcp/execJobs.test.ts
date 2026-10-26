@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { McpJobStore } from './execJobs'
 
 describe('background job status observers', () => {
+  it('preserves termination signals in snapshots as well as full job details', () => {
+    const store = new McpJobStore()
+    const job = store.create({ sessionId: 'A', command: 'inspect', class: 'read-only', cancel: () => {} })
+    store.finish(job.jobId, 'completed', { stdout: 'partial', stderr: '', exitCode: null, signal: 'TERM' })
+    expect(store.summary(job)).toMatchObject({ signal: 'TERM', exitCode: null })
+    expect(store.detail(job)).toMatchObject({ signal: 'TERM', stdout: 'partial' })
+  })
   it('reports start, completion and session cancellation without duplicate finishes', () => {
     const store = new McpJobStore()
     const observed: string[][] = []

@@ -167,6 +167,20 @@ describe('bash AST engine', () => {
     expect(classifyCommand('echo x > /etc/passwd').class).toBe('forbidden')
   })
 
+  it('distinguishes static Bash network redirections from critical device writes', () => {
+    for (const target of ['/dev/tcp/127.0.0.1/3306', '/dev/tcp/localhost/mysql', '/dev/tcp/::1/3306', '/dev/udp/127.0.0.1/53']) {
+      expect(classifyCommand(`bash -c 'cat < /dev/null > ${target}'`).class, target).toBe('destructive')
+      // Arbitrary network payloads must never be advertised as read-only.
+      expect(classifyCommand(`printf payload > ${target}`).class, target).toBe('destructive')
+    }
+    for (const target of ['/dev/sda', '/dev/nvme0n1', '/dev/tcp', '/dev/tcp/../sda',
+      '/dev/tcp/localhost/3306/../../sda', '/dev/tcp/localhost/0', '/dev/tcp/localhost/65536', '/dev/tcp/$HOST/$PORT']) {
+      expect(classifyCommand(`echo payload > ${target}`).class, target).toBe('forbidden')
+    }
+    expect(classifyCommand("bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306'; echo x > /etc/passwd").class).toBe('forbidden')
+    expect(classifyCommand("bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306'; rm -rf /").class).toBe('forbidden')
+  })
+
   it('does not treat a long read-only && chain as an under-declaration', () => {
     const chain = [
       'cd /var/log',

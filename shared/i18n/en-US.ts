@@ -1,0 +1,31 @@
+import prompts from './prompts.en-US'
+
+export default {
+  sharedText: {
+    ...prompts,
+    groupFileTransfer: 'File transfers', groupInteractiveTerminal: 'Interactive terminal', groupJobOverview: 'Background tasks', listSeparator: ', ',
+    imageLimit: 'You can attach up to 4 images per message.',
+    imageAttachmentInvalid: 'Invalid image attachment.',
+    imageDataInvalid: 'Invalid image data.',
+    imageFormatInvalid: 'The image format is invalid or the image exceeds 5 MB.',
+    imageUnsupported: 'Image support is disabled for the current model. Enable it in the model settings or select a model that supports images. A model with image support is also required when the conversation history contains images.',
+    imageMissing: 'Image {name} is missing. Attach it again or start a new conversation.',
+    imageRequestTooLarge: 'Conversation images exceed 20 MB. Start a new conversation or remove earlier image messages.',
+    notificationInvalid: 'Invalid notification settings.',
+    notificationUrlRequired: 'Enter a complete HTTP or HTTPS webhook URL.',
+    notificationUrlInvalid: 'Webhook URLs must use HTTP or HTTPS and cannot contain credentials or a fragment.',
+    scheduleInvalid: 'Invalid scheduled check settings.',
+    scheduleTimeInvalid: 'Invalid scheduled check time.',
+    scheduleHostsInvalid: 'Select between 1 and 10 servers.',
+    scheduleModelInvalid: 'Select both an AI provider and a model, or use the current default model.',
+    scheduleConcurrencyInvalid: 'Concurrent hosts must be between 1 and 5.',
+    riskRequired: 'A valid risk declaration is required.',
+    explanationRequired: 'explanation must be a nonempty operation description of 1–500 characters.',
+    reclassifyNotExecuted: '{code}: Not executed. {reason}',
+    reclassifyInstructions: 'Complete the JSON arguments for the same tool call: risk must be read, write or privileged, and explanation must be a nonempty operation description of 1–500 characters.',
+    diffCreated: 'New file, +{added} lines',
+    diffUnchanged: 'No changes',
+    diffChanged: '+{added} lines / -{removed} lines',
+    questionSkipped: 'The user skipped this question. No answer or permission to operate was provided.',
+  },
+} as const

@@ -63,7 +63,7 @@ export function registerConnectionsExportHandlers(
       if (!parsed.connections || !Array.isArray(parsed.connections)) {
         throw new Error('Invalid import format')
       }
-      const stats = await credentialStore.importConnections(parsed.connections)
+      const stats = await credentialStore.importConnections(parsed.connections, parsed.groups)
       return stats
     } catch (err: any) {
       throw new Error(t('common.importFailed', { error: err.message }))

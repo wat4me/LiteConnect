@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { ServiceIpcScope } from './serviceScope'
 import type { CredentialStore } from '../store/credentialStore'
 import type { AiScheduler } from '../ai/schedules/scheduler'
@@ -10,10 +11,10 @@ export function registerAiScheduleHandlers(scheduler: AiScheduler, notifier: AiS
   scope = new ServiceIpcScope()): void {
   scope.handle('ai:listSchedules', () => scheduler.snapshot())
   scope.handle('ai:saveSchedule', async (_event, input: AiScheduleInput) => {
-    const value = validateAiSchedule(input)
+    const value = validateAiSchedule(input, t)
     await credentials.init()
     scope.assertOpen()
-    if (aiScheduleConnectionIds(value).some(id => !isValidUUID(id) || !credentials.getConnection(id))) throw new Error('请选择已保存的服务器。')
+    if (aiScheduleConnectionIds(value).some(id => !isValidUUID(id) || !credentials.getConnection(id))) throw new Error(t('notice.scheduleNeedSavedServer'))
     return scheduler.save(value)
   })
   scope.handle('ai:removeSchedule', (_event, id: string) => scheduler.remove(id))

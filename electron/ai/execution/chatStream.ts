@@ -88,8 +88,8 @@ export async function runAiChatStream(opts: {
     throw new Error('Invalid AI request id')
   }
   const provider = getAiProviderAdapter(settings.protocol)
-  const chatMessages = validateAiMessages(messages)
-  assertAiImageCapability(chatMessages, settings.supportsImages)
+  const chatMessages = validateAiMessages(messages, t)
+  assertAiImageCapability(chatMessages, settings.supportsImages, t)
 
   let receivedText = false
   let receivedToolCall = false

@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { app, nativeImage } from 'electron'
 import { createHash } from 'crypto'
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'fs/promises'
@@ -26,15 +27,15 @@ export async function externalizeAiImages(historyId: string, store: AiSessionSto
   for (const thread of snapshot.threads) {
     for (const message of thread.messages) {
       if (!message.images?.length) continue
-      const images = normalizeAiImages(message.images)!
+      const images = normalizeAiImages(message.images, t)!
       for (const image of images) {
         if (image.dataUrl) {
           const bytes = Buffer.from(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1), 'base64')
           if (bytes.length > AI_IMAGE_MAX_BYTES || !matchesMime(bytes, image.mimeType) ||
-            createHash('sha256').update(bytes).digest('hex') !== image.id) throw new Error('图片数据与附件引用不匹配')
+            createHash('sha256').update(bytes).digest('hex') !== image.id) throw new Error(t('notice.imageHashMismatch'))
           const decoded = nativeImage.createFromBuffer(bytes)
           const size = decoded.getSize()
-          if (decoded.isEmpty() || size.width !== image.width || size.height !== image.height) throw new Error('无法读取图片，或图片尺寸不匹配')
+          if (decoded.isEmpty() || size.width !== image.width || size.height !== image.height) throw new Error(t('notice.imageUnreadable'))
           await mkdir(directory(historyId), { recursive: true })
           try {
             await writeFile(imagePath(historyId, image.id), bytes, { flag: 'wx' })

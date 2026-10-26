@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { Notification, type BrowserWindow } from 'electron'
 import type { MonitorData } from '../../../shared/types/monitor'
 import type { MonitorAlertRule } from '../../../shared/monitorAlerts'
@@ -114,11 +115,11 @@ export class MonitorAlerts {
 
     const details = active.map(metric => metric === 'cpu'
       ? `CPU ${data.cpu.usage.toFixed(1)}%`
-      : `内存 ${(data.memory.used / data.memory.total * 100).toFixed(1)}%`).join('，')
+      : t('notice.monitorAlertMemory', { percent: (data.memory.used / data.memory.total * 100).toFixed(1) })).join(t('notice.monitorAlertJoin'))
     const name = this.getConnectionName(connectionId)
     const notification = new Notification({
-      title: `LiteConnect · ${name} 资源告警`,
-      body: `${details} 持续超过设定阈值。点击查看服务器监控。`,
+      title: t('notice.monitorAlertTitle', { name }),
+      body: t('notice.monitorAlertBody', { details }),
     })
     notification.on('click', () => {
       const win = this.getWindow()

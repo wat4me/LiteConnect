@@ -6,6 +6,34 @@ vi.mock('../../i18n', () => ({ t: (key: string) => key }))
 vi.mock('element-plus/es/components/message/index', () => ({ ElMessage: { warning: vi.fn() } }))
 afterEach(() => vi.unstubAllGlobals())
 
+it('adds passive cancellation records without changing an active request or its approvals', () => {
+  let receive: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void = () => {}
+  const load = vi.fn()
+  vi.stubGlobal('window', { LiteConnect: {
+    onAiBackgroundReply: (callback: typeof receive) => { receive = callback; return () => {} },
+    getAiSessionStore: load,
+  } })
+  const chat = useAiChat()
+  const state = chat.getSessionState('passive-job-projection')
+  state.activeThreadId = 'thread'
+  state.loading = true
+  state.activeRequestId = 'interactive-request'
+  const event: import('@shared/types/ai').AiBackgroundReplyEvent = {
+    sessionId: 'passive-job-projection', threadId: 'thread', requestId: 'job-result', passive: true,
+    record: { id: 'job-result', role: 'assistant', content: '', status: 'completed', createdAt: 1,
+      backgroundNotice: 'Application background-task completion.\n[{"jobId":"one","status":"cancelled"}]' },
+  }
+  receive(event)
+  receive(event)
+  expect(state.messages).toHaveLength(1)
+  expect(state.messages[0].backgroundNotice).toContain('cancelled')
+  expect(state.loading).toBe(true)
+  expect(state.activeRequestId).toBe('interactive-request')
+  expect(load).not.toHaveBeenCalled()
+  receive({ ...event, threadId: 'other', record: { ...event.record, id: 'another' } })
+  expect(state.messages).toHaveLength(1)
+})
+
 it('projects background replies, exposes approvals and stops the correct autonomous request', async () => {
   let receive: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void = () => {}
   const approve = vi.fn(async () => true)

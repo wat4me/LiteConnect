@@ -125,6 +125,7 @@ function rebuildTrayMenu(): void {
 export function syncTrayFromSettings(settingsStore: SettingsStore): void {
   syncTrayIcon(settingsStore)
   syncGlobalHotkey(settingsStore)
+  rebuildTrayMenu()
 }
 
 /**

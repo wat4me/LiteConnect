@@ -4,6 +4,8 @@ import { DecryptionError } from '../utils/validation'
 import { COLLECTIONS, getAppDatabase } from './appDatabase'
 import { sealSecret } from '../utils/secretCrypto'
 import { t } from '../i18n'
+import { LEGACY_DEFAULT_GROUP_NAME } from '../../shared/i18n/legacy'
+import { buildGroupTree } from '../../shared/groupTree'
 import {
   mapImportedSshConnection,
   sanitizeDynamicForwards,
@@ -15,9 +17,6 @@ import type { Connection, Group, SavedCredential } from '../../shared/types/conn
 export type { Connection, Group, SavedCredential }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/** Built-in default group name (user may rename later). */
-const DEFAULT_GROUP_NAME = '默认分组'
 
 export class CredentialStore {
   private connections: Connection[] = []
@@ -96,6 +95,17 @@ export class CredentialStore {
     this.groups = database.getCollection<Group>(COLLECTIONS.sshGroups)
     this.savedCredentials = database.getCollection<SavedCredential>(COLLECTIONS.savedCredentials)
 
+    const tree = buildGroupTree(this.groups)
+    let repairedParents = false
+    for (const group of this.groups) {
+      const parentId = tree.getParentId(group.id)
+      if ((group.parentId ?? null) !== parentId) {
+        group.parentId = parentId
+        repairedParents = true
+      }
+    }
+    if (repairedParents) await this.saveGroups()
+
     await this.migrateGroupField()
     // Always keep a real default group; migrate legacy "ungrouped" connections into it.
     await this.ensureDefaultGroupAndReassign()
@@ -133,7 +143,7 @@ export class CredentialStore {
     if (this.groups.length === 0) {
       this.groups.push({
         id: uuidv4(),
-        name: DEFAULT_GROUP_NAME,
+        name: t('sharedText.defaultGroup'),
         order: 0,
         isDefault: true,
       })
@@ -142,7 +152,7 @@ export class CredentialStore {
       const defaults = this.groups.filter((g) => g.isDefault)
       if (defaults.length === 0) {
         // Prefer a group already named 默认分组, else first by order
-        const named = this.groups.find((g) => g.name === DEFAULT_GROUP_NAME)
+        const named = this.groups.find((g) => g.name === LEGACY_DEFAULT_GROUP_NAME || g.name === t('sharedText.defaultGroup'))
         const target =
           named || [...this.groups].sort((a, b) => a.order - b.order)[0]
         for (const g of this.groups) g.isDefault = g.id === target.id
@@ -407,16 +417,36 @@ export class CredentialStore {
     }
   }
 
-  async importConnections(list: unknown[]): Promise<{ imported: number; skipped: number; total: number }> {
+  async importConnections(list: unknown[], importedGroups?: unknown): Promise<{ imported: number; skipped: number; total: number }> {
     let imported = 0
     let skipped = 0
     const existing = this.getConnections()
+    const groupIds = new Map<string, string>()
+    const matchedGroups = new Set<string>()
+    if (Array.isArray(importedGroups)) {
+      const validGroups = importedGroups.filter((raw): raw is Group =>
+        !!raw && typeof raw === 'object' && typeof raw.id === 'string' && !!raw.id
+        && typeof raw.name === 'string' && !!raw.name.trim(),
+      ).map((raw, index) => ({ ...raw, name: raw.name.trim(),
+        order: Number.isFinite(raw.order) ? raw.order : index }))
+      const tree = buildGroupTree(validGroups)
+      for (const { group } of tree.rows) {
+        const importedParent = tree.getParentId(group.id)
+        const parentId = importedParent ? groupIds.get(importedParent)! : null
+        const match = this.groups.find(local => !matchedGroups.has(local.id) && local.name === group.name
+          && (local.parentId ?? null) === parentId)
+        const saved = match || await this.saveGroup({ name: group.name, parentId })
+        groupIds.set(group.id, saved.id)
+        matchedGroups.add(saved.id)
+      }
+    }
     for (const raw of list) {
       const mapped = mapImportedSshConnection(raw)
       if (!mapped) {
         skipped++
         continue
       }
+      if (mapped.group && groupIds.has(mapped.group)) mapped.group = groupIds.get(mapped.group)
       const dup = existing.find(
         (c) => c.host === mapped.host && c.username === mapped.username && c.port === (mapped.port || 22),
       )
@@ -735,10 +765,21 @@ export class CredentialStore {
   }
 
   getGroups(): Group[] {
-    return [...this.groups].sort((a, b) => a.order - b.order)
+    return buildGroupTree(this.groups).rows.map(({ group }) => ({ ...group }))
   }
 
   async saveGroup(group: Partial<Group> & { name: string }): Promise<Group> {
+    const existing = group.id ? this.groups.find(item => item.id === group.id) : undefined
+    if (group.id && !existing) throw new Error('Group not found')
+    if (typeof group.name !== 'string' || !group.name.trim()) throw new Error('Invalid group name')
+    const parentId = group.parentId === undefined ? existing?.parentId ?? null : group.parentId
+    if (parentId !== null && (typeof parentId !== 'string' || !this.groups.some(item => item.id === parentId))) {
+      throw new Error('Group parent not found')
+    }
+    if (group.id && parentId && buildGroupTree(this.groups).getSubtreeIds(group.id).has(parentId)) {
+      throw new Error('Cannot move a group into itself or its descendants')
+    }
+    group = { ...group, name: group.name.trim(), parentId }
     let saved: Group
 
     if (group.id) {
@@ -758,10 +799,14 @@ export class CredentialStore {
         name: group.name,
         order: group.order ?? maxOrder + 1,
         isDefault: group.isDefault ?? false,
+        parentId,
       }
       this.groups.push(saved)
     }
 
+    if (saved.isDefault) {
+      for (const item of this.groups) item.isDefault = item.id === saved.id
+    }
     await this.saveGroups()
     return saved
   }
@@ -770,13 +815,18 @@ export class CredentialStore {
     const idx = this.groups.findIndex((g) => g.id === id)
     if (idx === -1) return false
     const wasDefault = this.groups[idx].isDefault
+    const parentId = this.groups[idx].parentId ?? null
     this.groups.splice(idx, 1)
+    // Removing a container preserves its children and their connections.
+    for (const group of this.groups) {
+      if (group.parentId === id) group.parentId = parentId
+    }
 
     // Always keep at least one real group
     if (this.groups.length === 0) {
       this.groups.push({
         id: uuidv4(),
-        name: DEFAULT_GROUP_NAME,
+        name: t('sharedText.defaultGroup'),
         order: 0,
         isDefault: true,
       })
@@ -800,7 +850,7 @@ export class CredentialStore {
   async reorderGroups(orderedIds: string[]): Promise<void> {
     const idSet = new Set(this.groups.map((g) => g.id))
     let order = 0
-    for (const id of orderedIds) {
+    for (const id of new Set(orderedIds)) {
       if (idSet.has(id)) {
         const g = this.groups.find((g) => g.id === id)
         if (g) g.order = order++

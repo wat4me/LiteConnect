@@ -1,6 +1,7 @@
+import { sharedT } from './i18n'
 export const AI_QUESTION_TOOL = 'ask_user'
 export const AI_QUESTION_ARGS_MAX = 16_000
-export const AI_QUESTION_GUIDANCE = '缺少完成任务所必需的信息，或需要用户选择影响后续处理的方案时，用 ask_user 提问并等待真实回答。问题尽量一次问清，支持选项和文字补充；能通过工具查到的信息先自行查。用户跳过不代表同意，不重复追问已回答或已跳过的问题；提问不代替操作审批，不索取密码、密钥等秘密。'
+export const AI_QUESTION_GUIDANCE = sharedT('sharedText.promptQuestionGuidance')
 
 export interface AiUserQuestion {
   id: string

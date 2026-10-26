@@ -1,8 +1,9 @@
+import { t } from '../../i18n'
 import { clampContextWindowTokens } from '../../../shared/aiContext'
 import type { AiDiscoveredModel } from '../../../shared/types/ai'
 
 export function parseProviderModels(data: any, contextFields: readonly string[]): AiDiscoveredModel[] {
-  if (!Array.isArray(data?.data)) throw new Error('服务未返回兼容的模型列表，请手动添加模型')
+  if (!Array.isArray(data?.data)) throw new Error(t('notice.modelListInvalid'))
   const models = new Map<string, AiDiscoveredModel>()
   for (const item of data.data) {
     if (typeof item?.id !== 'string' || !item.id.trim()) continue

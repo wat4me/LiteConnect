@@ -16,7 +16,7 @@ it.each(['completion', 'stream'])('uses the same image serializer in %s requests
   if (mode === 'completion') await runAiChatCompletion(settings, messages)
   else await runAiChatStream({ settings, messages, requestId: 'image-request', emit: () => {} })
   const body = JSON.parse((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
-  expect(body.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: '分析报错' }, { type: 'image_url', image_url: { url: messages[0].images![0].dataUrl, detail: 'auto' } }] })
+  expect(body.messages.filter((message: { role: string }) => message.role === 'user')).toEqual([{ role: 'user', content: [{ type: 'text', text: '分析报错' }, { type: 'image_url', image_url: { url: messages[0].images![0].dataUrl, detail: 'auto' } }] }])
 })
 
 it('blocks disabled image models before network requests and surfaces provider rejection without a text-only retry', async () => {

@@ -21,8 +21,8 @@ function anthropicHeaders(apiKey: string): Record<string, string> {
 
 function toAnthropicMessages(messages: AiChatMessage[], withTools: boolean) {
   const wire: { role: 'user' | 'assistant'; content: Record<string, unknown>[] }[] = []
-  const validMessages = sanitizeAiToolProtocol(messages)
-  validateAiRequestImages(validMessages)
+  const validMessages = sanitizeAiToolProtocol(messages, t)
+  validateAiRequestImages(validMessages, t)
   for (const message of validMessages) {
     if (message.role === 'system') continue
     const role: 'user' | 'assistant' = message.role === 'assistant' ? 'assistant' : 'user'

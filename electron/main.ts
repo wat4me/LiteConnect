@@ -15,6 +15,7 @@
  *
  * See ARCHITECTURE.md.
  */
+import { t } from './i18n'
 import { app, BrowserWindow, dialog } from 'electron'
 import { windowAppId } from './window/appIcon'
 import { registerDevelopmentTaskbarShortcut } from './window/developmentTaskbar'
@@ -88,7 +89,7 @@ const monitorCollector = new MonitorCollector(sshManager, (connectionId, data, u
   }
 })
 monitorAlerts = new MonitorAlerts(monitorCollector, () => settingsStore.getMonitorIntervalMs(),
-  (connectionId) => credentialStore.getConnection(connectionId)?.name || '服务器', getMainWindow)
+  (connectionId) => credentialStore.getConnection(connectionId)?.name || t('notice.serverFallback'), getMainWindow)
 backgroundMonitor = new BackgroundMonitor(sshManager, credentialStore, monitorAlerts)
 sshManager.registerSessionTeardownHook((sessionId) => {
   monitorAlerts.detach(sessionId)
@@ -165,8 +166,8 @@ async function initializeMain(): Promise<void> {
     const detail = error instanceof Error ? error.message : String(error)
     console.error('[Main Storage Migration]', error)
     dialog.showErrorBox(
-      'LiteConnect 数据迁移失败',
-      `旧数据没有被删除。请检查数据目录和磁盘空间后重试。\n\n${detail}`,
+      t('notice.migrationTitle'),
+      t('notice.migrationBody', { detail }),
     )
     app.quit()
     return

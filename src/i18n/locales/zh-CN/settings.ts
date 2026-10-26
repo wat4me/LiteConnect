@@ -27,7 +27,7 @@ export default {
       appearance: '外观',
       appearanceDesc: '主题、背景与光标',
       app: '应用',
-      appDesc: '窗口、快捷键与启动恢复',
+      appDesc: '语言、窗口、快捷键与启动恢复',
       terminal: '终端',
       terminalDesc: '配色、字体、粘贴、命令提示与会话日志',
       files: '文件传输',

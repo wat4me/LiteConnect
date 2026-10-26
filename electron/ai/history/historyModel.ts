@@ -1,6 +1,7 @@
 import { AI_TOOL_DIFF_MAX_CHARS } from '../../../shared/aiToolDiff'
 import { AI_QUESTION_ARGS_MAX, AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { normalizeAiImages } from '../../../shared/aiImages'
+import { t } from '../../i18n'
 import { normalizeAiCompactionCount } from '../../../shared/aiCompaction'
 import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '../../../shared/aiToolCatalog'
 import { isAiMarkdownFilePath } from '../../../shared/aiFixedContext'
@@ -193,7 +194,7 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     role: record.role,
     content: record.content.slice(0, 200000),
     backgroundNotice: typeof record.backgroundNotice === 'string' ? record.backgroundNotice.slice(0, 32000) : undefined,
-    ...(record.role === 'user' && record.images?.length ? { images: normalizeAiImages(record.images) } : {}),
+    ...(record.role === 'user' && record.images?.length ? { images: normalizeAiImages(record.images, t) } : {}),
     reasoningContent: typeof record.reasoningContent === 'string' ? record.reasoningContent.slice(0, 200000) : undefined,
     usage: normalizeAiUsage(record.usage),
     error: record.error === true,

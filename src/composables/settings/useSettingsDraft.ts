@@ -1,6 +1,6 @@
 import { computed, onMounted, ref, type Ref, type ComputedRef } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { t } from '@/i18n'
+import { getStoredLocale, t } from '@/i18n'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import {
   useTheme,
@@ -52,6 +52,7 @@ import {
   normalizeGlobalHotkey,
 } from '@shared/globalHotkey'
 import { DEFAULT_SFTP_FONT_SIZE, sanitizeSftpFontSize } from '@shared/sftpFontSize'
+import { DEFAULT_APP_LOCALE, sanitizeAppLocale, type AppLocale } from '@shared/appLocale'
 
 export interface SettingsDraft {
   theme: Theme
@@ -107,6 +108,8 @@ export interface SettingsDraft {
   workspaceRestoreEnabled: boolean
   /** Hide to tray on window close instead of quitting. Default off. */
   closeToTrayEnabled: boolean
+  /** Interface language. Saved with the rest of the draft. */
+  locale: AppLocale
   /** Global hotkey to show/hide the window. Default off. */
   globalHotkeyEnabled: boolean
   /** Electron accelerator for the global hotkey; user-customizable. */
@@ -162,6 +165,7 @@ export function createEmptyDraft(): SettingsDraft {
     sessionLogEnabled: false,
     x11AutoStartEnabled: true,
     x11ServerPath: '',
+    locale: DEFAULT_APP_LOCALE,
   }
 }
 
@@ -222,6 +226,7 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.sessionLogEnabled === b.sessionLogEnabled
     && a.x11AutoStartEnabled === b.x11AutoStartEnabled
     && a.x11ServerPath === b.x11ServerPath
+    && a.locale === b.locale
   )
 }
 
@@ -298,6 +303,7 @@ export function useSettingsDraft(): {
       sessionLogEnabled: false,
       x11AutoStartEnabled: true,
       x11ServerPath: '',
+      locale: DEFAULT_APP_LOCALE,
     }
   }
 
@@ -368,6 +374,7 @@ export function useSettingsDraft(): {
         sessionLogEnabled: all.sessionLogEnabled === true,
         x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
         x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
+        locale: sanitizeAppLocale(all.localeConfigured ? all.locale : getStoredLocale()),
       }
       draft.value = cloneDraft(next)
       saved.value = cloneDraft(next)
@@ -467,6 +474,7 @@ export function useSettingsDraft(): {
         sessionLogEnabled: d.sessionLogEnabled,
         x11AutoStartEnabled: d.x11AutoStartEnabled,
         x11ServerPath: d.x11ServerPath,
+        locale: sanitizeAppLocale(d.locale),
       })
 
       window.dispatchEvent(new CustomEvent('fancy-cursor-settings-change', {

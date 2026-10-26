@@ -17,6 +17,7 @@ import {
 } from '@/utils/shared/legacyStorageMigrate'
 import { clampPopupToViewport } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
+import { buildGroupTree } from '@shared/groupTree'
 
 const { t } = useI18n()
 
@@ -35,11 +36,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', groupId: string): void
   (e: 'select-smart', view: ConnectionSmartView): void
-  (e: 'add'): void
+  (e: 'add', parentId?: string): void
   (e: 'rename', group: Group): void
   (e: 'delete', groupId: string): void
   (e: 'setDefault', groupId: string | null): void
   (e: 'reorder', orderedIds: string[]): void
+  (e: 'moveGroup', groupId: string, parentId: string | null): void
   (e: 'connect', connectionId: string): void
   (e: 'cancel-connect', connectionId: string): void
   (e: 'pin', connectionId: string): void
@@ -121,6 +123,7 @@ const dragConnId = ref<string | null>(null)
 const dropTargetGroupId = ref<string | null>(null)
 const groupSearchQuery = ref('')
 const expandedGroupIds = ref<Set<string>>(new Set())
+const searchCollapsedGroupIds = ref<Set<string>>(new Set())
 const groupListRef = ref<HTMLElement | null>(null)
 const groupDragAutoScroll = createDragAutoScroll()
 
@@ -132,6 +135,7 @@ type CtxMenu =
   | null
 
 const ctxMenu = ref<CtxMenu>(null)
+const choosingGroupParent = ref(false)
 const ctxMenuRef = ref<HTMLElement | null>(null)
 const ctxMenuStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
 let ctxPoint: { x: number; y: number } | null = null
@@ -148,6 +152,7 @@ function clearDragUiState() {
 
 function closeCtxMenu() {
   ctxMenu.value = null
+  choosingGroupParent.value = false
   ctxPoint = null
 }
 
@@ -164,6 +169,8 @@ async function positionCtxMenu() {
   ctxMenuStyle.value = {
     left: `${pos.left}px`,
     top: `${pos.top}px`,
+    maxHeight: `${Math.min(360, window.innerHeight - 16)}px`,
+    overflowY: 'auto',
   }
 }
 
@@ -174,12 +181,20 @@ function openCtxMenu(e: MouseEvent, menu: NonNullable<CtxMenu>) {
   e.preventDefault()
   e.stopPropagation()
   ctxPoint = { x: e.clientX, y: e.clientY }
+  choosingGroupParent.value = false
   ctxMenu.value = menu
   void positionCtxMenu()
 }
 
 function onGroupContextMenu(e: MouseEvent, group: Group) {
   openCtxMenu(e, { kind: 'group', group })
+}
+
+function onGroupActions(e: MouseEvent, group: Group) {
+  const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  openCtxMenu(e, { kind: 'group', group })
+  ctxPoint = { x: anchor.left, y: anchor.bottom + 4 }
+  void positionCtxMenu()
 }
 
 function onConnContextMenu(e: MouseEvent, conn: Connection) {
@@ -193,11 +208,12 @@ function onPanelContextMenu(e: MouseEvent) {
 }
 
 function onGroupMenuAction(
-  action: 'select' | 'rename' | 'setDefault' | 'toggleCollapse' | 'delete',
+  action: 'select' | 'add' | 'rename' | 'setDefault' | 'toggleCollapse' | 'delete',
   group: Group,
 ) {
   closeCtxMenu()
   if (action === 'select') selectGroup(group.id)
+  else if (action === 'add') emit('add', group.id)
   else if (action === 'rename') startRename(group)
   else if (action === 'setDefault' && !group.isDefault) emit('setDefault', group.id)
   else if (action === 'toggleCollapse') toggleGroupCollapsed(group.id)
@@ -225,6 +241,8 @@ watch(ctxMenu, (m) => {
   if (m) void positionCtxMenu()
 })
 
+watch(choosingGroupParent, () => { if (ctxMenu.value) void positionCtxMenu() })
+
 useOutsideDismiss(
   ctxMenuOpen,
   closeCtxMenu,
@@ -251,13 +269,42 @@ onBeforeUnmount(() => {
 })
 
 const normalizedGroupSearchQuery = computed(() => groupSearchQuery.value.trim().toLowerCase())
+const groupTree = computed(() => buildGroupTree(props.groups))
+const moveTargets = computed(() => {
+  const menu = ctxMenu.value
+  if (menu?.kind !== 'group') return []
+  const excluded = groupTree.value.getSubtreeIds(menu.group.id)
+  return groupTree.value.rows.filter(({ group }) => !excluded.has(group.id))
+})
+
+function moveGroupTo(parentId: string | null) {
+  if (ctxMenu.value?.kind !== 'group') return
+  const groupId = ctxMenu.value.group.id
+  closeCtxMenu()
+  emit('moveGroup', groupId, parentId)
+}
+
+// Search reveals matches, but users can still collapse results for this query.
+// Keep those overrides separate so clearing search restores the normal tree.
+watch(normalizedGroupSearchQuery, () => {
+  searchCollapsedGroupIds.value = new Set()
+}, { flush: 'sync' })
 
 const visibleGroups = computed(() => {
   const query = normalizedGroupSearchQuery.value
-  if (!query) return props.groups
-  return props.groups.filter((group) => {
-    if (group.name.toLowerCase().includes(query)) return true
-    return getConnectionsForGroup(group.id).some((conn) => matchesConnection(conn, query))
+  const tree = groupTree.value
+  const matching = new Set<string>()
+  if (query) {
+    for (const { group } of tree.rows) {
+      if (!tree.getPath(group.id).toLowerCase().includes(query)
+        && !getConnectionsForGroup(group.id).some(conn => matchesConnection(conn, query))) continue
+      matching.add(group.id)
+      for (const ancestor of tree.getAncestors(group.id)) matching.add(ancestor.id)
+    }
+  }
+  return tree.rows.filter(({ group }) => {
+    if (query && !matching.has(group.id)) return false
+    return tree.getAncestors(group.id).every(ancestor => !isGroupCollapsed(ancestor.id))
   })
 })
 
@@ -273,6 +320,7 @@ function getVisibleConnectionsForGroup(groupId: string): Connection[] {
   const query = normalizedGroupSearchQuery.value
   const connections = getConnectionsForGroup(groupId)
   if (!query) return connections
+  if (groupTree.value.getPath(groupId).toLowerCase().includes(query)) return connections
   return connections.filter((conn) => matchesConnection(conn, query))
 }
 
@@ -290,10 +338,20 @@ function matchesConnection(conn: Connection, query: string): boolean {
 }
 
 function isGroupCollapsed(groupId: string): boolean {
-  return !normalizedGroupSearchQuery.value && !expandedGroupIds.value.has(groupId)
+  return normalizedGroupSearchQuery.value
+    ? searchCollapsedGroupIds.value.has(groupId)
+    : !expandedGroupIds.value.has(groupId)
 }
 
 function expandGroup(groupId: string) {
+  if (normalizedGroupSearchQuery.value) {
+    if (searchCollapsedGroupIds.value.has(groupId)) {
+      const next = new Set(searchCollapsedGroupIds.value)
+      next.delete(groupId)
+      searchCollapsedGroupIds.value = next
+    }
+    return
+  }
   if (expandedGroupIds.value.has(groupId)) return
   const next = new Set(expandedGroupIds.value)
   next.add(groupId)
@@ -301,6 +359,13 @@ function expandGroup(groupId: string) {
 }
 
 function toggleGroupCollapsed(groupId: string) {
+  if (normalizedGroupSearchQuery.value) {
+    const next = new Set(searchCollapsedGroupIds.value)
+    if (next.has(groupId)) next.delete(groupId)
+    else next.add(groupId)
+    searchCollapsedGroupIds.value = next
+    return
+  }
   const next = new Set(expandedGroupIds.value)
   if (next.has(groupId)) {
     next.delete(groupId)
@@ -311,8 +376,17 @@ function toggleGroupCollapsed(groupId: string) {
 }
 
 function selectGroup(groupId: string) {
+  for (const ancestor of groupTree.value.getAncestors(groupId)) expandGroup(ancestor.id)
   expandGroup(groupId)
   emit('select', groupId)
+}
+
+function activateGroup(groupId: string) {
+  if (groupId === props.activeGroupId && !props.smartView) {
+    toggleGroupCollapsed(groupId)
+  } else {
+    selectGroup(groupId)
+  }
 }
 
 function tagSmartView(tagId: string): ConnectionSmartView {
@@ -324,9 +398,13 @@ function isTagSmartView(tagId: string) {
 }
 
 watch(
-  () => props.activeGroupId,
-  (groupId) => {
-    if (groupId && !props.smartView) expandGroup(groupId)
+  [() => props.activeGroupId, () => props.smartView,
+    () => groupTree.value.getAncestors(props.activeGroupId || '').map(group => group.id).join('/')],
+  ([groupId, smartView]) => {
+    if (groupId && !smartView) {
+      for (const ancestor of groupTree.value.getAncestors(groupId)) expandGroup(ancestor.id)
+      expandGroup(groupId)
+    }
   },
   { immediate: true },
 )
@@ -348,7 +426,7 @@ function cancelRename() {
 }
 
 function onDragStart(index: number) {
-  if (dragConnId.value || index < 0) return
+  if (dragConnId.value || index < 0 || normalizedGroupSearchQuery.value) return
   dragIndex.value = index
   groupDragAutoScroll.start(() => groupListRef.value)
 }
@@ -357,14 +435,27 @@ function onDragOver(e: DragEvent, index: number) {
   if (dragConnId.value || index < 0) return
   // Connection drags (sidebar or main list) are not group reorder
   if (dataTransferHasConn(e.dataTransfer)) return
+  if (!canReorderTo(index)) return
   e.preventDefault()
   dropIndex.value = index
+}
+
+function canReorderTo(index: number) {
+  if (dragIndex.value === null || index < 0) return false
+  const source = props.groups[dragIndex.value]
+  const target = props.groups[index]
+  return !!source && !!target
+    && groupTree.value.getParentId(source.id) === groupTree.value.getParentId(target.id)
 }
 
 function onDrop(e: DragEvent, index: number) {
   e.preventDefault()
   // Connection drop is handled by onGroupDropConn; don't treat as group reorder
   if (dragConnId.value || dataTransferHasConn(e.dataTransfer) || index < 0) {
+    return
+  }
+  if (!canReorderTo(index)) {
+    clearDragUiState()
     return
   }
   if (dragIndex.value !== null && dragIndex.value !== index) {
@@ -509,10 +600,13 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
       </section>
 
       <h4 v-if="!normalizedGroupSearchQuery" class="smart-section-title groups-section-title">{{ t('groups.title') }}</h4>
-      <template v-for="group in visibleGroups" :key="group.id">
+      <template v-for="{ group, depth } in visibleGroups" :key="group.id">
         <!-- Whole block accepts connection drops (not only the thin title row) -->
         <div
           class="group-block"
+          :data-group-id="group.id"
+          :data-depth="depth"
+          :style="{ marginLeft: `${depth * 12}px` }"
           :class="{ 'drop-target': dropTargetGroupId === group.id }"
           @dragover="onGroupDragOverConn($event, group.id)"
           @dragleave="onGroupBlockDragLeave"
@@ -521,15 +615,17 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           <div
             class="group-item"
             tabindex="0"
-            @keydown.enter.self="selectGroup(group.id)"
-            @keydown.space.self.prevent="selectGroup(group.id)"
+            @keydown.enter.self="activateGroup(group.id)"
+            @keydown.space.self.prevent="activateGroup(group.id)"
+            @keydown.right.self.prevent="expandGroup(group.id)"
+            @keydown.left.self.prevent="!isGroupCollapsed(group.id) && toggleGroupCollapsed(group.id)"
             :class="{
               active: !smartView && group.id === activeGroupId,
               dragging: dragIndex === getGroupIndex(group.id),
               'drop-above': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id),
               'drop-below': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id),
             }"
-            @click="selectGroup(group.id)"
+            @click="activateGroup(group.id)"
             @contextmenu="onGroupContextMenu($event, group)"
             @dragover="onGroupItemDragOver($event, group.id)"
             @dragleave="onGroupItemDragLeave"
@@ -569,31 +665,19 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
                 />
               </template>
               <template v-else>
-                <span class="group-name" :title="group.name">{{ group.name }}</span>
+                <span class="group-name" :title="groupTree.getPath(group.id)">{{ group.name }}</span>
                 <span class="group-count">{{ connectionCounts[group.id] || 0 }}</span>
               </template>
             </div>
             <div v-if="editingId !== group.id" class="group-actions">
-              <el-tooltip :content="t('groups.rename')" placement="right">
-                <button class="icon-btn-tiny" @click.stop="startRename(group)">
-                  <AppIcon name="edit" size="xs" />
+              <el-tooltip :content="t('groups.newSubgroup')" placement="right">
+                <button class="icon-btn-tiny" :aria-label="t('groups.newSubgroup')" @click.stop="emit('add', group.id)">
+                  <AppIcon name="plus" size="xs" />
                 </button>
               </el-tooltip>
-              <el-tooltip
-                :content="group.isDefault ? t('groups.defaultGroup') : t('groups.setDefault')"
-                placement="right"
-              >
-                <button
-                  class="icon-btn-tiny"
-                  :disabled="group.isDefault"
-                  @click.stop="!group.isDefault && emit('setDefault', group.id)"
-                >
-                  <AppIcon :name="group.isDefault ? 'star-fill' : 'star'" size="xs" />
-                </button>
-              </el-tooltip>
-              <el-tooltip :content="t('groups.delete')" placement="right">
-                <button class="icon-btn-tiny danger" @click.stop="emit('delete', group.id)">
-                  <AppIcon name="delete" size="xs" />
+              <el-tooltip :content="t('groups.moreActions')" placement="right">
+                <button class="icon-btn-tiny" :aria-label="t('groups.moreActions')" @click.stop="onGroupActions($event, group)">
+                  <AppIcon name="more" size="xs" />
                 </button>
               </el-tooltip>
             </div>
@@ -694,7 +778,23 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         @contextmenu.prevent
       >
         <!-- Group row -->
-        <template v-if="ctxMenu.kind === 'group'">
+        <template v-if="ctxMenu.kind === 'group' && choosingGroupParent">
+          <button type="button" class="ui-menu-item" role="menuitem" @click="choosingGroupParent = false">
+            <AppIcon name="chevron-left" size="sm" class="group-ctx-icon" />
+            {{ t('groups.moveTo') }}
+          </button>
+          <div class="ui-menu-sep" role="separator"></div>
+          <button type="button" class="ui-menu-item" role="menuitem"
+            :disabled="!groupTree.getParentId(ctxMenu.group.id)" @click="moveGroupTo(null)">
+            {{ t('groups.topLevel') }}
+          </button>
+          <button v-for="{ group } in moveTargets" :key="group.id" type="button"
+            class="ui-menu-item group-move-target" role="menuitem" :title="groupTree.getPath(group.id)"
+            :disabled="groupTree.getParentId(ctxMenu.group.id) === group.id" @click="moveGroupTo(group.id)">
+            {{ groupTree.getPath(group.id) }}
+          </button>
+        </template>
+        <template v-else-if="ctxMenu.kind === 'group'">
           <button
             type="button"
             class="ui-menu-item"
@@ -703,6 +803,14 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           >
             <AppIcon name="folder" size="sm" class="group-ctx-icon" />
             {{ t('groups.openGroup') }}
+          </button>
+          <button type="button" class="ui-menu-item" role="menuitem" @click="onGroupMenuAction('add', ctxMenu.group)">
+            <AppIcon name="plus" size="sm" class="group-ctx-icon" />
+            {{ t('groups.newSubgroup') }}
+          </button>
+          <button type="button" class="ui-menu-item" role="menuitem" @click="choosingGroupParent = true">
+            <AppIcon name="folder" size="sm" class="group-ctx-icon" />
+            {{ t('groups.moveTo') }}
           </button>
           <button
             type="button"
@@ -945,9 +1053,17 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .group-block {
+  min-width: 168px;
   border-radius: 6px;
   margin-bottom: 2px;
   transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.group-move-target {
+  max-width: min(360px, calc(100vw - 32px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-block.drop-target {
@@ -1057,8 +1173,9 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .collapse-btn {
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
+  margin-block: -2px;
   display: flex;
   align-items: center;
   justify-content: center;

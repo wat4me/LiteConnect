@@ -17,6 +17,8 @@
  * with a plain "we could not check this".
  */
 import type { AiDeclaredRisk, AiToolGate, AiToolPermissionMode } from '../../../shared/aiToolPolicy'
+import { AI_TOOL_REASON_SEPARATOR } from '../../../shared/aiToolPolicy'
+import { t } from '../../i18n'
 import { classifyCommand } from '../../../shared/mcp/classify'
 import type { CommandClass, CommandClassification, CommandUncertainty } from '../../../shared/mcp/types'
 
@@ -32,17 +34,17 @@ const MINIMUM_DECLARATION: Record<CommandClass, AiDeclaredRisk> = {
 }
 
 const CLASS_LABEL: Record<CommandClass, string> = {
-  'read-only': '只读',
-  safe: '会改动状态',
-  destructive: '破坏性',
-  privileged: '提权',
-  forbidden: '高危',
+  'read-only': 'toolPolicy.classReadOnly',
+  safe: 'toolPolicy.classSafe',
+  destructive: 'toolPolicy.classDestructive',
+  privileged: 'toolPolicy.classPrivileged',
+  forbidden: 'toolPolicy.classForbidden',
 }
 
 const RISK_LABEL: Record<AiDeclaredRisk, string> = {
-  read: '只读',
-  write: '修改',
-  privileged: '提权',
+  read: 'toolPolicy.riskRead',
+  write: 'toolPolicy.riskWrite',
+  privileged: 'toolPolicy.riskPrivileged',
 }
 
 /** `service_control` only inspects the unit for this action. */
@@ -75,18 +77,18 @@ export function commandContentRisk(tool: string, args: unknown): CommandClassifi
  * Never phrased as a claim about the model.
  */
 function uncertaintyPhrase(uncertainty: CommandUncertainty, binary: string): string {
-  const program = binary ? `「${binary}」` : '这条命令'
+  const program = binary ? `"${binary}"` : t('toolPolicy.command')
   switch (uncertainty) {
     case 'unknown-program':
-      return `应用不认识 ${program}，无法核实它会做什么`
+      return t('toolPolicy.unknownProgram', { program })
     case 'inline-script':
-      return `命令把代码直接交给了 ${binary || '解释器'}，内容无法预先核实`
+      return t('toolPolicy.inlineScript', { binary: binary || t('toolPolicy.interpreter') })
     case 'uninspectable':
-      return '命令要执行的脚本不在命令本身里（脚本文件或标准输入），无法核实'
+      return t('toolPolicy.uninspectable')
     case 'runtime-name':
-      return '命令名在运行时才能确定，无法核实'
+      return t('toolPolicy.runtimeName')
     case 'unparsed':
-      return '命令无法被完整解析，无法核实'
+      return t('toolPolicy.unparsed')
   }
 }
 
@@ -95,14 +97,14 @@ function uncertaintyPhrase(uncertainty: CommandUncertainty, binary: string): str
  */
 function escalationDetail(content: CommandClassification, declared: AiDeclaredRisk): string {
   const { class: cls, uncertainty, binary } = content
-  if (uncertainty) return `${uncertaintyPhrase(uncertainty, binary)}，需要你确认后再执行`
-  return `命令实际风险高于申报（应用判级为「${CLASS_LABEL[cls]}」，申报「${RISK_LABEL[declared]}」）`
+  if (uncertainty) return t('toolPolicy.confirmUnverified', { detail: uncertaintyPhrase(uncertainty, binary) })
+  return t('toolPolicy.riskUnderstated', { actual: t(CLASS_LABEL[cls]), declared: t(RISK_LABEL[declared]) })
 }
 
 function denialDetail(content: CommandClassification): string {
   const { class: cls, uncertainty, binary } = content
   if (uncertainty) return uncertaintyPhrase(uncertainty, binary)
-  return `应用判级为「${CLASS_LABEL[cls]}」`
+  return t('toolPolicy.classified', { actual: t(CLASS_LABEL[cls]) })
 }
 
 /**
@@ -123,7 +125,7 @@ export function applyCommandFloor(
       action: 'deny',
       risk: gate.risk,
       code: 'READONLY_MODE',
-      reason: `${gate.reason}｜${denialDetail(content)}，只读模式下不予执行`,
+      reason: gate.reason + AI_TOOL_REASON_SEPARATOR + t('toolPolicy.readonlyDenied', { detail: denialDetail(content) }),
     }
   }
 
@@ -132,21 +134,21 @@ export function applyCommandFloor(
     if (content.class === 'forbidden') {
       return {
         action: 'ask', risk: gate.risk,
-        reason: `${gate.reason}｜命令含高危特征（应用判级为「${CLASS_LABEL[content.class]}」）`,
+        reason: gate.reason + AI_TOOL_REASON_SEPARATOR + t('toolPolicy.forbidden', { actual: t(CLASS_LABEL[content.class]) }),
       }
     }
     if (!understated) return gate
     return {
       action: 'allow',
       risk: MINIMUM_DECLARATION[content.class],
-      reason: `${gate.reason}｜${denialDetail(content)}，已按自动执行设置继续`,
+      reason: gate.reason + AI_TOOL_REASON_SEPARATOR + t('toolPolicy.autoContinued', { detail: denialDetail(content) }),
     }
   }
   const catastrophic = content.class === 'forbidden' && gate.action === 'allow'
   if (!understated && !catastrophic) return gate
 
   const detail = catastrophic && !understated
-    ? `命令含高危特征（应用判级为「${CLASS_LABEL[content.class]}」）`
+    ? t('toolPolicy.forbidden', { actual: t(CLASS_LABEL[content.class]) })
     : escalationDetail(content, gate.risk)
-  return { action: 'ask', risk: gate.risk, reason: `${gate.reason}｜${detail}` }
+  return { action: 'ask', risk: gate.risk, reason: gate.reason + AI_TOOL_REASON_SEPARATOR + detail }
 }

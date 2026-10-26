@@ -1,4 +1,4 @@
-import { app, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { mkdir } from 'fs/promises'
 import type { SettingsAllPatch } from '../../store/settingsStore'
 import type { SettingsIpcCtx } from './ctx'
@@ -39,7 +39,17 @@ export function registerWorkspaceSettingsHandlers(ctx: SettingsIpcCtx): void {
       }
     }
 
+    const previousLocale = settingsStore.getLocale()
     const saved = await settingsStore.applyMany(nextPatch)
+    if (saved.locale !== previousLocale) {
+      const { setMainLocale } = await import('../../i18n')
+      const { syncTrayFromSettings } = await import('../../window/tray')
+      setMainLocale(saved.locale)
+      syncTrayFromSettings(settingsStore)
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('app:localeChanged', saved.locale)
+      }
+    }
     if (patch.x11AutoStartEnabled !== undefined || patch.x11ServerPath !== undefined) {
       const { configureX11ServerOptions } = await import('../../ssh/x11/x11Server')
       configureX11ServerOptions({

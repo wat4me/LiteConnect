@@ -1,4 +1,5 @@
 import type { AiHistoryRecord } from './types/ai'
+import type { SharedTextKey } from './i18n'
 
 export const AI_LOAD_TOOLS = 'load_tools'
 export const AI_TOOL_GROUPS = {
@@ -7,8 +8,8 @@ export const AI_TOOL_GROUPS = {
   job_overview: ['list_jobs'],
 } as const
 export type AiToolGroup = keyof typeof AI_TOOL_GROUPS
-export const AI_TOOL_GROUP_LABELS: Record<AiToolGroup, string> = {
-  file_transfer: '文件传输', interactive_terminal: '交互式终端', job_overview: '后台任务总览',
+export const AI_TOOL_GROUP_LABEL_KEYS: Record<AiToolGroup, SharedTextKey> = {
+  file_transfer: 'sharedText.groupFileTransfer', interactive_terminal: 'sharedText.groupInteractiveTerminal', job_overview: 'sharedText.groupJobOverview',
 }
 
 const CORE_SERVER_TOOLS = ['exec', 'read_file', 'write_file', 'edit_file', 'grep', 'get_job', 'cancel_job']

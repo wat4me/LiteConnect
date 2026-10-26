@@ -163,6 +163,7 @@ const {
   expandSearchToAllGroups,
   onAddGroup,
   onRenameGroup,
+  onMoveGroup,
   onDeleteGroup,
   onSetDefault,
   onReorderGroups,
@@ -301,6 +302,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       @select-smart="onSelectSmartView"
       @add="onAddGroup"
       @rename="onRenameGroup"
+      @move-group="onMoveGroup"
       @delete="onDeleteGroup"
       @set-default="onSetDefault"
       @reorder="onReorderGroups"
@@ -432,7 +434,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
             :connection="conn"
             :test-status="getTestStatus(conn.id)"
             :reorder-disabled="reorderDisabled"
-            :group-name="searchScope === 'all' || inSmartView ? getConnectionGroupName(conn) : undefined"
+            :group-name="searchScope === 'all' || inSmartView || conn.group !== activeGroupId ? getConnectionGroupName(conn) : undefined"
             :keyboard-active="listKeyboardIndex === index"
             :show-usage-stats="usageStatsEnabled"
             :connecting="connectingConnectionIds.has(conn.id)"

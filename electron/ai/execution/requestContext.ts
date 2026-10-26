@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { packAiMessages, type AiContextMessage } from '../../../shared/aiContext'
 import type { AiChatMessage } from '../../../shared/types/ai'
 import { resolveAiContextBudget, type AiContextBudgetConfig } from '../../../shared/aiContextPressure'
@@ -8,7 +9,7 @@ import { workspaceToolsForChat, workspaceToolSystemAddendum } from '../../../sha
 import { sshToolsForChat, sshToolSystemAddendum } from '../tools/sshToolChat'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import { isValidUUID } from '../../utils/validation'
-import { AI_QUESTION_GUIDANCE, AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
+import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import type { AiToolGroup } from '../../../shared/aiToolCatalog'
 import { localFileTransferSystemAddendum } from './localEnvironment'
 
@@ -21,16 +22,16 @@ export async function buildAiRequestEnvironment(opts: {
   const boundSessionId = opts.sessionId && isValidUUID(opts.sessionId) ? opts.sessionId : ''
   const useTools = Boolean(opts.sshMcpRuntime && (opts.workspaceTargets?.length || boundSessionId))
   let extraSystem = ''
-  if (opts.workspaceTargets) extraSystem = workspaceToolSystemAddendum(opts.workspaceTargets)
+  if (opts.workspaceTargets) extraSystem = workspaceToolSystemAddendum(opts.workspaceTargets, t, opts.allowQuestions)
   else if (useTools && opts.sshMcpRuntime) {
     const listed = await opts.sshMcpRuntime.call('list_sessions', {})
     const sessions = (listed.structuredContent as { sessions?: Array<{ sessionId: string; host?: string; username?: string; connectionName?: string }> })?.sessions || []
     const snap = sessions.find(session => session.sessionId === boundSessionId)
-    extraSystem = sshToolSystemAddendum({ sessionId: boundSessionId, ...snap, cwd: opts.cwd })
+    extraSystem = sshToolSystemAddendum({ sessionId: boundSessionId, ...snap, cwd: opts.cwd }, t, { allowQuestions: opts.allowQuestions })
   }
-  if (opts.allowQuestions === false) extraSystem = extraSystem.split('\n').filter(line => line !== AI_QUESTION_GUIDANCE).join('\n') + '\n本次为无人值守任务，不提供交互提问工具。缺少信息时报告限制并完成可执行的检查，不等待人工回答，也不自行扩大范围。'
-  const localEnvironment = useTools ? localFileTransferSystemAddendum(opts.sshMcpRuntime?.getLocalEnvironment?.() ?? { platform: process.platform }) : ''
-  extraSystem = [extraSystem, localEnvironment, ...(opts.contextFiles || []).map(formatAiConversationContextFile)].filter(text => text?.trim()).join('\n\n')
+  if (opts.allowQuestions === false && !useTools) extraSystem = t('sharedText.promptUnattended')
+  const localEnvironment = useTools ? localFileTransferSystemAddendum(opts.sshMcpRuntime?.getLocalEnvironment?.() ?? { platform: process.platform }, t) : ''
+  extraSystem = [extraSystem, localEnvironment, t('toolPolicy.visibleLanguage'), ...(opts.contextFiles || []).map(formatAiConversationContextFile)].filter(text => text?.trim()).join('\n\n')
   const tools = useTools ? (opts.workspaceTargets ? workspaceToolsForChat(opts.toolGroups) : sshToolsForChat(opts.toolGroups)).filter(tool => opts.allowQuestions !== false || tool.function.name !== AI_QUESTION_TOOL) : undefined
   return { boundSessionId, useTools, extraSystem, tools }
 }
@@ -55,10 +56,10 @@ export function packRequestMessages(
   })
   const available = (budgetTokens ?? resolveAiContextBudget(settings).windowTokens) - resolveAiContextBudget(settings).outputReserveTokens
   if (packed.promptTokens > packed.budgetTokens && packed.messages.some(message => message.images?.length)) {
-    throw new Error('图片超出当前模型的上下文预算，请减少图片或调整模型上下文窗口')
+    throw new Error(t('notice.imageContextBudget'))
   }
   if (packed.promptTokens + toolSchemaTokens > available) {
-    throw new Error('系统提示、工具定义或最近的消息超出模型上下文预算，请减少资料或调整模型预算。')
+    throw new Error(t('notice.contextBudget'))
   }
   return packed.messages
 }

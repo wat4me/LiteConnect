@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { setMainLocale } from '../../i18n'
 import {
   buildEditFileDiffPreview,
   buildFileChangeDiffPreview,
   buildWriteFileDiffPreview,
 } from './toolDiffPreview'
+
+afterEach(() => setMainLocale('zh-CN'))
 
 /** Fake runtime whose read_file returns `content` (or throws when `null`). */
 function fakeRuntime(content: string | null, eof = true) {
@@ -18,6 +21,15 @@ function fakeRuntime(content: string | null, eof = true) {
 }
 
 describe('buildWriteFileDiffPreview', () => {
+  it('localizes approval warnings and summaries without translating file contents', async () => {
+    setMainLocale('en-US')
+    const warning = await buildWriteFileDiffPreview(fakeRuntime(null), { sessionId: 's1', path: '/app/config', content: '配置内容\n' })
+    expect(warning?.summary).toContain('will write to and overwrite')
+    expect(warning?.summary).not.toMatch(/\p{Script=Han}/u)
+    const preview = await buildWriteFileDiffPreview(fakeRuntime('old\n'), { sessionId: 's1', path: '/app/config', content: '配置内容\n' })
+    expect(preview?.summary).toContain('lines')
+    expect(preview?.diff).toContain('+配置内容')
+  })
   it('summarizes an in-place edit with added/removed counts', async () => {
     const preview = await buildWriteFileDiffPreview(fakeRuntime('a\nb\nc\n'), {
       sessionId: 's1',

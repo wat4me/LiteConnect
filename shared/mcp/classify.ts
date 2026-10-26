@@ -367,6 +367,15 @@ function hasInlineCode(args: string[]): boolean {
 const CRITICAL_WRITE_PREFIX = /^\/(etc|boot|sys|proc|dev)\//i
 const AUTHORIZED_KEYS = /(^|\/)\.ssh\/authorized_keys$/i
 
+/** Bash opens these static endpoints as sockets, not critical device files.
+ * Keep them in writeTargets: sending arbitrary data is still a write operation.
+ */
+function isNetworkRedirect(target: string): boolean {
+  const match = /^\/dev\/(?:tcp|udp)\/([A-Za-z0-9_.:%-]+)\/([A-Za-z][A-Za-z0-9_-]*|\d{1,5})$/.exec(target)
+  if (!match || match[1] === '.' || match[1] === '..') return false
+  return !/^\d+$/.test(match[2]) || (Number(match[2]) >= 1 && Number(match[2]) <= 65535)
+}
+
 const CATASTROPHIC_DELETE_BINARIES = new Set(['rm', 'rmdir', 'shred', 'wipe', 'srm'])
 const CATASTROPHIC_TARGETS = new Set([
   '/',
@@ -729,7 +738,7 @@ function classifyFlattened(flat: BashParseResult): CommandClassification {
 
   for (const rawTarget of flat.writeTargets) {
     const target = stripQuotes(rawTarget)
-    if (CRITICAL_WRITE_PREFIX.test(target) || AUTHORIZED_KEYS.test(target)) {
+    if ((CRITICAL_WRITE_PREFIX.test(target) && !isNetworkRedirect(target)) || AUTHORIZED_KEYS.test(target)) {
       return { class: 'forbidden', binary: rootBinary, reason: `write to a critical path (${target})` }
     }
   }

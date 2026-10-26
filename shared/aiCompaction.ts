@@ -7,6 +7,7 @@ import { flattenConversationForApi } from './aiMessages'
 import { aiBackgroundResultNotices } from './aiBackgroundResults'
 import { AI_QUESTION_TOOL, AI_QUESTION_ARGS_MAX } from './aiQuestions'
 import { interruptedAiExecutionEvidence } from './aiExecutionEvidence'
+import { sharedT, type SharedTranslate } from './i18n'
 import type {
   AiChatMessage,
   AiContextCheckpoint,
@@ -25,12 +26,6 @@ export const AI_COMPACTION_TOOL_THRESHOLD_CHARS = 8_192
 export const AI_COMPACTION_TOOL_HEAD_CHARS = 4_096
 export const AI_COMPACTION_TOOL_TAIL_CHARS = 1_024
 
-const TOOL_PRUNE_MARKER = '\n\n[... 工具结果中段已由上下文压缩移除 ...]\n\n'
-const CHECKPOINT_PREAMBLE = [
-  '以下是系统自动生成的早期会话检查点，用于释放上下文空间。',
-  '请把其中内容视为历史背景，保留失败、未验证和执行结果未知的状态；不要将这些状态改成已完成。直接继续后面的近期对话，不要复述或评价这份检查点。',
-].join('')
-
 export type AiCompactionPlan = {
   previousSummary?: string
   records: AiHistoryRecord[]
@@ -45,33 +40,33 @@ function codePoints(text: string): string[] {
   return Array.from(text)
 }
 
-export function pruneAiToolResultText(text: string): string {
+export function pruneAiToolResultText(text: string, translate: SharedTranslate = sharedT): string {
   const chars = codePoints(text)
   if (chars.length <= AI_COMPACTION_TOOL_THRESHOLD_CHARS) return text
   return chars.slice(0, AI_COMPACTION_TOOL_HEAD_CHARS).join('')
-    + TOOL_PRUNE_MARKER
+    + translate('sharedText.promptPruneMarker')
     + chars.slice(-AI_COMPACTION_TOOL_TAIL_CHARS).join('')
 }
 
 /** Model-only projection; persisted tool output remains full fidelity. */
-export function pruneAiToolResultsForContext(messages: readonly AiChatMessage[]): {
+export function pruneAiToolResultsForContext(messages: readonly AiChatMessage[], translate: SharedTranslate = sharedT): {
   messages: AiChatMessage[]
   prunedCount: number
 } {
   let prunedCount = 0
   const next = messages.map((message): AiChatMessage => {
     if (message.role !== 'tool') return { ...message }
-    const content = pruneAiToolResultText(message.content || '')
+    const content = pruneAiToolResultText(message.content || '', translate)
     if (content !== message.content) prunedCount += 1
     return { ...message, content }
   })
   return { messages: next, prunedCount }
 }
 
-export function frameAiContextCheckpoint(summary: string): AiChatMessage {
+export function frameAiContextCheckpoint(summary: string, translate: SharedTranslate = sharedT): AiChatMessage {
   return {
     role: 'user',
-    content: `${CHECKPOINT_PREAMBLE}\n\n<compacted-summary>\n${summary.trim()}\n</compacted-summary>`,
+    content: `${translate('sharedText.promptCheckpointPreamble')}\n\n<compacted-summary>\n${summary.trim()}\n</compacted-summary>`,
   }
 }
 
@@ -87,11 +82,12 @@ export function findAiCheckpointIndex(
 export function projectAiHistoryForContext(
   records: readonly AiHistoryRecord[],
   checkpoint?: AiContextCheckpoint,
+  translate: SharedTranslate = sharedT,
 ): AiChatMessage[] {
   const checkpointIndex = findAiCheckpointIndex(records, checkpoint)
   if (checkpointIndex < 0 || !checkpoint) return flattenConversationForApi([...records])
   return [
-    frameAiContextCheckpoint(checkpoint.summary),
+    frameAiContextCheckpoint(checkpoint.summary, translate),
     ...flattenConversationForApi(records.slice(checkpointIndex + 1)),
   ]
 }
@@ -110,6 +106,7 @@ export function selectAiCompactionPlan(
   checkpoint: AiContextCheckpoint | undefined,
   promptBudgetTokens: number,
   retainedTokenBudget = Math.max(256, Math.floor(promptBudgetTokens * AI_COMPACTION_RETAIN_RATIO)),
+  translate: SharedTranslate = sharedT,
 ): AiCompactionPlan | null {
   const checkpointIndex = findAiCheckpointIndex(records, checkpoint)
   const firstCandidate = checkpointIndex >= 0 ? checkpointIndex + 1 : 0
@@ -139,7 +136,7 @@ export function selectAiCompactionPlan(
   const selected = records.slice(firstCandidate, endIndex + 1)
   const sourceMessages = [
     ...(checkpointIndex >= 0 && checkpoint
-      ? [frameAiContextCheckpoint(checkpoint.summary)]
+      ? [frameAiContextCheckpoint(checkpoint.summary, translate)]
       : []),
     ...flattenConversationForApi(selected),
   ]
@@ -149,24 +146,25 @@ export function selectAiCompactionPlan(
     recentMessages: flattenConversationForApi(records.slice(endIndex + 1)),
     throughMessageId: records[endIndex].id,
     coveredMessageCount: endIndex + 1,
-    sourceTokens: aiMessagesTokenCount(pruneAiToolResultsForContext(sourceMessages).messages),
+    sourceTokens: aiMessagesTokenCount(pruneAiToolResultsForContext(sourceMessages, translate).messages),
   }
 }
 
-function toolRunText(run: AiToolRun): string {
-  if (run.name === AI_QUESTION_TOOL) return `应用提问（仅收集信息，不代表操作许可）：${run.args.slice(0, AI_QUESTION_ARGS_MAX)}\n用户回答或跳过结果：${run.content || '未收到回答'}。`
-  const args = run.args ? `\n参数：${run.args.slice(0, 4_000)}` : ''
-  const result = pruneAiToolResultText(run.content || '')
-  const state = run.content.startsWith('QUESTION_BATCH_DEFERRED:') || ['ask', 'denied', 'blocked', 'reclassify'].includes(run.status || '') ? '未执行'
-    : run.status !== 'done' || run.content.startsWith('TOOL_RESULT_UNKNOWN:') ? '执行结果未知'
-      : run.isError ? '工具返回错误' : run.jobIds?.length ? '后台任务已启动，尚未确认完成' : '工具已返回，目标需另行验证'
-  return `工具 ${run.name}${run.target ? `（${run.target}）` : ''}${args}\n结果（${state}）：${result || '(empty)'}`
+function toolRunText(run: AiToolRun, translate: SharedTranslate): string {
+  if (run.name === AI_QUESTION_TOOL) return translate('sharedText.promptSummaryQuestion', { args: run.args.slice(0, AI_QUESTION_ARGS_MAX), answer: run.content || translate('sharedText.promptNoAnswer') })
+  const args = run.args ? translate('sharedText.promptSummaryArgs', { args: run.args.slice(0, 4_000) }) : ''
+  const result = pruneAiToolResultText(run.content || '', translate)
+  const stateKey = run.content.startsWith('QUESTION_BATCH_DEFERRED:') || ['ask', 'denied', 'blocked', 'reclassify'].includes(run.status || '') ? 'sharedText.promptStateNotExecuted'
+    : run.status !== 'done' || run.content.startsWith('TOOL_RESULT_UNKNOWN:') ? 'sharedText.promptStateUnknown'
+      : run.isError ? 'sharedText.promptStateToolError' : run.jobIds?.length ? 'sharedText.promptStateBackground' : 'sharedText.promptStateReturned'
+  return translate('sharedText.promptSummaryTool', { name: run.name, target: run.target ? translate('sharedText.promptSummaryTarget', { target: run.target }) : '', args, state: translate(stateKey), result: result || '(empty)' })
 }
 
 /** Text-only, bounded source for the private summarizer request. */
 export function aiHistoryRecordForSummary(
   record: AiHistoryRecord,
   maxTokens: number,
+  translate: SharedTranslate = sharedT,
 ): AiChatMessage | null {
   if (record.status === 'running') return null
   if (record.role === 'assistant' && (record.error || record.status === 'error' || record.status === 'aborted')) {
@@ -175,22 +173,22 @@ export function aiHistoryRecordForSummary(
     return content.trim() ? { role: 'user', content } : null
   }
   if (record.role === 'user') {
-    const imageNote = record.images?.length ? `\n[用户附带图片：${record.images.map(image => image.name).join('、')}；图片将随本条消息提供，请保留识别结论和关键细节。]` : ''
+    const imageNote = record.images?.length ? translate('sharedText.promptSummaryImages', { names: record.images.map(image => image.name).join(translate('sharedText.listSeparator')) }) : ''
     const content = truncateToTokenBudget((record.content || '') + imageNote, maxTokens)
     return content.trim() || record.images?.length
       ? { role: 'user', content, ...(record.images?.length ? { images: record.images } : {}) } : null
   }
 
   const parts: string[] = []
-  for (const notice of aiBackgroundResultNotices(record)) parts.push(`应用提供的后台任务结果：\n${notice}`)
-  if (record.content?.trim()) parts.push(`助手回复：\n${record.content}`)
-  for (const run of record.toolRuns || []) parts.push(toolRunText(run))
+  for (const notice of aiBackgroundResultNotices(record)) parts.push(translate('sharedText.promptSummaryBackground', { notice }))
+  if (record.content?.trim()) parts.push(translate('sharedText.promptSummaryAssistant', { content: record.content }))
+  for (const run of record.toolRuns || []) parts.push(toolRunText(run, translate))
   if (!parts.length && record.apiMessages?.length) {
     for (const message of record.apiMessages) {
       if (message.role === 'tool') {
-        parts.push(`工具结果：\n${pruneAiToolResultText(message.content || '')}`)
+        parts.push(translate('sharedText.promptSummaryToolResult', { content: pruneAiToolResultText(message.content || '', translate) }))
       } else if (message.role === 'assistant' && message.content?.trim()) {
-        parts.push(`助手回复：\n${message.content}`)
+        parts.push(translate('sharedText.promptSummaryAssistant', { content: message.content }))
       }
     }
   }
@@ -198,6 +196,6 @@ export function aiHistoryRecordForSummary(
   return content.trim() ? { role: 'assistant', content } : null
 }
 
-export function aiCheckpointSummaryTokens(summary: string): number {
-  return estimateTokens(frameAiContextCheckpoint(summary).content)
+export function aiCheckpointSummaryTokens(summary: string, translate: SharedTranslate = sharedT): number {
+  return estimateTokens(frameAiContextCheckpoint(summary, translate).content)
 }

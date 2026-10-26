@@ -292,7 +292,7 @@ const toolGroups = computed(() => normalizeAiToolGroups([
   ...normalizeAiToolGroups(getSessionState(props.sessionId).toolGroups), ...aiToolGroupsFromHistory(messages.value),
 ]))
 const toolContext = computed(() => props.workspaceTargets ? {
-  system: workspaceToolSystemAddendum(props.workspaceTargets),
+  system: workspaceToolSystemAddendum(props.workspaceTargets, t),
   schemaTokens: aiToolSchemaTokens(workspaceToolsForChat(toolGroups.value)),
 } : undefined)
 const workspaceJobIds = computed(() => props.workspaceTargets ? messages.value.flatMap(message => (message.toolRuns || []).flatMap(run => run.jobIds || [])) : undefined)
@@ -315,6 +315,7 @@ const { clearingConversation, handleClearConversation } = useAiClearConversation
   cleared: () => { syncFromState(); emit('conversation-cleared') }, t: key => t(key),
 })
 const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
+  translate: t,
   ...activeProvider.value?.models.find(model => model.id === displayModelName.value),
   systemPrompt: settings.value.systemPrompt,
   toolContext: toolContext.value,
@@ -361,10 +362,11 @@ const contextDroppedCount = computed(() => {
   if (loading.value || messages.value.some((m) => m.streaming)) return 0
   const checkpoint = getSessionState(props.sessionId).contextCheckpoint
   const conv = checkpoint
-    ? projectAiHistoryForContext(messages.value, checkpoint)
+    ? projectAiHistoryForContext(messages.value, checkpoint, t)
     : flattenConversationForApi(messages.value)
   if (!conv.length) return 0
   return estimateSidebarAiRequest({
+    translate: t,
     systemPrompt: settings.value.systemPrompt,
     messages: conv,
     toolContext: toolContext.value,
@@ -381,9 +383,10 @@ const contextModelConfig = computed(() => activeProvider.value?.models.find(mode
 const contextPressure = computed(() => {
   const state = getSessionState(props.sessionId)
   if (loading.value && state.contextPressure) return state.contextPressure
-  const projected = projectAiHistoryForContext(messages.value, state.contextCheckpoint)
+  const projected = projectAiHistoryForContext(messages.value, state.contextCheckpoint, t)
   if (input.value.trim() || draftImages.value.length) projected.push({ role: 'user', content: input.value, images: draftImages.value })
   return estimateSidebarAiRequest({
+    translate: t,
     ...contextModelConfig.value, model: displayModelName.value, contextWindowTokens: activeContextWindowTokens.value,
     systemPrompt: settings.value.systemPrompt, messages: projected, contextFiles: contextFiles.value,
     toolContext: toolContext.value, sessionId: props.sessionId, cwd: sftpListedCwdState()[props.sessionId],

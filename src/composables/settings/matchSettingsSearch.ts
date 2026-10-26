@@ -1,3 +1,5 @@
+import { i18n } from '@/i18n'
+
 export function normalizeSettingsQuery(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, '')
 }
@@ -33,6 +35,6 @@ export function matchSettingsSearch<T extends SettingsSearchMatchInput>(
     if (score > 0) scored.push({ item, score })
   }
 
-  scored.sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, 'zh'))
+  scored.sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, i18n.global.locale.value))
   return scored.map((row) => row.item)
 }

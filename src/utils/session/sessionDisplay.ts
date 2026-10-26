@@ -1,9 +1,10 @@
 import type { Connection } from '@/env.d'
 import type { Session } from '@/domain/session/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
+import { t } from '@/i18n'
 
 export function getTerminalLabel(session: Session | null | undefined): string {
-  return session ? `终端 ${session.tabNumber}` : ''
+  return session ? t('terminal.tabLabel', { n: session.tabNumber }) : ''
 }
 
 export function getSshAddress(

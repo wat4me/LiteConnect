@@ -7,6 +7,8 @@
  * content and the incoming content, with no external diff dependency.
  */
 
+import { sharedT, type SharedTranslate } from './i18n'
+
 /** Lines per side fed into the LCS; longer files still diff, just clipped. */
 export const AI_TOOL_DIFF_MAX_LINES = 400
 /** Hard cap on the text we put into the approval card. */
@@ -165,8 +167,8 @@ export function buildUnifiedDiff(
 }
 
 /** One-line summary shown above the diff: `+12 -3` style. */
-export function formatToolDiffSummary(preview: ToolDiffPreview): string {
-  if (preview.created) return `新文件，+${preview.added} 行`
-  if (preview.added === 0 && preview.removed === 0) return '内容无变化'
-  return `+${preview.added} 行 / -${preview.removed} 行`
+export function formatToolDiffSummary(preview: ToolDiffPreview, translate: SharedTranslate = sharedT): string {
+  if (preview.created) return translate('sharedText.diffCreated', { added: preview.added })
+  if (preview.added === 0 && preview.removed === 0) return translate('sharedText.diffUnchanged')
+  return translate('sharedText.diffChanged', { added: preview.added, removed: preview.removed })
 }
