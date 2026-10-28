@@ -1,6 +1,12 @@
 export default {
   connectionForm: {
-    graphicalForwarding: '启用图形界面转发',
+    graphicalForwarding: '图形界面转发',
+    x11Automatic: '自动（默认）',
+    x11AutomaticHintMac: '自动检测并启动已安装的 XQuartz，使用当前用户的显示认证。首次使用需先安装 XQuartz；远端图形程序将在 Mac 桌面打开独立窗口。',
+    x11AutomaticHintLinux: '复用当前 Linux 桌面的 Xorg 或 XWayland 和显示认证，无需再启动一套显示服务。缺少显示会话时会提示原因，普通终端仍可连接。',
+    x11Off: '关闭',
+    x11Custom: '自定义显示服务',
+    x11AutomaticHint: '连接时自动启动内置显示服务，无需额外安装或勾选。Linux 图形安装程序将在 Windows 桌面打开独立窗口；远端需允许 X11 转发并安装 xauth。',
     graphicalHint:
       '在本机打开远端图形程序（如 xclock、gedit）。协议为 X11，默认 127.0.0.1:6000。本机未就绪时会按设置自动启动显示服务（Windows：VcXsrv/Xming）；可在「设置 → 连接」配置路径。',
     goInstallX11: '去设置安装',

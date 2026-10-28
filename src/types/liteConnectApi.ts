@@ -113,8 +113,12 @@ export interface LiteConnectApi extends SftpApi {
     resolvedExecutablePath: string | null
     platform: string
     supported: boolean
+    bundled: boolean
+    displayAddress?: string
+    dependencyMissing?: 'xquartz' | 'desktop'
   }>
   testX11Server: (opts?: {
+    automatic?: boolean
     executablePath?: string
     host?: string
     display?: number
@@ -124,6 +128,7 @@ export interface LiteConnectApi extends SftpApi {
     host: string
     port: number
     display: number
+    displayAddress?: string
     message?: string
     executablePath?: string
     portOccupiedNotX11?: boolean
@@ -140,6 +145,7 @@ export interface LiteConnectApi extends SftpApi {
   getBundledX11InstallerStatus: () => Promise<{ available: boolean }>
   installBundledX11Server: () => Promise<{ started: boolean; cancelled?: boolean }>
   selectX11ServerExecutable: () => Promise<string | null>
+  openX11SetupGuide: () => Promise<void>
 
   getRecentConnections: () => Promise<Connection[]>
   recordRecentConnection: (connectionId: string) => Promise<void>

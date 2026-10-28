@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
+import VirtualList from '@/components/common/VirtualList.vue'
 import type { Connection, Group } from '../../env.d.ts'
 import {
   CONNECTION_COLOR_TAGS,
@@ -11,6 +12,7 @@ import {
 } from '@/utils/connections/connectionTags'
 import type { ConnectionSmartView } from '@/composables/connections/useConnectionList'
 import { createDragAutoScroll } from '@/utils/shared/dragAutoScroll'
+import { createRowDragGuard } from '@/utils/shared/rowDrag'
 import {
   dataTransferHasConn,
   getDataTransferConnId,
@@ -20,11 +22,13 @@ import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 import { buildGroupTree } from '@shared/groupTree'
 
 const { t } = useI18n()
+const connectionKey = (connection: Connection) => connection.id
 
 const props = defineProps<{
   groups: Group[]
   activeGroupId: string | null
   smartView?: ConnectionSmartView | null
+  allConnectionsActive?: boolean
   connectionCounts: Record<string, number>
   smartViewCounts?: { pinned: number; recent: number; tags: Record<string, number> }
   usedColorTags?: { id: string; color: string; label: string }[]
@@ -36,6 +40,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', groupId: string): void
   (e: 'select-smart', view: ConnectionSmartView): void
+  (e: 'select-all'): void
   (e: 'add', parentId?: string): void
   (e: 'rename', group: Group): void
   (e: 'delete', groupId: string): void
@@ -126,6 +131,7 @@ const expandedGroupIds = ref<Set<string>>(new Set())
 const searchCollapsedGroupIds = ref<Set<string>>(new Set())
 const groupListRef = ref<HTMLElement | null>(null)
 const groupDragAutoScroll = createDragAutoScroll()
+const dragGuard = createRowDragGuard()
 
 /** Context menu target */
 type CtxMenu =
@@ -177,7 +183,6 @@ async function positionCtxMenu() {
 function openCtxMenu(e: MouseEvent, menu: NonNullable<CtxMenu>) {
   const el = e.target as HTMLElement | null
   if (el?.closest('input, textarea, [contenteditable="true"]')) return
-  if (el?.closest('.group-drag-handle, .sidebar-conn-handle')) return
   e.preventDefault()
   e.stopPropagation()
   ctxPoint = { x: e.clientX, y: e.clientY }
@@ -308,8 +313,19 @@ const visibleGroups = computed(() => {
   })
 })
 
+const connectionsByGroup = computed(() => {
+  const grouped = new Map<string, Connection[]>()
+  for (const connection of props.connections) {
+    const id = connection.group || ''
+    const entries = grouped.get(id)
+    if (entries) entries.push(connection)
+    else grouped.set(id, [connection])
+  }
+  return grouped
+})
+
 function getConnectionsForGroup(groupId: string): Connection[] {
-  return props.connections.filter((c) => c.group === groupId)
+  return connectionsByGroup.value.get(groupId) || []
 }
 
 function getGroupIndex(groupId: string): number {
@@ -382,7 +398,7 @@ function selectGroup(groupId: string) {
 }
 
 function activateGroup(groupId: string) {
-  if (groupId === props.activeGroupId && !props.smartView) {
+  if (groupId === props.activeGroupId && !props.smartView && !props.allConnectionsActive) {
     toggleGroupCollapsed(groupId)
   } else {
     selectGroup(groupId)
@@ -398,10 +414,10 @@ function isTagSmartView(tagId: string) {
 }
 
 watch(
-  [() => props.activeGroupId, () => props.smartView,
+  [() => props.activeGroupId, () => props.smartView, () => props.allConnectionsActive,
     () => groupTree.value.getAncestors(props.activeGroupId || '').map(group => group.id).join('/')],
-  ([groupId, smartView]) => {
-    if (groupId && !smartView) {
+  ([groupId, smartView, allConnections]) => {
+    if (groupId && !smartView && !allConnections) {
       for (const ancestor of groupTree.value.getAncestors(groupId)) expandGroup(ancestor.id)
       expandGroup(groupId)
     }
@@ -425,8 +441,17 @@ function cancelRename() {
   editingId.value = null
 }
 
-function onDragStart(index: number) {
-  if (dragConnId.value || index < 0 || normalizedGroupSearchQuery.value) return
+function onDragStart(e: DragEvent, index: number) {
+  if (!dragGuard.canStart(e)) return
+  if (dragConnId.value || index < 0 || editingId.value || normalizedGroupSearchQuery.value) {
+    e.preventDefault()
+    return
+  }
+  closeCtxMenu()
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/x-lite-connect-group', props.groups[index].id)
+  }
   dragIndex.value = index
   groupDragAutoScroll.start(() => groupListRef.value)
 }
@@ -468,6 +493,8 @@ function onDrop(e: DragEvent, index: number) {
 }
 
 function onConnDragStart(e: DragEvent, connId: string) {
+  if (!dragGuard.canStart(e)) return
+  closeCtxMenu()
   dragConnId.value = connId
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
@@ -550,21 +577,29 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
       @click.stop
       @contextmenu.stop.prevent
     ></div>
-    <div class="group-panel-title">{{ t('groups.title') }}</div>
+    <div class="group-panel-title">{{ t('groups.navigation') }}</div>
     <div class="group-search">
       <input
         v-model="groupSearchQuery"
         class="group-search-input"
         :placeholder="t('groups.searchPlaceholder')"
+        :aria-label="t('groups.searchAria')"
+        :title="t('groups.searchHint')"
       />
     </div>
     <div ref="groupListRef" class="group-list">
       <section v-if="!normalizedGroupSearchQuery" class="smart-section">
         <h4 class="smart-section-title">{{ t('groups.smartViews') }}</h4>
+        <button type="button" class="smart-item" data-view="all" :class="{ active: allConnectionsActive }" :aria-current="allConnectionsActive ? 'page' : undefined" @click="emit('select-all')">
+          <AppIcon name="home-grid" size="xs" />
+          <span class="smart-item-name">{{ t('connections.allConnections') }}</span>
+          <span class="group-count">{{ connections.length }}</span>
+        </button>
         <button
           type="button"
           class="smart-item"
           :class="{ active: smartView === 'pinned' }"
+          data-view="pinned"
           @click="emit('select-smart', 'pinned')"
         >
           <AppIcon name="pin" size="xs" />
@@ -575,6 +610,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           type="button"
           class="smart-item"
           :class="{ active: smartView === 'recent' }"
+          data-view="recent"
           @click="emit('select-smart', 'recent')"
         >
           <AppIcon name="history" size="xs" />
@@ -614,13 +650,17 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
         >
           <div
             class="group-item"
+            :draggable="editingId !== group.id && !normalizedGroupSearchQuery"
+            :title="t('groups.dragSort')"
             tabindex="0"
+            @pointerdown="dragGuard.pointerDown"
+            @dragstart.stop="onDragStart($event, getGroupIndex(group.id))"
             @keydown.enter.self="activateGroup(group.id)"
             @keydown.space.self.prevent="activateGroup(group.id)"
             @keydown.right.self.prevent="expandGroup(group.id)"
             @keydown.left.self.prevent="!isGroupCollapsed(group.id) && toggleGroupCollapsed(group.id)"
             :class="{
-              active: !smartView && group.id === activeGroupId,
+              active: !smartView && !allConnectionsActive && group.id === activeGroupId,
               dragging: dragIndex === getGroupIndex(group.id),
               'drop-above': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id),
               'drop-below': dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id),
@@ -633,16 +673,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
           >
             <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id)" class="drop-indicator top"></div>
             <div class="group-item-content">
-              <span
-                class="group-drag-handle"
-                draggable="true"
-                :title="t('groups.dragSort')"
-                :aria-label="t('groups.dragSort')"
-                @dragstart.stop="onDragStart(getGroupIndex(group.id))"
-                @click.stop
-              >
-                <AppIcon name="grip" size="xs" />
-              </span>
               <button
                 class="collapse-btn"
                 :aria-expanded="!isGroupCollapsed(group.id)"
@@ -684,10 +714,20 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
             <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex > getGroupIndex(group.id)" class="drop-indicator bottom"></div>
           </div>
           <div v-if="!isGroupCollapsed(group.id)" class="group-connections">
+            <VirtualList
+              :items="getVisibleConnectionsForGroup(group.id)"
+              :item-key="connectionKey"
+              :estimated-size="30"
+              :scroll-container="groupListRef"
+              :pinned-key="dragConnId"
+              v-slot="{ item: conn }"
+            >
             <div
-              v-for="conn in getVisibleConnectionsForGroup(group.id)"
-              :key="conn.id"
               class="sidebar-conn"
+              draggable="true"
+              :title="t('groups.dragToOther')"
+              @pointerdown="dragGuard.pointerDown"
+              @dragstart.stop="onConnDragStart($event, conn.id)"
               :class="{
                 dragging: dragConnId === conn.id,
                 connecting: connectingConnectionIds?.has(conn.id),
@@ -697,32 +737,16 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               @dblclick="requestConnection(conn.id)"
               @contextmenu="onConnContextMenu($event, conn)"
             >
-              <span
-                class="sidebar-conn-handle"
-                draggable="true"
-                :title="t('groups.dragToOther')"
-                @dragstart.stop="onConnDragStart($event, conn.id)"
-                @click.stop
-                @dblclick.stop
-              >
-                <AppIcon name="grip" size="xs" />
+              <span class="sidebar-conn-mark">
+                <span
+                  v-if="hasConnectionColorTag(conn.colorTag)"
+                  class="sidebar-conn-dot"
+                  :style="{ background: getConnectionTagColor(conn.colorTag) }"
+                  :title="`${t('connections.colorTag')}: ${getConnectionTagLabel(conn.colorTag)}`"
+                  :aria-label="`${t('connections.colorTag')}: ${getConnectionTagLabel(conn.colorTag)}`"
+                  role="img"
+                ></span>
               </span>
-              <span
-                class="sidebar-conn-dot"
-                :class="{ 'has-tag': hasConnectionColorTag(conn.colorTag) }"
-                :style="{ background: getConnectionTagColor(conn.colorTag) }"
-                :title="
-                  hasConnectionColorTag(conn.colorTag)
-                    ? `${t('connections.colorTag')}: ${getConnectionTagLabel(conn.colorTag)}`
-                    : t('connections.colorTagDefault')
-                "
-                :aria-label="
-                  hasConnectionColorTag(conn.colorTag)
-                    ? `${t('connections.colorTag')}: ${getConnectionTagLabel(conn.colorTag)}`
-                    : t('connections.colorTagDefault')
-                "
-                role="img"
-              ></span>
               <span class="sidebar-conn-name" :title="conn.note || conn.name">{{ conn.name }}</span>
               <span v-if="connectingConnectionIds?.has(conn.id)" class="sidebar-conn-spinner" :title="t('connections.connectingTitle')"></span>
               <button v-else-if="connectionErrors?.[conn.id]" type="button" class="ui-icon-btn ui-icon-btn-ghost sidebar-conn-action" :title="connectionErrors[conn.id]" :aria-label="`${t('terminal.retryConnection')}：${connectionErrors[conn.id]}`" @click.stop="requestConnection(conn.id)" @dblclick.stop><AppIcon name="alert-circle" size="xs" :style="{ color: 'var(--danger)' }" /></button>
@@ -751,6 +775,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
                 <AppIcon :name="conn.pinned ? 'pin-fill' : 'pin'" size="xs" />
               </button>
             </div>
+            </VirtualList>
           </div>
         </div>
       </template>
@@ -1049,6 +1074,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
   padding: 0 8px 8px;
 }
 
@@ -1108,34 +1134,8 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   flex: 1;
 }
 
-.group-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 20px;
-  flex-shrink: 0;
-  border-radius: 3px;
-  color: var(--text-secondary);
-  /* Always visible — the handle already reserves layout space */
-  opacity: 0.45;
-  cursor: grab;
-  transition: opacity 0.12s ease, background 0.12s ease;
-}
-
-.group-item:hover .group-drag-handle {
-  opacity: 0.7;
-}
-
-.group-drag-handle:hover {
-  opacity: 1 !important;
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.group-drag-handle:active {
-  cursor: grabbing;
-}
+.group-item[draggable="true"] { cursor: grab; }
+.group-item.dragging { cursor: grabbing; }
 
 .group-name {
   flex: 1;
@@ -1272,6 +1272,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 
 .sidebar-conn.dragging {
+  cursor: grabbing;
   opacity: 0.4;
 }
 
@@ -1312,7 +1313,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   gap: 4px;
   padding: 5px 8px 5px 16px;
   border-radius: 4px;
-  cursor: pointer;
+  cursor: grab;
   transition: background 0.12s ease, color 0.12s ease;
 }
 
@@ -1345,45 +1346,17 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   to { transform: rotate(360deg); }
 }
 
-.sidebar-conn-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 18px;
-  flex-shrink: 0;
-  border-radius: 3px;
-  color: var(--text-secondary);
-  /* Always visible — the handle already reserves layout space */
-  opacity: 0.45;
-  cursor: grab;
-  transition: opacity 0.12s ease, background 0.12s ease;
-}
-
-.sidebar-conn:hover .sidebar-conn-handle {
-  opacity: 0.7;
-}
-
-.sidebar-conn-handle:hover {
-  opacity: 1 !important;
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.sidebar-conn-handle:active {
-  cursor: grabbing;
-}
-
 .sidebar-conn-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--text-secondary);
   flex-shrink: 0;
-  opacity: 0.55;
+  opacity: 1;
   box-shadow: 0 0 0 1px var(--border-color);
   transition: opacity 0.12s ease, box-shadow 0.12s ease;
 }
+.sidebar-conn-mark { display: inline-flex; align-items: center; width: 8px; height: 8px; flex-shrink: 0; }
 
 .sidebar-conn-dot.has-tag {
   opacity: 1;

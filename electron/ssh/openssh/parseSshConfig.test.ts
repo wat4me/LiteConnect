@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { parseKnownHosts, parseProxyJumpSpec, parseSshConfig } from './parseSshConfig'
+import { importParsedHosts } from './importSshConfig'
+import { resolveX11Mode } from '../../../shared/x11Policy'
+import type { CredentialStore } from '../../store/credentialStore'
 
 describe('parseSshConfig', () => {
+  it('preserves an explicit ForwardX11 no when importing into automatic Windows defaults', async () => {
+    const saved: Array<{ x11Mode?: 'auto' | 'off' | 'custom'; x11Forwarding?: boolean }> = []
+    const hosts = parseSshConfig('Host blocked\n User root\n ForwardX11 no\nHost enabled\n User root\n ForwardX11 yes\nHost automatic\n User root\n')
+    const store = {
+      getConnections: () => [],
+      saveConnection: async (profile: typeof saved[number]) => { saved.push(profile); return profile },
+    } as unknown as CredentialStore
+    expect(await importParsedHosts(hosts, store)).toMatchObject({ imported: 3, skipped: 0 })
+    expect(saved.map(profile => resolveX11Mode(profile))).toEqual(['off', 'custom', 'auto'])
+  })
   it('parses hostname, user, port, identity and forwards', () => {
     const hosts = parseSshConfig(`
 Host *

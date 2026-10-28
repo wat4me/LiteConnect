@@ -14,6 +14,7 @@ import {
 } from '../../composables/docker/useDockerContainerLogs'
 import type { DockerLogEntry, DockerLogTail, DockerTransportErrorCode } from '../../env.d'
 import AppIcon from '../icons/AppIcon.vue'
+import VirtualList from '../common/VirtualList.vue'
 
 const props = defineProps<{
   entries: DockerLogEntry[]
@@ -35,8 +36,11 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const logScrollEl = ref<HTMLElement | null>(null)
+const virtualListRef = ref<{ scrollToIndex: (index: number) => void } | null>(null)
+const logKey = (line: DockerLogEntry) => String(line.sequence)
 const logSearch = ref('')
 const logActiveMatch = ref(0)
+let activeMatchSequence: number | null = null
 const logCopyFeedback = ref<'idle' | 'ok' | 'fail'>('idle')
 const logTailOptions: DockerLogTail[] = [100, 200, 500, 1000]
 let logCopyTimer: ReturnType<typeof setTimeout> | null = null
@@ -100,6 +104,7 @@ function goPrevLogMatch() {
     logActiveMatch.value,
     logMatchLineIndexes.value.length,
   )
+  rememberActiveMatch()
 }
 
 function goNextLogMatch() {
@@ -107,13 +112,21 @@ function goNextLogMatch() {
     logActiveMatch.value,
     logMatchLineIndexes.value.length,
   )
+  rememberActiveMatch()
 }
 
-function scrollToActiveLogMatch() {
+function rememberActiveMatch() {
+  activeMatchSequence = props.entries[logActiveLineIndex.value]?.sequence ?? null
+}
+
+async function scrollToActiveLogMatch() {
   const indexes = logMatchLineIndexes.value
   if (!indexes.length) return
   const lineIdx = indexes[logActiveMatch.value]
   if (lineIdx == null) return
+  virtualListRef.value?.scrollToIndex(lineIdx)
+  await nextTick()
+  if (logActiveLineIndex.value !== lineIdx || !props.active) return
   const el = logScrollEl.value?.querySelector(
     `[data-log-line="${lineIdx}"]`,
   ) as HTMLElement | null
@@ -124,12 +137,15 @@ watch(
   logSearch,
   () => {
     logActiveMatch.value = 0
+    activeMatchSequence = null
     if (hasLogQuery.value) emit('set-auto-scroll', false)
   },
 )
 
 watch(logMatchLineIndexes, (indexes) => {
-  logActiveMatch.value = Math.min(logActiveMatch.value, Math.max(0, indexes.length - 1))
+  const retained = activeMatchSequence === null ? -1 : indexes.findIndex(index => props.entries[index]?.sequence === activeMatchSequence)
+  logActiveMatch.value = retained >= 0 ? retained : Math.min(logActiveMatch.value, Math.max(0, indexes.length - 1))
+  rememberActiveMatch()
 })
 
 watch(
@@ -159,7 +175,12 @@ function scrollLogsToBottom() {
   if (!el) return
   logViewportWidth = el.clientWidth
   logViewportHeight = el.clientHeight
+  virtualListRef.value?.scrollToIndex(props.entries.length - 1)
   el.scrollTop = el.scrollHeight
+}
+
+function onRangeResized() {
+  if (props.active && props.autoScroll && !hasLogQuery.value) scrollLogsToBottom()
 }
 
 function onLogScroll() {
@@ -356,9 +377,18 @@ onBeforeUnmount(() => {
         <div v-if="!entries.length" class="logs-empty">
           {{ t('docker.logs.empty') }}
         </div>
+        <VirtualList
+          ref="virtualListRef"
+          :items="entries"
+          :item-key="logKey"
+          :estimated-size="16"
+          :scroll-container="logScrollEl"
+          :preserve-anchor="!autoScroll && !hasLogQuery"
+          role="presentation"
+          @range-resized="onRangeResized"
+          v-slot="{ index: idx }"
+        >
         <div
-          v-for="(line, idx) in entries"
-          :key="line.sequence"
           class="log-line"
           :class="{
             'log-line-hit': hasLogQuery && logMatchLineSet.has(idx),
@@ -369,6 +399,7 @@ onBeforeUnmount(() => {
             v-if="seg.kind === 'match'"
             class="log-hit"
           >{{ seg.text }}</span><span v-else>{{ seg.text }}</span></template></div>
+        </VirtualList>
       </div>
       <button
         v-if="!autoScroll && entries.length"
@@ -521,6 +552,7 @@ onBeforeUnmount(() => {
 }
 
 .logs-scroll {
+  overflow-anchor: none;
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -542,6 +574,7 @@ onBeforeUnmount(() => {
 }
 
 .log-line {
+  min-height: 1.45em;
   white-space: pre-wrap;
   word-break: break-word;
 }

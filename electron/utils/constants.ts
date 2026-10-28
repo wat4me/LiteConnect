@@ -28,7 +28,7 @@ export const DEFAULT_AI_SYSTEM_PROMPT = t('ai.defaultSystemPrompt')
 export const SFTP_EDITOR_MAX_BYTES = 5 * 1024 * 1024
 
 /** Max clipboard text size written via IPC (chars ≈ bytes for ASCII; UTF-16 may be larger). */
-export const CLIPBOARD_MAX_CHARS = 2 * 1024 * 1024
+export { CLIPBOARD_MAX_CHARS } from '../../shared/clipboard'
 
 /** Max remote command length for ssh:exec. */
 export const SSH_EXEC_MAX_COMMAND_CHARS = 32 * 1024

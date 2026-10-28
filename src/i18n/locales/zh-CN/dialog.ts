@@ -39,5 +39,6 @@ export default {
     resetPassword: '去重设密码',
     requiredEmpty: '内容不能为空',
     invalidInput: '输入无效',
+    textStats: '{lines} 行 · {chars} 字符',
   },
 } as const

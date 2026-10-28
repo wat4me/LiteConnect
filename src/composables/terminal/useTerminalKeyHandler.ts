@@ -10,8 +10,8 @@ export function useTerminalKeyHandler(deps: {
   getFontSize: () => number
   setFontSize: (size: number) => void
   toggleSearch: () => void
-  /** Paste with optional multi-line confirm */
-  pasteText?: (text: string) => void | Promise<void>
+  /** Shared clipboard read, limit feedback and paste confirmation. */
+  pasteFromClipboard: () => Promise<void>
   /** Bare PageUp/PageDown on the normal buffer. Fired once per app run. */
   onBarePageKey?: () => void
 }) {
@@ -42,17 +42,7 @@ export function useTerminalKeyHandler(deps: {
 
     if (ctrlOrCmd && event.key === 'v') {
       event.preventDefault()
-      window.LiteConnect
-        .clipboardReadText()
-        .then((text: string) => {
-          if (!text || !terminal) return
-          if (deps.pasteText) {
-            void deps.pasteText(text)
-          } else {
-            terminal.paste(text)
-          }
-        })
-        .catch(() => {})
+      void deps.pasteFromClipboard()
       return false
     }
 

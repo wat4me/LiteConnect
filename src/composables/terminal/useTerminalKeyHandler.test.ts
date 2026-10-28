@@ -13,6 +13,7 @@ function makeHandler() {
       setFontSize(size)
     },
     toggleSearch,
+    pasteFromClipboard: vi.fn(async () => {}),
   })
   return { handleKey, setFontSize, toggleSearch, getFontSize: () => fontSize }
 }
@@ -67,6 +68,7 @@ describe('useTerminalKeyHandler font zoom', () => {
       getFontSize: () => 14,
       setFontSize: vi.fn(),
       toggleSearch: vi.fn(),
+      pasteFromClipboard: vi.fn(async () => {}),
       onBarePageKey,
     })
     expect(handleKey(keydown({ key: 'PageDown' }))).toBe(true)
@@ -82,6 +84,7 @@ describe('useTerminalKeyHandler font zoom', () => {
       getFontSize: () => 14,
       setFontSize: vi.fn(),
       toggleSearch: vi.fn(),
+      pasteFromClipboard: vi.fn(async () => {}),
       onBarePageKey,
     }
     const alternate = useTerminalKeyHandler({
@@ -104,6 +107,7 @@ describe('useTerminalKeyHandler font zoom', () => {
       getFontSize: () => 24,
       setFontSize,
       toggleSearch: vi.fn(),
+      pasteFromClipboard: vi.fn(async () => {}),
     })
     handleKey(keydown({ key: '=', code: 'Equal', ctrlKey: true }))
     expect(setFontSize).not.toHaveBeenCalled()

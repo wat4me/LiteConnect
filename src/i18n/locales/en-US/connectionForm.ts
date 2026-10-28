@@ -1,6 +1,12 @@
 export default {
   connectionForm: {
-    graphicalForwarding: 'Enable graphical forwarding',
+    graphicalForwarding: 'Graphical forwarding',
+    x11Automatic: 'Automatic (default)',
+    x11AutomaticHintMac: 'Detects and starts installed XQuartz using the current user’s display authentication. Install XQuartz before first use. Remote graphical applications open as desktop windows on your Mac.',
+    x11AutomaticHintLinux: 'Reuses the current Linux desktop’s Xorg or XWayland and display authentication. No separate display server is started. Missing display sessions are explained while ordinary terminal connections remain available.',
+    x11Off: 'Off',
+    x11Custom: 'Custom display server',
+    x11AutomaticHint: 'Starts the bundled display server when connecting, with no separate installation or checkbox required. Linux graphical installers open as desktop windows. The remote server must allow X11 forwarding and have xauth installed.',
     graphicalHint:
       'Open remote graphical programs on this computer, such as xclock or gedit. The protocol is X11, at 127.0.0.1:6000 by default. If the local display is not ready, the display server starts automatically from Settings (VcXsrv or Xming on Windows). Set the path under Settings → Connections.',
     goInstallX11: 'Install in Settings',

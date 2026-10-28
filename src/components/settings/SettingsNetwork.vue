@@ -14,7 +14,10 @@ const { t } = useI18n()
 
 const x11ResolvedPath = ref<string | null>(null)
 const x11Supported = ref(true)
-const bundledInstallerAvailable = ref(false)
+const x11Bundled = ref(false)
+const x11Platform = ref('')
+const x11DisplayAddress = ref('')
+const x11DependencyMissing = ref<string | undefined>()
 const x11Testing = ref(false)
 const x11KillingResidual = ref(false)
 const x11TestResult = ref<{
@@ -36,6 +39,10 @@ async function refreshX11Status() {
     if (request === x11StatusRequest) {
       x11ResolvedPath.value = st.resolvedExecutablePath
       x11Supported.value = st.supported
+      x11Bundled.value = st.bundled
+      x11Platform.value = st.platform
+      x11DisplayAddress.value = st.displayAddress || ''
+      x11DependencyMissing.value = st.dependencyMissing
     }
   } catch {
     if (request === x11StatusRequest) x11ResolvedPath.value = null
@@ -50,30 +57,9 @@ async function pickX11Executable() {
   }
 }
 
-async function refreshBundledInstallerStatus() {
-  try {
-    bundledInstallerAvailable.value = (await window.LiteConnect.getBundledX11InstallerStatus()).available
-  } catch {
-    bundledInstallerAvailable.value = false
-  }
-}
-
-async function installBundledX11Server() {
-  try {
-    const result = await window.LiteConnect.installBundledX11Server()
-    if (result.started) {
-      ElMessage.success(t('settingsNetwork.installerStarted'))
-    } else if (result.cancelled) {
-      ElMessage.info(t('settingsNetwork.installerCancelled'))
-    }
-  } catch (err: any) {
-    // Main process already localizes; fall back if message is missing.
-    const message =
-      typeof err?.message === 'string' && err.message.trim() && err.message !== 'Error'
-        ? err.message
-        : t('settingsNetwork.installerOpenFailed')
-    ElMessage.error(message)
-  }
+async function openX11SetupGuide() {
+  try { await window.LiteConnect.openX11SetupGuide() }
+  catch (error) { ElMessage.error(error instanceof Error ? error.message : String(error)) }
 }
 
 async function testX11Server() {
@@ -82,13 +68,16 @@ async function testX11Server() {
   x11TestResult.value = null
   try {
     const result = await window.LiteConnect.testX11Server({
+      automatic: true,
       executablePath: props.draft.x11ServerPath,
       host: '127.0.0.1',
       display: 0,
     })
     await refreshX11Status()
     if (result.ready) {
-      const summary = result.started
+      const summary = result.displayAddress
+        ? t('settingsNetwork.testX11DisplayReady', { display: result.displayAddress })
+        : result.started
         ? t('settingsNetwork.testX11OkStarted', { host: result.host, port: result.port })
         : t('settingsNetwork.testX11OkAlready', { host: result.host, port: result.port })
       const detail = result.executablePath
@@ -165,7 +154,6 @@ function clearX11Path() {
 
 onMounted(() => {
   void refreshX11Status()
-  void refreshBundledInstallerStatus()
   window.addEventListener('focus', refreshX11Status)
 })
 
@@ -199,6 +187,7 @@ watch(
           <span class="toggle-knob"></span>
         </button>
       </div>
+      <p v-if="draft.latencyEnabled" class="settings-hint">{{ t('settingsNetwork.latencyBackgroundHint') }}</p>
       <div v-if="draft.latencyEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.interval') }}</span>
         <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.latencyIntervalSec = Math.max(1, draft.latencyIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
@@ -285,11 +274,20 @@ watch(
       <div class="settings-hint">
         {{ t('settingsNetwork.autoStartHint') }}
       </div>
+      <div v-if="x11Bundled" class="settings-hint">{{ t('settingsNetwork.bundledReady') }}</div>
       <div v-if="!x11Supported" class="settings-hint warn">
         {{ t('settingsNetwork.autoStartUnsupported') }}
       </div>
-      <div class="settings-label" style="margin-top: 12px">{{ t('settingsNetwork.serverPath') }}</div>
-      <div class="path-row">
+      <div v-if="x11Platform === 'darwin'" class="settings-hint">{{ t('settingsNetwork.macX11Hint') }}</div>
+      <div v-if="x11Platform === 'linux'" class="settings-hint">{{ t('settingsNetwork.linuxX11Hint') }}</div>
+      <div v-if="x11DependencyMissing === 'xquartz'" class="settings-hint warn">
+        {{ t('settingsNetwork.xquartzMissing') }}
+        <button type="button" class="ui-btn ui-btn-sm" @click="openX11SetupGuide">{{ t('settingsNetwork.getXQuartz') }}</button>
+      </div>
+      <div v-if="x11DependencyMissing === 'desktop'" class="settings-hint warn">{{ t('settingsNetwork.desktopMissing') }}</div>
+      <div v-if="x11DisplayAddress" class="settings-hint">{{ t('settingsNetwork.systemDisplayDetected', { display: x11DisplayAddress }) }}</div>
+      <div v-if="x11Platform === 'win32'" class="settings-label" style="margin-top: 12px">{{ t('settingsNetwork.serverPath') }}</div>
+      <div v-if="x11Platform === 'win32'" class="path-row">
         <input
           v-model="draft.x11ServerPath"
           class="settings-input"
@@ -299,22 +297,11 @@ watch(
         <button type="button" class="ui-btn" @click="pickX11Executable">{{ t('common.browse') }}</button>
         <button type="button" class="ui-btn" :disabled="!draft.x11ServerPath" @click="clearX11Path">{{ t('common.clear') }}</button>
       </div>
-      <div v-if="x11ResolvedPath" class="settings-hint">
+      <div v-if="x11ResolvedPath && x11Platform === 'win32'" class="settings-hint">
         {{ t('settingsNetwork.willUse', { path: x11ResolvedPath }) }}
       </div>
-      <div v-else class="settings-hint warn">
+      <div v-else-if="x11Platform === 'win32'" class="settings-hint warn">
         {{ t('settingsNetwork.notFound') }}
-      </div>
-      <div v-if="!x11ResolvedPath" class="x11-install-help">
-        <span>{{ t('settingsNetwork.installHint') }}</span>
-        <button
-          type="button"
-          class="ui-btn ui-btn-sm"
-          :disabled="!bundledInstallerAvailable"
-          @click="installBundledX11Server"
-        >
-          {{ t('settingsNetwork.installVcXsrv') }}
-        </button>
       </div>
 
       <div class="settings-label" style="margin-top: 14px">{{ t('settingsNetwork.testX11') }}</div>

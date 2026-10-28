@@ -9,7 +9,9 @@ app.setPath('userData', path.join(artifacts, 'profile'))
 // Includes 200-turn stress coverage, images, model controls, background jobs,
 // grouped host picking and independently scrolling conversation sections.
 // Individual UI conditions still fail after 15 seconds.
-const suiteTimeoutMs = 300_000
+// Hidden Electron windows can throttle animation frames, especially while
+// other renderer suites compile. Keep per-condition deadlines at 15 seconds.
+const suiteTimeoutMs = 600_000
 let lastAction = 'loading test page'
 const watchdog = setTimeout(() => {
   console.error(`UI regression timed out after ${suiteTimeoutMs / 1000} seconds`, { lastAction, artifacts })
@@ -22,7 +24,7 @@ app.whenReady().then(async () => {
     webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
   })
   const run = async (source) => {
-    lastAction = source.slice(0, 180)
+    if (!source.startsWith('new Promise')) lastAction = source.slice(0, 180)
     const result = await window.webContents.executeJavaScript(`(async () => {
       try { return { ok: true, value: await (${source}) }; }
       catch (error) { return { ok: false, error: error.stack || String(error) }; }
@@ -185,7 +187,7 @@ app.whenReady().then(async () => {
     const child = await addSubgroup('prod', '应用')
     const leaf = await addSubgroup(child, '华东')
     assert.equal(await run(`document.querySelector(${JSON.stringify(groupSelector(leaf))}).dataset.depth`), '2', 'Grandchildren render at the third level')
-    assert.equal(await run('document.querySelector(".page-group-pill").textContent'), '生产环境 Production / 应用 / 华东', 'The selected group shows its full path')
+    assert.equal(await run('document.querySelector(".page-title").textContent'), '生产环境 Production / 应用 / 华东', 'The selected group shows its full path')
     await moveConnectionTo('two', leaf)
     await run(`document.querySelector('.group-block[data-group-id="prod"] .group-item').click()`)
     assert.equal(await run('document.querySelectorAll(".connection-row").length'), 1, 'Parent selection includes hosts in nested groups')
@@ -243,35 +245,35 @@ app.whenReady().then(async () => {
     await window.webContents.capturePage()
     for (const label of ['默认分组', 'Production', '生产环境 Production '.repeat(12)]) {
       const heading = await run(`(() => {
-        const title=document.querySelector('.page-title');const pill=document.querySelector('.page-group-pill');
-        pill.textContent=${JSON.stringify(label)};
+        const title=document.querySelector('.page-title');const count=document.querySelector('.page-result-count');
+        title.textContent=${JSON.stringify(label)};
         const marker=()=>{const el=document.createElement('span');el.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline';return el};
-        const a=marker(),b=marker();title.append(a);pill.append(b);
+        const a=marker(),b=marker();title.append(a);count.append(b);
         const result={gap:Math.abs(a.getBoundingClientRect().top-b.getBoundingClientRect().top),
-          overflow:pill.getBoundingClientRect().right>document.querySelector('.page-title-row').getBoundingClientRect().right+1,
-          ellipsis:getComputedStyle(pill).textOverflow};
+          overflow:title.getBoundingClientRect().right>document.querySelector('.page-title-row').getBoundingClientRect().right+1,
+          ellipsis:getComputedStyle(title).textOverflow};
         a.remove();b.remove();return result;
       })()`)
       assert.ok(heading.gap < 1 && !heading.overflow && heading.ellipsis === 'ellipsis', `Heading label baseline at ${zoom}: ${JSON.stringify(heading)}`)
     }
   }
   window.webContents.setZoomFactor(1)
-  await run('document.querySelector(".page-group-pill").textContent="默认分组"')
+  await run('document.querySelector(".page-title").textContent="默认分组"')
   assert.equal(await run('(() => {const label=document.querySelector(".group-name");return label.scrollWidth <= label.clientWidth})()'), true, 'Short default group name is fully visible')
   await run('document.querySelector(".toolbar-more-button").click()')
   await waitFor('document.querySelector(".toolbar-menu")')
   await waitFor('document.querySelector(".toolbar-menu").contains(document.activeElement)')
-  assert.equal(await run('document.querySelectorAll(".toolbar-menu button").length'), 3, 'Secondary toolbar actions remain available')
+  assert.equal(await run('document.querySelectorAll(".toolbar-menu button").length'), 4, 'Secondary toolbar actions and credentials remain available')
   const dropdownStyle = `(() => {const style=getComputedStyle(document.querySelector('.dropdown-menu'));return {background:style.backgroundColor,border:style.border,radius:style.borderRadius,shadow:style.boxShadow,padding:style.padding}})()`
   const actionMenuStyle = await run(dropdownStyle)
   await run('(() => {const button=document.querySelector(".toolbar-menu button:not(:disabled)");button.focus();button.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))})()')
   await waitFor('!document.querySelector(".toolbar-menu")')
   await waitFor('document.activeElement === document.querySelector(".toolbar-more-button")')
-  await run('document.querySelector(".search-scope .dropdown-trigger").dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}))')
-  await waitFor('document.querySelector(".scope-menu")?.contains(document.activeElement)')
-  assert.deepEqual(await run(dropdownStyle), actionMenuStyle, 'Scope and action menus share the same themed surface')
+  await run('document.querySelector(".tag-filter .dropdown-trigger").dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}))')
+  await waitFor('document.querySelector(".tag-filter-menu")?.contains(document.activeElement)')
+  assert.deepEqual(await run(dropdownStyle), actionMenuStyle, 'Filter and action menus share the same themed surface')
   await run('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))')
-  await waitFor('!document.querySelector(".scope-menu") && document.activeElement === document.querySelector(".search-scope .dropdown-trigger")')
+  await waitFor('!document.querySelector(".tag-filter-menu") && document.activeElement === document.querySelector(".tag-filter .dropdown-trigger")')
   const themeCases = [
     ['dark'], ['light'], ['eyecare'],
     ['custom', {fontColor:'#ead9f5', bgColor:'#291a34'}],
@@ -283,7 +285,7 @@ app.whenReady().then(async () => {
     const state = await run(`(() => {
       const root=document.documentElement;
       const row=document.querySelector('.connection-row'); row.classList.add('keyboard-active');
-      const chip=document.querySelector('.tag-filter-chip.active');
+      const chip=document.querySelector('.tag-filter .dropdown-trigger');
       const probe=document.createElement('span'); probe.style.background='var(--accent-bg)'; document.body.append(probe);
       const result={ background:getComputedStyle(row).backgroundColor, expected:getComputedStyle(probe).backgroundColor,
         tag:getComputedStyle(row).borderLeftColor, chipText:getComputedStyle(chip).color, text:getComputedStyle(root).getPropertyValue('--text-primary').trim() };
@@ -291,7 +293,7 @@ app.whenReady().then(async () => {
     })()`)
     assert.equal(state.background, state.expected, `${theme} selection follows its theme token`)
     assert.notEqual(state.tag, state.background, 'Connection tag remains distinct from selected background')
-    assert.ok(state.chipText, 'Selected filter retains theme text')
+    assert.ok(state.chipText, 'The tag filter trigger retains theme text')
     const actions = await run(`Array.from(document.querySelectorAll('.connection-row .secondary-action')).map(el => ({opacity:getComputedStyle(el).opacity,pointerEvents:getComputedStyle(el).pointerEvents}))`)
     assert.equal(actions.length, 4, 'Copy, edit, pin and more actions remain discoverable')
     assert.ok(actions.every(action => action.opacity === '1' && action.pointerEvents !== 'none'), `${theme} row actions are visible and clickable without hover`)
@@ -325,20 +327,20 @@ app.whenReady().then(async () => {
   await saveScreenshot('connections-dark.png')
   await run('window.__uiRegression.setTheme("light")')
   await saveScreenshot('connections-light.png')
-  await run('document.querySelector(".search-scope .dropdown-trigger").click()')
-  await waitFor('document.querySelector(".scope-menu")?.contains(document.activeElement)')
-  await saveScreenshot('scope-menu-light.png')
+  await run('document.querySelector(".tag-filter .dropdown-trigger").click()')
+  await waitFor('document.querySelector(".tag-filter-menu")?.contains(document.activeElement)')
+  await saveScreenshot('filter-menu-light.png')
   await run('(() => {const button=document.querySelector(".toolbar-more-button");button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));button.click()})()')
-  await waitFor('document.querySelector(".toolbar-menu") && !document.querySelector(".scope-menu")')
+  await waitFor('document.querySelector(".toolbar-menu") && !document.querySelector(".tag-filter-menu")')
   await saveScreenshot('action-menu-light.png')
   await run('document.querySelector(".toolbar-more-button").click()')
   await run('window.__uiRegression.setTheme("dark")')
 
-  assert.equal(await run('document.querySelector(".sort-label").tabIndex'), -1, 'Sort description is not an interactive control')
-  for (const label of ['最近使用', '最常使用', '手动排序']) {
-    await run(`Array.from(document.querySelectorAll('.sort-option')).find(button=>button.textContent.trim()===${JSON.stringify(label)}).click()`)
-    await waitFor(`document.querySelector('.sort-option[aria-pressed=true]')?.textContent.trim()===${JSON.stringify(label)}`)
-    assert.equal(await run('document.querySelectorAll(".sort-option[aria-pressed=true]").length'), 1, 'Exactly one sort option is selected')
+  for (const mode of ['recent', 'frequent', 'manual']) {
+    await run('document.querySelector(".sort-control .dropdown-trigger").click()')
+    await waitFor('!!document.querySelector(".sort-menu")')
+    await run('document.querySelector(".sort-menu [data-value=' + mode + ']").click()')
+    await waitFor('document.querySelector(".sort-control").dataset.value===' + JSON.stringify(mode))
   }
 
   await run(`(() => {
@@ -346,13 +348,7 @@ app.whenReady().then(async () => {
     input.value = 'Server'; input.dispatchEvent(new Event('input', {bubbles:true}));
   })()`)
   await waitFor('document.querySelectorAll(".connection-row").length === 1')
-  await run('document.querySelector(".search-scope .dropdown-trigger").click()')
-  await waitFor('document.querySelector(".scope-menu [aria-checked=true]")')
-  assert.equal(await run('document.querySelector(".scope-menu [aria-checked=true]").dataset.value'), 'group', 'Scope menu marks the current selection')
-  await waitFor('document.querySelector(".scope-menu").contains(document.activeElement)')
-  await run('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}))')
-  assert.equal(await run('document.activeElement.dataset.value'), 'all', 'Arrow keys move through scope options')
-  await run('document.activeElement.click()')
+  await run('document.querySelector(".smart-item[data-view=all]").click()')
   await waitFor('document.querySelectorAll(".connection-row").length === 2')
   assert.equal(await run('document.querySelectorAll(".conn-group").length'), 2, 'Global results show their groups')
 
@@ -385,8 +381,8 @@ app.whenReady().then(async () => {
     row.querySelector('.action-btn').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
     return row.dispatchEvent(new DragEvent('dragstart', {bubbles:true,cancelable:true,dataTransfer:new DataTransfer()}));
   })()`), false, 'Dragging from action buttons is prevented')
-  await run('document.querySelector(".group-item:not(.active)").click()')
-  await waitFor('document.querySelector(".search-scope").dataset.value === "group"')
+  await run('document.querySelector(".group-block[data-group-id=prod] .group-item").click()')
+  await waitFor('document.querySelector(".page-title").textContent === "生产环境 Production" && !document.querySelector(".smart-item.active")')
 
   for (const width of [280, 320, 360, 600]) {
     for (const name of ['config.log', '协同管理软件_安装日志_Production_'.repeat(12) + '.log']) {

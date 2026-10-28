@@ -54,8 +54,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   setX11ServerPath: (path: string) => ipcRenderer.invoke('settings:setX11ServerPath', path),
   getX11ServerStatus: (draftExecutablePath?: string) =>
     ipcRenderer.invoke('settings:getX11ServerStatus', draftExecutablePath),
-  testX11Server: (opts?: { executablePath?: string; host?: string; display?: number }) =>
+  testX11Server: (opts?: { executablePath?: string; host?: string; display?: number; automatic?: boolean }) =>
     ipcRenderer.invoke('settings:testX11Server', opts),
+  openX11SetupGuide: () => ipcRenderer.invoke('settings:openX11SetupGuide'),
   killResidualX11Process: (opts?: { pid?: number; port?: number }) =>
     ipcRenderer.invoke('settings:killResidualX11Process', opts),
   getBundledX11InstallerStatus: () => ipcRenderer.invoke('settings:getBundledX11InstallerStatus'),

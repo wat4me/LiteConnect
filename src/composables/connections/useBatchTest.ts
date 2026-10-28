@@ -10,6 +10,8 @@ export interface TestStatus {
   error?: string
 }
 
+const IDLE_TEST_STATUS: TestStatus = Object.freeze({ state: 'idle' })
+
 type FilteredConnectionsSource =
   | Ref<Connection[]>
   | ComputedRef<Connection[]>
@@ -104,7 +106,7 @@ export function useBatchTest(filteredConnections: FilteredConnectionsSource) {
   }
 
   function getTestStatus(connectionId: string): TestStatus {
-    return testStatuses.value.get(connectionId) || { state: 'idle' }
+    return testStatuses.value.get(connectionId) || IDLE_TEST_STATUS
   }
 
   onBeforeUnmount(() => {

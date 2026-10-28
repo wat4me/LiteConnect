@@ -133,6 +133,23 @@ describe('nested group connection scope', () => {
 })
 
 describe('connection search scope', () => {
+  it('switches from smart views to all connections without losing the search, then returns to the selected group', () => {
+    const list = setup()
+    list.onSelectSmartView('pinned')
+    list.searchQuery.value = 'web'
+    list.expandSearchToAllGroups()
+    expect(list.smartView.value).toBeNull()
+    expect(list.searchScope.value).toBe('all')
+    expect(list.searchQuery.value).toBe('web')
+    expect(list.activeGroupName.value).toBe('connections.allConnections')
+    expect(list.groupConnectionTotal.value).toBe(3)
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['one', 'two'])
+    expect(list.reorderDisabled.value).toBe(true)
+    list.onSelectGroup('production')
+    expect(list.activeGroupName.value).toBe('生产')
+    expect(list.groupConnectionTotal.value).toBe(2)
+    expect(list.filteredConnections.value.map(c => c.id)).toEqual(['one'])
+  })
   it('searches the current group by default and includes other groups in all scope', () => {
     const list = setup()
     list.searchQuery.value = ' web '

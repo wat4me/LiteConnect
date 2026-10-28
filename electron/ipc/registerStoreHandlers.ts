@@ -13,6 +13,7 @@ import {
   isValidClipboardText,
 } from '../utils/validation'
 import { CLIPBOARD_MAX_CHARS } from '../utils/constants'
+import { validateClipboardRead } from '../../shared/clipboard'
 import { t } from '../i18n'
 import { registerSettingsHandlers } from './registerSettingsHandlers'
 import { registerSnippetHandlers } from './registerSnippetHandlers'
@@ -394,10 +395,7 @@ export function registerStoreHandlers(
   ipcMain.handle('clipboard:readText', () => {
     const text = clipboard.readText()
     if (typeof text !== 'string') return ''
-    if (text.length > CLIPBOARD_MAX_CHARS) {
-      return text.slice(0, CLIPBOARD_MAX_CHARS)
-    }
-    return text
+    return validateClipboardRead(text)
   })
 
   ipcMain.handle('clipboard:writeText', (_event, text: string) => {

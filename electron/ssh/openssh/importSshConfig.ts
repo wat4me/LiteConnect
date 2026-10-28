@@ -79,6 +79,7 @@ export async function importParsedHosts(
         jumpPort,
         jumpUsername,
         x11Forwarding: host.forwardX11 === true,
+        x11Mode: host.forwardX11 === false ? 'off' : host.forwardX11 === true ? 'custom' : undefined,
         localForwards: host.localForwards,
         remoteForwards: host.remoteForwards,
         dynamicForwards: host.dynamicForwards,

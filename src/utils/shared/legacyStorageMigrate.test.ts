@@ -16,6 +16,14 @@ afterEach(() => {
 })
 
 describe('migrateDurableLocalStorage', () => {
+  it('skips IPC on subsequent launches when no legacy data remains', async () => {
+    const migrateRendererState = vi.fn()
+    vi.stubGlobal('localStorage', createStorage({ 'LiteConnect.locale': 'en-US' }))
+    vi.stubGlobal('window', { LiteConnect: { migrateRendererState } })
+    await migrateDurableLocalStorage()
+    expect(migrateRendererState).not.toHaveBeenCalled()
+  })
+
   it('moves durable renderer records to SQLite through the preload bridge', async () => {
     const storage = createStorage({
       'LiteConnect.dbQueryDrafts.v1': '{"version":1,"drafts":[]}',

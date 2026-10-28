@@ -17,7 +17,8 @@ import {
   probeX11Port,
 } from './x11/x11'
 import { loadSsh2 } from './loadSsh2'
-import { resolveConnectionX11, recheckConnectionX11 } from './connectionX11'
+import { resolveConnectionX11, recheckConnectionX11, type PreparedX11 } from './connectionX11'
+import { X11_AUTH_PROTOCOL } from './x11/x11Auth'
 import { attachKeyboardInteractive, targetConnectConfig, jumpConnectConfig } from './connectionAuth'
 import { disposeSshChannel, disposeSshClient } from './clientCleanup'
 import { t } from '../i18n'
@@ -43,10 +44,10 @@ export class ConnectionService {
   constructor(private deps: ConnectionServiceDeps) {}
 
   async connect(connection: Connection, callbacks: SSHCallbacks): Promise<string> {
-    const { useX11, x11Notice } = await resolveConnectionX11(connection)
+    const { useX11, x11Notice, prepared } = await resolveConnectionX11(connection, callbacks.signal)
     const sessionId = uuidv4()
     const epoch = this.deps.bumpSessionEpoch(sessionId)
-    return this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch)
+    return this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch, prepared)
   }
 
   async reconnect(
@@ -99,8 +100,8 @@ export class ConnectionService {
     callbacks: SSHCallbacks,
     epoch: number,
   ): Promise<string> {
-    return resolveConnectionX11(connection).then(({ useX11, x11Notice }) =>
-      this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch),
+    return resolveConnectionX11(connection, callbacks.signal).then(({ useX11, x11Notice, prepared }) =>
+      this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch, prepared),
     )
   }
 
@@ -116,6 +117,7 @@ export class ConnectionService {
     useX11: boolean,
     x11Notice: string | undefined,
     epoch: number,
+    prepared?: PreparedX11,
   ): Promise<string> {
     const { Client } = await loadSsh2()
     const hasJump = !!(connection.jumpHost && connection.jumpHost.trim())
@@ -202,7 +204,7 @@ export class ConnectionService {
       // Mutable: may drop X11 after SSH auth if local display dies during handshake
       let activeUseX11 = useX11
       if (activeUseX11) {
-        attachX11Forwarding(client, sessionId, connection, callbacks, x11Sockets)
+        attachX11Forwarding(client, sessionId, prepared?.connection ?? connection, callbacks, x11Sockets, prepared?.auth, prepared?.endpoint)
       }
 
       client.on('ready', () => {
@@ -257,7 +259,7 @@ export class ConnectionService {
         const openShell = (withX11: boolean) => {
           if (settled || !this.isLiveEpoch(sessionId, epoch)) return
           try {
-            if (withX11) client.shell(ptyOptions, { x11: true }, handleShell)
+            if (withX11) client.shell(ptyOptions, { x11: prepared ? { cookie: prepared.auth.remoteCookie, protocol: X11_AUTH_PROTOCOL, screen: prepared.screen ?? 0 } : true }, handleShell)
             else client.shell(ptyOptions, handleShell)
           } catch (e: any) {
             if (shellOpenTimeout) {
@@ -281,7 +283,7 @@ export class ConnectionService {
             openShell(false)
             return
           }
-          const result = await recheckConnectionX11(connection)
+          const result = await recheckConnectionX11(connection, prepared)
           if (result.ready) {
             if (result.notice) activeX11Notice = result.notice
             openShell(true)
@@ -316,9 +318,9 @@ export class ConnectionService {
               shellX11FallbackTried = true
               activeUseX11 = false
               destroyX11Sockets(x11Sockets)
-              const x11Host = getX11Host(connection)
-              const x11Port = 6000 + getX11Display(connection)
-              const localXReady = await probeX11Port(x11Host, x11Port)
+              const x11Host = getX11Host(prepared?.connection ?? connection)
+              const x11Port = 6000 + getX11Display(prepared?.connection ?? connection)
+              const localXReady = prepared ? (await recheckConnectionX11(connection, prepared)).ready : await probeX11Port(x11Host, x11Port)
               if (settled || !this.isLiveEpoch(sessionId, epoch)) return
               const notice = localXReady
                 ? t('x11.shellRejected', { detail: msg })

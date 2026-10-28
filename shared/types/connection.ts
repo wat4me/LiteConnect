@@ -25,6 +25,7 @@ export interface SshConnectProfile {
   password: string
   keepaliveInterval?: number
   x11Forwarding?: boolean
+    x11Mode?: 'auto' | 'off' | 'custom'
   x11Host?: string
   x11Display?: number
   privateKey?: string

@@ -10,7 +10,7 @@ export default {
     scrollbackDefault: '5000（默认）',
     scrollbackHint: '越大越占内存；右键菜单可「清除回滚缓冲」',
     pasteConfirm: '多行 / 超长粘贴前确认',
-    pasteConfirmHint: '关闭后完全不确认；开启时多行始终确认，单行超过下方阈值才确认',
+    pasteConfirmHint: '开启时多行始终确认，单行超过下方阈值才确认；关闭后仅达到 64 KiB 的超长内容仍会提示',
     pasteConfirmThreshold: '单行粘贴确认阈值（字符）',
     pasteConfirmThresholdDefault: '{n}（默认）',
     pasteConfirmThresholdHint: '多行始终确认；仅单行文本超过该字符数时弹出确认',

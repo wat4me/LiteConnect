@@ -10,7 +10,7 @@ export default {
     scrollbackDefault: '5000 (default)',
     scrollbackHint: 'More lines use more memory. The context menu can clear the scrollback.',
     pasteConfirm: 'Confirm before a multi-line or very long paste',
-    pasteConfirmHint: 'When off, nothing is confirmed. When on, multi-line pastes are always confirmed, and a single line is confirmed only when it exceeds the threshold below.',
+    pasteConfirmHint: 'When on, multi-line pastes are always confirmed, and single lines are confirmed above the threshold below. When off, large pastes of 64 KiB or more still require confirmation.',
     pasteConfirmThreshold: 'Single-line paste confirmation threshold (characters)',
     pasteConfirmThresholdDefault: '{n} (default)',
     pasteConfirmThresholdHint: 'Multi-line pastes are always confirmed. A single line asks for confirmation only when it exceeds this character count.',

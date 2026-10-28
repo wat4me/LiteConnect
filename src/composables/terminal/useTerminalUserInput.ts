@@ -57,6 +57,7 @@ export function useTerminalUserInput(deps: TerminalUserInputDeps) {
     const isBackspace = data === '\x7f' || data === '\x08'
     const isTab = data === '\t' || data === '\x09'
     const isEscape = data.charCodeAt(0) === 0x1b
+    const isBracketedPaste = data.startsWith('\x1b[200~')
     const hasNewline = data.includes('\r') || data.includes('\n')
 
     if (tabCompletionInput !== null && !isTab) {
@@ -92,6 +93,12 @@ export function useTerminalUserInput(deps: TerminalUserInputDeps) {
     } else if (isLocallyEchoable(data) && !deps.isPasting()) {
       deps.suggest.suggestDismissed.value = false
       deps.commandBuffer.value += data
+    } else if (isBracketedPaste) {
+      // Pasted newlines are editing text, not command submissions. Wait for
+      // a real Enter before collecting history or following a pasted cd.
+      deps.suggest.hideSuggest()
+      deps.commandBuffer.value = ''
+      deps.commandBufferDirty.value = true
     } else if (isEscape) {
       if (deps.suggest.suggestVisible.value) {
         // Esc closes suggest only (handleKey); do not wipe buffer

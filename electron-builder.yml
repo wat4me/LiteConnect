@@ -1,5 +1,6 @@
 appId: com.liteconnect.app
 productName: LiteConnect
+beforePack: scripts/before-pack.cjs
 directories:
   buildResources: build
   output: release
@@ -73,11 +74,14 @@ win:
         - x64
   icon: build/LiteConnect.ico
   extraResources:
-    # Optional X11 server for Windows. Keep outside asar so main can launch it.
-    - from: build/third-party/vcxsrv-64.1.20.14.0.installer.exe
-      to: third-party/vcxsrv-64.1.20.14.0.installer.exe
+    # Portable runtime and dependencies; no installer/UAC required at runtime.
+    - from: build/third-party/vcxsrv-runtime
+      to: third-party/vcxsrv-runtime
+      filter: ['**/*', '!.prepared.json']
     - from: build/third-party/VcXsrv-NOTICE.txt
       to: third-party/VcXsrv-NOTICE.txt
+    - from: LICENSE
+      to: third-party/VcXsrv-GPL-3.0.txt
 mac:
   target:
     - dmg

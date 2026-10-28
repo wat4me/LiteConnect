@@ -6,12 +6,13 @@ import TabBar from '@/components/app/TabBar.vue'
 import AppTitlebar from '@/components/app/AppTitlebar.vue'
 import AppDialogHost from '@/components/app/AppDialogHost.vue'
 import UploadConflictDialog from '@/components/sftp/UploadConflictDialog.vue'
+import { measureRendererModule, measureRendererLayout, recordRendererTiming } from '@/composables/app/rendererPerformance'
 
-const SettingsView = defineAsyncComponent(() => import('./views/SettingsView.vue'))
-const DatabaseView = defineAsyncComponent(() => import('./views/DatabaseView.vue'))
-const AiWorkspaceView = defineAsyncComponent(() => import('./views/AiWorkspaceView.vue'))
+const SettingsView = defineAsyncComponent(() => measureRendererModule('settings-load', () => import('./views/SettingsView.vue')))
+const DatabaseView = defineAsyncComponent(() => measureRendererModule('database-load', () => import('./views/DatabaseView.vue')))
+const AiWorkspaceView = defineAsyncComponent(() => measureRendererModule('ai-load', () => import('./views/AiWorkspaceView.vue')))
 const aiWorkspaceViewRef = ref<{ revealConversation: (sessionId: string) => boolean } | null>(null)
-const SshWorkspace = defineAsyncComponent(() => import('@/components/workspace/SshWorkspace.vue'))
+const SshWorkspace = defineAsyncComponent(() => measureRendererModule('ssh-load', () => import('@/components/workspace/SshWorkspace.vue')))
 const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
 const KeyboardInteractiveDialog = defineAsyncComponent(() => import('@/components/app/KeyboardInteractiveDialog.vue'))
@@ -391,6 +392,10 @@ const {
   toggleSettingsPage,
   ensureSshWorkspaceMounted,
 } = useAppNavigation({ onSelectHome })
+
+watch([appMode, showSettingsPage, isHomeActive], (_value, _previous, onCleanup) => {
+  onCleanup(measureRendererLayout())
+})
 
 watch(isHomeActive, (home) => {
   if (!home) ensureSshWorkspaceMounted()
@@ -784,6 +789,7 @@ onMounted(async () => {
     }
 
     bootstrapPending.value = false
+    recordRendererTiming('bootstrap-ready', performance.now())
 
     if (isDetachedWindow && launchParams.connectionId) {
       // Auto-connect target host for detached workspace window
@@ -814,6 +820,7 @@ onMounted(async () => {
     await restoreWorkspaceTabs()
   }
   bootstrapPending.value = false
+  recordRendererTiming('bootstrap-ready', performance.now())
 })
 
 onBeforeUnmount(() => {

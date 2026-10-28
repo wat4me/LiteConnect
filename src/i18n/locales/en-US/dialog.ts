@@ -39,5 +39,6 @@ export default {
     resetPassword: 'Reset password',
     requiredEmpty: 'This field cannot be empty',
     invalidInput: 'Invalid input',
+    textStats: '{lines} lines · {chars} characters',
   },
 }

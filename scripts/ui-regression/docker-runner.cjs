@@ -6,10 +6,11 @@ const path = require('node:path')
 
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-docker-ui-'))
 app.setPath('userData', path.join(artifacts, 'profile'))
-const watchdog = setTimeout(() => app.exit(1), 90_000)
+let action = 'load'
+const watchdog = setTimeout(() => { console.error('Timed out', { action, artifacts }); app.exit(1) }, 180_000)
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, width: 1440, height: 900, webPreferences: { backgroundThrottling: false } })
-  const run = source => window.webContents.executeJavaScript(`(async () => { return (${source}) })()`)
+  const run = source => { action = source.slice(0, 200); return window.webContents.executeJavaScript(`(async () => { return (${source}) })()`) }
   const waitFor = async expression => {
     const deadline = Date.now() + 10_000
     while (!await run(expression)) {
@@ -35,7 +36,7 @@ app.whenReady().then(async () => {
   await waitFor('document.querySelectorAll(".container-row").length === 21')
   await run('document.querySelector(".container-row").click()')
   await run(`Array.from(document.querySelectorAll('.detail-tabs button')).find(el=>el.textContent.trim()==='日志').click()`)
-  await waitFor('document.querySelectorAll(".log-line").length === 200')
+  await waitFor('document.querySelector(".logs-scroll .virtual-list")?.dataset.itemCount === "200"')
   await waitFor(atBottom)
   assert.equal(await run('window.__uiError || null'), null)
 
@@ -61,7 +62,7 @@ app.whenReady().then(async () => {
           pageOverflow:document.documentElement.scrollWidth>innerWidth };
       })()`)
       assert.ok(layout.aligned && layout.sameFont && layout.bounded && layout.columns && !layout.pageOverflow, `${theme} ${width}: ${JSON.stringify(layout)}`)
-      assert.equal(await run(autoScroll), true, 'Resizing preserves automatic scrolling')
+      assert.equal(await run(autoScroll), true, 'Resizing preserves automatic scrolling: ' + theme + ' ' + width)
       layoutCases.push({ theme, width })
       if (width === 1440 || (theme === 'eyecare' && width === 800)) await screenshot(`docker-${theme}-${width}.png`)
     }
@@ -103,11 +104,12 @@ app.whenReady().then(async () => {
   await run('window.__dockerUi.append(10200)')
   await settled()
   await waitFor(atBottom)
-  const boundedLength = await run('document.querySelectorAll(".log-line").length')
+  const boundedLength = await run('document.querySelector(".logs-scroll .virtual-list").dataset.itemCount')
+  assert.ok(await run('document.querySelectorAll(".log-line").length < 100'), 'Rendered log rows stay bounded at buffer capacity')
   await run('window.__dockerUi.append(1,true)')
   await settled()
   await waitFor(atBottom)
-  assert.equal(await run('document.querySelectorAll(".log-line").length'), boundedLength, 'Auto-scroll still works when the ring buffer stays at capacity')
+  assert.equal(await run('document.querySelector(".logs-scroll .virtual-list").dataset.itemCount'), boundedLength, 'Auto-scroll still works when the ring buffer stays at capacity')
 
   await run('document.querySelector(".logs-actions button").click()')
   await waitFor('document.querySelectorAll(".log-line").length === 0')

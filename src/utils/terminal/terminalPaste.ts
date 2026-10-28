@@ -5,6 +5,13 @@ export const PASTE_CONFIRM_MAX_CHARS = 400
 export const PASTE_CONFIRM_MAX_CHARS_OPTIONS = [100, 200, 400, 800, 1600] as const
 export type PasteConfirmMaxChars = (typeof PASTE_CONFIRM_MAX_CHARS_OPTIONS)[number]
 export const PASTE_PREVIEW_MAX_CHARS = 480
+/** Large pastes always require acknowledgement, even if routine confirmation is off. */
+export const LARGE_TERMINAL_PASTE_BYTES = 64 * 1024
+
+export function terminalPasteBytes(text: string, bracketed = false): number {
+  const payload = text.replace(/\r\n|\n/g, '\r')
+  return new TextEncoder().encode(payload).length + (bracketed ? 12 : 0)
+}
 
 export function normalizePasteConfirmMaxChars(n: unknown): PasteConfirmMaxChars {
   if (typeof n === 'number' && (PASTE_CONFIRM_MAX_CHARS_OPTIONS as readonly number[]).includes(n)) {

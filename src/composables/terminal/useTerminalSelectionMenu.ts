@@ -6,7 +6,7 @@ import { fitFixedElement } from '@/utils/shared/popupPosition'
 export function useTerminalSelectionMenu(deps: {
   getTerminal: () => Terminal | null
   isActive: () => boolean
-  pasteWithConfirm: (text: string) => Promise<void>
+  pasteFromClipboard: () => Promise<void>
   onAiSelection: (text: string, mode: 'send' | 'insert') => void
   onSaveAsSnippet: (text: string) => void
 }) {
@@ -66,8 +66,7 @@ export function useTerminalSelectionMenu(deps: {
     const terminal = deps.getTerminal()
     hideSelectionMenu()
     try {
-      const text = await window.LiteConnect.clipboardReadText()
-      if (text) await deps.pasteWithConfirm(text)
+      await deps.pasteFromClipboard()
     } catch {
       // Clipboard read/cancel should not leave the terminal unfocused.
     } finally {

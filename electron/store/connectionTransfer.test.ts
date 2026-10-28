@@ -23,8 +23,10 @@ describe('connectionTransfer', () => {
       localForwards: [{ localPort: 3306, remoteHost: 'db', remotePort: 3306 }],
       note: 'n',
       colorTag: 'red',
+      x11Mode: 'off',
     })
     expect(mapped).toMatchObject({
+      x11Mode: 'off',
       name: 'prod',
       host: '10.0.0.1',
       port: 2222,

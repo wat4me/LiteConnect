@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   attachRendererEstimates,
@@ -13,6 +13,7 @@ import {
 } from '@shared/appResourceStats'
 import { collectRendererResourceSnapshot } from '@/composables/app/rendererResourceRegistry'
 import AppIcon from '../icons/AppIcon.vue'
+const SettingsRendererPerformance = defineAsyncComponent(() => import('./SettingsRendererPerformance.vue'))
 
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -180,6 +181,7 @@ onBeforeUnmount(() => {
         </ul>
       </details>
     </template>
+    <SettingsRendererPerformance />
   </div>
 </template>
 

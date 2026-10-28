@@ -13,6 +13,8 @@ import type { Connection, Group, SavedCredential } from '../../env.d.ts'
 import type { ConnectionFormModel, ConnectionFormSection } from './connectionFormTypes'
 import { sshTestErrorKey } from '@/utils/connections/sshTestError'
 import './connectionForm.css'
+import { resolveX11Mode } from '@shared/x11Policy'
+
 
 const props = defineProps<{
   connection: Connection | null
@@ -45,6 +47,7 @@ const form = ref<ConnectionFormModel>({
   colorTag: '',
   keepaliveInterval: 30,
   x11Forwarding: false,
+  x11Mode: 'auto',
   x11Host: '127.0.0.1',
   x11Display: 0,
   jumpHost: '',
@@ -96,7 +99,7 @@ const tunnelConfigCount = computed(() => {
   n += form.value.localForwards.filter((f) => f.localPort > 0 || f.remotePort > 0 || f.remoteHost.trim()).length
   n += form.value.remoteForwards.filter((f) => f.remotePort > 0 || f.localPort > 0).length
   n += form.value.dynamicForwards.filter((f) => f.localPort > 0).length
-  if (form.value.x11Forwarding) n += 1
+  if (form.value.x11Mode === 'custom') n += 1
   return n
 })
 
@@ -153,6 +156,7 @@ onMounted(async () => {
         ? Math.round(props.connection.keepaliveInterval / 1000)
         : 30,
       x11Forwarding: props.connection.x11Forwarding ?? false,
+      x11Mode: resolveX11Mode(props.connection),
       x11Host: props.connection.x11Host || '127.0.0.1',
       x11Display: props.connection.x11Display ?? 0,
       jumpHost: props.connection.jumpHost || '',
@@ -270,7 +274,7 @@ async function handleSave(continueCreating = false) {
     ElMessage.warning(t('connectionForm.needPrivateKey'))
     return
   }
-  if (form.value.x11Forwarding) {
+  if (form.value.x11Mode === 'custom') {
     if (!form.value.x11Host.trim()) {
       formSection.value = 'tunnel'
       ElMessage.warning(t('connectionForm.needDisplayHost'))
@@ -283,7 +287,7 @@ async function handleSave(continueCreating = false) {
     }
     try {
       const x11Status = await window.LiteConnect.getX11ServerStatus()
-      if (x11Status.supported && !x11Status.resolvedExecutablePath) {
+      if (x11Status.platform === 'win32' && !x11Status.resolvedExecutablePath) {
         const action = await appConfirm({
           title: t('connectionForm.graphicalForwarding'),
           message: t('x11.notFoundPrompt'),
@@ -324,9 +328,10 @@ async function handleSave(continueCreating = false) {
       note: form.value.note.trim(),
       colorTag: form.value.colorTag || '',
       keepaliveInterval: (form.value.keepaliveInterval || 30) * 1000,
-      x11Forwarding: form.value.x11Forwarding,
-      x11Host: form.value.x11Forwarding ? form.value.x11Host.trim() : undefined,
-      x11Display: form.value.x11Forwarding ? form.value.x11Display : undefined,
+      x11Forwarding: form.value.x11Mode === 'custom',
+      x11Mode: form.value.x11Mode,
+      x11Host: form.value.x11Mode === 'custom' ? form.value.x11Host.trim() : undefined,
+      x11Display: form.value.x11Mode === 'custom' ? form.value.x11Display : undefined,
       jumpHost: form.value.jumpHost.trim() || undefined,
       jumpPort: form.value.jumpHost.trim() ? form.value.jumpPort || 22 : undefined,
       jumpUsername: form.value.jumpUsername.trim() || undefined,

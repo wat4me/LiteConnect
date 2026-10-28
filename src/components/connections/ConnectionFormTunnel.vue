@@ -15,6 +15,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const windowsX11 = /Windows/i.test(navigator.userAgent)
+const macX11 = /Macintosh|Mac OS X/i.test(navigator.userAgent)
 </script>
 
 <template>
@@ -147,14 +149,16 @@ const { t } = useI18n()
     </div>
 
     <div class="form-row panel">
-      <label class="checkbox-row">
-        <input v-model="form.x11Forwarding" type="checkbox" />
-        <span>{{ t('connectionForm.graphicalForwarding') }}</span>
-      </label>
+      <label class="label" for="connection-x11-mode">{{ t('connectionForm.graphicalForwarding') }}</label>
+      <select id="connection-x11-mode" v-model="form.x11Mode" class="ui-input">
+        <option value="auto">{{ t('connectionForm.x11Automatic') }}</option>
+        <option value="off">{{ t('connectionForm.x11Off') }}</option>
+        <option value="custom">{{ t('connectionForm.x11Custom') }}</option>
+      </select>
       <div class="hint-text">
-        {{ t('connectionForm.graphicalHint') }}
+        {{ form.x11Mode === 'auto' ? t(windowsX11 ? 'connectionForm.x11AutomaticHint' : macX11 ? 'connectionForm.x11AutomaticHintMac' : 'connectionForm.x11AutomaticHintLinux') : t('connectionForm.graphicalHint') }}
       </div>
-      <div v-if="form.x11Forwarding" class="x11-options">
+      <div v-if="form.x11Mode === 'custom'" class="x11-options">
         <div class="x11-field">
           <label class="label">{{ t('connectionForm.displayHost') }}</label>
           <input v-model="form.x11Host" placeholder="127.0.0.1" class="ui-input" />
@@ -164,7 +168,7 @@ const { t } = useI18n()
           <input v-model.number="form.x11Display" type="number" min="0" max="99" placeholder="0" class="ui-input" />
         </div>
       </div>
-      <div v-if="form.x11Forwarding" class="hint-text">
+      <div v-if="form.x11Mode === 'custom'" class="hint-text">
         {{ t('connectionForm.willConnect', {
           host: form.x11Host || '127.0.0.1',
           port: 6000 + (Number.isInteger(form.x11Display) ? form.x11Display : 0),

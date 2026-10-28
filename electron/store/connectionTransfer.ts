@@ -29,6 +29,7 @@ export type SshImportInput = {
   colorTag?: string
   keepaliveInterval?: number
   x11Forwarding?: boolean
+  x11Mode?: 'auto' | 'off' | 'custom'
   x11Host?: string
   x11Display?: number
   jumpHost?: string
@@ -138,6 +139,7 @@ export function mapImportedSshConnection(raw: unknown): SshImportInput | null {
         ? c.keepaliveInterval
         : undefined,
     x11Forwarding: c.x11Forwarding === true,
+    x11Mode: c.x11Mode === 'auto' || c.x11Mode === 'off' || c.x11Mode === 'custom' ? c.x11Mode : undefined,
     x11Host: typeof c.x11Host === 'string' ? c.x11Host : undefined,
     x11Display: typeof c.x11Display === 'number' ? c.x11Display : undefined,
     jumpHost,

@@ -1,0 +1,66 @@
+const { app, BrowserWindow } = require('electron')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-x11-ui-'))
+app.setPath('userData', path.join(artifacts, 'profile'))
+const watchdog = setTimeout(() => app.exit(1), 60_000)
+app.whenReady().then(async () => {
+  const win = new BrowserWindow({ show: false, width: 1100, height: 1000, webPreferences: { backgroundThrottling: false } })
+  const run = code => win.webContents.executeJavaScript(code)
+  const wait = async code => {
+    const until = Date.now() + 8000
+    while (!await run(code)) {
+      if (Date.now() > until) throw new Error(code + ': ' + await run('window.__x11Error || document.body.innerText'))
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+  }
+  await win.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+  await wait('!!window.__x11')
+  for (const platform of ['win32', 'darwin', 'linux']) {
+  for (const locale of ['zh-CN', 'en-US']) {
+    for (const mode of [undefined, 'off', 'custom']) {
+      await run(`window.__x11.mount(${JSON.stringify(mode)},${JSON.stringify(locale)},${JSON.stringify(platform)})`)
+      await wait('!!document.querySelector("#connection-x11-mode")')
+      await run('document.querySelectorAll(".section-tab")[1].click()')
+      await wait('document.querySelectorAll(".section-tab")[1].classList.contains("active")')
+      await run('document.querySelector("#connection-x11-mode").scrollIntoView({block:"center"})')
+      assert.equal(await run('document.querySelector("#connection-x11-mode").value'), mode || 'auto')
+      assert.equal(await run('document.querySelectorAll("#connection-x11-mode option").length'), 3)
+      if (!mode && platform !== 'win32') assert.ok(await run(`document.body.innerText.includes(${JSON.stringify(platform === 'darwin' ? 'XQuartz' : 'XWayland')})`))
+      const count = await run('window.__x11.saved.length')
+      await run('document.querySelector("form").dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}))')
+      await wait(`window.__x11.saved.length===${count + 1}`)
+      assert.equal(await run('window.__x11.saved.at(-1).x11Mode'), mode || 'auto')
+      assert.equal(await run('window.__x11.saved.at(-1).x11Forwarding'), mode === 'custom')
+    }
+  }
+  }
+  await run('window.__x11.settings()')
+  await wait('document.body.innerText.includes("Bundled display server detected")')
+  assert.equal(await run('document.querySelectorAll(".x11-install-help").length'), 0)
+  await run('document.querySelector(".x11-test-row button").click()')
+  await wait('!!document.querySelector(".x11-test-result.ok")')
+  assert.equal(await run('window.__x11.tests.at(-1).automatic'), true)
+  assert.ok(await run('document.querySelector(".x11-test-result").textContent.includes("6051")'))
+  for (const platform of ['darwin', 'linux']) {
+    await run(`window.__x11.settings(${JSON.stringify(platform)})`)
+    await wait('!!document.querySelector(".x11-test-row button") && !document.querySelector(".x11-test-row button").disabled')
+    assert.equal(await run('document.querySelectorAll(".path-row").length'), 0, 'Unix displays do not offer a Windows executable picker')
+    await run('document.querySelector(".x11-test-row button").click()')
+    await wait('!!document.querySelector(".x11-test-result.ok")')
+    assert.ok(await run(`document.querySelector(".x11-test-result").textContent.includes(${JSON.stringify(platform === 'darwin' ? 'org.xquartz:0' : ':1')})`))
+  }
+  await run('window.__x11.settings("darwin",true)')
+  await wait('document.body.innerText.includes("Install XQuartz before first use")')
+  await run('[...document.querySelectorAll("button")].find(button=>button.textContent.includes("Open XQuartz installation page")).click()')
+  assert.equal(await run('window.__x11.guides.length'), 1)
+  await run('window.__x11.settings("linux",true)')
+  await wait('document.body.innerText.includes("No graphical display session was found")')
+  await run('document.querySelector(".x11-test-row").scrollIntoView({block:"center"})')
+  assert.equal(await run('window.__x11Error'), undefined)
+  console.log(JSON.stringify({ passed: true, cases: 18, artifacts }))
+  clearTimeout(watchdog)
+  app.exit(0)
+}).catch(error => { console.error(error); clearTimeout(watchdog); app.exit(1) })

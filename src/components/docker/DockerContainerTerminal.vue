@@ -20,9 +20,6 @@ import { useTheme, getTerminalColors, getTerminalMinimumContrastRatio, type Term
 import {
   PASTE_CONFIRM_MAX_CHARS,
   normalizePasteConfirmMaxChars,
-  shouldConfirmPaste,
-  countPasteLines,
-  buildPastePreview,
 } from '@/utils/terminal/terminalPaste'
 import { canMeasureTerminal } from '@/utils/terminal/terminalResizePolicy'
 import {
@@ -30,8 +27,9 @@ import {
   isTerminalFontZoomOutKey,
   stepTerminalFontSize,
 } from '@/utils/terminal/terminalFontZoom'
-import { appConfirm } from '@/composables/app/useAppDialog'
+import { useTerminalPasteConfirm } from '@/composables/terminal/useTerminalPasteConfirm'
 import type { DockerExecShell } from '../../env.d'
+import { DOCKER_EXEC_WRITE_MAX_BYTES } from '@shared/types/docker'
 
 const props = defineProps<{
   sessionId: string
@@ -221,39 +219,13 @@ function scheduleRefresh(): void {
   })
 }
 
-/**
- * Send paste as plain keystrokes (CR newlines), same policy as SSH TerminalTab.
- * Avoid terminal.paste(): it can still race with browser paste if Ctrl+V is not
- * preventDefault'd, and bracketed-paste wrappers are unnecessary for docker exec.
- */
-function pasteAsTypedInput(text: string): void {
-  if (!text) return
-  const payload = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r')
-  writeInput(payload)
-}
-
-async function pasteWithConfirm(text: string): Promise<void> {
-  if (!terminal || !text) return
-  try {
-    if (pasteConfirmEnabled.value && shouldConfirmPaste(text, pasteConfirmMaxChars.value)) {
-      const lines = countPasteLines(text)
-      await appConfirm({
-        title: t('terminal.pasteConfirmTitle'),
-        message: t('terminal.pasteConfirmMessage', { lines, chars: text.length }),
-        detail: buildPastePreview(text),
-        confirmText: t('terminal.pasteConfirmAction'),
-        cancelText: t('common.cancel'),
-        tone: 'warning',
-      })
-    }
-    pasteAsTypedInput(text)
-  } catch {
-    // cancelled
-  } finally {
-    await nextTick()
-    if (props.active && getTerminal() === terminal) terminal.focus()
-  }
-}
+const { pasteFromClipboard, handlePasteEvent } = useTerminalPasteConfirm({
+  getTerminal,
+  pasteConfirmEnabled,
+  pasteConfirmMaxChars,
+  isActive: () => props.active,
+  maxPasteBytes: DOCKER_EXEC_WRITE_MAX_BYTES,
+})
 
 function onKeyDown(e: KeyboardEvent): void {
   if (!props.active || !terminal) return
@@ -351,6 +323,7 @@ function createXterm(): void {
   terminal.loadAddon(fitAddon)
   terminal.loadAddon(searchAddon)
   terminal.open(terminalHostRef.value)
+  terminal.element?.addEventListener('paste', handlePasteEvent, true)
   bindSearchAddon(searchAddon)
 
   setDataHandler((data) => {
@@ -388,9 +361,7 @@ function createXterm(): void {
       // paste still fires on the hidden textarea → text appears twice (e.g. ctp.logctp.log).
       ev.preventDefault()
       ev.stopPropagation()
-      void window.LiteConnect.clipboardReadText().then((text) => {
-        if (text) void pasteWithConfirm(text)
-      })
+      void pasteFromClipboard()
       return false
     }
     if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'c' || ev.key === 'C')) {

@@ -2,6 +2,8 @@ import type { Client, ClientChannel } from 'ssh2'
 import * as net from 'net'
 import { t } from '../../i18n'
 import type { Connection, SSHCallbacks } from '../types'
+import { X11CookieRewriter, type X11Authentication } from './x11Auth'
+import type { X11Endpoint } from './x11Endpoint'
 
 export {
   buildX11ConnectionSetupPacket,
@@ -56,6 +58,8 @@ export function attachX11Forwarding(
   connection: Connection,
   callbacks: SSHCallbacks,
   x11Sockets: Set<net.Socket>,
+  auth?: X11Authentication,
+  endpoint?: X11Endpoint,
 ) {
   const reportX11Error = (message: string) => {
     // A display/channel failure affects one X11 window, not the SSH shell.
@@ -84,7 +88,7 @@ export function attachX11Forwarding(
 
     const host = getX11Host(connection)
     const port = 6000 + getX11Display(connection)
-    const localSocket = net.connect(port, host)
+    const localSocket = net.connect(endpoint ?? { host, port })
     // X11 exchanges many small request/reply messages; avoid Nagle delaying
     // writes to the local display server while the SSH transport uses noDelay.
     localSocket.setNoDelay(true)
@@ -92,12 +96,15 @@ export function attachX11Forwarding(
     let connected = false
 
     x11Sockets.add(localSocket)
-    x11Channel.pipe(localSocket)
+    const rewriter = auth ? new X11CookieRewriter(auth) : undefined
+    if (rewriter) x11Channel.pipe(rewriter).pipe(localSocket)
+    else x11Channel.pipe(localSocket)
     localSocket.pipe(x11Channel)
 
     const closeBoth = () => {
       if (closed) return
       closed = true
+      rewriter?.destroy()
       x11Sockets.delete(localSocket)
       try {
         localSocket.destroy()
@@ -112,11 +119,14 @@ export function attachX11Forwarding(
     })
     localSocket.once('error', (err) => {
       if (!connected) {
-        reportX11Error(t('x11.connectLocalFailed', { host, port, error: err.message }))
+        reportX11Error(endpoint && 'path' in endpoint
+          ? t('x11.connectSocketFailed', { display: endpoint.path.replace(/^\0/, '@'), error: err.message })
+          : t('x11.connectLocalFailed', { host, port, error: err.message }))
       }
       closeBoth()
     })
     localSocket.once('close', closeBoth)
+    rewriter?.once('error', closeBoth)
     x11Channel.once('error', closeBoth)
     x11Channel.once('close', closeBoth)
   })

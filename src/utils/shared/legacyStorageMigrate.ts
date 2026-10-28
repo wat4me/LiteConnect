@@ -58,6 +58,7 @@ export async function migrateDurableLocalStorage(): Promise<void> {
       const value = storage.getItem(legacyKey)
       if (value != null) entries[databaseKey as keyof typeof entries] = value
     }
+    if (Object.keys(entries).length === 0) return
     await window.LiteConnect.migrateRendererState(entries)
     for (const legacyKey of Object.keys(DURABLE_KEYS)) storage.removeItem(legacyKey)
   } catch (error) {

@@ -1,9 +1,15 @@
 import { computed, ref, shallowReactive, type InjectionKey } from 'vue'
 
+type SynchronizedTerminal = {
+  writable: () => boolean
+  receive: (data: string) => void
+  supportsBracketedPaste?: () => boolean
+}
+
 export function createSynchronizedInput() {
   const enabled = ref(false)
   const selected = ref<string[]>([])
-  const terminals = shallowReactive(new Map<string, { writable: () => boolean; receive: (data: string) => void }>())
+  const terminals = shallowReactive(new Map<string, SynchronizedTerminal>())
   let forwarding = false
   const available = (id: string) => terminals.get(id)?.writable() === true
   const targets = computed(() => selected.value.filter(available))
@@ -18,7 +24,7 @@ export function createSynchronizedInput() {
     selected.value = [...new Set(ids)].filter(available)
   }
   function start() { enabled.value = targets.value.length >= 2; return enabled.value }
-  function register(id: string, terminal: { writable: () => boolean; receive: (data: string) => void }) {
+  function register(id: string, terminal: SynchronizedTerminal) {
     terminals.set(id, terminal)
     return () => {
       if (terminals.get(id) !== terminal) return
@@ -31,6 +37,14 @@ export function createSynchronizedInput() {
     // Terminal status/focus reports are responses to remote queries, not user input.
     if (/^\x1b\[(?:[?>=]?[\d;]*[cnR]|[IO])$/.test(data) || /^\x1b[\]P]/.test(data)) return
     if (targets.value.length < 2) { stop(); return }
+    if (data.startsWith('\x1b[200~') && targets.value.some(id =>
+      id !== source && terminals.get(id)?.supportsBracketedPaste?.() === false,
+    )) {
+      // Never send protected text to a peer that could interpret its newlines
+      // as Enter. Check every recipient before sending to any of them.
+      stop()
+      return 'unsupported-paste'
+    }
     forwarding = true
     try {
       for (const id of [...targets.value]) {

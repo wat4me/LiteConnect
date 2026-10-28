@@ -50,6 +50,35 @@ auto-scroll at buffer capacity, and clearing only the display. Docker IPC is
 mocked; no remote containers are changed. Screenshots are saved in the printed
 temporary artifact directory.
 
+Run `npm run test:ui -- --performance` for connection lists of 100, 500 and 2000
+items in both densities. It checks bounded DOM size in the main list and group
+sidebar, full-data search, keyboard reveal/connection, dragging across virtual
+windows, measured multiline errors, resizing, performance diagnostics lifecycle,
+and idle cursor scheduling. Timings are observational development-renderer
+measurements, not production startup or physical display FPS. The temporary
+artifact directory includes metrics.json and a diagnostics screenshot.
+
+Run `npm run test:ui -- --connections-layout` for the connection page's tag
+filter menu, independent navigation/list search, usage metadata, untagged/gray
+markers, persistent shortcuts/actions, three themes, two densities and three
+window widths. It also checks the All connections navigation entry, scoped
+heading/counts, query preservation when changing scope, restoring the same
+group, persisted sort choices, credentials in the Tools menu, and English
+labels, and captures preview screenshots.
+
+Run `npm run test:ui -- --drag` for real browser mouse dragging of connection
+names, card whitespace, group headers and sidebar connections. It intercepts
+Chromium's native drag payloads and checks reorder/move persistence, hierarchy
+protection, controls/rename protection and double-click connection behavior.
+
+Run `npm run test:ui -- --large-views` for large SFTP trees/searches,
+database result grids and Docker logs. It checks 5,000 file/table rows and
+10,000 log lines with bounded DOM, offscreen locate/keyboard/search,
+stable table columns and row numbers, raw cell copying, complete CSV/log
+copying, history anchoring during log-buffer rotation, and wrapped-log following.
+`npm run test:ui -- --docker` also checks the integrated log toolbar and receiving
+lifecycle across window sizes and themes.
+
 The script starts a temporary Vite server without the application's Electron
 plugin, then opens an invisible Electron window with actual Vue components.
 It uses a temporary profile and mocked connection IPC; it never connects to a

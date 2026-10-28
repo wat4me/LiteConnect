@@ -8,7 +8,15 @@ import {
   PASTE_CONFIRM_MAX_CHARS,
   PASTE_CONFIRM_MAX_CHARS_OPTIONS,
   shouldConfirmPaste,
+  terminalPasteBytes,
 } from './terminalPaste'
+
+describe('terminalPasteBytes', () => {
+  it('counts normalized UTF-8 input plus optional paste markers', () => {
+    expect(terminalPasteBytes('中😀\r\nx\n')).toBe(10)
+    expect(terminalPasteBytes('中😀\r\nx\n', true)).toBe(22)
+  })
+})
 
 describe('normalizePasteConfirmMaxChars', () => {
   it('accepts allowed options', () => {

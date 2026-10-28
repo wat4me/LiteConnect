@@ -6,6 +6,10 @@
   "license": "GPL-3.0-only",
   "main": "dist-electron/main.js",
   "scripts": {
+    "predev": "node scripts/prepare-x11-runtime.mjs",
+    "preelectron:dev": "node scripts/prepare-x11-runtime.mjs",
+    "predev:isolated": "node scripts/prepare-x11-runtime.mjs",
+    "prepare:x11": "node scripts/prepare-x11-runtime.mjs",
     "dev": "vite",
     "dev:isolated": "node scripts/dev-isolated.mjs",
     "typecheck": "npm run typecheck:renderer && npm run typecheck:main && npm run typecheck:contracts",

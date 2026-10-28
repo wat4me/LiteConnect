@@ -454,7 +454,7 @@ export function registerSshConnectHandlers(
 
       // Always open a fresh SSH session. Renderer serializes multi-tab reconnects;
       // sharing one in-flight promise would hand the same sessionId to two tabs.
-      const sessionId = await sshManager.connect(connection, {
+      const sessionId = await sshManager.connect(purpose === 'ai' ? { ...connection, x11Mode: 'off', x11Forwarding: false } : connection, {
         signal: attempt.signal,
         onProgress: attempt.onProgress,
         onData: (sid, data) => {

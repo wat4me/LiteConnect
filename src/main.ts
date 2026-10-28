@@ -13,14 +13,14 @@ import './styles/settings.css'
 import i18n, { initLocaleFromStorage, listenForLocaleChanges, reconcileStoredLocale } from './i18n'
 import { migrateDurableLocalStorage, migrateLegacyLocalStorage } from '@/utils/shared/legacyStorageMigrate'
 import { setScratchDirs } from '@/composables/sftp/useDragDrop'
+import { recordRendererTiming } from '@/composables/app/rendererPerformance'
 
 migrateLegacyLocalStorage()
 initLocaleFromStorage()
 
 async function mountRenderer(): Promise<void> {
-  await migrateDurableLocalStorage()
   listenForLocaleChanges()
-  await reconcileStoredLocale()
+  await Promise.all([migrateDurableLocalStorage(), reconcileStoredLocale()])
 
   // Teach the drop handler where this machine's scratch directory lives, so files
   // unpacked there by an archive viewer (dragged out of a .zip/.rar) can be
@@ -44,6 +44,7 @@ async function mountRenderer(): Promise<void> {
   }
 
   app.mount('#app')
+  recordRendererTiming('renderer-mounted', performance.now())
 }
 
 window.addEventListener('error', (event) => {

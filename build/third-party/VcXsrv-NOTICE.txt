@@ -1,8 +1,9 @@
 VcXsrv Windows X Server
 =======================
 
-This liteSSH distribution includes the following OPTIONAL, independently
-installed third-party component:
+The Windows distribution includes a portable, independently developed
+third-party X server. Its executables and dependencies are stored outside
+app.asar under resources/third-party/vcxsrv-runtime.
 
   File: vcxsrv-64.1.20.14.0.installer.exe
   Version: 1.20.14.0 (64-bit)
@@ -11,7 +12,17 @@ installed third-party component:
   Legacy download page: https://sourceforge.net/projects/vcxsrv/
   License: GNU General Public License, version 3 (GPL-3.0)
 
-VcXsrv is not part of liteSSH and is not installed or launched automatically.
-It is offered only when a user explicitly chooses to install support for X11
-graphical forwarding. Refer to the VcXsrv project for complete license terms
-and corresponding source code.
+LiteConnect starts this component on demand for automatic SSH X11 forwarding.
+No system-wide installation, registry setup or administrator rights are needed.
+The server is authenticated with MIT-MAGIC-COOKIE-1; each SSH connection uses
+a separate replacement cookie. User-managed X servers are never terminated.
+The application terminates only its own display processes on graceful exit.
+
+See VcXsrv-GPL-3.0.txt for the GNU GPL version 3 text. Upstream font/bitmap
+notices are preserved in the portable runtime. Corresponding source and build
+instructions are available from the project and legacy download page above.
+
+Exact corresponding source (upstream tag 1.20.14.0):
+  https://github.com/marchaesen/vcxsrv/tree/1.20.14.0
+  https://github.com/marchaesen/vcxsrv/archive/refs/tags/1.20.14.0.tar.gz
+  Commit: 8cc20250c9d0a2a590e78dd5e27429e06b4588f7

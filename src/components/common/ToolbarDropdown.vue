@@ -8,7 +8,7 @@ const props = withDefaults(defineProps<{
   label: string
   ariaLabel?: string
   modelValue?: string
-  items: { id: string; label: string; title?: string; disabled?: boolean; icon?: AppIconName }[]
+  items: { id: string; label: string; title?: string; disabled?: boolean; icon?: AppIconName; color?: string }[]
   align?: 'left' | 'right'
   triggerClass?: string
   menuClass?: string
@@ -134,6 +134,7 @@ useOutsideDismiss(open, async () => {
         @click="select(item.id)"
       >
         <span class="dropdown-item-label">
+          <span v-if="item.color" class="dropdown-item-swatch" :style="{ background: item.color }" aria-hidden="true"></span>
           <AppIcon v-if="item.icon" :name="item.icon" size="sm" />
           <span class="dropdown-label">{{ item.label }}</span>
         </span>
@@ -157,6 +158,7 @@ useOutsideDismiss(open, async () => {
 .dropdown-menu.teleported { min-width: 170px; }
 .dropdown-item { justify-content: space-between; }
 .dropdown-item-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.dropdown-item-swatch { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .dropdown-item.selected { background: var(--accent-bg); color: var(--text-primary); }
 .dropdown-check { display: inline-flex; width: var(--icon-sm); flex-shrink: 0; color: var(--accent); }
 .dropdown-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

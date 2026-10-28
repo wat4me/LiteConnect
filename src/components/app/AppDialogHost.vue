@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, watch, ref } from 'vue'
+import { computed, nextTick, watch, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   appDialogCancel,
   appDialogConfirm,
@@ -9,8 +10,13 @@ import {
 import AppIcon from '@/components/icons/AppIcon.vue'
 
 const state = useAppDialogMutable()
-const inputRef = ref<HTMLInputElement | null>(null)
+const { t } = useI18n()
+const inputRef = ref<HTMLInputElement | HTMLTextAreaElement | null>(null)
 const confirmRef = ref<HTMLButtonElement | null>(null)
+const inputStats = computed(() => t('dialog.textStats', {
+  lines: state.inputValue ? state.inputValue.split(/\r\n|\r|\n/).length : 0,
+  chars: state.inputValue.length,
+}))
 
 watch(
   () => state.visible,
@@ -19,7 +25,8 @@ watch(
     await nextTick()
     if (state.mode === 'prompt') {
       inputRef.value?.focus()
-      inputRef.value?.select()
+      if (state.multiline) inputRef.value?.setSelectionRange(0, 0)
+      else inputRef.value?.select()
     } else {
       // Keep keyboard events inside the teleported dialog so Enter/Escape work
       // even when the opener was a canvas/terminal element.
@@ -40,7 +47,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onInputKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' && !state.multiline && !e.isComposing) {
     e.preventDefault()
     appDialogConfirm()
   }
@@ -62,7 +69,7 @@ function onInput() {
       @keydown="onKeydown"
       @click.self="appDialogCancel"
     >
-      <div class="ui-modal-card app-dialog" :class="[`tone-${state.tone}`]">
+      <div class="ui-modal-card app-dialog" :class="[`tone-${state.tone}`, { 'app-dialog-multiline': state.multiline }]">
         <div class="app-dialog-header">
           <span
             class="app-dialog-icon"
@@ -81,16 +88,32 @@ function onInput() {
           <pre v-if="state.detail" class="app-dialog-detail">{{ state.detail }}</pre>
 
           <div v-if="state.mode === 'prompt'" class="app-dialog-field">
+            <textarea
+              v-if="state.multiline"
+              ref="inputRef"
+              v-model="state.inputValue"
+              class="ui-textarea ui-input-mono app-dialog-editor"
+              :aria-label="state.title"
+              :placeholder="state.inputPlaceholder"
+              :maxlength="state.maxLength ?? undefined"
+              :spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              rows="10"
+              @input="onInput"
+            />
             <input
+              v-else
               ref="inputRef"
               v-model="state.inputValue"
               class="ui-input"
               :type="state.inputType"
               :placeholder="state.inputPlaceholder"
-              :maxlength="state.maxLength"
+              :maxlength="state.maxLength ?? undefined"
               @input="onInput"
               @keydown="onInputKeydown"
             />
+            <p v-if="state.multiline" class="app-dialog-stats">{{ inputStats }}</p>
             <p v-if="state.inputError" class="app-dialog-error">{{ state.inputError }}</p>
           </div>
         </div>
@@ -220,6 +243,37 @@ function onInput() {
 
 .app-dialog-field {
   margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.app-dialog-multiline {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.app-dialog-multiline .app-dialog-field {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.app-dialog-editor {
+  width: 100%;
+  min-height: 0;
+  height: min(36vh, 320px);
+  flex: 1 1 auto;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  resize: none;
+  tab-size: 4;
+}
+
+.app-dialog-stats {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: right;
   flex-shrink: 0;
 }
 

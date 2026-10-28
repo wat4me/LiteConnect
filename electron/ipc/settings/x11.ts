@@ -75,7 +75,7 @@ export function registerX11SettingsHandlers(ctx: SettingsIpcCtx): void {
     'settings:testX11Server',
     async (
       _event,
-      opts?: { executablePath?: string; host?: string; display?: number },
+      opts?: { executablePath?: string; host?: string; display?: number; automatic?: boolean },
     ) => {
       await ensureSettingsStoreReady()
       const { configureX11ServerOptions, testX11ServerReady } = await import('../../ssh/x11/x11Server')
@@ -87,6 +87,21 @@ export function registerX11SettingsHandlers(ctx: SettingsIpcCtx): void {
         opts && typeof opts.executablePath === 'string'
           ? opts.executablePath
           : settingsStore.getX11ServerPath()
+      if (opts?.automatic) {
+        const { ensureAutomaticLocalX11 } = await import('../../ssh/x11/automaticX11')
+        try {
+          const target = await ensureAutomaticLocalX11({ force: true, executablePath })
+          // Never send local authentication material to the renderer.
+          return {
+            ready: true, started: target.started, display: target.display, displayAddress: target.displayAddress,
+            host: 'host' in target.endpoint ? target.endpoint.host : '',
+            port: 'port' in target.endpoint ? target.endpoint.port : 0,
+            executablePath: target.executablePath,
+          }
+        } catch (error) {
+          return { ready: false, started: false, host: '', port: 0, display: 0, message: error instanceof Error ? error.message : String(error) }
+        }
+      }
       const host = opts && typeof opts.host === 'string' ? opts.host : '127.0.0.1'
       const display =
         opts && typeof opts.display === 'number' && Number.isInteger(opts.display)
@@ -95,6 +110,10 @@ export function registerX11SettingsHandlers(ctx: SettingsIpcCtx): void {
       return testX11ServerReady({ executablePath, host, display })
     },
   )
+
+  ipcMain.handle('settings:openX11SetupGuide', async () => {
+    await shell.openExternal('https://www.xquartz.org/')
+  })
 
   ipcMain.handle(
     'settings:killResidualX11Process',

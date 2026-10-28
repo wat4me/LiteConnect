@@ -5,7 +5,9 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../components/icons/AppIcon.vue'
 import GroupPanel from '../components/connections/GroupPanel.vue'
 import ConnectionRow from '../components/connections/ConnectionRow.vue'
+import VirtualList from '@/components/common/VirtualList.vue'
 import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue'
+import ToolbarDropdown from '../components/common/ToolbarDropdown.vue'
 import type { Connection, Group } from '../env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
 import { appConfirm } from '@/composables/app/useAppDialog'
@@ -46,6 +48,8 @@ const showCredentialManager = ref(false)
 const pageRootRef = ref<HTMLElement | null>(null)
 const connectionsListRef = ref<HTMLElement | null>(null)
 const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
+const virtualListRef = ref<{ scrollToIndex: (index: number) => void; resetScroll: () => void } | null>(null)
+const connectionKey = (connection: Connection) => connection.id
 
 const DENSITY_KEY = 'LiteConnect.connections.density'
 const compactList = ref(false)
@@ -139,6 +143,7 @@ const list = useConnectionList({
   getSearchInput: () => toolbarRef.value?.searchInputRef ?? null,
   isModalOpen: () => showForm.value || showCredentialManager.value,
   onConnect: onConnectFromRow,
+  revealConnection: index => virtualListRef.value?.scrollToIndex(index),
 })
 
 const {
@@ -185,6 +190,10 @@ const {
   handleExport,
   handleImport,
 } = list
+
+watch([activeGroupId, smartView, searchQuery, searchScope, colorTagFilter, sortMode], () => {
+  virtualListRef.value?.resetScroll()
+}, { flush: 'post' })
 
 async function onOpenInNewWindow(connectionId: string) {
   try {
@@ -288,6 +297,20 @@ function onFormCancel() {
 }
 
 const filteredCount = computed(() => filteredConnections.value.length)
+const allConnectionsActive = computed(() => !smartView.value && searchScope.value === 'all')
+const sortItems = computed(() => [
+  { id: 'manual', label: t('connections.sortManual'), disabled: smartView.value === 'recent' },
+  ...(usageStatsEnabled.value ? [
+    { id: 'recent', label: t('connections.sortRecent') },
+    { id: 'frequent', label: t('connections.sortFrequent'), disabled: smartView.value === 'recent' },
+  ] : []),
+])
+const displayedSort = computed(() => smartView.value === 'recent' ? 'recent' : sortMode.value)
+const colorFilterItems = computed(() => CONNECTION_COLOR_TAGS.map(tag => ({
+  id: tag.id, label: tag.id ? tag.label : t('connections.all'),
+  color: tag.id ? tag.color : undefined,
+})))
+const activeColorTag = computed(() => CONNECTION_COLOR_TAGS.find(tag => tag.id && tag.id === colorTagFilter.value))
 
 defineExpose({ loadData, editConnection: onEditConnection })
 </script>
@@ -298,6 +321,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       :groups="groups"
       :active-group-id="activeGroupId"
       :smart-view="smartView"
+      :all-connections-active="allConnectionsActive"
       :connection-counts="connectionCounts"
       :smart-view-counts="smartViewCounts"
       :used-color-tags="usedColorTags"
@@ -307,6 +331,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       @cancel-connect="emit('cancel-connect', $event)"
       @select="onSelectGroup"
       @select-smart="onSelectSmartView"
+      @select-all="expandSearchToAllGroups"
       @add="onAddGroup"
       @rename="onRenameGroup"
       @move-group="onMoveGroup"
@@ -325,87 +350,51 @@ defineExpose({ loadData, editConnection: onEditConnection })
         :search-query="searchQuery"
         :search-scope="searchScope"
         :in-smart-view="inSmartView"
+        :heading-icon="smartView === 'pinned' ? 'pin' : smartView === 'recent' ? 'history' : inSmartView ? 'list' : allConnectionsActive ? 'home-grid' : 'folder'"
         :batch-testing="batchTesting"
         :filtered-count="filteredCount"
         :total-count="groupConnectionTotal"
         :importing="importing"
+        :filters-active="!!(searchQuery || colorTagFilter)"
         @update:search-query="searchQuery = $event"
-        @update:search-scope="searchScope = $event"
         @batch-test="onBatchTestGroup"
         @import="handleImport"
         @export="handleExport"
         @credentials="showCredentialManager = true"
         @add="onAddConnection"
-      />
-
+        @clear-filters="clearFilters"
+      >
+      <template #filters>
       <div class="filter-bar">
         <div v-if="!smartView?.startsWith('tag:')" class="color-filter">
-        <span class="filter-label">{{ t('connections.colorTag') }}</span>
-        <div class="filter-chips">
-          <button
-            v-for="tag in CONNECTION_COLOR_TAGS"
-            :key="tag.id || 'all'"
-            type="button"
-            class="tag-filter-chip"
-            :class="{ active: colorTagFilter === tag.id }"
-            :title="tag.id ? tag.label : t('connections.showAllTags')"
-            @click="colorTagFilter = tag.id"
-          >
-            <span class="tag-filter-swatch" :style="{ background: tag.color }"></span>
-            <span>{{ tag.id ? tag.label : t('connections.all') }}</span>
-          </button>
-        </div>
+          <ToolbarDropdown
+            class="tag-filter" :model-value="colorTagFilter"
+            :label="t('connections.filterByTag')" :items="colorFilterItems"
+            :aria-label="t('connections.filterByTag')" menu-class="tag-filter-menu" teleport
+            @select="colorTagFilter = $event"
+          />
+          <span v-if="activeColorTag" class="active-tag">
+            <span class="tag-filter-swatch" :style="{ background: activeColorTag.color }" aria-hidden="true"></span>
+            <span>{{ activeColorTag.label }}</span>
+            <button type="button" class="active-tag-clear" :title="t('connections.clearColorFilter')" :aria-label="t('connections.clearColorFilter')" @click="colorTagFilter = ''"><AppIcon name="close" size="xs" /></button>
+          </span>
         </div>
         <div class="sort-bar">
-          <span class="sort-label">{{ t('connections.sortLabel') }}</span>
-          <div class="sort-options" role="group" :aria-label="t('connections.sortLabel')">
-            <button
-              type="button"
-              class="sort-option"
-              :class="{ active: sortMode === 'manual' }"
-              :aria-pressed="sortMode === 'manual'"
-              :disabled="smartView === 'recent'"
-              @click="selectSortMode('manual')"
-            >
-              {{ t('connections.sortManual') }}
-            </button>
-            <button
-              v-if="usageStatsEnabled"
-              type="button"
-              class="sort-option"
-              :class="{ active: sortMode === 'recent' || smartView === 'recent' }"
-              :aria-pressed="sortMode === 'recent' || smartView === 'recent'"
-              @click="selectSortMode('recent')"
-            >
-              {{ t('connections.sortRecent') }}
-            </button>
-            <button
-              v-if="usageStatsEnabled"
-              type="button"
-              class="sort-option"
-              :class="{ active: sortMode === 'frequent' }"
-              :aria-pressed="sortMode === 'frequent'"
-              :disabled="smartView === 'recent'"
-              @click="selectSortMode('frequent')"
-            >
-              {{ t('connections.sortFrequent') }}
-            </button>
-          </div>
+          <ToolbarDropdown
+            class="sort-control" :model-value="displayedSort"
+            :label="sortItems.find(item => item.id === displayedSort)?.label || t('connections.sortManual')"
+            :aria-label="t('connections.sortLabel')" :items="sortItems" menu-class="sort-menu" teleport
+            @select="selectSortMode($event as ConnectionSortMode)"
+          />
         </div>
         <div class="density-switch" role="group" :aria-label="t('connections.listDensity')">
           <button type="button" :class="{ active: !compactList }" :aria-pressed="!compactList" :title="t('connections.standardListHint')" @click="compactList = false">{{ t('connections.standardList') }}</button>
           <button type="button" :class="{ active: compactList }" :aria-pressed="compactList" :title="t('connections.compactListHint')" @click="compactList = true">{{ t('connections.compactList') }}</button>
         </div>
-        <button
-          v-if="searchQuery || colorTagFilter"
-          type="button"
-          class="clear-filters"
-          @click="clearFilters"
-        >
-          {{ t('connections.clearFilters') }}
-        </button>
       </div>
 
+      </template>
+      </ConnectionsToolbar>
       <button
         v-if="crossGroupSearchHits > 0 && filteredCount === 0"
         type="button"
@@ -428,9 +417,17 @@ defineExpose({ loadData, editConnection: onEditConnection })
         :class="{ compact: compactList }"
         @dragleave="onConnListDragLeave"
       >
+        <VirtualList
+          ref="virtualListRef"
+          :items="filteredConnections"
+          :item-key="connectionKey"
+          :estimated-size="compactList ? 36 : 60"
+          :gap="compactList ? 3 : 8"
+          :scroll-container="connectionsListRef"
+          :pinned-key="dragConnId"
+          v-slot="{ item: conn, index }"
+        >
         <div
-          v-for="(conn, index) in filteredConnections"
-          :key="conn.id"
           class="connection-row-wrap"
           :data-conn-index="index"
           :class="{
@@ -465,6 +462,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
             @drag-end="onConnDragEnd"
           />
         </div>
+        </VirtualList>
         <div
           v-if="filteredConnections.length > 0 && dragConnId && !reorderDisabled"
           class="connection-row-wrap drop-tail"
@@ -557,14 +555,12 @@ defineExpose({ loadData, editConnection: onEditConnection })
 }
 
 .filter-bar {
-  flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
-  padding: 4px 0 8px;
-  border-bottom: 1px solid var(--border-color);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .cross-group-hint {
@@ -598,27 +594,11 @@ defineExpose({ loadData, editConnection: onEditConnection })
   text-underline-offset: 2px;
 }
 
-.filter-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-right: 2px;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
 .color-filter {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
-  flex: 1 1 420px;
-  min-width: 0;
-}
-
-.filter-chips {
-  display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  flex: 1;
   min-width: 0;
 }
 
@@ -627,103 +607,30 @@ defineExpose({ loadData, editConnection: onEditConnection })
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-left: auto;
 }
 
-.sort-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  cursor: default;
-}
-
-.sort-options {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-}
-
-.sort-option {
-  padding: 4px 9px;
-  min-height: 26px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.sort-option:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.sort-option.active {
-  background: var(--accent-bg);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
-  color: var(--text-primary);
-}
-
-.sort-option:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.tag-filter-chip {
+.active-tag {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 8px;
+  padding: 2px 4px 2px 8px;
   border-radius: 999px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tag-filter-chip:hover {
-  border-color: var(--accent);
-  color: var(--text-primary);
-}
-
-.tag-filter-chip.active {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
   background: var(--accent-bg);
   color: var(--text-primary);
+  font-size: 11px;
 }
-
-.tag-filter-chip:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+.active-tag-clear { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.active-tag-clear:hover { background: var(--hover-bg); color: var(--text-primary); }
+.active-tag-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tag-filter :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: 12px; }
+.sort-control :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: 12px; }
 
 .tag-filter-swatch {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-}
-
-.clear-filters {
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 4px;
-  white-space: nowrap;
-}
-
-.clear-filters:hover {
-  text-decoration: underline;
 }
 
 .list-keyboard-hint {
@@ -738,6 +645,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
   padding-right: 2px;
   /* Room for insertion line above first row + last-row descenders */
   padding-top: 6px;
@@ -749,16 +657,12 @@ defineExpose({ loadData, editConnection: onEditConnection })
 .density-switch button:hover { background: var(--hover-bg); color: var(--text-primary); }
 .density-switch button.active { background: var(--accent-bg); color: var(--accent); }
 .density-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.connections-list.compact .connection-row-wrap:not(.drop-tail) + .connection-row-wrap:not(.drop-tail) { margin-top: 3px; }
 
 .connection-row-wrap {
   position: relative;
 }
 
 /* Independent rounded cards: light gap between rows (drop line sits in this gap) */
-.connection-row-wrap:not(.drop-tail) + .connection-row-wrap:not(.drop-tail) {
-  margin-top: 8px;
-}
 
 /*
  * Insertion indicator: full-width accent line + end caps (VS Code / Finder style).
@@ -794,11 +698,11 @@ defineExpose({ loadData, editConnection: onEditConnection })
 }
 
 /* First row: line sits just above the card (list has padding-top) */
-.connection-row-wrap:first-child.drop-before::before {
+.connection-row-wrap[data-conn-index='0'].drop-before::before {
   top: -4px;
 }
 
-.connection-row-wrap:first-child.drop-before::after {
+.connection-row-wrap[data-conn-index='0'].drop-before::after {
   top: -7px;
 }
 

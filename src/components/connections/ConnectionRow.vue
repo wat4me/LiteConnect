@@ -10,6 +10,7 @@ import {
 } from '@/utils/connections/connectionTags'
 import { clampPopupToViewport, placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
+import { createRowDragGuard } from '@/utils/shared/rowDrag'
 
 const { t } = useI18n()
 
@@ -26,7 +27,7 @@ const props = withDefaults(defineProps<{
   reorderDisabled?: boolean
   /** Keyboard focus highlight from parent list */
   keyboardActive?: boolean
-  /** Show useCount / lastConnected on the meta line (settings). Default on. */
+  /** Show secondary usage stats (settings). Default on. */
   showUsageStats?: boolean
   connecting?: boolean
   connectionStage?: import('@shared/sshConnectionProgress').SshConnectionStage
@@ -53,8 +54,7 @@ const emit = defineEmits<{
   (e: 'drag-end'): void
 }>()
 
-/** Compact stats on the same line as user@host (avoid a cramped 3rd text line). */
-const statsInline = computed(() => {
+function usageStats(fullTime: boolean) {
   if (!props.showUsageStats) return ''
   const c = props.connection
   const parts: string[] = []
@@ -66,16 +66,19 @@ const statsInline = computed(() => {
     )
   }
   if (c.lastConnectedAt) {
-    const time = new Date(c.lastConnectedAt).toLocaleString(undefined, {
+    const time = new Date(c.lastConnectedAt).toLocaleString(undefined, fullTime ? {
+      year: 'numeric',
       month: 'numeric',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    })
+    } : { month: 'numeric', day: 'numeric' })
     parts.push(t('connections.lastConnected', { time }))
   }
   return parts.join(' · ')
-})
+}
+const statsInline = computed(() => usageStats(false))
+const statsTitle = computed(() => usageStats(true))
 const connectingLabel = computed(() => {
   const labels: Partial<Record<import('@shared/sshConnectionProgress').SshConnectionStage, string>> = {
     jump: t('connections.stageJump'), authenticating: t('connections.stageAuthenticating'),
@@ -86,7 +89,7 @@ const connectingLabel = computed(() => {
 
 const metaTitle = computed(() => {
   const base = `${props.connection.username}@${props.connection.host}:${props.connection.port}`
-  return [base, props.groupName ? t('connections.resultGroup', { name: props.groupName }) : '', statsInline.value, props.connection.note].filter(Boolean).join(' · ')
+  return [base, props.groupName ? t('connections.resultGroup', { name: props.groupName }) : '', props.connection.note, statsTitle.value].filter(Boolean).join(' · ')
 })
 
 const menuOpen = ref(false)
@@ -96,7 +99,7 @@ const menuRef = ref<HTMLElement | null>(null)
 const moreBtnRef = ref<HTMLElement | null>(null)
 const rowRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
-let dragStartedFromAction = false
+const dragGuard = createRowDragGuard()
 /** Temporary full-row clone used as HTML5 drag image; removed on dragend. */
 let dragGhostEl: HTMLElement | null = null
 /** Cursor point when opened via contextmenu */
@@ -179,18 +182,8 @@ function setRowDragImage(e: DragEvent) {
   })
 }
 
-function onRowPointerDown(e: PointerEvent) {
-  const target = e.target as Element | null
-  dragStartedFromAction = !!target?.closest(
-    '.row-actions, .ui-menu, button, a, input, textarea, select, [contenteditable="true"]',
-  )
-}
-
 function onDragStart(e: DragEvent) {
-  if (dragStartedFromAction) {
-    e.preventDefault()
-    return
-  }
+  if (!dragGuard.canStart(e)) return
   isDragging.value = true
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
@@ -260,8 +253,6 @@ function onContextMenu(e: MouseEvent) {
   // Keep browser menu on form-like targets if any appear later
   const el = e.target as HTMLElement | null
   if (el?.closest('input, textarea, [contenteditable="true"]')) return
-  // Don't steal drag handle interactions
-  if (el?.closest('.drag-handle')) return
   e.preventDefault()
   e.stopPropagation()
   menuMode.value = 'context'
@@ -325,6 +316,7 @@ function onMenuAction(action: MenuAction) {
     ref="rowRef"
     class="connection-row"
     draggable="true"
+    :title="reorderDisabled ? t('connections.dragDisabledTitle') : t('connections.dragTitle')"
     :class="{
       dragging: isDragging,
       'menu-open': menuOpen,
@@ -335,50 +327,42 @@ function onMenuAction(action: MenuAction) {
       compact,
     }"
     :style="{ '--tag-color': tagColor }"
-    @pointerdown="onRowPointerDown"
+    @pointerdown="dragGuard.pointerDown"
     @dragstart="onDragStart"
     @dragend="onDragEnd"
     @dblclick="onDoubleClick"
     @contextmenu="onContextMenu"
   >
-    <div
-      class="drag-handle"
-      :title="reorderDisabled ? t('connections.dragDisabledTitle') : t('connections.dragTitle')"
-      :aria-label="reorderDisabled ? t('connections.dragDisabledAria') : t('connections.dragAria')"
-      @click.stop
-      @dblclick.stop
-    >
-      <AppIcon name="grip" size="xs" />
-    </div>
-
     <div class="row-main">
-      <span
-        class="color-tag"
-        :style="{ background: tagColor }"
-        :title="tagTitle"
-        :aria-label="tagTitle"
-        role="img"
-      ></span>
+      <span class="color-tag-slot">
+        <span
+          v-if="hasColorTag"
+          class="color-tag"
+          :style="{ background: tagColor }"
+          :title="tagTitle"
+          :aria-label="tagTitle"
+          role="img"
+        ></span>
+      </span>
       <div class="row-info">
-        <span class="conn-name">
-          <AppIcon
-            v-if="connection.pinned"
-            name="pin-fill"
-            size="xs"
-            class="pin-icon"
-            :title="t('connections.pinned')"
-          />
-          <span class="conn-name-text" :title="connection.name">{{ connection.name }}</span>
-        </span>
+        <div class="row-heading">
+          <span class="conn-name">
+            <AppIcon
+              v-if="connection.pinned"
+              name="pin-fill"
+              size="xs"
+              class="pin-icon"
+              :title="t('connections.pinned')"
+            />
+            <span class="conn-name-text" :title="connection.name">{{ connection.name }}</span>
+          </span>
+          <span v-if="statsInline && !compact" class="conn-stats" :title="statsTitle" :aria-label="statsTitle">{{ statsInline }}</span>
+        </div>
         <span class="conn-meta" :title="metaTitle">
           <span class="conn-addr">{{ connection.username }}@{{ connection.host }}:{{ connection.port }}</span>
           <template v-if="groupName">
             <span class="meta-sep" aria-hidden="true">·</span>
             <span class="conn-group" :title="groupName">{{ t('connections.resultGroup', { name: groupName }) }}</span>
-          </template>
-          <template v-if="statsInline && !compact">
-            <span class="meta-sep" aria-hidden="true">·</span>
-            <span class="conn-stats">{{ statsInline }}</span>
           </template>
           <template v-if="connection.note && !compact">
             <span class="meta-sep" aria-hidden="true">·</span>
@@ -567,7 +551,7 @@ function onMenuAction(action: MenuAction) {
    * Left accent + outer border; dividers on the wrap still meet the left strip.
    */
   border: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--tag-color) 55%, var(--border-color));
+  border-left: 3px solid color-mix(in srgb, var(--border-color) 55%, transparent);
   margin-bottom: 0;
   background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
@@ -624,41 +608,11 @@ function onMenuAction(action: MenuAction) {
 
 /* Source row becomes a placeholder slot while the full-row ghost follows the cursor */
 .connection-row.dragging {
+  cursor: grabbing;
   opacity: 0.4;
   background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
   border-style: dashed;
   box-shadow: none;
-}
-
-.drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 32px;
-  flex-shrink: 0;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  /* Always visible — the handle already reserves layout space */
-  opacity: 0.45;
-  cursor: grab;
-  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
-}
-
-.connection-row:hover .drag-handle,
-.connection-row.menu-open .drag-handle,
-.connection-row:focus-within .drag-handle {
-  opacity: 0.7;
-}
-
-.drag-handle:hover {
-  opacity: 1 !important;
-  color: var(--text-primary);
-  background: var(--hover-bg);
-}
-
-.drag-handle:active {
-  cursor: grabbing;
 }
 
 .row-main {
@@ -707,6 +661,7 @@ function onMenuAction(action: MenuAction) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.row-heading { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 
 .conn-meta {
   display: flex;
@@ -736,13 +691,15 @@ function onMenuAction(action: MenuAction) {
 
 .conn-stats {
   flex: 0 2 auto;
-  max-width: 32%;
+  max-width: 45%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 11px;
-  opacity: 0.9;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
+.color-tag-slot { display: inline-flex; align-items: center; width: 10px; height: 10px; flex-shrink: 0; }
 
 .color-tag {
   width: 10px;
@@ -790,6 +747,8 @@ function onMenuAction(action: MenuAction) {
   gap: 6px;
   flex-shrink: 0;
 }
+.conn-note { flex: 1 1 0%; max-width: none; color: var(--text-primary); opacity: 1; font-size: 12px; }
+.conn-meta:has(.conn-note) .conn-addr { max-width: 60%; }
 
 /* 测试结果在非 hover 时也保留可见，避免状态闪失 */
 .test-badge {
@@ -914,10 +873,9 @@ function onMenuAction(action: MenuAction) {
 }
 
 .connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: 4px; box-shadow: none; }
-.connection-row.compact .drag-handle { height: 28px; width: 18px; }
 .connection-row.compact .row-main { gap: 8px; }
 .connection-row.compact .row-info { flex-direction: row; align-items: center; gap: 12px; }
-.connection-row.compact .conn-name { flex: 0 1 34%; min-width: 0; }
+.connection-row.compact .row-heading { flex: 0 1 34%; min-width: 0; }
 .connection-row.compact .conn-meta { flex: 1; }
 .connection-row.compact .row-info:has(.conn-error) { flex-wrap: wrap; row-gap: 2px; }
 .connection-row.compact .conn-error { flex: 1 0 100%; }

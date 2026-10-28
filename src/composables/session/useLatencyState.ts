@@ -9,8 +9,14 @@ export function useLatencyState(deps: {
   const latencyIntervalMs = ref(10000)
 
   const probeSessions = new Map<string, string>()
-  let monitorTimer: ReturnType<typeof setInterval> | null = null
+  let monitorTimer: ReturnType<typeof setTimeout> | null = null
   let measuring = false
+  let mounted = false
+  let disposed = false
+  let generation = 0
+  let refreshPending = false
+  const BACKGROUND_INTERVAL_MS = 60_000
+  const MAX_CONCURRENT_PROBES = 4
 
   function pickProbeSession(group: ConnectionGroup): string | null {
     if (group.sessions.length === 0) return null
@@ -36,54 +42,80 @@ export function useLatencyState(deps: {
   }
 
   async function measureAll() {
-    if (!latencyEnabled.value || measuring) return
+    if (!latencyEnabled.value || measuring || disposed || !mounted) return
     measuring = true
+    refreshPending = false
+    const version = generation
     try {
-      const activeIds = new Set(deps.groups.value.map((g) => g.connectionId))
-      for (const id of [...probeSessions.keys()]) {
-        if (!activeIds.has(id)) {
-          probeSessions.delete(id)
-          delete latencyMap.value[id]
+      pruneRemovedHosts()
+      const ids = [...new Set(deps.groups.value.filter(group => group.sessions.length > 0).map(group => group.connectionId))]
+      let cursor = 0
+      async function worker() {
+        while (cursor < ids.length && version === generation && latencyEnabled.value && !disposed) {
+          const id = ids[cursor++]
+          const sessionId = getProbeSession(id)
+          if (!sessionId) continue
+          let ms = -1
+          try { ms = await window.LiteConnect.sshMeasureLatency(sessionId) } catch { /* Show unavailable for this round. */ }
+          if (version === generation && !disposed && getProbeSession(id) === sessionId) latencyMap.value[id] = ms
         }
       }
-      const tasks = deps.groups.value.map(async (group) => {
-        const sessionId = getProbeSession(group.connectionId)
-        if (!sessionId) return
-        try {
-          const ms = await window.LiteConnect.sshMeasureLatency(sessionId)
-          latencyMap.value[group.connectionId] = ms
-        } catch {
-          latencyMap.value[group.connectionId] = -1
-        }
-      })
-      await Promise.all(tasks)
+      await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_PROBES, ids.length) }, worker))
     } finally {
       measuring = false
+      scheduleNext(refreshPending && !document.hidden ? 0 : pollInterval())
     }
   }
 
-  function startMonitor() {
-    stopMonitor()
-    if (!latencyEnabled.value) return
-    void measureAll()
-    monitorTimer = setInterval(() => void measureAll(), latencyIntervalMs.value)
+  function pruneRemovedHosts() {
+    const ids = new Set(deps.groups.value.filter(group => group.sessions.length > 0).map(group => group.connectionId))
+    for (const id of new Set([...probeSessions.keys(), ...Object.keys(latencyMap.value)])) {
+      if (ids.has(id)) continue
+      probeSessions.delete(id)
+      delete latencyMap.value[id]
+    }
+  }
+
+  function pollInterval() {
+    const configured = Math.max(1000, Math.min(60_000, Number(latencyIntervalMs.value) || 10_000))
+    return document.hidden ? Math.max(BACKGROUND_INTERVAL_MS, configured) : configured
+  }
+
+  function scheduleNext(delay: number) {
+    if (disposed || !mounted || !latencyEnabled.value || !deps.groups.value.some(group => group.sessions.length > 0)) return
+    if (monitorTimer) clearTimeout(monitorTimer)
+    monitorTimer = setTimeout(() => { monitorTimer = null; void measureAll() }, delay)
   }
 
   function stopMonitor() {
     if (monitorTimer) {
-      clearInterval(monitorTimer)
+      clearTimeout(monitorTimer)
       monitorTimer = null
     }
   }
 
-  watch(latencyIntervalMs, () => startMonitor())
-  watch(latencyEnabled, (enabled) => {
-    if (enabled) startMonitor()
-    else stopMonitor()
-  })
+  function requestRefresh() {
+    generation++
+    stopMonitor()
+    pruneRemovedHosts()
+    refreshPending = latencyEnabled.value && !document.hidden
+    if (!measuring) scheduleNext(refreshPending ? 0 : pollInterval())
+  }
 
-  onMounted(() => startMonitor())
-  onBeforeUnmount(() => stopMonitor())
+  watch([latencyEnabled, latencyIntervalMs], requestRefresh)
+  watch(() => deps.groups.value.map(group => group.connectionId + ':' + group.sessions.map(session => session.id).join(',')).join('|'), requestRefresh)
+
+  onMounted(() => {
+    mounted = true
+    document.addEventListener('visibilitychange', requestRefresh)
+    requestRefresh()
+  })
+  onBeforeUnmount(() => {
+    disposed = true
+    generation++
+    stopMonitor()
+    document.removeEventListener('visibilitychange', requestRefresh)
+  })
 
   function handleLatencySettingsChange(e: Event) {
     const detail = (e as CustomEvent).detail

@@ -29,6 +29,7 @@ export function useConnectionList(options: {
   getSearchInput: () => HTMLInputElement | null
   isModalOpen: () => boolean
   onConnect: (connectionId: string) => void
+  revealConnection?: (index: number) => void
 }) {
   const connections = ref<Connection[]>([])
   const groups = ref<Group[]>([])
@@ -80,30 +81,28 @@ export function useConnectionList(options: {
     return groupTree.value.getPath(activeGroupId.value || '') || t('connections.allConnections')
   })
 
+  const searchTextById = computed(() => {
+    const labels = new Map<string, string>(CONNECTION_COLOR_TAGS.map(tag => [tag.id, tag.label]))
+    const paths = new Map(groups.value.map(group => [group.id, groupTree.value.getPath(group.id)]))
+    return new Map(connections.value.map(connection => [connection.id, [
+      connection.name, connection.host, connection.username, connection.note || '',
+      connection.colorTag || '', labels.get(connection.colorTag || '') || '', paths.get(connection.group || '') || '',
+    ].join('\0').toLowerCase()]))
+  })
+
   function connectionMatchesQuery(c: Connection, q: string): boolean {
-    const tag = c.colorTag || ''
-    const tagLabel = CONNECTION_COLOR_TAGS.find((item) => item.id === tag)?.label || ''
-    const groupName = groupTree.value.getPath(c.group || '')
-    return (
-      c.name.toLowerCase().includes(q) ||
-      c.host.toLowerCase().includes(q) ||
-      c.username.toLowerCase().includes(q) ||
-      (c.note || '').toLowerCase().includes(q) ||
-      tag.toLowerCase().includes(q) ||
-      tagLabel.toLowerCase().includes(q) ||
-      groupName.toLowerCase().includes(q)
-    )
+    return searchTextById.value.get(c.id)?.includes(q) === true
   }
 
   const smartViewCounts = computed(() => {
-    const pinned = connections.value.filter((c) => c.pinned === true).length
-    const recent = connections.value
-      .filter((c) => (c.lastConnectedAt || 0) > 0)
-      .length
-    const tags: Record<string, number> = {}
-    for (const tag of CONNECTION_COLOR_TAGS) {
-      if (!tag.id) continue
-      tags[tag.id] = connections.value.filter((c) => (c.colorTag || '') === tag.id).length
+    let pinned = 0
+    let recent = 0
+    const tags: Record<string, number> = Object.fromEntries(CONNECTION_COLOR_TAGS.filter(tag => tag.id).map(tag => [tag.id, 0]))
+    for (const connection of connections.value) {
+      if (connection.pinned === true) pinned++
+      if ((connection.lastConnectedAt || 0) > 0) recent++
+      const tag = connection.colorTag || ''
+      if (Object.prototype.hasOwnProperty.call(tags, tag)) tags[tag]++
     }
     return {
       pinned,
@@ -563,6 +562,7 @@ export function useConnectionList(options: {
   }
 
   function scrollKeyboardRowIntoView(index: number) {
+    options.revealConnection?.(index)
     void nextTick(() => {
       const el = options.pageRootRef.value?.querySelector(`[data-conn-index="${index}"]`) as HTMLElement | null
       el?.scrollIntoView({ block: 'nearest' })

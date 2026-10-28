@@ -176,7 +176,7 @@ export const DOCKER_DAEMON_EXEC_ID_RE = /^[a-f0-9]{8,64}$/
 
 export const DOCKER_EXEC_RESIZE_MIN = 1 as const
 export const DOCKER_EXEC_RESIZE_MAX = 1000 as const
-export const DOCKER_EXEC_WRITE_MAX_BYTES = 64 * 1024
+export { DOCKER_EXEC_WRITE_MAX_BYTES } from '../../shared/types/docker'
 export const DOCKER_EXEC_OUTPUT_QUEUE_MAX_BYTES = 2 * 1024 * 1024
 export const DOCKER_EXEC_INPUT_QUEUE_MAX_BYTES = 256 * 1024
 export const DOCKER_EXEC_BATCH_FLUSH_MS = 16 as const

@@ -170,6 +170,7 @@ export class BackgroundMonitor {
       const sessionId = await this.ssh.connect({
         ...connection,
         x11Forwarding: false,
+        x11Mode: 'off',
         localForwards: [],
         remoteForwards: [],
         dynamicForwards: [],

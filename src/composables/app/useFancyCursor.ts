@@ -30,9 +30,6 @@ const INTERACTIVE_SELECTOR = [
   '[role="button"]',
   'label',
   'summary',
-  '.drag-handle',
-  '.sidebar-conn-handle',
-  '.group-drag-handle',
   '[draggable="true"]',
 ].join(',')
 
@@ -156,6 +153,12 @@ export function useFancyCursor(
 
   function onPointerLeave() {
     setVisible(false)
+    if (raf) cancelAnimationFrame(raf)
+    raf = 0
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) onPointerLeave()
   }
 
   function tick() {
@@ -188,7 +191,7 @@ export function useFancyCursor(
     }
 
     const settled = Math.abs(targetX - ringX) < 0.35 && Math.abs(targetY - ringY) < 0.35
-    if (settled && s !== 'trail') idleFrames += 1
+    if (settled) idleFrames += 1
     else idleFrames = 0
     if (idleFrames > 24) {
       raf = 0
@@ -215,6 +218,7 @@ export function useFancyCursor(
     window.addEventListener('pointercancel', onPointerUp, { passive: true })
     window.addEventListener('pointerleave', onPointerLeave, { passive: true })
     document.addEventListener('mouseleave', onPointerLeave, { passive: true })
+    document.addEventListener('visibilitychange', onVisibilityChange)
     raf = requestAnimationFrame(tick)
   }
 
@@ -227,6 +231,7 @@ export function useFancyCursor(
     window.removeEventListener('pointercancel', onPointerUp)
     window.removeEventListener('pointerleave', onPointerLeave)
     document.removeEventListener('mouseleave', onPointerLeave)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     if (raf) {
       cancelAnimationFrame(raf)
       raf = 0

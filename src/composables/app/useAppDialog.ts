@@ -33,12 +33,17 @@ export interface AppPromptOptions {
   inputValue?: string
   inputPlaceholder?: string
   inputType?: 'text' | 'password'
+  multiline?: boolean
+  /** Trim surrounding whitespace. Set false for command/script input. Defaults to true. */
+  trimInput?: boolean
+  tone?: 'warning' | 'danger' | 'info'
   /** Return true if valid, or an error string */
   validate?: (value: string) => true | string
   /** Simple non-empty check when validate not provided */
   required?: boolean
   requiredMessage?: string
-  maxLength?: number
+  /** null allows editing the complete text without a length limit. */
+  maxLength?: number | null
 }
 
 interface DialogState {
@@ -55,8 +60,10 @@ interface DialogState {
   inputValue: string
   inputPlaceholder: string
   inputType: 'text' | 'password'
+  multiline: boolean
+  trimInput: boolean
   inputError: string
-  maxLength: number
+  maxLength: number | null
   validate: ((value: string) => true | string) | null
   required: boolean
   requiredMessage: string
@@ -81,6 +88,8 @@ const state = reactive<DialogState>({
   inputValue: '',
   inputPlaceholder: '',
   inputType: 'text',
+  multiline: false,
+  trimInput: true,
   inputError: '',
   maxLength: 200,
   validate: null,
@@ -116,6 +125,8 @@ function openBase(partial: Partial<DialogState>) {
     inputValue: '',
     inputPlaceholder: '',
     inputType: 'text',
+    multiline: false,
+    trimInput: true,
     inputError: '',
     maxLength: 200,
     validate: null,
@@ -127,10 +138,6 @@ function openBase(partial: Partial<DialogState>) {
 
 export function appConfirm(options: AppConfirmOptions): Promise<AppConfirmResult> {
   return new Promise((resolve, reject) => {
-    pending = {
-      resolve: (value) => resolve((value as AppConfirmResult) || 'confirm'),
-      reject,
-    }
     openBase({
       mode: 'confirm',
       title: options.title,
@@ -142,15 +149,15 @@ export function appConfirm(options: AppConfirmOptions): Promise<AppConfirmResult
       danger: !!options.danger,
       tone: options.tone || (options.danger ? 'danger' : 'warning'),
     })
+    pending = {
+      resolve: (value) => resolve((value as AppConfirmResult) || 'confirm'),
+      reject,
+    }
   })
 }
 
 export function appPrompt(options: AppPromptOptions): Promise<string> {
   return new Promise((resolve, reject) => {
-    pending = {
-      resolve: (v) => resolve(String(v ?? '')),
-      reject,
-    }
     openBase({
       mode: 'prompt',
       title: options.title,
@@ -159,16 +166,22 @@ export function appPrompt(options: AppPromptOptions): Promise<string> {
       confirmText: options.confirmText || t('common.ok'),
       cancelText: options.cancelText || t('common.cancel'),
       danger: false,
-      tone: 'info',
+      tone: options.tone || 'info',
       inputValue: options.inputValue || '',
       inputPlaceholder: options.inputPlaceholder || '',
       inputType: options.inputType || 'text',
+      multiline: options.multiline === true,
+      trimInput: options.trimInput !== false,
       inputError: '',
-      maxLength: options.maxLength ?? 200,
+      maxLength: options.maxLength === undefined ? 200 : options.maxLength,
       validate: options.validate || null,
       required: options.required !== false,
       requiredMessage: options.requiredMessage || t('dialog.requiredEmpty'),
     })
+    pending = {
+      resolve: (v) => resolve(String(v ?? '')),
+      reject,
+    }
   })
 }
 
@@ -189,7 +202,7 @@ export function appDialogConfirm() {
     const resolver = pending
     pending = null
     state.visible = false
-    resolver?.resolve(value.trim())
+    resolver?.resolve(state.trimInput ? value.trim() : value)
     return
   }
 

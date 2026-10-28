@@ -8,6 +8,7 @@ import { useSftpTreeScroll } from '../../composables/sftp/useSftpTreeScroll'
 import { useSftpTreeKeyboard } from '../../composables/sftp/useSftpTreeKeyboard'
 import FileTypeIcon from './FileTypeIcon.vue'
 import AppIcon from '../icons/AppIcon.vue'
+import VirtualList from '../common/VirtualList.vue'
 
 const { t } = useI18n()
 
@@ -86,6 +87,8 @@ const fileLimitByPath = ref<Record<string, number>>({})
 const rowElements = new Map<string, HTMLElement>()
 const explorerRef = ref<HTMLElement | null>(null)
 const treeScrollRef = ref<HTMLElement | null>(null)
+const virtualListRef = ref<{ scrollToIndex: (index: number) => void; resetScroll: () => void } | null>(null)
+const rowKey = (row: FlatRow) => row.kind + ':' + row.path
 let searchInputRef: HTMLInputElement | null = null
 /** Shift-range selection anchor (files) + last dir click target. */
 let lastClickedPath: string | null = null
@@ -188,6 +191,12 @@ const visibleRows = computed((): FlatRow[] => {
 })
 
 const selectedFileEntries = computed(() => [...selectedEntries.value.values()])
+const rowIndexByPath = computed(() => new Map(visibleRows.value.map((row, index) => [row.path, index])))
+const focusedRowKey = computed(() => {
+  const index = rowIndexByPath.value.get(focusedPath.value)
+  return index === undefined ? null : rowKey(visibleRows.value[index])
+})
+watch(searchQuery, () => virtualListRef.value?.resetScroll(), { flush: 'post' })
 
 const selectedCount = computed(() => selectedEntries.value.size)
 const directoryCount = computed(() => visibleRows.value.filter((row) => row.kind === 'dir').length)
@@ -217,6 +226,10 @@ const {
   cleanPath,
   setFocusedPath: (path) => { focusedPath.value = path },
   focusExplorer: () => { explorerRef.value?.focus({ preventScroll: true }) },
+  revealRow: path => {
+    const index = rowIndexByPath.value.get(path)
+    if (index !== undefined) virtualListRef.value?.scrollToIndex(index)
+  },
 })
 
 function isCurrent(path: string): boolean {
@@ -452,11 +465,23 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
         <p class="tree-empty-desc">{{ t('sftp.emptyDirDesc') }}</p>
       </div>
 
+      <VirtualList
+        ref="virtualListRef"
+        :items="visibleRows"
+        :item-key="rowKey"
+        :estimated-size="28"
+        :scroll-container="treeScrollRef"
+        :pinned-key="focusedRowKey"
+        role="presentation"
+        v-slot="{ item: row }"
+      >
       <div
-        v-for="row in visibleRows"
-        :key="row.kind + ':' + row.path"
         :ref="(el) => setRowRef(el, row.path)"
         class="tree-row"
+        role="treeitem"
+        :aria-level="row.depth + 1"
+        :aria-expanded="row.kind === 'dir' ? isExpanded(row.path) : undefined"
+        :aria-selected="row.kind === 'file' ? selectedPaths.has(row.path) : undefined"
         :class="{
           dir: row.kind === 'dir',
           file: row.kind === 'file',
@@ -535,6 +560,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
           </div>
         </template>
       </div>
+      </VirtualList>
     </div>
     <div class="tree-status-bar">
       <span>
@@ -560,6 +586,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .sftp-dir-tree {
+  overflow-anchor: none;
   flex: 1;
   min-width: 0;
   min-height: 0;

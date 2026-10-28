@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   importGate: undefined as Promise<void> | undefined,
   bind: vi.fn(), execution: vi.fn(), schedules: vi.fn(),
   registerAi: vi.fn(), registerMcp: vi.fn(), registerSchedules: vi.fn(), registerDocker: vi.fn(),
-  dockerClose: vi.fn(), x11: vi.fn(), bash: vi.fn(async () => ({ ok: true })), audit: vi.fn(),
+  dockerClose: vi.fn(), x11: vi.fn(), x11Stop: vi.fn(), bash: vi.fn(async () => ({ ok: true })), audit: vi.fn(),
   removeHandler: vi.fn(), gateway: { applyFromSettings: vi.fn(), dispose: vi.fn(), stop: vi.fn(), forceClose: vi.fn() },
 }))
 vi.mock('electron', () => ({ ipcMain: { handle: vi.fn(), removeHandler: mocks.removeHandler } }))
@@ -18,6 +18,7 @@ vi.mock('../ipc/registerAiScheduleHandlers', () => ({ registerAiScheduleHandlers
 vi.mock('./aiExecution', () => ({ createAiExecutionService: mocks.execution }))
 vi.mock('./aiSchedules', () => ({ createAiScheduleServices: mocks.schedules }))
 vi.mock('../ssh/x11/x11Server', () => ({ configureX11ServerOptions: mocks.x11 }))
+vi.mock('../ssh/x11/automaticX11', () => ({ stopAutomaticX11: mocks.x11Stop }))
 vi.mock('../mcp/bashParser', () => ({ initBashAst: mocks.bash }))
 vi.mock('../docker/sshSessionHost', () => ({ DockerSshSessionHost: class {} }))
 vi.mock('../docker/service', () => ({ DockerService: class { closeAll = mocks.dockerClose } }))
@@ -54,6 +55,7 @@ it('never constructs or registers delayed services when quitting during settings
   finish()
   await starting; await stopping
   await services.start()
+  expect(mocks.x11Stop).toHaveBeenCalledOnce()
   expect(mocks.bind).not.toHaveBeenCalled()
   expect(mocks.registerAi).not.toHaveBeenCalled()
   expect(mocks.registerDocker).not.toHaveBeenCalled()
@@ -94,6 +96,7 @@ it('owns construction, registration, cancellation and draining of each delayed s
   await Promise.resolve()
   expect(stopped).toBe(false)
   finish(); await stopping
+  expect(mocks.x11Stop).toHaveBeenCalledOnce()
   services.seal()
   expect(execution.sealPersistence).toHaveBeenCalledOnce()
   expect(mocks.gateway.forceClose).toHaveBeenCalledOnce()

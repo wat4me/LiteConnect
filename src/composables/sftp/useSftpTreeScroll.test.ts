@@ -47,6 +47,26 @@ function makeScroller(top = 0, bottom = 200) {
 }
 
 describe('useSftpTreeScroll forceRevealPath', () => {
+  it('mounts a virtual row before keyboard focus and locate', async () => {
+    const rowElements = new Map<string, HTMLElement>()
+    const row = makeRow(900)
+    const revealRow = vi.fn((path: string) => { rowElements.set(path, row) })
+    const scroll = useSftpTreeScroll({
+      treeScrollRef: ref(makeScroller()), rowElements, cleanPath: p => p,
+      setFocusedPath: vi.fn(), focusExplorer: vi.fn(), revealRow,
+    })
+    scroll.focusRow('/offscreen')
+    await nextTick()
+    expect(revealRow).toHaveBeenCalledWith('/offscreen')
+    expect(row.scrollIntoView).toHaveBeenCalled()
+    rowElements.clear()
+    scroll.forceRevealPath('/another')
+    scroll.tryRevealPendingPath()
+    expect(revealRow).toHaveBeenCalledWith('/another')
+    expect(scroll.hasPendingReveal()).toBe(true)
+    await nextTick()
+    expect(scroll.hasPendingReveal()).toBe(false)
+  })
   it('scrolls an off-screen row into view even when path is "already current"', async () => {
     const scroller = makeScroller(0, 200)
     scroller.scrollTop = 400

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { GridSort } from '@/domain/database/types'
 import {
@@ -36,6 +37,87 @@ const emit = defineEmits<{
   copyCell: [value: unknown]
 }>()
 
+const scrollRef = ref<HTMLElement | null>(null)
+const tableRef = ref<HTMLTableElement | null>(null)
+const scrollTop = ref(0)
+const viewportHeight = ref(600)
+const rowHeight = ref(31)
+const columnWidths = ref<number[]>([])
+const virtual = computed(() => props.rows.length > 100)
+const start = computed(() => virtual.value ? Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - 8) : 0)
+const end = computed(() => virtual.value ? Math.min(props.rows.length, Math.ceil((scrollTop.value + viewportHeight.value) / rowHeight.value) + 8) : props.rows.length)
+const visibleRows = computed(() => props.rows.slice(start.value, end.value))
+const tableStyle = computed(() => virtual.value && columnWidths.value.length ? {
+  tableLayout: 'fixed' as const, width: columnWidths.value.reduce((sum, width) => sum + width, 0) + 'px',
+} : undefined)
+let observer: ResizeObserver | null = null
+let observedRow: HTMLElement | null = null
+let frame = 0
+let measuredFont = ''
+let context: CanvasRenderingContext2D | null = null
+
+function measureColumns() {
+  const table = tableRef.value
+  if (!table || !virtual.value) return
+  context ??= document.createElement('canvas').getContext('2d')
+  if (!context) return
+  const font = getComputedStyle(table).font
+  measuredFont = font
+  context.font = font
+  const measure = (text: string) => context!.measureText(text.slice(0, 512)).width
+  const numberWidth = Math.max(48, measure(String(props.rowNumberStart + props.rows.length)) + 26)
+  columnWidths.value = [numberWidth, ...props.columns.map(col => {
+    let width = measure(col) + 48
+    // Widths stay stable while scrolling; sampling bounds work on wide result sets.
+    for (const row of props.rows.slice(0, 80)) width = Math.max(width, measure(formatCell(cellValue(row, col))) + 26)
+    return Math.ceil(Math.min(360, Math.max(72, width)))
+  })]
+}
+
+function scheduleMeasure() {
+  if (frame) return
+  frame = requestAnimationFrame(() => {
+    frame = 0
+    const el = scrollRef.value
+    if (!el) return
+    const measured = tableRef.value?.querySelector<HTMLElement>('tbody tr[data-row-index]')?.getBoundingClientRect().height
+    if (measured && Math.abs(measured - rowHeight.value) > 0.1) {
+      const adjusted = el.scrollTop * measured / rowHeight.value
+      rowHeight.value = measured
+      void nextTick(() => { if (scrollRef.value === el) { el.scrollTop = adjusted; scrollTop.value = el.scrollTop } })
+    }
+    viewportHeight.value = el.clientHeight
+    scrollTop.value = el.scrollTop
+    if (tableRef.value && measuredFont !== getComputedStyle(tableRef.value).font) measureColumns()
+  })
+}
+
+function observeRow() {
+  const row = tableRef.value?.querySelector<HTMLElement>('tbody tr[data-row-index]') ?? null
+  if (observedRow === row) return
+  if (observedRow) observer?.unobserve(observedRow)
+  observedRow = row
+  if (row) observer?.observe(row)
+}
+
+watch(() => [props.rows, props.rows.length, props.columns, props.rowNumberStart], async () => {
+  scrollTop.value = 0
+  if (scrollRef.value) scrollRef.value.scrollTop = 0
+  await nextTick()
+  measureColumns()
+  scheduleMeasure()
+}, { flush: 'post' })
+
+onMounted(() => {
+  observer = new ResizeObserver(scheduleMeasure)
+  if (scrollRef.value) observer.observe(scrollRef.value)
+  observeRow()
+  measureColumns()
+  scheduleMeasure()
+})
+onUpdated(observeRow)
+onBeforeUnmount(() => { if (frame) cancelAnimationFrame(frame); observer?.disconnect() })
+
 function onHeaderClick(col: string) {
   emit('sort', col)
 }
@@ -47,8 +129,11 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
 </script>
 
 <template>
-  <div class="grid-scroll">
-    <table class="sheet">
+  <div ref="scrollRef" class="grid-scroll" :data-item-count="rows.length" @scroll.passive="scheduleMeasure">
+    <table ref="tableRef" class="sheet" :style="tableStyle" :aria-rowcount="rows.length + 1">
+      <colgroup v-if="virtual && columnWidths.length">
+        <col v-for="(width, index) in columnWidths" :key="index" :style="{ width: width + 'px' }" />
+      </colgroup>
       <thead>
         <tr>
           <th class="rn">#</th>
@@ -64,8 +149,9 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(row, ri) in rows" :key="ri">
-          <td class="rn">{{ rowNumberStart + ri }}</td>
+        <tr v-if="virtual && start > 0" class="grid-spacer" aria-hidden="true"><td :colspan="columns.length + 1" :style="{ height: start * rowHeight + 'px' }"></td></tr>
+        <tr v-for="(row, ri) in visibleRows" :key="start + ri" :data-row-index="start + ri" :aria-rowindex="start + ri + 2">
+          <td class="rn">{{ rowNumberStart + start + ri }}</td>
           <td
             v-for="col in columns"
             :key="col"
@@ -80,6 +166,7 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
             {{ formatCell(cellValue(row, col)) }}
           </td>
         </tr>
+        <tr v-if="virtual && end < rows.length" class="grid-spacer" aria-hidden="true"><td :colspan="columns.length + 1" :style="{ height: (rows.length - end) * rowHeight + 'px' }"></td></tr>
       </tbody>
     </table>
     <div v-if="rows.length === 0" class="grid-empty">
@@ -90,6 +177,7 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
 
 <style scoped>
 .grid-scroll {
+  overflow-anchor: none;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -173,6 +261,8 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
   font-style: italic;
   color: var(--text-secondary);
 }
+
+.sheet .grid-spacer td { padding: 0; border: 0; font-size: 0; line-height: 0; }
 
 .cell-copyable {
   cursor: copy;

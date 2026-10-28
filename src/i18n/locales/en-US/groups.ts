@@ -1,11 +1,14 @@
 export default {
   groups: {
     title: 'Groups',
+    navigation: 'Navigation',
     smartViews: 'Smart views',
     tags: 'Tags',
     resizePanel: 'Resize the group panel',
     resizePanelHint: 'Drag to resize. Left and right arrows nudge the width. Home and End set the minimum and maximum width.',
-    searchPlaceholder: 'Search groups, hosts, or notes…',
+    searchPlaceholder: 'Find a group or connection…',
+    searchAria: 'Find groups or connections in navigation',
+    searchHint: 'Find groups and connections in navigation without filtering the list on the right',
     dragSort: 'Drag to reorder groups',
     defaultGroup: 'Default group',
     rename: 'Rename',

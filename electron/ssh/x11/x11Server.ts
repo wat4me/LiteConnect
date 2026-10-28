@@ -34,6 +34,9 @@ export type X11ServerStatus = {
   resolvedExecutablePath: string | null
   platform: NodeJS.Platform
   supported: boolean
+  bundled: boolean
+  displayAddress?: string
+  dependencyMissing?: 'xquartz' | 'desktop'
 }
 
 const DEFAULT_WAIT_MS = 10000
@@ -80,6 +83,7 @@ export function candidateX11ExecutablePaths(customPath?: string): string[] {
   if (custom) out.push(custom)
 
   if (process.platform === 'win32') {
+    out.push(...bundledX11ExecutablePaths())
     const pf = process.env['ProgramFiles'] || 'C:\\Program Files'
     const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
     const local = process.env['LOCALAPPDATA'] || ''
@@ -94,6 +98,13 @@ export function candidateX11ExecutablePaths(customPath?: string): string[] {
     }
   }
   return [...new Set(out)]
+}
+
+export function bundledX11ExecutablePaths(): string[] {
+  // Packaged apps must never resolve an executable relative to an arbitrary cwd.
+  return process.resourcesPath && !process.defaultApp
+    ? [join(process.resourcesPath, 'third-party', 'vcxsrv-runtime', 'vcxsrv.exe')]
+    : [join(process.cwd(), 'build', 'third-party', 'vcxsrv-runtime', 'vcxsrv.exe')]
 }
 
 export async function resolveX11Executable(customPath?: string): Promise<string | null> {
@@ -111,6 +122,10 @@ export async function getX11ServerStatus(draftExecutablePath?: string): Promise<
   const executablePath = typeof draftExecutablePath === 'string'
     ? draftExecutablePath.trim()
     : configuredExecutablePath
+  if (process.platform !== 'win32') {
+    const { systemX11Service } = await import('./systemX11')
+    return { autoStart: autoStartEnabled, executablePath: '', platform: process.platform, bundled: false, ...await systemX11Service.status() }
+  }
   const resolved = await resolveX11Executable(executablePath)
   return {
     autoStart: autoStartEnabled,
@@ -118,6 +133,7 @@ export async function getX11ServerStatus(draftExecutablePath?: string): Promise<
     resolvedExecutablePath: resolved,
     platform: process.platform,
     supported: process.platform === 'win32',
+    bundled: !!resolved && bundledX11ExecutablePaths().includes(resolved),
   }
 }
 

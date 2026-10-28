@@ -68,4 +68,17 @@ describe('terminal user input', () => {
     vi.advanceTimersByTime(50)
     expect(state.emitCdCommand).toHaveBeenCalledWith('cd /tmp')
   })
+
+  it('does not submit protected pasted newlines until a real Enter arrives', () => {
+    vi.useFakeTimers()
+    const state = setup()
+    const payload = '\x1b[200~cd /tmp\recho hello\r\x1b[201~'
+    state.input.handleTerminalUserInput(payload)
+    expect(state.write).toHaveBeenCalledExactlyOnceWith(payload)
+    vi.advanceTimersByTime(100)
+    expect(state.emitCdCommand).not.toHaveBeenCalled()
+    expect(state.scheduleSubmit).not.toHaveBeenCalled()
+    state.input.handleTerminalUserInput('\r')
+    expect(state.scheduleSubmit).toHaveBeenCalledOnce()
+  })
 })

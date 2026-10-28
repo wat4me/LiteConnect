@@ -11,6 +11,7 @@ export function useSftpTreeScroll(deps: {
   cleanPath: (path: string) => string
   setFocusedPath: (path: string) => void
   focusExplorer: () => void
+  revealRow?: (path: string) => void
 }) {
   let lockedScrollTop: number | null = null
   let lockScrollUntil = 0
@@ -55,6 +56,7 @@ export function useSftpTreeScroll(deps: {
     deps.focusExplorer()
     const mode = opts?.scroll ?? 'if-needed'
     if (mode === 'never') return
+    deps.revealRow?.(path)
     nextTick(() => {
       const row = deps.rowElements.get(path)
       const scroller = deps.treeScrollRef.value
@@ -112,6 +114,7 @@ export function useSftpTreeScroll(deps: {
 
     const row = deps.rowElements.get(path)
     if (!row) {
+      deps.revealRow?.(path)
       if (revealAttempts++ < REVEAL_MAX_ATTEMPTS) {
         nextTick(() => {
           requestAnimationFrame(() => tryRevealPendingPath())

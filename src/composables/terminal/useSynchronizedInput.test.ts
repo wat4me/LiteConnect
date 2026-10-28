@@ -2,6 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 import { createSynchronizedInput } from './useSynchronizedInput'
 
 describe('synchronized terminal input', () => {
+  it('pauses protected paste before sending to any peers when a peer lacks support', () => {
+    const sync = createSynchronizedInput()
+    const receive = vi.fn()
+    sync.register('a', { writable: () => true, receive, supportsBracketedPaste: () => true })
+    sync.register('b', { writable: () => true, receive, supportsBracketedPaste: () => true })
+    sync.register('c', { writable: () => true, receive, supportsBracketedPaste: () => false })
+    sync.select(['a', 'b', 'c'])
+    sync.start()
+    expect(sync.forward('a', '\x1b[200~echo one\recho two\r\x1b[201~')).toBe('unsupported-paste')
+    expect(receive).not.toHaveBeenCalled()
+    expect(sync.enabled.value).toBe(false)
+  })
+
   it('forwards exact input once to selected peers and does not echo back or recurse', () => {
     const sync = createSynchronizedInput()
     const a = vi.fn()

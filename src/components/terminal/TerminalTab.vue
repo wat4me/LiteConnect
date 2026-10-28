@@ -290,7 +290,11 @@ function pulseCursor() {
 
 const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompletion } = useTerminalUserInput({
   onUserInput: (data) => {
-    if (isEffectiveActive() && !reconnect.disconnected.value) synchronizedInput?.forward(props.sessionId, data)
+    if (isEffectiveActive() && !reconnect.disconnected.value) {
+      if (synchronizedInput?.forward(props.sessionId, data) === 'unsupported-paste') {
+        ElMessage.warning(t('terminal.syncPasteUnsupported'))
+      }
+    }
   },
   sessionId: () => props.sessionId,
   readOnly,
@@ -315,6 +319,10 @@ const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompleti
 
 const unregisterSynchronizedInput = synchronizedInput?.register(props.sessionId, {
   writable: () => !readOnly.value && !reconnect.disconnected.value && !reconnect.neverConnected.value,
+  supportsBracketedPaste: () => {
+    const terminal = getTerminal()
+    return !!terminal?.modes.bracketedPasteMode && !terminal.options.ignoreBracketedPasteMode
+  },
   receive: (data) => handleTerminalUserInput(data),
 })
 watch([readOnly, reconnect.disconnected, reconnect.neverConnected], () => {
@@ -322,18 +330,17 @@ watch([readOnly, reconnect.disconnected, reconnect.neverConnected], () => {
 })
 onBeforeUnmount(() => unregisterSynchronizedInput?.())
 
-const { pasteWithConfirm } = useTerminalPasteConfirm({
+const { pasteFromClipboard, handlePasteEvent } = useTerminalPasteConfirm({
   getTerminal,
   pasteConfirmEnabled,
   pasteConfirmMaxChars,
   isActive: () => !!props.active,
-  handleTerminalUserInput,
 })
 
 const selection = useTerminalSelectionMenu({
   getTerminal,
   isActive: () => !!props.active,
-  pasteWithConfirm,
+  pasteFromClipboard,
   onAiSelection: (text, mode) => emit('aiSelection', text, mode),
   onSaveAsSnippet: (text) => emit('saveAsSnippet', text),
 })
@@ -352,7 +359,7 @@ const { handleKey: handleTerminalKey } = useTerminalKeyHandler({
     window.LiteConnect.setTerminalFontSize(size).catch(() => {})
   },
   toggleSearch,
-  pasteText: pasteWithConfirm,
+  pasteFromClipboard,
   onBarePageKey: () => {
     ElMessage.info(t('terminal.pageScrollHint'))
   },
@@ -486,6 +493,9 @@ onMounted(async () => {
 
   const terminal = createTerminal(props.connectionName)
   if (!terminal) return
+  // Capture native paste (e.g. Shift+Insert) before xterm's own handler so it
+  // shares the editor/confirmation flow and cannot send a second copy.
+  terminal.element?.addEventListener('paste', handlePasteEvent, true)
   void window.LiteConnect.getAllSettings().then((settings) => {
     localEcho.setEnabled(settings.terminalLocalEchoEnabled === true)
   }).catch(() => localEcho.setEnabled(false))

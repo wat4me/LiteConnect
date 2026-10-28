@@ -116,6 +116,12 @@ export class DeferredServices {
     stop(() => this.execution?.dispose())
     stop(() => this.gateway?.dispose())
     stop(() => this.runtime?.dispose())
+    // A connection may have started X11 before delayed service loading finished.
+    // Own cleanup even when quitting during settings migration or module import.
+    stop(async () => {
+      const { stopAutomaticX11 } = await import('../ssh/x11/automaticX11')
+      await stopAutomaticX11()
+    })
     stop(() => this.scheduler?.waitForIdle())
     stop(() => this.execution?.waitForIdle())
     stop(() => this.ipc.waitForIdle())

@@ -1,11 +1,14 @@
 export default {
   groups: {
     title: '分组',
+    navigation: '导航',
     smartViews: '智能视图',
     tags: '标签',
     resizePanel: '调整分组栏宽度',
     resizePanelHint: '拖动调整宽度；左右方向键微调，Home / End 设置最小 / 最大宽度',
-    searchPlaceholder: '搜索分组、主机、备注…',
+    searchPlaceholder: '定位分组或连接…',
+    searchAria: '在导航中定位分组或连接',
+    searchHint: '查找导航中的分组和连接，不会筛选右侧列表',
     dragSort: '拖拽排序分组',
     defaultGroup: '默认分组',
     rename: '重命名',

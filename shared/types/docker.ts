@@ -1,3 +1,5 @@
+export const DOCKER_EXEC_WRITE_MAX_BYTES = 64 * 1024
+
 export type DockerTransportErrorCode =
   | 'ssh-disconnected'
   | 'transport-unsupported'
