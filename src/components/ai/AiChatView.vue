@@ -22,6 +22,7 @@ import AiToolRunRow from './AiToolRun.vue'
 import AiWorkspaceResponse from './AiWorkspaceResponse.vue'
 import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
 import AiBackgroundResults from './AiBackgroundResults.vue'
+import AiActivityStatus from './AiActivityStatus.vue'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 
 const props = defineProps<{
@@ -432,21 +433,7 @@ async function copyText(text: string, key: string) {
         />
       </div>
       </template>
-      <div
-        v-if="message.streaming"
-        class="reasoning-box live activity-status"
-        role="status"
-        aria-busy="true"
-      >
-        <div class="activity-line">
-          <span>{{ t(`ai.activity.${activityDisplay(message).phase}`) }}</span>
-          <span class="activity-elapsed">{{ t('ai.activityElapsed', { seconds: activityDisplay(message).elapsedSeconds }) }}</span>
-          <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-        </div>
-        <div v-if="activityDisplay(message).delayed" class="activity-delay">
-          {{ t('ai.activityDelayed', { seconds: activityDisplay(message).quietSeconds }) }}
-        </div>
-      </div>
+      <AiActivityStatus v-if="message.streaming" :activity="message.activity" :created-at="message.createdAt" />
       </template>
       <AiMessageFooter
         v-if="editingMessageId !== message.id && (message.role === 'user' || !message.streaming)"
@@ -494,10 +481,11 @@ async function copyText(text: string, key: string) {
       v-if="messages.length > 0 && !followLatest"
       type="button"
       class="jump-latest"
-      :title="t('ai.followLatestOff')"
+      :title="t('ai.jumpToLatest')"
+      :aria-label="t('ai.jumpToLatest')"
       @click="toggleFollowLatest"
     >
-      {{ t('ai.jumpToLatest') }}
+      <AppIcon name="arrow-down" size="md" />
     </button>
   </div>
 </template>

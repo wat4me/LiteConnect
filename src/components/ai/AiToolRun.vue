@@ -57,7 +57,7 @@ function onToggle(event: Event) {
             class="tool-run-desc"
             :title="description"
           >{{ description }}</span>
-          <span class="tool-run-outcome">
+          <span class="tool-run-outcome" :title="[stateLabel, detail].filter(Boolean).join(' · ')">
             <span class="tool-run-state">{{ stateLabel }}</span>
             <span v-if="detail" class="tool-run-detail">{{ detail }}</span>
           </span>
@@ -85,7 +85,7 @@ function onToggle(event: Event) {
 </template>
 
 <style scoped>
-.tool-run-target { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; }
+.tool-run-target { min-width: 0; max-width: min(200px, 25%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; }
 .tool-run-view-execution { display: inline-flex; align-items: center; gap: 5px; }
 .tool-run {
   padding: 1px 0;
@@ -139,6 +139,7 @@ function onToggle(event: Event) {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   min-height: 24px;
   padding: 1px 4px;
   font-weight: 500;
@@ -181,7 +182,7 @@ function onToggle(event: Event) {
 }
 
 .tool-run-desc {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -206,12 +207,18 @@ function onToggle(event: Event) {
 .tool-run-outcome {
   margin-left: auto;
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  white-space: nowrap;
   justify-content: flex-end;
   column-gap: 6px;
 }
 
 .tool-run-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-secondary);
   font-weight: 400;
   line-height: 20px;

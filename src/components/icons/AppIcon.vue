@@ -57,6 +57,7 @@ export type AppIconName =
   | 'refresh'
   | 'chevron-right'
   | 'chevron-down'
+  | 'arrow-down'
   | 'chevron-up'
   | 'chevron-left'
   | 'home-grid'
@@ -322,6 +323,10 @@ const iconStyle = computed(() => {
     <template v-else-if="name === 'chevron-down'">
       <!-- Lucide: chevron-down; source and license: docs/ICONS.md -->
       <path d="m6 9 6 6 6-6" />
+    </template>
+    <!-- Downward navigation, including returning to the latest chat output. -->
+    <template v-else-if="name === 'arrow-down'">
+      <path d="M12 4v16m-7-7 7 7 7-7" />
     </template>
     <template v-else-if="name === 'chevron-up'">
       <!-- Lucide: chevron-up; source and license: docs/ICONS.md -->

@@ -66,6 +66,11 @@ heading/counts, query preservation when changing scope, restoring the same
 group, persisted sort choices, credentials in the Tools menu, and English
 labels, and captures preview screenshots.
 
+Run `npm run test:ui -- --tool-rows` for single-line AI tool outcomes, output
+truncation notices and file/match counts at 280–440px in both languages and
+three themes, including expanded rows and long target/description text. It also
+checks that elapsed-time ticks do not rerender the full chat/tool list.
+
 Run `npm run test:ui -- --drag` for real browser mouse dragging of connection
 names, card whitespace, group headers and sidebar connections. It intercepts
 Chromium's native drag payloads and checks reorder/move persistence, hierarchy

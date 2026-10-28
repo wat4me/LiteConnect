@@ -32,6 +32,7 @@ export function useAiChatViewport(deps: {
   let savedScrollTop = 0
   let isProgrammaticScroll = false
   let scrollRaf = 0
+  let timelineRaf = 0
   const NEAR_BOTTOM_PX = 48
 
   const turns = computed(() => chatTurnStarts(deps.messages()))
@@ -101,6 +102,7 @@ export function useAiChatViewport(deps: {
   }
 
   const timelineTurns = computed(() => collectChatTimelineTurns(deps.messages()))
+  const timelineTurnIds = computed(() => new Set(timelineTurns.value.map(turn => turn.id)))
   const showTimeline = computed(() => timelineTurns.value.length > 0 && deps.messages().length > 1)
   const activeTurnId = ref('')
   const timelineRef = ref<HTMLElement | null>(null)
@@ -170,10 +172,12 @@ export function useAiChatViewport(deps: {
 
   function scheduleScrollToBottom() {
     if (!visible || disposed || !followLatest.value) return
-    if (scrollRaf) { cancelAnimationFrame(scrollRaf); frames.delete(scrollRaf) }
+    if (scrollRaf) return
     scrollRaf = scheduleFrame(() => {
       scrollRaf = 0
+      if (!followLatest.value) return
       scrollToBottom()
+      updateActiveTurn()
     })
   }
 
@@ -188,12 +192,16 @@ export function useAiChatViewport(deps: {
       activeTurnId.value = turns[turns.length - 1]?.id || ''
       return
     }
-    const rows = new Map(Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).map(row => [row.dataset.messageId, row]))
-    const measured = turns.flatMap((turn) => {
-      const row = rows.get(turn.id)
-      return row ? [{ id: turn.id, top: row.offsetTop }] : []
+    const measured = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).flatMap(row => {
+      const id = row.dataset.messageId
+      return id && timelineTurnIds.value.has(id) ? [{ id, top: row.offsetTop }] : []
     })
     activeTurnId.value = activeTimelineTurnId(measured, el.scrollTop)
+  }
+
+  function scheduleActiveTurn() {
+    if (!visible || disposed || timelineRaf) return
+    timelineRaf = scheduleFrame(() => { timelineRaf = 0; updateActiveTurn() })
   }
 
   async function jumpToTurn(id: string) {
@@ -229,7 +237,7 @@ export function useAiChatViewport(deps: {
   function onListScroll() {
     if (isProgrammaticScroll) {
       captureScroll()
-      updateActiveTurn()
+      scheduleActiveTurn()
       return
     }
     captureScroll()
@@ -241,7 +249,7 @@ export function useAiChatViewport(deps: {
     } else if (!followLatest.value && !hasNewerMessages.value && isNearBottom(el)) {
       followLatest.value = true
     }
-    updateActiveTurn()
+    scheduleActiveTurn()
   }
 
   function toggleFollowLatest() {
@@ -252,7 +260,7 @@ export function useAiChatViewport(deps: {
   }
 
   /** Cheap signature so streaming token updates trigger follow-scroll. */
-  const messagesSignature = computed(() =>
+  const messagesSignature = computed(() => !followLatest.value ? '' :
     visibleMessages.value
       .map(
         (m) =>
@@ -268,8 +276,9 @@ export function useAiChatViewport(deps: {
   watch(
     [messagesSignature, deps.layoutSignature, deps.loading, () => deps.messages().length],
     async () => {
+      // Reading history must not scan tool output or force layout on stream updates.
+      if (!visible || disposed || !followLatest.value) return
       await nextTick()
-      updateActiveTurn()
       if (!visible || disposed || !followLatest.value) return
       scheduleScrollToBottom()
     },
@@ -304,6 +313,7 @@ export function useAiChatViewport(deps: {
     for (const frame of frames) cancelAnimationFrame(frame)
     frames.clear()
     scrollRaf = 0
+    timelineRaf = 0
     isProgrammaticScroll = false
     if (jumpScrollTimer) clearTimeout(jumpScrollTimer)
     jumpScrollTimer = null

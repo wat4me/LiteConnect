@@ -166,3 +166,52 @@ it('resets the window on thread switches and ignores an in-flight history prepen
   expect(f.api.followLatest.value).toBe(true)
   expect(f.api.loadingEarlier.value).toBe(false)
 })
+
+it('measures timeline positions once per frame during a burst of manual scroll events', async () => {
+  const f = await setup()
+  const measure = vi.spyOn(f.element, 'querySelectorAll')
+  for (let index = 0; index < 40; index++) {
+    f.element.scrollTop = 100 + index
+    f.api.onListScroll()
+  }
+  expect(f.api.followLatest.value).toBe(false)
+  expect(measure).not.toHaveBeenCalled()
+  await f.flush()
+  expect(measure).toHaveBeenCalledOnce()
+  expect(f.element.scrollTop).toBe(139)
+})
+
+it('does not read tool-output signatures or measure layout while the user reads history', async () => {
+  const f = await setup()
+  const readOutput = vi.fn(() => 'partial output')
+  f.messages.value.push({ id: 'live-tools', role: 'assistant', content: '', createdAt: 200, streaming: true,
+    toolRuns: [{ id: 'running-tool', name: 'exec', args: '{}', get content() { return readOutput() }, isError: false, status: 'running' }] })
+  await f.flush()
+  f.element.scrollTop = 120
+  f.api.onListScroll()
+  await f.flush()
+  const measure = vi.spyOn(f.element, 'querySelectorAll')
+  readOutput.mockClear()
+  f.messages.value.at(-1)!.content = 'new output'
+  f.messages.value.at(-1)!.toolRuns![0].status = 'done'
+  await f.flush()
+  expect(readOutput).not.toHaveBeenCalled()
+  expect(measure).not.toHaveBeenCalled()
+  expect(f.element.scrollTop).toBe(120)
+  f.api.toggleFollowLatest()
+  await f.flush()
+  expect(readOutput).toHaveBeenCalled()
+  expect(f.element.scrollTop).toBe(19500)
+})
+
+it('ignores an already scheduled follow-scroll after the user scrolls upward', async () => {
+  const f = await setup()
+  f.messages.value[199].content += ' new output'
+  await nextTick(); await nextTick()
+  expect(f.frames.size).toBeGreaterThan(0)
+  f.element.scrollTop = 100
+  f.api.onListScroll()
+  await f.flush()
+  expect(f.api.followLatest.value).toBe(false)
+  expect(f.element.scrollTop).toBe(100)
+})
