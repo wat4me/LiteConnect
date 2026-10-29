@@ -22,7 +22,7 @@ export function registerAppBackgroundScheme(): void {
   ])
 }
 
-/** Only `wallpaper.<ext>` names are served / persisted. */
+/** Legacy names and immutable generated wallpaper names are served / persisted. */
 export function sanitizeWallpaperFileName(name: string): string | null {
   if (typeof name !== 'string' || !name) return null
   if (name.includes('..') || name.includes('/') || name.includes('\\')) return null
@@ -30,8 +30,8 @@ export function sanitizeWallpaperFileName(name: string): string | null {
   if (base !== name) return null
   const ext = extname(base).toLowerCase()
   if (!BG_EXTS.has(ext)) return null
-  if (!/^wallpaper\.(png|jpe?g|webp|gif|bmp)$/i.test(base)) return null
-  return `wallpaper${ext}`
+  if (!/^wallpaper(?:-[a-f0-9]{32})?\.(png|jpe?g|webp|gif|bmp)$/i.test(base)) return null
+  return base.toLowerCase()
 }
 
 export function wallpaperStoredName(ext: string): string | null {

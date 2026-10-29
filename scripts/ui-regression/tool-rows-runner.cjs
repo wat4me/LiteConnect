@@ -24,9 +24,10 @@ app.whenReady().then(async () => {
     { id: 'glob', name: 'glob', content: JSON.stringify({ files: ['/opt/app/ImportZipWorkflowFile.java', '/opt/app/config.xml'] }) },
     { id: 'grep', name: 'grep', content: JSON.stringify({ matchCount: 0, content: '' }) },
     { id: 'target', name: 'exec', target: 'production-server-'.repeat(10), content: JSON.stringify({ exitCode: 2, stderr: 'missing file' }) },
+    { id: 'knowledge', name: 'knowledge_save', content: JSON.stringify({ connectionId: 'host-a', documentId: 'memory', revision: 2, saved: true }) },
   ].map(row => ({ status: 'done', isError: false, args: JSON.stringify({ command: 'inspect ImportZipWorkflowFile '.repeat(10) }), reason: '查看 ImportZipWorkflowFile 方法和配置文件 '.repeat(10), ...row }))
   await run(`window.__uiRegression.aiTools(${JSON.stringify(rows)})`)
-  await wait(`document.querySelectorAll('.ai-fixture .tool-run').length===4`)
+  await wait(`document.querySelectorAll('.ai-fixture .tool-run').length===5`)
   let cases = 0
   for (const locale of ['zh-CN', 'en-US']) {
     await run(`import('/src/i18n/index.ts').then(module=>module.setAppLocale('${locale}'))`)
@@ -43,6 +44,7 @@ app.whenReady().then(async () => {
             return {fits:head.scrollWidth<=head.clientWidth+1&&a.left>=rect.left&&a.right<=rect.right+1, height:rect.height, sameLine:!b||Math.abs(a.top-b.top)<1, stateVisible:state.scrollWidth<=state.clientWidth+1, title:head.querySelector('.tool-run-outcome').title}
           })`)
           for (const row of layout) assert.ok(row.fits && row.height<=26 && row.sameLine && row.stateVisible && row.title, `${locale}/${theme}/${width}/${open}: ${JSON.stringify(row)}`)
+          assert.ok(await run(`(() => { const button=document.querySelector('.ai-fixture .tool-run-knowledge'),a=button.getBoundingClientRect(),b=button.closest('summary').getBoundingClientRect(); return a.width>0&&a.left>=b.left&&a.right<=b.right+1 })()`),'Saved knowledge view button stays inside the tool row')
           const details = await run(`Array.from(document.querySelectorAll('.ai-fixture .tool-run-detail')).map(node=>node.textContent.trim())`)
           assert.equal(details.length, 3, 'Truncation and search counts remain available')
           assert.ok(details[1].includes('2') && details[2].includes('0'), 'File and match counts are preserved')

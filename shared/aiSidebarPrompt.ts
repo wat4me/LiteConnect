@@ -5,12 +5,11 @@ import {
   AI_TOOL_EXPLANATION_MAX_CHARS,
 } from './aiToolPolicy'
 import { packAiMessages, type AiContextPack } from './aiContext'
-import { formatAiConversationContextFile } from './aiFixedContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
 import { aiUserQuestionTool } from './aiQuestions'
 import { sharedT, type SharedTranslate } from './i18n'
 import { aiChatServerToolNames, aiLoadToolsDefinition, normalizeAiToolGroups, type AiToolGroup } from './aiToolCatalog'
-import type { AiChatMessage, AiConversationContextFile } from './types/ai'
+import type { AiChatMessage } from './types/ai'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget, type AiContextBudgetConfig } from './aiContextPressure'
 
 export function sanitizeTrackedCwd(raw: unknown): string {
@@ -160,7 +159,6 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
   cwd?: string
   model?: string
   contextWindowTokens?: number
-  contextFiles?: AiConversationContextFile[]
   toolGroups?: readonly AiToolGroup[]
   translate?: SharedTranslate
 }): SidebarAiRequestEstimate {
@@ -171,14 +169,10 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
         cwd: opts.cwd,
       }, opts.translate)
     : '')
-  const files = opts.contextFiles || []
-  const fixedContext = files.map(formatAiConversationContextFile).join('\n\n')
-  const extra = [extraSystem, fixedContext].filter(text => text?.trim()).join('\n\n')
   const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens(opts.toolGroups) : 0)
-  const pressure = measureAiContextPressure({ ...opts, extraSystem: extra, toolSchemaTokens })
+  const pressure = measureAiContextPressure({ ...opts, extraSystem, toolSchemaTokens })
   const pack = packAiMessages({
-    systemPrompt: [opts.systemPrompt, extraSystem, fixedContext].filter((s) => s && s.trim()).join('\n\n'),
-    systemMaxTokens: files.length ? 40_000 : undefined,
+    systemPrompt: [opts.systemPrompt, extraSystem].filter((s) => s && s.trim()).join('\n\n'),
     messages: opts.messages,
     model: opts.model,
     contextWindowTokens: opts.contextWindowTokens,
@@ -190,21 +184,4 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
     totalTokens: pack.promptTokens + toolSchemaTokens,
     pressure,
   }
-}
-
-/** Match the main-process guard: every selected file body must survive system-message packing. */
-export function sidebarContextFilesFit(opts: AiContextBudgetConfig & {
-  systemPrompt: string
-  toolContext?: { system: string; schemaTokens: number }
-  sessionId?: string
-  cwd?: string
-  model?: string
-  contextWindowTokens?: number
-  contextFiles: AiConversationContextFile[]
-  toolGroups?: readonly AiToolGroup[]
-  translate?: SharedTranslate
-}): boolean {
-  if (!opts.contextFiles.length) return true
-  const system = estimateSidebarAiRequest({ ...opts, messages: [] }).messages[0]?.content || ''
-  return opts.contextFiles.every(file => system.includes(file.content))
 }

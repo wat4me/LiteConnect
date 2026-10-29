@@ -64,7 +64,6 @@ const form = ref<ConnectionFormModel>({
 const groups = ref<Group[]>([])
 const savedCredentials = ref<SavedCredential[]>([])
 const selectedCredentialId = ref('')
-const credentialAutoFillEnabled = ref(false)
 const saving = ref(false)
 const showPassword = ref(false)
 const privateKeyFileName = ref('')
@@ -115,7 +114,6 @@ defineExpose({ createSavedCredential })
 onMounted(async () => {
   const groupsPromise = window.LiteConnect.getGroups()
   const savedCredentialsPromise = window.LiteConnect.getSavedCredentials()
-  const autoFillPromise = window.LiteConnect.getCredentialAutoFillEnabled()
   const secretsPromise = props.connection?.id
     ? window.LiteConnect.getConnectionSecrets(props.connection.id)
     : Promise.resolve({
@@ -125,16 +123,14 @@ onMounted(async () => {
         jumpPrivateKey: props.connection?.jumpPrivateKey || '',
       })
 
-  const [loadedGroups, loadedCredentials, autoFillEnabled, secrets] = await Promise.all([
+  const [loadedGroups, loadedCredentials, secrets] = await Promise.all([
     groupsPromise,
     savedCredentialsPromise,
-    autoFillPromise,
     secretsPromise,
   ])
   const password = secrets.password
   groups.value = loadedGroups
   savedCredentials.value = loadedCredentials
-  credentialAutoFillEnabled.value = autoFillEnabled
   const defaultGroupId =
     props.defaultGroupId
     || loadedGroups.find((g) => g.isDefault)?.id
@@ -216,10 +212,6 @@ onMounted(async () => {
     form.value.group = defaultGroupId
   }
 
-  if (!props.connection && autoFillEnabled && loadedCredentials.length > 0) {
-    selectedCredentialId.value = loadedCredentials[0].id
-    await fillCredential(loadedCredentials[0])
-  }
 })
 
 /** Next "Name (n)" for continuous copy / bulk create. */

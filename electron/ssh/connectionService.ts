@@ -17,7 +17,7 @@ import {
   probeX11Port,
 } from './x11/x11'
 import { loadSsh2 } from './loadSsh2'
-import { resolveConnectionX11, recheckConnectionX11, type PreparedX11 } from './connectionX11'
+import { resolveConnectionX11, recheckConnectionX11, type PreparedX11, type ResolvedConnectionX11 } from './connectionX11'
 import { X11_AUTH_PROTOCOL } from './x11/x11Auth'
 import { attachKeyboardInteractive, targetConnectConfig, jumpConnectConfig } from './connectionAuth'
 import { disposeSshChannel, disposeSshClient } from './clientCleanup'
@@ -44,10 +44,9 @@ export class ConnectionService {
   constructor(private deps: ConnectionServiceDeps) {}
 
   async connect(connection: Connection, callbacks: SSHCallbacks): Promise<string> {
-    const { useX11, x11Notice, prepared } = await resolveConnectionX11(connection, callbacks.signal)
     const sessionId = uuidv4()
     const epoch = this.deps.bumpSessionEpoch(sessionId)
-    return this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch, prepared)
+    return this.connectWithSessionId(sessionId, connection, callbacks, epoch)
   }
 
   async reconnect(
@@ -100,9 +99,12 @@ export class ConnectionService {
     callbacks: SSHCallbacks,
     epoch: number,
   ): Promise<string> {
-    return resolveConnectionX11(connection, callbacks.signal).then(({ useX11, x11Notice, prepared }) =>
-      this.openConnection(sessionId, connection, callbacks, useX11, x11Notice, epoch, prepared),
-    )
+    if (callbacks.signal?.aborted) return Promise.reject(new Error(SSH_CONNECTION_CANCELLED))
+    // Cold display startup and SSH authentication can proceed independently.
+    // Consume a late rejection even if SSH fails before it needs the display.
+    const x11 = resolveConnectionX11(connection, callbacks.signal)
+    void x11.catch(() => {})
+    return this.openConnection(sessionId, connection, callbacks, epoch, x11)
   }
 
   /** True if this openConnection attempt is still the live generation for the session. */
@@ -114,10 +116,8 @@ export class ConnectionService {
     sessionId: string,
     connection: Connection,
     callbacks: SSHCallbacks,
-    useX11: boolean,
-    x11Notice: string | undefined,
     epoch: number,
-    prepared?: PreparedX11,
+    x11: Promise<ResolvedConnectionX11>,
   ): Promise<string> {
     const { Client } = await loadSsh2()
     const hasJump = !!(connection.jumpHost && connection.jumpHost.trim())
@@ -202,10 +202,8 @@ export class ConnectionService {
         targetConnectConfig(connection, knownHosts, keepalive, rememberHostKeyReject, sock)
 
       // Mutable: may drop X11 after SSH auth if local display dies during handshake
-      let activeUseX11 = useX11
-      if (activeUseX11) {
-        attachX11Forwarding(client, sessionId, prepared?.connection ?? connection, callbacks, x11Sockets, prepared?.auth, prepared?.endpoint)
-      }
+      let activeUseX11 = false
+      let prepared: PreparedX11 | undefined
 
       client.on('ready', () => {
         if (settled) return
@@ -232,28 +230,30 @@ export class ConnectionService {
           cols: 80,
           rows: 24,
         }
-        shellOpenTimeout = setTimeout(() => {
-          shellOpenTimeout = null
-          if (!this.isLiveEpoch(sessionId, epoch)) {
-            abortPendingResources()
+        const startShellDeadline = () => {
+          shellOpenTimeout = setTimeout(() => {
+            shellOpenTimeout = null
+            if (!this.isLiveEpoch(sessionId, epoch)) {
+              abortPendingResources()
+              try {
+                client.destroy()
+              } catch {}
+              rejectStale()
+              return
+            }
+            // closeLocalForwardServers destroys accepted sockets (not bare server.close)
+            const message =
+              'Shell open timeout: SSH authentication succeeded, but the server did not respond to the interactive shell request'
+            callbacks.onError(sessionId, message)
             try {
               client.destroy()
             } catch {}
-            rejectStale()
-            return
-          }
-          // closeLocalForwardServers destroys accepted sockets (not bare server.close)
-          const message =
-            'Shell open timeout: SSH authentication succeeded, but the server did not respond to the interactive shell request'
-          callbacks.onError(sessionId, message)
-          try {
-            client.destroy()
-          } catch {}
-          // safeReject → abortPendingResources (forwards + jump + x11)
-          safeReject(new Error(message))
-        }, 15000)
+            // safeReject → abortPendingResources (forwards + jump + x11)
+            safeReject(new Error(message))
+          }, 15000)
+        }
         let shellX11FallbackTried = false
-        let activeX11Notice = x11Notice
+        let activeX11Notice: string | undefined
         let shellOpenStarted = false
 
         const openShell = (withX11: boolean) => {
@@ -279,11 +279,21 @@ export class ConnectionService {
          * that used to surface only as "Unable to request X11" with no start-failure hint.
          */
         const ensureLocalXBeforeShell = async () => {
+          const resolved = await x11
+          if (settled) return
+          if (!this.isLiveEpoch(sessionId, epoch)) { rejectStale(); return }
+          startShellDeadline()
+          activeUseX11 = resolved.useX11
+          prepared = resolved.prepared
+          activeX11Notice = resolved.x11Notice
           if (!activeUseX11) {
             openShell(false)
             return
           }
+          attachX11Forwarding(client, sessionId, prepared?.connection ?? connection, callbacks, x11Sockets, prepared?.auth, prepared?.endpoint)
           const result = await recheckConnectionX11(connection, prepared)
+          if (settled) return
+          if (!this.isLiveEpoch(sessionId, epoch)) { rejectStale(); return }
           if (result.ready) {
             if (result.notice) activeX11Notice = result.notice
             openShell(true)

@@ -78,8 +78,10 @@ export class ManagedX11Server {
       while (!this.stopping && !startError && isChildProcessAlive(child) && Date.now() < deadline) {
         if (await probeAuthenticatedX11('127.0.0.1', 6000 + display, cookie)) {
           // An anonymous connection must not bypass cookie authentication.
-          const wrongCookieAccepted = await probeAuthenticatedX11('127.0.0.1', 6000 + display, randomBytes(16))
-          const anonymousAccepted = await probeX11Setup('127.0.0.1', 6000 + display, buildX11ConnectionSetupPacket())
+          const [wrongCookieAccepted, anonymousAccepted] = await Promise.all([
+            probeAuthenticatedX11('127.0.0.1', 6000 + display, randomBytes(16)),
+            probeX11Setup('127.0.0.1', 6000 + display, buildX11ConnectionSetupPacket()),
+          ])
           if (wrongCookieAccepted || anonymousAccepted) {
             await this.release()
             throw new Error(`X11 server accepted ${wrongCookieAccepted ? 'an invalid cookie' : 'an anonymous connection'}; automatic forwarding was disabled`)

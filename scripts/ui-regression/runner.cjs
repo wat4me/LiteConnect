@@ -651,7 +651,7 @@ app.whenReady().then(async () => {
   await run('window.__uiRegression.openImageComposer()')
   await waitFor('window.__uiRegression.calls.aiCreates.length === 1')
   assert.equal(await run('document.querySelectorAll(".ai-image-composer-fixture .chat-row").length'), 0, 'A new SSH window starts blank even when the host has an active historical conversation')
-  await waitFor('document.querySelector(".composer-add-image") && !document.querySelector(".composer-add-image").disabled')
+  await waitFor('!!document.querySelector(".composer-input") && !document.querySelector(".composer input[type=file], .composer-add-image")')
   assert.equal(await run(`document.querySelector('.composer-context-meter')`), null, 'SSH sidebars omit the context meter')
   await run('window.__uiRegression.setContextLayout(true)')
   await waitFor(`!!document.querySelector('.composer-context-meter')`)
@@ -755,11 +755,10 @@ app.whenReady().then(async () => {
     const ctx=canvas.getContext('2d');ctx.fillStyle=${JSON.stringify(color)};ctx.fillRect(0,0,800,450);ctx.fillStyle='#fff';ctx.font='32px sans-serif';ctx.fillText('Connection refused / 连接失败',40,90);
     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
     const file=new File([blob],'报错截图.png',{type:'image/png'});const transfer=new DataTransfer();transfer.items.add(file);
-    if(${JSON.stringify(mode)}==='select'){const input=document.querySelector('.composer input[type=file]');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));}
-    else if(${JSON.stringify(mode)}==='paste')document.querySelector('.composer-input').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
+    if(${JSON.stringify(mode)}==='paste')document.querySelector('.composer-input').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
     else document.querySelector('.ai-image-composer-fixture .ai-sidebar').dispatchEvent(new DragEvent('drop',{dataTransfer:transfer,bubbles:true,cancelable:true}));
   })()`)
-  await addFixtureImage('select', '#174e7b')
+  await addFixtureImage('paste', '#174e7b')
   await waitFor('document.querySelectorAll(".composer-images .ai-image-thumbnail").length === 1')
   await run('document.querySelector(".composer-images .ai-image-thumbnail").click()')
   await waitFor('document.querySelector(".ai-image-dialog[open] img")?.naturalWidth === 800')

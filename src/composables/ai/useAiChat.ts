@@ -516,42 +516,6 @@ export function useAiChat() {
     return true
   }
 
-  async function setConversationContextFile(
-    sessionId: string,
-    file: AiConversationContextFile,
-  ): Promise<boolean> {
-    const state = getAiSessionState(sessionId)
-    if (state.loading || !state.activeThreadId) return false
-    if (!await persistActiveThread(sessionId)) return false
-    try {
-      const store = await window.LiteConnect.aiSetContextFile(sessionId, state.activeThreadId, file)
-      const active = store.threads.find((thread) => thread.id === store.activeThreadId)
-      state.contextFiles = active?.contextFiles || []
-      syncThreadSummaries(state, store)
-      return true
-    } catch (err: any) {
-      ElMessage.warning(err?.message || t('ai.contextFileFailed'))
-      return false
-    }
-  }
-
-  async function removeConversationContextFile(sessionId: string, file: AiConversationContextFile, removeFromFuture: boolean): Promise<boolean> {
-    const state = getAiSessionState(sessionId)
-    if (state.loading || !state.activeThreadId) return false
-    if (!await persistActiveThread(sessionId)) return false
-    try {
-      const store = await window.LiteConnect.aiRemoveContextFile(sessionId, state.activeThreadId, file.source, file.path, removeFromFuture)
-      const active = store.threads.find(thread => thread.id === store.activeThreadId)
-      state.contextFiles = active?.contextFiles || []
-      state.defaultContextFiles = store.defaultContextFiles
-      syncThreadSummaries(state, store)
-      return true
-    } catch (err: any) {
-      ElMessage.warning(err?.message || t('ai.contextFileFailed'))
-      return false
-    }
-  }
-
   async function updateConversation(
     sessionId: string,
     threadId: string,
@@ -578,11 +542,7 @@ export function useAiChat() {
       return false
     }
 
-    const currentFile = state.contextFiles
-    const defaultFile = state.defaultContextFiles
-    const alreadyEmptyDefault = state.messages.length === 0 &&
-      JSON.stringify(currentFile) === JSON.stringify(defaultFile)
-    if (alreadyEmptyDefault) {
+    if (state.messages.length === 0) {
       ElMessage.info(t('ai.alreadyNewConversation'))
       return false
     }
@@ -678,7 +638,7 @@ export function useAiChat() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
-        contextFiles: [...store.defaultContextFiles],
+        contextFiles: [],
       }
       store.threads.push(empty)
       store.activeThreadId = empty.id
@@ -727,7 +687,7 @@ export function useAiChat() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      contextFiles: [...defaultContextFiles],
+      contextFiles: [],
     }
     const store: AiSessionStore = {
       version: 1,
@@ -871,8 +831,6 @@ export function useAiChat() {
     saveSessionInput,
     onReplyComplete,
     startNewConversation,
-    setConversationContextFile,
-    removeConversationContextFile,
     updateConversation,
     switchConversation,
     deleteConversation,

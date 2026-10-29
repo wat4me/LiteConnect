@@ -33,7 +33,7 @@ export function pruneEmptyThreadsLocal(store: AiSessionStore): void {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
-        contextFiles: [...store.defaultContextFiles],
+        contextFiles: [],
       },
     ]
     store.activeThreadId = id
@@ -56,7 +56,6 @@ export function syncThreadSummaries(state: AiSessionState, store: AiSessionStore
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
       messageCount: thread.messages.length,
-      contextFilePath: thread.contextFiles?.[0]?.path,
       active: thread.id === store.activeThreadId,
     }))
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
@@ -123,7 +122,7 @@ export async function buildStoreFromState(
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      contextFiles: [...state.contextFiles],
+      contextFiles: [],
     })
     store.activeThreadId = threadId
     state.activeThreadId = threadId

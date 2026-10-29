@@ -13,6 +13,7 @@ export function registerDatabaseSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof family !== 'string') throw new Error('Invalid font family')
     await settingsStore.setDbFontFamily(family)
+    ctx.notifySettingsChanged(['dbFontFamily'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getDbFontSize', async () => {
@@ -24,6 +25,7 @@ export function registerDatabaseSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof size !== 'number' || Number.isNaN(size)) throw new Error('Invalid font size')
     await settingsStore.setDbFontSize(size)
+    ctx.notifySettingsChanged(['dbFontSize'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getDbPageSize', async () => {
@@ -39,12 +41,14 @@ export function registerDatabaseSettingsHandlers(ctx: SettingsIpcCtx): void {
   ipcMain.handle('settings:setDbConfirmDangerousSql', async (_event, enabled: boolean) => {
     await settingsStore.init()
     await settingsStore.setDbConfirmDangerousSql(!!enabled)
+    ctx.notifySettingsChanged(['dbConfirmDangerousSql'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:setDbPageSize', async (_event, size: number) => {
     await ensureSettingsStoreReady()
     if (typeof size !== 'number' || Number.isNaN(size)) throw new Error('Invalid page size')
     await settingsStore.setDbPageSize(size)
+    ctx.notifySettingsChanged(['dbPageSize'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getDbDefaultMaxRows', async () => {
@@ -56,6 +60,7 @@ export function registerDatabaseSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof n !== 'number' || Number.isNaN(n)) throw new Error('Invalid default max rows')
     await settingsStore.setDbDefaultMaxRows(n)
+    ctx.notifySettingsChanged(['dbDefaultMaxRows'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getDbDefaultQueryTimeoutSec', async () => {
@@ -67,6 +72,7 @@ export function registerDatabaseSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof sec !== 'number' || Number.isNaN(sec)) throw new Error('Invalid default query timeout')
     await settingsStore.setDbDefaultQueryTimeoutSec(sec)
+    ctx.notifySettingsChanged(['dbDefaultQueryTimeoutSec'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getDbDefaultRunScope', async () => {
@@ -78,5 +84,6 @@ export function registerDatabaseSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof scope !== 'string') throw new Error('Invalid default run scope')
     await settingsStore.setDbDefaultRunScope(scope)
+    ctx.notifySettingsChanged(['dbDefaultRunScope'], _event?.sender?.id)
   })
 }

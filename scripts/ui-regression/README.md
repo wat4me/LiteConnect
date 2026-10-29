@@ -1,6 +1,38 @@
 # UI regression checks
 
 Run `npm run test:ui` after installing the project's existing dependencies.
+Run `npm run test:ui -- --settings` for the real settings page and SSH tool rail:
+failed initial read/retry/leave, advanced database settings search/reveal/save, monitor entry hide/show and panel
+close, remote-window notifications, partial saves preserving external changes,
+dirty-draft rebasing and blocking close/edit actions while saving. Covers two languages, three themes and
+two widths with mocked settings persistence; no real SSH connection is opened.
+Run `npm run test:ui -- --navigation` for the main-window SSH/DB/AI rail:
+in-place switching from the rail and every titlebar module entry, lazy mounting, retained DOM/drafts/scroll position,
+current-module reselect, pointer/keyboard activation, settings close decisions,
+and blocked global palette / notification side effects after a cancelled leave,
+and dedicated-window layout. Uses the actual shell and navigation composable
+with fixture workspace fields, two languages, three themes, two widths and
+two UI scales; no real SSH/DB connection is opened.
+Run `npm run test:ui -- --images` for the button-free image composer: empty
+attachments stay hidden, paste/drop adds thumbnails, preview/removal works,
+unsupported models warn without accepting the image, and image-only sending
+retains the attachment in history. Covers sidebar/LiteAI, three themes and
+300px/440px widths, with mocked AI requests.
+Run `npm run test:ui -- --knowledge` for per-server knowledge management with
+actual isolated SQLite storage: enable consent/cancel, Markdown editing/import/
+export, stale revision protection, history restoration, server/scope isolation,
+and opening the saved document from an AI tool result. Linked memory checks cover
+standalone notes before any source exists, per-record include choices without
+duplicate memory entries, choosing optional sources, renames retaining stable IDs,
+exported source IDs and visible missing references after deletion. It checks both languages,
+three themes and narrow/wide windows. File dialogs and model results are mocked;
+the actual terminal/LiteAI composer also checks zero, single-digit, double-digit
+and capped knowledge counts: content stays inside the button, adjacent controls
+align without overlap, and opening/closing restores focus.
+External switches cover first-enable consent/cancel, direct re-enable, retained
+documents and blocked AI reads while off, failure rollback, stale scope/consent,
+busy state and per-server multi-host management. The suite does not access user
+knowledge or connect to a real AI service.
 Run `npm run test:ui -- --background-timing` for background task elapsed-time
 checks: sidebar/LiteAI layouts across three themes, collapsed live overview,
 terminal duration freezing, pause/resume, and updates without IPC polling.

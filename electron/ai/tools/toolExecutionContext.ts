@@ -3,6 +3,7 @@ import type { AiChatStreamPayload, AiToolPermissionMode } from '../../../shared/
 import type { AiToolGroup } from '../../../shared/aiToolCatalog'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import type { McpTransferContext } from '../../mcp/ports'
+import type { AiKnowledgeAccess } from '../../../shared/aiKnowledge'
 
 export type AiToolApprovalObserver = (input: { requestId: string; callId: string; sessionId: string; toolName: string }) => void | (() => void)
 
@@ -12,6 +13,7 @@ export type AiToolExecutionContext = {
   boundSessionId: string
   workspaceTargets?: AiWorkspaceTarget[]
   sshMcpRuntime: SshMcpRuntime
+  knowledge?: AiKnowledgeAccess
   signal: AbortSignal
   transferContext?: McpTransferContext
   send: (payload: AiChatStreamPayload) => void

@@ -73,9 +73,10 @@ export class DeferredServices {
 
   private async loadAi() {
     const [{ bindSshMcpRuntime }, { createMcpAuditLog }, { McpHttpGateway }, { registerMcpHandlers },
-      { registerAiHandlers }, { registerAiScheduleHandlers }, { createAiExecutionService }, { createAiScheduleServices }] = await Promise.all([
+      { registerAiHandlers }, { registerAiScheduleHandlers }, { createAiExecutionService }, { createAiScheduleServices }, { createAiKnowledgeService }] = await Promise.all([
       import('../mcp/bind'), import('../mcp/auditLog'), import('../mcp/httpGateway'), import('../ipc/registerMcpHandlers'),
       import('../ipc/registerAiHandlers'), import('../ipc/registerAiScheduleHandlers'), import('./aiExecution'), import('./aiSchedules'),
+      import('./aiKnowledge'),
     ])
     if (this.stopping) return
     const { settings, ssh, credentials, monitor } = this.deps
@@ -86,7 +87,8 @@ export class DeferredServices {
     const audit = createMcpAuditLog()
     const gateway = this.gateway = new McpHttpGateway(runtime, settings,
       { name: 'liteconnect-ssh', version: this.deps.version }, event => { if (!this.sealed) audit(event) })
-    const execution = this.execution = createAiExecutionService(settings, runtime)
+    const knowledge = createAiKnowledgeService(ssh, credentials)
+    const execution = this.execution = createAiExecutionService(settings, runtime, knowledge)
     const { scheduler, notifier } = createAiScheduleServices(execution, ssh, credentials, settings, this.deps.schedulesChanged)
     this.scheduler = scheduler
     registerMcpHandlers(runtime, gateway, this.ipc)

@@ -2,7 +2,7 @@ export const DB_OPEN_MODES = ['currentWindow', 'newWindow'] as const
 
 export type DbOpenMode = (typeof DB_OPEN_MODES)[number]
 
-/** Preserve the historical SSH → DB behavior (dedicated OS window). */
+/** Preserve the detached SSH window → DB behavior (dedicated OS window). */
 export const DEFAULT_DB_OPEN_MODE: DbOpenMode = 'newWindow'
 
 export function sanitizeDbOpenMode(raw: unknown): DbOpenMode {
@@ -12,7 +12,7 @@ export function sanitizeDbOpenMode(raw: unknown): DbOpenMode {
 export type SshToDbNavigation = 'noop' | DbOpenMode
 
 /**
- * Titlebar SSH → DB:
+ * Detached-window titlebar SSH → DB:
  * - dedicated DB window (`?mode=db`) stays put
  * - already showing DB in this window stays in-place
  * - otherwise honor the persisted open-mode setting

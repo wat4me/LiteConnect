@@ -39,7 +39,7 @@ const CommandSnippetsPanel = defineAsyncComponent(() => import('@/components/sni
 const CommandSnippetPalette = defineAsyncComponent(() => import('@/components/snippets/CommandSnippetPalette.vue'))
 const DockerWorkspace = defineAsyncComponent(() => import('@/components/docker/DockerWorkspace.vue'))
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   activeGroup: ConnectionGroup | null
   activeSession: Session | null
   activeSessionId: string | null
@@ -68,6 +68,7 @@ const props = defineProps<{
   } | null
 
   monitorVisible: boolean
+  monitorEnabled?: boolean
   monitorWidth: number
   batchPanelVisible: boolean
   snippetsPanelVisible: boolean
@@ -95,7 +96,7 @@ const props = defineProps<{
   dockerTabOpen?: boolean
   dockerButtonEnabled?: boolean
   disconnectedSessionIds?: Set<string>
-}>()
+}>(), { monitorEnabled: true })
 
 const { runningCount: aiBackgroundTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
 watch(() => props.dockerMode, (active) => { if (active) synchronizedInput.stop() })
@@ -314,6 +315,7 @@ watch(
       :ai-active="aiSidebarVisible"
       :files-active="sidebarVisible && !aiSidebarVisible"
       :monitor-active="monitorVisible"
+      :monitor-enabled="monitorEnabled"
       :batch-active="batchPanelVisible"
       :sync-active="synchronizedInput.enabled.value || syncInputOpen"
       :snippets-active="snippetsPanelVisible"
@@ -469,7 +471,7 @@ watch(
       </div>
 
       <div
-        v-if="monitorVisible && activeGroup && activeGroup.sessions.length > 0"
+        v-if="monitorEnabled !== false && monitorVisible && activeGroup && activeGroup.sessions.length > 0"
         v-show="!monitorDetailsOpen"
         class="monitor-dock"
       >
@@ -535,7 +537,7 @@ watch(
       </div>
     </template>
 
-    <template v-if="monitorVisible && monitorDetailsOpen && activeGroup && activeGroup.sessions.length > 0">
+    <template v-if="monitorEnabled !== false && monitorVisible && monitorDetailsOpen && activeGroup && activeGroup.sessions.length > 0">
       <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
       <div class="monitor-panel-wrapper" :style="{ width: monitorWidth + 'px' }">
         <MonitorPanel

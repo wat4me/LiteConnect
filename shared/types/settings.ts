@@ -52,7 +52,7 @@ export type AppSettingsAll = {
   dbDefaultMaxRows: number
   dbDefaultQueryTimeoutSec: number
   dbDefaultRunScope: string
-  /** Titlebar SSH → DB: stay in this window, or open the dedicated DB window. */
+  /** Detached SSH window → DB; main-window module entry always stays in place. */
   dbOpenMode: DbOpenMode
   latencyEnabled: boolean
   latencyIntervalMs: number
@@ -78,6 +78,11 @@ export type AppSettingsAll = {
   /** False until a locale has been written. Not a stored field. */
   localeConfigured: boolean
 }
+
+export type AppRuntimeSettings = Pick<AppSettingsAll,
+  'monitorEnabled' | 'autoReconnectEnabled' | 'autoReconnectMaxRetries'>
+
+export type AppSettingsChange = { settings: AppSettingsAll; changed: Array<keyof AppSettingsAllPatch> }
 
 export type AppSettingsAllPatch = Partial<
   Omit<AppSettingsAll, 'appBackground' | 'configuredDownloadPath' | 'defaultDownloadPath' | 'recentDownloadPaths' | 'localeConfigured'>

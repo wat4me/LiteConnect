@@ -12,6 +12,8 @@ describe('appBackgroundProtocol names', () => {
     expect(sanitizeWallpaperFileName('../settings.json')).toBeNull()
     expect(sanitizeWallpaperFileName('wallpaper.png/../../x')).toBeNull()
     expect(sanitizeWallpaperFileName('other.png')).toBeNull()
+    expect(sanitizeWallpaperFileName('wallpaper-0123456789abcdef0123456789abcdef.png')).toBe('wallpaper-0123456789abcdef0123456789abcdef.png')
+    expect(sanitizeWallpaperFileName('wallpaper-arbitrary.png')).toBeNull()
   })
 
   it('builds a custom-scheme url', () => {

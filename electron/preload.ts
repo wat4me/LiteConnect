@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AiChatStreamOptions, AiProviderProtocol } from '../shared/types/ai'
 import type { AiUserAnswer } from '../shared/aiQuestions'
+import type { AppRuntimeSettings, AppSettingsChange } from '../shared/types/settings'
 import { createSftpApi } from './preload/sftpApi'
 
 contextBridge.exposeInMainWorld('LiteConnect', {
@@ -122,8 +123,6 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('shellHistory:clear', connectionId),
   getRecentDownloadPaths: () => ipcRenderer.invoke('settings:getRecentDownloadPaths'),
   addRecentDownloadPath: (dirPath: string) => ipcRenderer.invoke('settings:addRecentDownloadPath', dirPath),
-  getCredentialAutoFillEnabled: () => ipcRenderer.invoke('settings:getCredentialAutoFillEnabled'),
-  setCredentialAutoFillEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setCredentialAutoFillEnabled', enabled),
   getAiSettings: () => ipcRenderer.invoke('settings:getAiSettings'),
   setAiSettings: (settings: any) => ipcRenderer.invoke('settings:setAiSettings', settings),
   previewAiHistoryPrune: (limits: { maxThreads: number; maxMessages: number }) => ipcRenderer.invoke('ai:previewHistoryPrune', limits),
@@ -146,11 +145,9 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.on('ai:backgroundReply', listener)
     return () => ipcRenderer.removeListener('ai:backgroundReply', listener)
   },
-  aiSelectLocalContextFile: () => ipcRenderer.invoke('ai:selectLocalContextFile'),
-  aiReadLocalContextFile: (sessionId: string, threadId: string, path: string) => ipcRenderer.invoke('ai:readLocalContextFile', sessionId, threadId, path),
-  aiCheckLocalContextFile: (path: string) => ipcRenderer.invoke('ai:checkLocalContextFile', path),
-  aiSetContextFile: (sessionId: string, threadId: string, file: unknown) => ipcRenderer.invoke('ai:setContextFile', sessionId, threadId, file),
-  aiRemoveContextFile: (sessionId: string, threadId: string, source: string, path: string, removeFromFuture: boolean) => ipcRenderer.invoke('ai:removeContextFile', sessionId, threadId, source, path, removeFromFuture),
+  aiImportKnowledgeFile: () => ipcRenderer.invoke('ai:importKnowledgeFile'),
+  aiKnowledge: (sessionId: string, input: import('../shared/aiKnowledge').KnowledgeRequest) => ipcRenderer.invoke('ai:knowledge', sessionId, input),
+  aiExportKnowledge: (sessionId: string, connectionId: string, documentId: string) => ipcRenderer.invoke('ai:exportKnowledge', sessionId, connectionId, documentId),
   aiUpdateConversation: (sessionId: string, threadId: string, patch: { customTitle?: string | null; pinned?: boolean }) => ipcRenderer.invoke('ai:updateConversation', sessionId, threadId, patch),
   setAiSessionStore: (sessionId: string, store: any) => ipcRenderer.invoke('ai:setSessionStore', sessionId, store),
   aiCreateConversation: (
@@ -191,6 +188,16 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   getWorkspaceTabs: () => ipcRenderer.invoke('settings:getWorkspaceTabs'),
   setWorkspaceTabs: (state: any) => ipcRenderer.invoke('settings:setWorkspaceTabs', state),
   getAllSettings: () => ipcRenderer.invoke('settings:getAll'),
+  onSettingsChanged: (callback: (change: AppSettingsChange) => void) => {
+    const listener = (_event: unknown, change: AppSettingsChange) => callback(change)
+    ipcRenderer.on('settings:changed', listener)
+    return () => ipcRenderer.removeListener('settings:changed', listener)
+  },
+  onRuntimeSettingsChanged: (callback: (settings: AppRuntimeSettings) => void) => {
+    const listener = (_event: unknown, settings: AppRuntimeSettings) => callback(settings)
+    ipcRenderer.on('settings:runtimeChanged', listener)
+    return () => ipcRenderer.removeListener('settings:runtimeChanged', listener)
+  },
   setManySettings: (patch: any) => ipcRenderer.invoke('settings:setMany', patch),
   getAppBackground: () => ipcRenderer.invoke('settings:getAppBackground'),
   selectAppBackgroundImage: () => ipcRenderer.invoke('settings:selectAppBackgroundImage'),

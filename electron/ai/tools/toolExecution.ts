@@ -12,6 +12,7 @@ import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { executeUserQuestion } from './userQuestion'
 import { AI_LOAD_TOOLS, parseAiToolGroupRequest } from '../../../shared/aiToolCatalog'
 import type { AiToolExecutionContext } from './toolExecutionContext'
+import { isKnowledgeTool } from '../../../shared/aiKnowledge'
 
 /** Policy/routing/execution only; conversation history remains with the caller. */
 export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolExecutionContext): Promise<{ run: AiToolRun; message: AiChatMessage } | undefined> {
@@ -36,7 +37,12 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   let targetLabel: string | undefined
   let boundArgs: Record<string, unknown>
   try {
-    if (workspaceTargets) {
+    if (isKnowledgeTool(call.function.name)) {
+      boundArgs = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs as Record<string, unknown> : {}
+      if (!opts.knowledge) throw new Error('KNOWLEDGE_UNAVAILABLE')
+      const selected = workspaceTargets?.find(item => item.connectionId === boundArgs.connectionId) || (workspaceTargets?.length === 1 && boundArgs.connectionId === undefined ? workspaceTargets[0] : undefined)
+      targetLabel = selected?.name
+    } else if (workspaceTargets) {
       const routed = routeWorkspaceTool(call.function.name, rawArgs, workspaceTargets, sshMcpRuntime)
       boundArgs = routed.args
       targetLabel = routed.label
@@ -49,6 +55,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   }
   const executeTool = async () => {
     try {
+      if (isKnowledgeTool(call.function.name)) return await opts.knowledge!.call(call.function.name, mcpArgs, signal)
       return await (workspaceTargets
         ? callWorkspaceTool(sshMcpRuntime, call.function.name, mcpArgs, { approvalMode: 'auto', signal, transferContext: opts.transferContext })
         : sshMcpRuntime.call(call.function.name, mcpArgs, { approvalMode: 'auto', signal, transferContext: opts.transferContext }))
@@ -68,7 +75,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   // really a delete cannot ride through `auto` mode unexamined.
   const toolPermission = opts.getToolPermission()
   const gate = applyCommandFloor(
-    assessAiToolCall(call.function.name, boundArgs, toolPermission, t),
+    assessAiToolCall(call.function.name, call.function.name === 'knowledge_save' && boundArgs.risk === 'read' ? { ...boundArgs, risk: 'write' } : boundArgs, toolPermission, t),
     commandContentRisk(call.function.name, boundArgs),
     toolPermission,
   )

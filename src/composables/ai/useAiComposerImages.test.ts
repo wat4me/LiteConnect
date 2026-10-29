@@ -29,6 +29,29 @@ function setup() {
 }
 
 describe('composer image lifetime', () => {
+  it('adds a pasted screenshot without a file picker', async () => {
+    const { images, state } = setup()
+    const preventDefault = vi.fn()
+    mocks.prepare.mockResolvedValue(image('pasted'))
+    images.onImagePaste({ preventDefault, clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }] } } as unknown as ClipboardEvent)
+    await vi.waitFor(() => expect(state.draftImages.map(item => item.id)).toEqual(['pasted']))
+    expect(preventDefault).toHaveBeenCalledOnce()
+  })
+
+  it('warns on unsupported image paste without decoding, but leaves normal text paste alone', () => {
+    const fixture = setup()
+    fixture.disable()
+    const preventDefault = vi.fn()
+    fixture.images.onImagePaste({ preventDefault, clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }] } } as unknown as ClipboardEvent)
+    expect(mocks.warning).toHaveBeenCalledWith('ai.imagesNotEnabled')
+    expect(mocks.prepare).not.toHaveBeenCalled()
+    expect(fixture.state.draftImages).toEqual([])
+    expect(preventDefault).toHaveBeenCalledOnce()
+    preventDefault.mockClear()
+    fixture.images.onImagePaste({ preventDefault, clipboardData: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }] } } as unknown as ClipboardEvent)
+    expect(preventDefault).not.toHaveBeenCalled()
+  })
+
   it.each(['thread', 'host', 'unmount'] as const)('discards preparation when the %s changes', async change => {
     const fixture = setup()
     let finish!: (value: AiImageAttachment) => void

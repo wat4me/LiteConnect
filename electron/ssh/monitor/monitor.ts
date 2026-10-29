@@ -279,7 +279,7 @@ const COLLECTORS: { key: keyof MonitorData; fn: CollectorFn }[] = [
 ]
 
 export class MonitorCollector {
-  private timers: Map<string, { fast: ReturnType<typeof setInterval>; normal: ReturnType<typeof setInterval>; slow?: ReturnType<typeof setInterval> }> = new Map()
+  private timers: Map<string, { fast: ReturnType<typeof setInterval>; normal: ReturnType<typeof setInterval>; slow?: ReturnType<typeof setInterval>; intervalMs: number; reschedule: (intervalMs: number) => void }> = new Map()
   private alertOnly = new Set<string>()
   private data: Map<string, MonitorData> = new Map()
   private systemInfoDone: Set<string> = new Set()
@@ -303,7 +303,11 @@ export class MonitorCollector {
     }
     this.execSession.set(connectionId, sessionId)
     this.sessionToConnection.set(sessionId, connectionId)
-    if (this.timers.has(connectionId)) return
+    const existing = this.timers.get(connectionId)
+    if (existing) {
+      if (existing.intervalMs !== intervalMs) existing.reschedule(intervalMs)
+      return
+    }
 
     const fast = intervalMs
     const normal = Math.round(intervalMs * 2.5)
@@ -359,6 +363,16 @@ export class MonitorCollector {
       fast: setInterval(() => collect(['cpu']), fast),
       normal: setInterval(() => collect(alertsOnly ? ['memory'] : ['memory', 'processes']), normal),
       slow: alertsOnly ? undefined : setInterval(() => collect(['disk']), slow),
+      intervalMs,
+      reschedule: (next: number) => {
+        clearInterval(timers.fast)
+        clearInterval(timers.normal)
+        if (timers.slow) clearInterval(timers.slow)
+        timers.fast = setInterval(() => collect(['cpu']), next)
+        timers.normal = setInterval(() => collect(alertsOnly ? ['memory'] : ['memory', 'processes']), Math.round(next * 2.5))
+        timers.slow = alertsOnly ? undefined : setInterval(() => collect(['disk']), Math.round(next * 6))
+        timers.intervalMs = next
+      },
     }
     this.timers.set(connectionId, timers)
     if (alertsOnly) this.alertOnly.add(connectionId)
@@ -373,6 +387,13 @@ export class MonitorCollector {
         Object.assign(current, info)
         this.onData(connectionId, { ...current }, [])
       })
+    }
+  }
+
+  /** Retiming keeps cached data, CPU baselines and in-flight collection intact. */
+  updateInterval(intervalMs: number) {
+    for (const timers of this.timers.values()) {
+      if (timers.intervalMs !== intervalMs) timers.reschedule(intervalMs)
     }
   }
 

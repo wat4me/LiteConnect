@@ -209,6 +209,7 @@ export function useSidebarState(deps: SessionDeps) {
     const detail = (e as CustomEvent).detail
     if (detail && detail.enabled !== undefined) {
       monitorEnabled.value = detail.enabled
+      if (!detail.enabled) monitorVisible.value = false
     }
   }
 

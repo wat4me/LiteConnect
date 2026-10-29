@@ -407,6 +407,10 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     showSchedules.value = false
   }
 
+  function hasConversation(id: string): boolean {
+    return !disposed && !!id && (!!scopes.value[id] || Object.keys(sessions.value).some(key => sessions.value[key] === id && singleChatIds.value.includes(key)))
+  }
+
   /** Reveal an already open AI conversation without reconnecting or replacing its pending run. */
   function revealConversation(id: string): boolean {
     if (disposed || !id) return false
@@ -611,6 +615,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     retryConnect,
     openCurrent,
     revealConversation,
+    hasConversation,
     revealGeneration,
     openHistory,
     cancelConnect,

@@ -38,11 +38,13 @@ const {
   draft,
   saved,
   loading,
+  loadError,
   saving,
   recentDownloadPaths,
   systemDefaultDownloadPath,
   isDirty,
   handleSave,
+  loadSettings,
   restoreSystemDefaults,
   cloneDraft,
 } = useSettingsDraft()
@@ -148,6 +150,9 @@ function highlightSetting(id: string) {
   const root = document.querySelector('.settings-main')
   const el = root?.querySelector(`[data-setting="${CSS.escape(id)}"]`) as HTMLElement | null
   if (!el) return
+  for (let node: HTMLElement | null = el; node && node !== root; node = node.parentElement) {
+    if (node instanceof HTMLDetailsElement) node.open = true
+  }
   el.scrollIntoView({ block: id.includes('.') ? 'center' : 'start', behavior: 'smooth' })
   el.classList.add('settings-anchor-hit')
   if (highlightTimer) window.clearTimeout(highlightTimer)
@@ -198,6 +203,7 @@ onBeforeUnmount(() => {
 })
 
 async function handleClose() {
+  if (saving.value) return
   if (!isDirty.value) {
     emit('close')
     return
@@ -254,6 +260,7 @@ defineExpose({ requestClose: handleClose })
               ref="searchInputRef"
               v-model="searchQuery"
               class="ui-input ui-input-sm nav-search-input"
+              :disabled="saving"
               type="text"
               :placeholder="t('settings.searchPlaceholder')"
               :aria-label="t('settings.searchPlaceholder')"
@@ -301,6 +308,7 @@ defineExpose({ requestClose: handleClose })
               :key="tab.id"
               type="button"
               class="nav-item"
+              :disabled="saving"
               :class="{ active: activeTab === tab.id }"
               @click="activeTab = tab.id"
             >
@@ -325,8 +333,13 @@ defineExpose({ requestClose: handleClose })
 
         <main class="settings-main">
           <div v-if="loading" class="settings-loading">{{ t('settings.loading') }}</div>
+          <div v-else-if="loadError" class="settings-load-error" role="alert">
+            <h3>{{ t('settings.loadFailed') }}</h3>
+            <p class="settings-hint">{{ loadError }}</p>
+            <button type="button" class="ui-btn" @click="loadSettings">{{ t('settings.retryLoad') }}</button>
+          </div>
 
-          <template v-else>
+          <fieldset v-else class="settings-fields" :disabled="saving">
             <SettingsAppearance
               v-if="activeTab === 'appearance'"
               :draft="draft"
@@ -360,12 +373,13 @@ defineExpose({ requestClose: handleClose })
             <SettingsMcp v-else-if="activeTab === 'mcp'" />
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsAbout v-else />
-          </template>
+          </fieldset>
         </main>
 
         <footer class="settings-footer">
           <p class="settings-footer-hint">
-            <template v-if="!currentTabUsesDraft && !isDirty">{{ t('settings.immediateHint') }}</template>
+            <template v-if="loadError">{{ t('settings.loadFailed') }}</template>
+            <template v-else-if="!currentTabUsesDraft && !isDirty">{{ t('settings.immediateHint') }}</template>
             <template v-else-if="isDirty">{{ t('settings.dirtyHint') }}</template>
             <template v-else>{{ t('settings.cleanHint') }}</template>
           </p>
@@ -377,7 +391,7 @@ defineExpose({ requestClose: handleClose })
               v-if="currentTabUsesDraft || isDirty"
               type="button"
               class="ui-btn ui-btn-sm"
-              :disabled="saving || loading"
+              :disabled="saving || loading || !!loadError"
               @click="restoreSystemDefaults"
             >
               {{ t('common.restore') }}
@@ -386,7 +400,7 @@ defineExpose({ requestClose: handleClose })
               v-if="currentTabUsesDraft || isDirty"
               type="button"
               class="ui-btn ui-btn-sm ui-btn-primary"
-              :disabled="saving || loading || !isDirty"
+              :disabled="saving || loading || !!loadError || !isDirty"
               :title="!currentTabUsesDraft && !isDirty ? t('settings.immediateHint') : undefined"
               @click="handleSave"
             >
@@ -400,6 +414,9 @@ defineExpose({ requestClose: handleClose })
 </template>
 
 <style scoped>
+.settings-load-error { padding: 24px; }
+.settings-load-error .settings-hint { overflow-wrap: anywhere; }
+.settings-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .settings-page {
   flex: 1;
   width: 100%;

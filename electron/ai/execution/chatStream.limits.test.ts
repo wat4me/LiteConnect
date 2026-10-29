@@ -48,7 +48,7 @@ it('normalizes limits and carries them through settings validation', () => {
   expect(MAX_AI_TURN_API_MESSAGES).toBe(6_807)
 })
 
-it('includes a fixed context file in every reply request without adding it to chat history', async () => {
+it('never sends legacy attachment payloads as fixed context', async () => {
   const fetcher = vi.fn().mockImplementation(() => Promise.resolve(sse({ content: 'done' })))
   vi.stubGlobal('fetch', fetcher)
   const file = { source: 'local' as const, path: 'C:/rules.txt', content: 'Always answer in concise steps.' }
@@ -57,7 +57,7 @@ it('includes a fixed context file in every reply request without adding it to ch
     await runAiChatStream({
       settings,
       messages: [{ role: 'user', content: `question ${turn}` }],
-      contextFiles: [file, secondFile],
+      ...({ contextFiles: [file, secondFile] } as object),
       requestId: `fixed-context-${turn}`,
       emit: () => {},
     })
@@ -66,13 +66,13 @@ it('includes a fixed context file in every reply request without adding it to ch
   for (const call of fetcher.mock.calls) {
     const body = JSON.parse(call[1].body)
     expect(body.messages[0]).toMatchObject({ role: 'system' })
-    expect(body.messages[0].content).toContain(file.content)
-    expect(body.messages[0].content).toContain(secondFile.content)
+    expect(body.messages[0].content).not.toContain(file.content)
+    expect(body.messages[0].content).not.toContain(secondFile.content)
     expect(body.messages.filter((message: { role: string }) => message.role === 'user')).toHaveLength(1)
   }
 })
 
-it('keeps fixed context when a stream falls back to a normal completion', async () => {
+it('does not restore legacy fixed context in completion fallback', async () => {
   const fetcher = vi.fn()
     .mockResolvedValueOnce(new Response(new ReadableStream({
       start(controller) { controller.error(new Error('stream interrupted')) },
@@ -83,12 +83,12 @@ it('keeps fixed context when a stream falls back to a normal completion', async 
   const result = await runAiChatStream({
     settings,
     messages: [{ role: 'user', content: 'help' }],
-    contextFiles: [file],
+    ...({ contextFiles: [file] } as object),
     requestId: 'fixed-context-fallback',
     emit: () => {},
   })
   expect(result.content).toBe('fallback')
   expect(fetcher).toHaveBeenCalledTimes(2)
   const fallbackBody = JSON.parse(fetcher.mock.calls[1][1].body)
-  expect(fallbackBody.messages[0].content).toContain(file.content)
+  expect(fallbackBody.messages[0].content).not.toContain(file.content)
 })

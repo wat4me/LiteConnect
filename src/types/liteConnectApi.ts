@@ -3,13 +3,13 @@ import type {
   AiChatResult,
   AiChatStreamPayload,
   AiChatStreamOptions,
-  AiConversationContextFile,
   AiHistoryRecord,
   AiSessionStore,
   AiSettings,
   AiDiscoveredModel,
 } from '@shared/types/ai'
 import type { AppResourceStats } from '@shared/appResourceStats'
+import type { KnowledgeImportFile, KnowledgeRequest, KnowledgeResponse } from '@shared/aiKnowledge'
 import type { AiUserAnswer } from '@shared/aiQuestions'
 import type { SftpApi } from '@shared/ipc/sftp'
 import type { AiHistoryLimits, AiHistoryPrunePreview } from '@shared/aiHistoryLimits'
@@ -58,10 +58,12 @@ import type {
 } from '@shared/types/docker'
 import type { MonitorData } from '@shared/types/monitor'
 import type { McpHttpStatus, SshMcpToolCallResult, SshMcpToolDefinition, SshMcpJobSummary } from '@shared/mcp/types'
-import type { AppBootstrapData, AppSettingsAll, AppSettingsAllPatch, WorkspaceTabsState } from '@shared/types/settings'
+import type { AppBootstrapData, AppRuntimeSettings, AppSettingsAll, AppSettingsAllPatch, AppSettingsChange, WorkspaceTabsState } from '@shared/types/settings'
 import type { CommandSnippet, ShellCommandHistoryItem } from '@shared/types/snippets'
 
 export interface LiteConnectApi extends SftpApi {
+  aiKnowledge: (sessionId: string, input: KnowledgeRequest) => Promise<KnowledgeResponse>
+  aiExportKnowledge: (sessionId: string, connectionId: string, documentId: string) => Promise<boolean>
   getAppBootstrap: () => Promise<AppBootstrapData>
   getConnections: () => Promise<Connection[]>
   saveConnection: (conn: Partial<Connection> & { name: string; host: string; username: string; password: string }) => Promise<Connection>
@@ -195,8 +197,6 @@ export interface LiteConnectApi extends SftpApi {
   clearShellCommandHistory: (connectionId?: string) => Promise<boolean>
   getRecentDownloadPaths: () => Promise<string[]>
   addRecentDownloadPath: (dirPath: string) => Promise<void>
-  getCredentialAutoFillEnabled: () => Promise<boolean>
-  setCredentialAutoFillEnabled: (enabled: boolean) => Promise<void>
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
   previewAiHistoryPrune: (limits: AiHistoryLimits) => Promise<AiHistoryPrunePreview>
@@ -216,11 +216,7 @@ export interface LiteConnectApi extends SftpApi {
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
   aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => Promise<void>
   onAiBackgroundReply: (callback: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void) => () => void
-  aiSelectLocalContextFile: () => Promise<AiConversationContextFile | null>
-  aiReadLocalContextFile: (sessionId: string, threadId: string, path: string) => Promise<AiConversationContextFile>
-  aiCheckLocalContextFile: (path: string) => Promise<'available' | 'missing' | 'unavailable'>
-  aiSetContextFile: (sessionId: string, threadId: string, file: AiConversationContextFile) => Promise<AiSessionStore>
-  aiRemoveContextFile: (sessionId: string, threadId: string, source: 'local' | 'ssh', path: string, removeFromFuture: boolean) => Promise<AiSessionStore>
+  aiImportKnowledgeFile: () => Promise<KnowledgeImportFile | null>
   aiUpdateConversation: (sessionId: string, threadId: string, patch: { customTitle?: string | null; pinned?: boolean }) => Promise<AiSessionStore>
   setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
   aiCreateConversation: (
@@ -245,6 +241,8 @@ export interface LiteConnectApi extends SftpApi {
   getFancyCursorStyle: () => Promise<string>
   setFancyCursorStyle: (style: string) => Promise<void>
   getAllSettings: () => Promise<AppSettingsAll>
+  onSettingsChanged: (callback: (change: AppSettingsChange) => void) => () => void
+  onRuntimeSettingsChanged: (callback: (settings: AppRuntimeSettings) => void) => () => void
   setManySettings: (patch: AppSettingsAllPatch) => Promise<AppSettingsAll>
   getAppBackground: () => Promise<{
     fileName: string

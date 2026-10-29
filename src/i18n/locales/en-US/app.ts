@@ -5,6 +5,7 @@ export default {
     modulesAria: 'App modules',
     modeSsh: 'SSH',
     modeDatabase: 'Database',
+    modeAi: 'AI workspace',
     brandSshAria: 'Switch module, currently LiteConnect',
     brandDbAria: 'Switch module, currently LiteDB',
     brandAiAria: 'Switch module, currently LiteAI',

@@ -2,9 +2,7 @@ import { t } from '../../i18n'
 import { packAiMessages, type AiContextMessage } from '../../../shared/aiContext'
 import type { AiChatMessage } from '../../../shared/types/ai'
 import { resolveAiContextBudget, type AiContextBudgetConfig } from '../../../shared/aiContextPressure'
-import type { AiConversationContextFile } from '../../../shared/types/ai'
 import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
-import { formatAiConversationContextFile } from '../../../shared/aiFixedContext'
 import { workspaceToolsForChat, workspaceToolSystemAddendum } from '../../../shared/aiWorkspacePrompt'
 import { sshToolsForChat, sshToolSystemAddendum } from '../tools/sshToolChat'
 import type { SshMcpRuntime } from '../../mcp/runtime'
@@ -12,12 +10,14 @@ import { isValidUUID } from '../../utils/validation'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import type { AiToolGroup } from '../../../shared/aiToolCatalog'
 import { localFileTransferSystemAddendum } from './localEnvironment'
+import { knowledgeTools, type AiKnowledgeAccess } from '../../../shared/aiKnowledge'
 
 export async function buildAiRequestEnvironment(opts: {
   sessionId?: string; cwd?: string; workspaceTargets?: AiWorkspaceTarget[]
-  contextFiles?: AiConversationContextFile[]; sshMcpRuntime?: SshMcpRuntime
+  sshMcpRuntime?: SshMcpRuntime
   allowQuestions?: boolean
   toolGroups?: readonly AiToolGroup[]
+  knowledge?: AiKnowledgeAccess
 }) {
   const boundSessionId = opts.sessionId && isValidUUID(opts.sessionId) ? opts.sessionId : ''
   const useTools = Boolean(opts.sshMcpRuntime && (opts.workspaceTargets?.length || boundSessionId))
@@ -31,9 +31,11 @@ export async function buildAiRequestEnvironment(opts: {
   }
   if (opts.allowQuestions === false && !useTools) extraSystem = t('sharedText.promptUnattended')
   const localEnvironment = useTools ? localFileTransferSystemAddendum(opts.sshMcpRuntime?.getLocalEnvironment?.() ?? { platform: process.platform }, t) : ''
-  extraSystem = [extraSystem, localEnvironment, t('toolPolicy.visibleLanguage'), ...(opts.contextFiles || []).map(formatAiConversationContextFile)].filter(text => text?.trim()).join('\n\n')
+  const knowledgePrompt = await opts.knowledge?.prompt()
+  extraSystem = [extraSystem, localEnvironment, knowledgePrompt, t('toolPolicy.visibleLanguage')].filter(text => text?.trim()).join('\n\n')
   const tools = useTools ? (opts.workspaceTargets ? workspaceToolsForChat(opts.toolGroups) : sshToolsForChat(opts.toolGroups)).filter(tool => opts.allowQuestions !== false || tool.function.name !== AI_QUESTION_TOOL) : undefined
-  return { boundSessionId, useTools, extraSystem, tools }
+  const localTools = useTools && knowledgePrompt ? knowledgeTools : []
+  return { boundSessionId, useTools, extraSystem, tools: tools ? [...tools, ...localTools] : tools, localTools }
 }
 
 export function packRequestMessages(

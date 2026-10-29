@@ -2,22 +2,18 @@ import { BrowserWindow, dialog } from 'electron'
 import { ServiceIpcScope } from './serviceScope'
 import { workspaceScopes, workspaceHistoryId } from '../ai/workspace/workspaceScopes'
 import type { AiExecutionService } from '../ai/execution/executionService'
-import { readFile, stat } from 'fs/promises'
+import { readFile, stat, writeFile } from 'fs/promises'
 import { SettingsStore } from '../store/settingsStore'
 import { t } from '../i18n'
 import { listAiProviderModels, testAiProviderConfig } from '../ai/providers/providerService'
 import { validateAiSettings } from '../ai/settingsValidation'
 import {
   createNewConversationAtomic,
-  AI_CONTEXT_FILE_MAX_BYTES,
   getActiveThread,
   normalizeAiContextFile,
   pruneAllAiHistoryStores,
   previewAiHistoryPrune,
-  readAiSessionStore,
   readAiSessionStoreAndGc,
-  removeAiConversationContextFile,
-  setAiConversationContextFile,
   updateAiConversationMetadata,
   upsertAiHistoryRecord,
   writeAiHistoryRecords,
@@ -30,6 +26,7 @@ import { showAiApprovalNotification } from './aiApprovalNotification'
 import { listAiWorkspaceConversations } from '../ai/workspace/workspaceConversations'
 import { AI_WORKSPACE_HISTORY_LIMIT } from '../../shared/aiWorkspaceConversations'
 import { normalizeAiHistoryLimits } from '../../shared/aiHistoryLimits'
+import { KNOWLEDGE_MAX_BYTES, formatKnowledgeExport, type KnowledgeRequest } from '../../shared/aiKnowledge'
 
 export function registerAiHandlers(
   settingsStore: SettingsStore,
@@ -56,9 +53,12 @@ export function registerAiHandlers(
   const historyIdForSession = (sessionId: string, ownerId: number): string => {
     if (typeof sessionId === 'string' && sessionId.startsWith('workspace:')) {
       workspaceScopes.owned(sessionId, ownerId)
+      execution.prepareKnowledge?.(sessionId, ownerId)
       return workspaceHistoryId(sessionId)
     }
     if (!sessionId || typeof sessionId !== 'string') throw new Error('Invalid AI session id')
+    // Ensure newly added profiles import legacy snapshots before a history write/prune.
+    execution.prepareKnowledge?.(sessionId, ownerId)
     const cached = historyIdsBySession.get(sessionId)
     if (cached) return cached
     const historyId = resolveHistoryId?.(sessionId)
@@ -66,6 +66,27 @@ export function registerAiHandlers(
     historyIdsBySession.set(sessionId, historyId)
     return historyId
   }
+
+  scope.handle('ai:knowledge', async (event, sessionId: string, input: KnowledgeRequest) => {
+    await ensureSettingsReady()
+    historyIdForSession(sessionId, event.sender.id)
+    return execution.knowledgeAccess(sessionId, event.sender.id).manage(input)
+  })
+
+  scope.handle('ai:exportKnowledge', async (event, sessionId: string, connectionId: string, documentId: string) => {
+    await ensureSettingsReady()
+    historyIdForSession(sessionId, event.sender.id)
+    const result = await execution.knowledgeAccess(sessionId, event.sender.id).manage({ action: 'read', connectionId, documentId })
+    const document = result.document!
+    const name = document.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    const options = { defaultPath: /\.(md|markdown)$/i.test(name) ? name : `${name}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] }
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const selected = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+    scope.assertOpen()
+    if (selected.canceled || !selected.filePath) return false
+    await writeFile(selected.filePath, formatKnowledgeExport(document), 'utf8')
+    return true
+  })
 
   scope.handle('ai:openWorkspaceScope', async (event, input) => {
     await ensureSettingsReady()
@@ -155,7 +176,7 @@ export function registerAiHandlers(
     }
   })
 
-  scope.handle('ai:selectLocalContextFile', async (event) => {
+  scope.handle('ai:importKnowledgeFile', async (event) => {
     const owner = BrowserWindow.fromWebContents(event.sender)
     const options = {
       properties: ['openFile'] as Array<'openFile'>,
@@ -168,37 +189,9 @@ export function registerAiHandlers(
     const path = result.filePaths[0]
     if (!isAiMarkdownFilePath(path)) throw new Error(t('ai.markdownOnly'))
     const info = await stat(path)
-    if (!info.isFile() || info.size > AI_CONTEXT_FILE_MAX_BYTES) {
+    if (!info.isFile() || info.size > KNOWLEDGE_MAX_BYTES) {
       throw new Error(t('ai.markdownSizeLimit'))
     }
-    const file = { source: 'local' as const, path, content: await readFile(path, 'utf8') }
-    if (!normalizeAiContextFile(file)) throw new Error(t('ai.markdownEmpty'))
-    return file
-  })
-
-  scope.handle('ai:checkLocalContextFile', async (_event, path: string) => {
-    if (typeof path !== 'string' || path.length > 1024 || !isAiMarkdownFilePath(path) || /[\0\r\n]/.test(path)) {
-      throw new Error('Invalid Markdown file path')
-    }
-    try {
-      return (await stat(path)).isFile() ? 'available' : 'missing'
-    } catch (error: any) {
-      return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'missing' : 'unavailable'
-    }
-  })
-
-  scope.handle('ai:readLocalContextFile', async (event, sessionId: string, threadId: string, path: string) => {
-    if (typeof path !== 'string' || path.length > 1024 || !isAiMarkdownFilePath(path) || /[\0\r\n]/.test(path)) {
-      throw new Error('Invalid Markdown file path')
-    }
-    await ensureSettingsReady()
-    const store = await readAiSessionStore(historyIdForSession(sessionId, event.sender?.id), getHistoryLimits())
-    const thread = store.threads.find(item => item.id === threadId)
-    if (!thread || store.activeThreadId !== threadId || !thread.contextFiles.some(file => file.source === 'local' && file.path === path)) {
-      throw new Error('AI context file is no longer attached to this conversation')
-    }
-    const info = await stat(path)
-    if (!info.isFile() || info.size > AI_CONTEXT_FILE_MAX_BYTES) throw new Error(t('ai.markdownSizeLimit'))
     const file = { source: 'local' as const, path, content: await readFile(path, 'utf8') }
     if (!normalizeAiContextFile(file)) throw new Error(t('ai.markdownEmpty'))
     return file
@@ -210,18 +203,6 @@ export function registerAiHandlers(
     }
     await ensureSettingsReady()
     return updateAiConversationMetadata(historyIdForSession(sessionId, event.sender?.id), threadId, patch, getHistoryLimits())
-  })
-
-  scope.handle('ai:setContextFile', async (event, sessionId: string, threadId: string, file: unknown) => {
-    if (typeof threadId !== 'string' || !threadId) throw new Error('Invalid AI conversation')
-    await ensureSettingsReady()
-    return setAiConversationContextFile(historyIdForSession(sessionId, event.sender?.id), threadId, file, getHistoryLimits())
-  })
-
-  scope.handle('ai:removeContextFile', async (event, sessionId: string, threadId: string, source: 'local' | 'ssh', path: string, removeFromFuture: boolean) => {
-    if (typeof threadId !== 'string' || !threadId || (source !== 'local' && source !== 'ssh') || typeof path !== 'string' || typeof removeFromFuture !== 'boolean') throw new Error('Invalid AI context file')
-    await ensureSettingsReady()
-    return removeAiConversationContextFile(historyIdForSession(sessionId, event.sender?.id), threadId, source, path, removeFromFuture, getHistoryLimits())
   })
 
   scope.handle('ai:appendSessionHistory', async (event, sessionId: string, record: any, threadId?: string) => {

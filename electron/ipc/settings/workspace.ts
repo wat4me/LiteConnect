@@ -1,8 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { mkdir } from 'fs/promises'
 import type { SettingsAllPatch } from '../../store/settingsStore'
 import type { SettingsIpcCtx } from './ctx'
-import { clearWallpaperDir, persistWallpaperFromToken } from './wallpaper'
+import { commitSettings } from './commitSettings'
 
 /**
  * Bulk get/set plus workspace restore / updater / app info.
@@ -23,24 +22,16 @@ export function registerWorkspaceSettingsHandlers(ctx: SettingsIpcCtx): void {
     await settingsStore.initMigrations()
     if (!patch || typeof patch !== 'object') throw new Error('Invalid settings')
 
-    const nextPatch: SettingsAllPatch = { ...patch }
-    if (patch.appBackground && typeof patch.appBackground === 'object') {
-      const dir = settingsStore.getAppBackgroundDir()
-      const bg = patch.appBackground
-      if (bg.clear) {
-        await mkdir(dir, { recursive: true })
-        await clearWallpaperDir(dir)
-        nextPatch.appBackground = { fileName: '', fit: bg.fit, overlay: bg.overlay }
-      } else if (typeof bg.token === 'string' && bg.token) {
-        const fileName = await persistWallpaperFromToken(dir, bg.token)
-        nextPatch.appBackground = { fileName, fit: bg.fit, overlay: bg.overlay }
-      } else {
-        nextPatch.appBackground = { fit: bg.fit, overlay: bg.overlay }
-      }
-    }
-
     const previousLocale = settingsStore.getLocale()
-    const saved = await settingsStore.applyMany(nextPatch)
+    const previousMonitorInterval = settingsStore.getMonitorIntervalMs()
+    const saved = await commitSettings(ctx, patch)
+    if (saved.monitorIntervalMs !== previousMonitorInterval) {
+      ctx.onMonitorIntervalChanged?.(saved.monitorIntervalMs)
+    }
+    if (patch.monitorEnabled !== undefined || patch.autoReconnectEnabled !== undefined || patch.autoReconnectMaxRetries !== undefined) {
+      ctx.notifyRuntimeSettingsChanged()
+    }
+    ctx.notifySettingsChanged(Object.keys(patch) as (keyof SettingsAllPatch)[], _event.sender?.id)
     if (saved.locale !== previousLocale) {
       const { setMainLocale } = await import('../../i18n')
       const { syncTrayFromSettings } = await import('../../window/tray')

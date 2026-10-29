@@ -39,6 +39,15 @@ exit stops owned processes and removes temporary authority files. A force-killed
 application cannot run cleanup; it may leave its authenticated server and temp
 directory behind. Another run selects a different free display.
 
+Display preparation starts alongside SSH authentication, rather than delaying
+the network connection until VcXsrv is ready. The shell still waits for display
+readiness and authentication before requesting X11. Cancelling a connection
+does not cancel the shared display startup or open a late shell.
+
+Windows settings show the bundled service by default. Executable overrides are
+under Advanced; existing custom paths remain visible, and Use bundled server
+clears the override in the settings draft. Save settings to apply that choice.
+
 Custom forwarding retains the existing external display workflow and its access
 policy. Use automatic mode for managed authentication. The global auto-start
 switch disables automatic mode; a connection can be disabled independently.

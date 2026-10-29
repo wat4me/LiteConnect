@@ -16,6 +16,7 @@ vi.mock('../ipc/registerMcpHandlers', () => ({ registerMcpHandlers: mocks.regist
 vi.mock('../ipc/registerAiHandlers', () => ({ registerAiHandlers: mocks.registerAi }))
 vi.mock('../ipc/registerAiScheduleHandlers', () => ({ registerAiScheduleHandlers: mocks.registerSchedules }))
 vi.mock('./aiExecution', () => ({ createAiExecutionService: mocks.execution }))
+vi.mock('./aiKnowledge', () => ({ createAiKnowledgeService: () => ({}) }))
 vi.mock('./aiSchedules', () => ({ createAiScheduleServices: mocks.schedules }))
 vi.mock('../ssh/x11/x11Server', () => ({ configureX11ServerOptions: mocks.x11 }))
 vi.mock('../ssh/x11/automaticX11', () => ({ stopAutomaticX11: mocks.x11Stop }))

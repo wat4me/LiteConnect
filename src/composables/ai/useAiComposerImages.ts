@@ -16,7 +16,6 @@ export function useAiComposerImages(deps: {
   t: (key: string) => string
 }) {
   const draftImages = computed(() => deps.draft().draftImages)
-  const imageInputRef = ref<HTMLInputElement | null>(null)
   const imageBusy = ref(false)
   const imageDragOver = ref(false)
   let disposed = false
@@ -48,11 +47,6 @@ export function useAiComposerImages(deps: {
     } finally { imageBusy.value = false }
   }
 
-  function onImageSelection(event: Event) {
-    const element = event.target as HTMLInputElement
-    void addImages(Array.from(element.files || []))
-    element.value = ''
-  }
   function onImagePaste(event: ClipboardEvent) {
     const files = Array.from(event.clipboardData?.items || [])
       .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
@@ -78,5 +72,5 @@ export function useAiComposerImages(deps: {
     imageDragOver.value = false
   }
 
-  return { draftImages, imageInputRef, imageBusy, imageDragOver, addImages, onImageSelection, onImagePaste, onImageDragOver, onImageDrop, onImageDragLeave }
+  return { draftImages, imageBusy, imageDragOver, addImages, onImagePaste, onImageDragOver, onImageDrop, onImageDragLeave }
 }

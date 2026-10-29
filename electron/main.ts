@@ -180,7 +180,8 @@ async function initializeMain(): Promise<void> {
       monitorAlerts.deleteConnection(connectionId)
       backgroundMonitor.refresh(connectionId)
     },
-    (connectionId) => backgroundMonitor.connectionChanged(connectionId))
+    (connectionId) => backgroundMonitor.connectionChanged(connectionId),
+    (intervalMs) => monitorCollector.updateInterval(intervalMs))
   registerWindowHandlers(credentialStore, settingsStore, {
     // DB sessions can only be created from the dedicated DB window; drop them
     // when that window closes so they do not leak in the main process.

@@ -227,7 +227,7 @@ export interface AiContextCheckpoint {
   model?: string
 }
 
-/** A user-selected Markdown file captured as text for AI conversations. */
+/** Legacy attachment snapshot, retained only for migration/recovery. Never sent directly. */
 export interface AiConversationContextFile {
   source: 'local' | 'ssh'
   path: string
@@ -256,7 +256,7 @@ export interface AiSessionStore {
   version: 1
   activeThreadId: string
   threads: AiConversationThread[]
-  /** Host-scoped default copied into each new conversation; null disables inheritance. */
+  /** Legacy snapshots retained for knowledge migration; new conversations do not inherit them. */
   defaultContextFiles: AiConversationContextFile[]
 }
 

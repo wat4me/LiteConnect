@@ -63,9 +63,21 @@ jobs:
       # Every platform builds privately. Publishing from inside the matrix makes
       # the first completed platform expose an incomplete release to updaters.
       - name: Package
+        if: runner.os != 'macOS'
         run: npx electron-builder --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Package macOS (optional Developer ID signing and notarization)
+        if: runner.os == 'macOS'
+        run: node scripts/package-macos.cjs
+        env:
+          MACOS_SIGNING_ENABLED: ${{ vars.MACOS_SIGNING_ENABLED }}
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       - uses: actions/upload-artifact@v4
         with:
           name: LiteConnect-${{ matrix.os }}

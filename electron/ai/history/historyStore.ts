@@ -7,8 +7,8 @@ import { aiSessionKey, getAppDatabase, sessionIdFromAiKey } from '../../store/ap
 import type { AiHistoryLimits, AiHistoryPrunePreview } from '../../../shared/aiHistoryLimits'
 import { decodeAiSessionStore } from './historyCodec'
 import {
-  AI_CONTEXT_FILES_MAX, AI_HISTORY_TITLE_MAX, createEmptyThread, getActiveThread,
-  normalizeAiContextFile, normalizeAiHistoryRecord, normalizeContextCheckpoint,
+  AI_HISTORY_TITLE_MAX, createEmptyThread, getActiveThread,
+  normalizeAiHistoryRecord, normalizeContextCheckpoint,
   normalizeSessionStore, pruneEmptyThreads, recoverInterruptedAiSessionStore, titleFromMessages,
 } from './historyModel'
 
@@ -132,7 +132,7 @@ export async function upsertAiHistoryRecord(sessionId: string, record: any, thre
         createdAt: now,
         updatedAt: now,
         messages: [],
-        contextFiles: [...store.defaultContextFiles],
+        contextFiles: [],
       }
       store.threads = [active]
       store.activeThreadId = threadId
@@ -170,57 +170,6 @@ export async function writeAiContextCheckpoint(
     thread.compactionCount = normalized.compactionCount
     thread.contextCheckpoint = normalized
     thread.updatedAt = Date.now()
-  }, limits)
-}
-
-export async function setAiConversationContextFile(
-  historyId: string,
-  threadId: string,
-  value: unknown,
-  limits?: Partial<AiHistoryLimits>,
-): Promise<AiSessionStore> {
-  const file = normalizeAiContextFile(value)
-  if (!file) throw new Error('Invalid or oversized AI context file')
-  return mutateAiSessionStore(historyId, (store) => {
-    if (store.activeThreadId !== threadId) throw new Error('AI conversation changed')
-    const active = getActiveThread(store)
-    const files = [...active.contextFiles]
-    const existing = files.findIndex(item => item.source === file.source && item.path === file.path)
-    if (existing >= 0) files[existing] = file
-    else {
-      if (files.length >= AI_CONTEXT_FILES_MAX) throw new Error(t('ai.contextFileLimit', { count: AI_CONTEXT_FILES_MAX }))
-      files.push(file)
-    }
-    active.contextFiles = files
-    const defaults = [...store.defaultContextFiles]
-    const defaultIndex = defaults.findIndex(item => item.source === file.source && item.path === file.path)
-    if (defaultIndex >= 0) defaults[defaultIndex] = file
-    else {
-      if (defaults.length >= AI_CONTEXT_FILES_MAX) throw new Error(t('ai.contextFileLimit', { count: AI_CONTEXT_FILES_MAX }))
-      defaults.push(file)
-    }
-    store.defaultContextFiles = defaults
-    active.updatedAt = Date.now()
-  }, limits)
-}
-
-export async function removeAiConversationContextFile(
-  historyId: string,
-  threadId: string,
-  source: 'local' | 'ssh',
-  path: string,
-  removeFromFuture = true,
-  limits?: Partial<AiHistoryLimits>,
-): Promise<AiSessionStore> {
-  return mutateAiSessionStore(historyId, (store) => {
-    if (store.activeThreadId !== threadId) throw new Error('AI conversation changed')
-    const active = getActiveThread(store)
-    const files = active.contextFiles.filter(file => file.source !== source || file.path !== path)
-    active.contextFiles = files
-    if (removeFromFuture) {
-      store.defaultContextFiles = store.defaultContextFiles.filter(file => file.source !== source || file.path !== path)
-    }
-    active.updatedAt = Date.now()
   }, limits)
 }
 
@@ -287,7 +236,6 @@ export async function createNewConversationAtomic(
     active.updatedAt = now
 
     const fresh = createEmptyThread(now)
-    fresh.contextFiles = [...store.defaultContextFiles]
     store.threads.push(fresh)
     store.activeThreadId = fresh.id
     pruneEmptyThreads(store)

@@ -1,4 +1,6 @@
-import { computed, onMounted, ref, type Ref, type ComputedRef } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, type Ref, type ComputedRef } from 'vue'
+import type { AppSettingsAll } from '@shared/types/settings'
+import { buildSettingsDraftPatch } from './settingsDraftPatch'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { getStoredLocale, t } from '@/i18n'
 import { appConfirm } from '@/composables/app/useAppDialog'
@@ -8,7 +10,8 @@ import {
   type TerminalPaletteId,
   type Theme,
 } from '@/composables/app/useTheme'
-import { dispatchDbSettingsChange } from '@/composables/database/useDbSettings'
+import { applyAppSettings } from './applyAppSettings'
+import { rebaseSettingsDraft } from './rebaseSettingsDraft'
 import {
   DB_PAGE_SIZE_OPTIONS,
   DEFAULT_DB_DEFAULT_MAX_ROWS,
@@ -39,7 +42,6 @@ import {
   clampBackgroundOverlay,
   emptyAppBackgroundState,
   sanitizeAppBackgroundFit,
-  type AppBackgroundFit,
   type AppBackgroundState,
 } from '@/composables/app/useAppBackground'
 import {
@@ -88,7 +90,7 @@ export interface SettingsDraft {
   dbDefaultQueryTimeoutSec: number
   /** Global default run scope for new query tabs. */
   dbDefaultRunScope: QueryDefaultRunScopePref
-  /** Titlebar SSH → DB: current window or dedicated OS window. */
+  /** Detached SSH window → DB; the main window always switches in place. */
   dbOpenMode: DbOpenMode
   latencyEnabled: boolean
   latencyIntervalSec: number
@@ -234,6 +236,7 @@ export function useSettingsDraft(): {
   draft: Ref<SettingsDraft>
   saved: Ref<SettingsDraft>
   loading: Ref<boolean>
+  loadError: Ref<string>
   saving: Ref<boolean>
   recentDownloadPaths: Ref<string[]>
   systemDefaultDownloadPath: Ref<string>
@@ -244,10 +247,15 @@ export function useSettingsDraft(): {
   cloneDraft: typeof cloneDraft
   createEmptyDraft: typeof createEmptyDraft
 } {
-  const { theme, customColors, setTheme, setCustomColors } = useTheme()
+  const { theme, customColors } = useTheme()
 
   const loading = ref(true)
+  const loadError = ref('')
+  let loaded = false
+  let loadInFlight = false
+  let pendingSettings: AppSettingsAll | undefined
   const saving = ref(false)
+  const resetAllRequested = ref(false)
   const recentDownloadPaths = ref<string[]>([])
   /** OS Downloads folder, e.g. C:\\Users\\…\\Downloads */
   const systemDefaultDownloadPath = ref('')
@@ -256,7 +264,7 @@ export function useSettingsDraft(): {
   /** Last loaded / saved snapshot — used for dirty check */
   const saved = ref<SettingsDraft>(createEmptyDraft())
 
-  const isDirty = computed(() => !draftsEqual(draft.value, saved.value))
+  const isDirty = computed(() => resetAllRequested.value || !draftsEqual(draft.value, saved.value))
 
   function createSystemDefaultDraft(): SettingsDraft {
     return {
@@ -307,89 +315,121 @@ export function useSettingsDraft(): {
     }
   }
 
+  function fromPersistedSettings(all: AppSettingsAll): SettingsDraft {
+    const useSystem = !all.configuredDownloadPath
+    const allowedPage = (DB_PAGE_SIZE_OPTIONS as readonly number[]).includes(all.dbPageSize)
+      ? (all.dbPageSize as DbPageSize)
+      : DEFAULT_DB_PAGE_SIZE
+    const next: SettingsDraft = {
+      theme: (['dark', 'light', 'eyecare', 'custom'].includes(all.theme) ? all.theme : theme.value) as Theme,
+      bgColor: all.customColors?.bgColor || customColors.value.bgColor,
+      fontColor: all.customColors?.fontColor || customColors.value.fontColor,
+      downloadPath: useSystem ? all.defaultDownloadPath : all.downloadPath,
+      useSystemDownloadPath: useSystem,
+      terminalFontSize: all.terminalFontSize,
+      terminalFontFamily: pickInstalledFontFamily(all.terminalFontFamily),
+      terminalPalette: (all.terminalPalette as TerminalPaletteId) || 'auto',
+      terminalScrollback: Math.max(2000, Math.min(20000, Math.round(all.terminalScrollback) || 5000)),
+      terminalPasteConfirmEnabled: all.terminalPasteConfirmEnabled !== false,
+      terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(all.terminalPasteConfirmMaxChars),
+      terminalCommandSuggestEnabled: all.terminalCommandSuggestEnabled === true,
+      terminalLocalEchoEnabled: all.terminalLocalEchoEnabled === true,
+      terminalCommandHistoryExcludePatterns: Array.isArray(all.terminalCommandHistoryExcludePatterns)
+        ? all.terminalCommandHistoryExcludePatterns.join('\n')
+        : '',
+      downloadConflictStrategy:
+        all.downloadConflictStrategy === 'overwrite'
+        || all.downloadConflictStrategy === 'skip'
+        || all.downloadConflictStrategy === 'rename'
+          ? all.downloadConflictStrategy
+          : 'rename',
+      dirTransferConcurrency: Math.max(1, Math.min(8, Math.round(Number(all.dirTransferConcurrency)) || 3)),
+      dirTransferFailPolicy: all.dirTransferFailPolicy === 'continue' ? 'continue' : 'stop',
+      sftpFontSize: sanitizeSftpFontSize(all.sftpFontSize),
+      dbFontFamily: pickInstalledFontFamily(all.dbFontFamily?.trim() || DEFAULT_DB_FONT_FAMILY),
+      dbFontSize: Math.max(10, Math.min(24, Math.round(all.dbFontSize) || DEFAULT_DB_FONT_SIZE)),
+      dbPageSize: allowedPage,
+      dbConfirmDangerousSql: all.dbConfirmDangerousSql !== false,
+      dbDefaultMaxRows: clampQueryMaxRows(all.dbDefaultMaxRows),
+      dbDefaultQueryTimeoutSec: clampQueryTimeoutSec(all.dbDefaultQueryTimeoutSec),
+      dbDefaultRunScope: sanitizeDefaultRunScopePref(all.dbDefaultRunScope),
+      dbOpenMode: sanitizeDbOpenMode(all.dbOpenMode),
+      latencyEnabled: all.latencyEnabled,
+      latencyIntervalSec: all.latencyIntervalMs / 1000,
+      connectionUsageStatsEnabled: all.connectionUsageStatsEnabled !== false,
+      fancyCursorEnabled: all.fancyCursorEnabled === true,
+      fancyCursorStyle: sanitizeFancyCursorStyle(all.fancyCursorStyle),
+      appBackground: {
+        imageUrl: typeof all.appBackground?.imageUrl === 'string' ? all.appBackground.imageUrl : '',
+        fit: sanitizeAppBackgroundFit(all.appBackground?.fit),
+        overlay: clampBackgroundOverlay(all.appBackground?.overlay),
+        fileName: typeof all.appBackground?.fileName === 'string' ? all.appBackground.fileName : '',
+        token: '',
+        cleared: false,
+      },
+      monitorEnabled: all.monitorEnabled,
+      monitorIntervalSec: all.monitorIntervalMs / 1000,
+      autoReconnectEnabled: all.autoReconnectEnabled,
+      autoReconnectMaxRetries: all.autoReconnectMaxRetries,
+      workspaceRestoreEnabled: all.workspaceRestoreEnabled === true,
+      closeToTrayEnabled: all.closeToTrayEnabled === true,
+      globalHotkeyEnabled: all.globalHotkeyEnabled === true,
+      globalHotkey: normalizeGlobalHotkey(all.globalHotkey) ?? DEFAULT_GLOBAL_HOTKEY,
+      sessionLogEnabled: all.sessionLogEnabled === true,
+      x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
+      x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
+      locale: sanitizeAppLocale(all.localeConfigured ? all.locale : getStoredLocale()),
+    }
+    return next
+  }
+
   async function loadSettings() {
+    if (saving.value || loadInFlight) return
+    loadInFlight = true
+    pendingSettings = undefined
     loading.value = true
+    loadError.value = ''
+    loaded = false
     try {
-      const all = await window.LiteConnect.getAllSettings()
+      const fetched = await window.LiteConnect.getAllSettings()
+      const all = pendingSettings || fetched
+      pendingSettings = undefined
       systemDefaultDownloadPath.value = all.defaultDownloadPath
-      const useSystem = !all.configuredDownloadPath
-      const allowedPage = (DB_PAGE_SIZE_OPTIONS as readonly number[]).includes(all.dbPageSize)
-        ? (all.dbPageSize as DbPageSize)
-        : DEFAULT_DB_PAGE_SIZE
-      const next: SettingsDraft = {
-        theme: theme.value,
-        bgColor: customColors.value.bgColor,
-        fontColor: customColors.value.fontColor,
-        downloadPath: useSystem ? all.defaultDownloadPath : all.downloadPath,
-        useSystemDownloadPath: useSystem,
-        terminalFontSize: all.terminalFontSize,
-        terminalFontFamily: pickInstalledFontFamily(all.terminalFontFamily),
-        terminalPalette: (all.terminalPalette as TerminalPaletteId) || 'auto',
-        terminalScrollback: Math.max(2000, Math.min(20000, Math.round(all.terminalScrollback) || 5000)),
-        terminalPasteConfirmEnabled: all.terminalPasteConfirmEnabled !== false,
-        terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(all.terminalPasteConfirmMaxChars),
-        terminalCommandSuggestEnabled: all.terminalCommandSuggestEnabled === true,
-        terminalLocalEchoEnabled: all.terminalLocalEchoEnabled === true,
-        terminalCommandHistoryExcludePatterns: Array.isArray(all.terminalCommandHistoryExcludePatterns)
-          ? all.terminalCommandHistoryExcludePatterns.join('\n')
-          : '',
-        downloadConflictStrategy:
-          all.downloadConflictStrategy === 'overwrite'
-          || all.downloadConflictStrategy === 'skip'
-          || all.downloadConflictStrategy === 'rename'
-            ? all.downloadConflictStrategy
-            : 'rename',
-        dirTransferConcurrency: Math.max(1, Math.min(8, Math.round(Number(all.dirTransferConcurrency)) || 3)),
-        dirTransferFailPolicy: all.dirTransferFailPolicy === 'continue' ? 'continue' : 'stop',
-        sftpFontSize: sanitizeSftpFontSize(all.sftpFontSize),
-        dbFontFamily: pickInstalledFontFamily(all.dbFontFamily?.trim() || DEFAULT_DB_FONT_FAMILY),
-        dbFontSize: Math.max(10, Math.min(24, Math.round(all.dbFontSize) || DEFAULT_DB_FONT_SIZE)),
-        dbPageSize: allowedPage,
-        dbConfirmDangerousSql: all.dbConfirmDangerousSql !== false,
-        dbDefaultMaxRows: clampQueryMaxRows(all.dbDefaultMaxRows),
-        dbDefaultQueryTimeoutSec: clampQueryTimeoutSec(all.dbDefaultQueryTimeoutSec),
-        dbDefaultRunScope: sanitizeDefaultRunScopePref(all.dbDefaultRunScope),
-        dbOpenMode: sanitizeDbOpenMode(all.dbOpenMode),
-        latencyEnabled: all.latencyEnabled,
-        latencyIntervalSec: all.latencyIntervalMs / 1000,
-        connectionUsageStatsEnabled: all.connectionUsageStatsEnabled !== false,
-        fancyCursorEnabled: all.fancyCursorEnabled === true,
-        fancyCursorStyle: sanitizeFancyCursorStyle(all.fancyCursorStyle),
-        appBackground: {
-          imageUrl: typeof all.appBackground?.imageUrl === 'string' ? all.appBackground.imageUrl : '',
-          fit: sanitizeAppBackgroundFit(all.appBackground?.fit),
-          overlay: clampBackgroundOverlay(all.appBackground?.overlay),
-          fileName: typeof all.appBackground?.fileName === 'string' ? all.appBackground.fileName : '',
-          token: '',
-          cleared: false,
-        },
-        monitorEnabled: all.monitorEnabled,
-        monitorIntervalSec: all.monitorIntervalMs / 1000,
-        autoReconnectEnabled: all.autoReconnectEnabled,
-        autoReconnectMaxRetries: all.autoReconnectMaxRetries,
-        workspaceRestoreEnabled: all.workspaceRestoreEnabled === true,
-        closeToTrayEnabled: all.closeToTrayEnabled === true,
-        globalHotkeyEnabled: all.globalHotkeyEnabled === true,
-        globalHotkey: normalizeGlobalHotkey(all.globalHotkey) ?? DEFAULT_GLOBAL_HOTKEY,
-        sessionLogEnabled: all.sessionLogEnabled === true,
-        x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
-        x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
-        locale: sanitizeAppLocale(all.localeConfigured ? all.locale : getStoredLocale()),
-      }
+      const next = fromPersistedSettings(all)
+      resetAllRequested.value = false
       draft.value = cloneDraft(next)
       saved.value = cloneDraft(next)
       recentDownloadPaths.value = all.recentDownloadPaths || []
+      loaded = true
+    } catch (error) {
+      loadError.value = error instanceof Error && error.message ? error.message : t('settings.loadFailed')
     } finally {
       loading.value = false
+      loadInFlight = false
     }
   }
 
+  let unsubscribeSettings: (() => void) | undefined
   onMounted(() => {
+    unsubscribeSettings = window.LiteConnect.onSettingsChanged?.(({ settings }) => {
+      if (loading.value) { pendingSettings = settings; return }
+      if (!loaded || loadError.value) return
+      const incoming = fromPersistedSettings(settings)
+      if (!resetAllRequested.value) {
+        draft.value = rebaseSettingsDraft(draft.value, saved.value, incoming)
+        if (draft.value.useSystemDownloadPath) draft.value.downloadPath = settings.defaultDownloadPath
+      }
+      saved.value = cloneDraft(incoming)
+      recentDownloadPaths.value = settings.recentDownloadPaths || []
+      systemDefaultDownloadPath.value = settings.defaultDownloadPath
+    })
     void loadSettings()
   })
+  onBeforeUnmount(() => unsubscribeSettings?.())
 
   /** 将草稿恢复为应用出厂默认（需再点保存才写入） */
   async function restoreSystemDefaults() {
+    if (!loaded || loading.value || saving.value) return
     try {
       await appConfirm({
         title: t('settings.restoreTitle'),
@@ -402,6 +442,7 @@ export function useSettingsDraft(): {
       // Explicit clear so save removes persisted wallpaper
       next.appBackground = { ...emptyAppBackgroundState(), cleared: true }
       draft.value = next
+      resetAllRequested.value = true
       applyAppBackground({ imageUrl: '' })
       ElMessage.success(t('settings.restoreFilled'))
     } catch {
@@ -410,7 +451,7 @@ export function useSettingsDraft(): {
   }
 
   async function handleSave() {
-    if (saving.value || loading.value) return
+    if (!loaded || saving.value || loading.value) return
     if (!isDirty.value) {
       ElMessage.info(t('settings.noChanges'))
       return
@@ -418,148 +459,27 @@ export function useSettingsDraft(): {
 
     saving.value = true
     try {
-      const d = draft.value
-
-      if (d.theme === 'custom') {
-        setCustomColors({ fontColor: d.fontColor, bgColor: d.bgColor })
+      const submitted = cloneDraft(draft.value)
+      const patch = buildSettingsDraftPatch(submitted, saved.value, { resetAll: resetAllRequested.value })
+      if (Object.keys(patch).length === 0) {
+        saved.value = cloneDraft(submitted)
+        ElMessage.info(t('settings.noChanges'))
+        return
       }
-      setTheme(d.theme)
+      const savedAll = await window.LiteConnect.setManySettings(patch)
+      resetAllRequested.value = false
+      const d = fromPersistedSettings(savedAll)
+      applyAppSettings(savedAll)
 
-      const bg = d.appBackground
-      const savedAll = await window.LiteConnect.setManySettings({
-        fancyCursorEnabled: d.fancyCursorEnabled,
-        fancyCursorStyle: d.fancyCursorStyle,
-        appBackground: {
-          token: bg.token || undefined,
-          clear: bg.cleared,
-          fit: bg.fit,
-          overlay: bg.overlay,
-        },
-        downloadPath: d.useSystemDownloadPath ? '' : d.downloadPath,
-        terminalFontSize: d.terminalFontSize,
-        terminalFontFamily: d.terminalFontFamily,
-        terminalPalette: d.terminalPalette,
-        terminalScrollback: d.terminalScrollback,
-        terminalPasteConfirmEnabled: d.terminalPasteConfirmEnabled,
-        terminalPasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
-        terminalCommandSuggestEnabled: d.terminalCommandSuggestEnabled,
-        terminalLocalEchoEnabled: d.terminalLocalEchoEnabled,
-        terminalCommandHistoryExcludePatterns: d.terminalCommandHistoryExcludePatterns
-          .split(/\r?\n/)
-          .map((pattern) => pattern.trim())
-          .filter(Boolean),
-        downloadConflictStrategy: d.downloadConflictStrategy,
-        dirTransferConcurrency: d.dirTransferConcurrency,
-        dirTransferFailPolicy: d.dirTransferFailPolicy,
-        sftpFontSize: d.sftpFontSize,
-        dbFontFamily: d.dbFontFamily,
-        dbFontSize: d.dbFontSize,
-        dbPageSize: d.dbPageSize,
-        dbConfirmDangerousSql: d.dbConfirmDangerousSql !== false,
-        dbDefaultMaxRows: clampQueryMaxRows(d.dbDefaultMaxRows),
-        dbDefaultQueryTimeoutSec: clampQueryTimeoutSec(d.dbDefaultQueryTimeoutSec),
-        dbDefaultRunScope: sanitizeDefaultRunScopePref(d.dbDefaultRunScope),
-        dbOpenMode: sanitizeDbOpenMode(d.dbOpenMode),
-        latencyEnabled: d.latencyEnabled,
-        latencyIntervalMs: d.latencyIntervalSec * 1000,
-        connectionUsageStatsEnabled: d.connectionUsageStatsEnabled,
-        monitorEnabled: d.monitorEnabled,
-        monitorIntervalMs: d.monitorIntervalSec * 1000,
-        autoReconnectEnabled: d.autoReconnectEnabled,
-        autoReconnectMaxRetries: d.autoReconnectMaxRetries,
-        workspaceRestoreEnabled: d.workspaceRestoreEnabled,
-        closeToTrayEnabled: d.closeToTrayEnabled,
-        globalHotkeyEnabled: d.globalHotkeyEnabled,
-        globalHotkey: d.globalHotkey,
-        sessionLogEnabled: d.sessionLogEnabled,
-        x11AutoStartEnabled: d.x11AutoStartEnabled,
-        x11ServerPath: d.x11ServerPath,
-        locale: sanitizeAppLocale(d.locale),
-      })
-
-      window.dispatchEvent(new CustomEvent('fancy-cursor-settings-change', {
-        detail: { enabled: d.fancyCursorEnabled, style: d.fancyCursorStyle },
-      }))
-
-      d.appBackground = {
-        imageUrl: savedAll.appBackground.imageUrl,
-        fit: savedAll.appBackground.fit,
-        overlay: savedAll.appBackground.overlay,
-        fileName: savedAll.appBackground.fileName,
-        token: '',
-        cleared: false,
-      }
-      applyAppBackground({
-        imageUrl: d.appBackground.imageUrl,
-        fit: d.appBackground.fit as AppBackgroundFit,
-        overlay: d.appBackground.overlay,
-      })
-      window.dispatchEvent(
-        new CustomEvent('app-background-settings-change', {
-          detail: {
-            imageUrl: d.appBackground.imageUrl,
-            fit: d.appBackground.fit,
-            overlay: d.appBackground.overlay,
-          },
-        }),
-      )
-
-      if (!d.useSystemDownloadPath && d.downloadPath) {
-        await window.LiteConnect.addRecentDownloadPath(d.downloadPath)
-        recentDownloadPaths.value = await window.LiteConnect.getRecentDownloadPaths()
+      recentDownloadPaths.value = savedAll.recentDownloadPaths || []
+      if (patch.downloadPath !== undefined && !d.useSystemDownloadPath && d.downloadPath) {
+        try {
+          await window.LiteConnect.addRecentDownloadPath(d.downloadPath)
+          recentDownloadPaths.value = await window.LiteConnect.getRecentDownloadPaths()
+        } catch { /* The settings are committed; a recent-path failure must not report a failed save. */ }
       }
       d.downloadPath = savedAll.downloadPath
       d.useSystemDownloadPath = !savedAll.configuredDownloadPath
-
-      dispatchDbSettingsChange({
-        fontFamily: d.dbFontFamily,
-        fontSize: d.dbFontSize,
-        pageSize: d.dbPageSize,
-        confirmDangerousSql: d.dbConfirmDangerousSql !== false,
-        defaultMaxRows: clampQueryMaxRows(d.dbDefaultMaxRows),
-        defaultQueryTimeoutSec: clampQueryTimeoutSec(d.dbDefaultQueryTimeoutSec),
-        defaultRunScope: sanitizeDefaultRunScopePref(d.dbDefaultRunScope),
-      })
-
-      window.dispatchEvent(new CustomEvent('download-conflict-settings-change', {
-        detail: { strategy: d.downloadConflictStrategy },
-      }))
-      window.dispatchEvent(new CustomEvent('dir-transfer-settings-change', {
-        detail: {
-          concurrency: d.dirTransferConcurrency,
-          failPolicy: d.dirTransferFailPolicy,
-        },
-      }))
-      window.dispatchEvent(new CustomEvent('sftp-font-settings-change', {
-        detail: { fontSize: savedAll.sftpFontSize },
-      }))
-      window.dispatchEvent(new CustomEvent('terminal-font-settings-change', {
-        detail: { fontSize: d.terminalFontSize, fontFamily: d.terminalFontFamily },
-      }))
-      window.dispatchEvent(new CustomEvent('terminal-palette-change', {
-        detail: { palette: d.terminalPalette },
-      }))
-      window.dispatchEvent(new CustomEvent('terminal-behavior-settings-change', {
-        detail: {
-          scrollback: d.terminalScrollback,
-          pasteConfirmEnabled: d.terminalPasteConfirmEnabled,
-          pasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
-          commandSuggestEnabled: d.terminalCommandSuggestEnabled,
-          localEchoEnabled: d.terminalLocalEchoEnabled,
-        },
-      }))
-      window.dispatchEvent(new CustomEvent('latency-settings-change', {
-        detail: { enabled: d.latencyEnabled, intervalMs: d.latencyIntervalSec * 1000 },
-      }))
-      window.dispatchEvent(new CustomEvent('connection-usage-stats-settings-change', {
-        detail: { enabled: d.connectionUsageStatsEnabled },
-      }))
-      window.dispatchEvent(new CustomEvent('workspace-restore-settings-change', {
-        detail: { enabled: d.workspaceRestoreEnabled },
-      }))
-      window.dispatchEvent(new CustomEvent('monitor-settings-change', {
-        detail: { enabled: d.monitorEnabled, intervalMs: d.monitorIntervalSec * 1000 },
-      }))
 
       saved.value = cloneDraft(d)
       draft.value = cloneDraft(d)
@@ -575,6 +495,7 @@ export function useSettingsDraft(): {
     draft,
     saved,
     loading,
+    loadError,
     saving,
     recentDownloadPaths,
     systemDefaultDownloadPath,

@@ -3,7 +3,6 @@ import { aggregateAiUsage } from '../../../shared/aiUsage'
 import type { AiWorkspaceTarget } from '../../../shared/aiWorkspace'
 import { MAX_AI_BACKGROUND_CONTINUATIONS, normalizeAiToolRounds } from '../../../shared/aiToolLimits'
 import { assertAiImageCapability } from '../../../shared/aiImages'
-import { formatAiConversationContextFile } from '../../../shared/aiFixedContext'
 import { t } from '../../i18n/index'
 import { runAiChatCompletion } from './chatCompletion'
 import {
@@ -40,6 +39,7 @@ import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { AI_LOAD_TOOLS, aiToolGroupsFromHistory, normalizeAiToolGroups, type AiToolGroup } from '../../../shared/aiToolCatalog'
 import { sshToolsForChat } from '../../../shared/aiSidebarPrompt'
 import { workspaceToolsForChat } from '../../../shared/aiWorkspacePrompt'
+import type { AiKnowledgeAccess } from '../../../shared/aiKnowledge'
 
 export async function runAiChatStream(opts: {
   emit: (payload: AiChatStreamPayload) => void
@@ -52,8 +52,8 @@ export async function runAiChatStream(opts: {
   transferContext?: McpTransferContext
   cwd?: string
   settings: AiResolvedConfig
-  contextFiles?: import('../../../shared/types/ai').AiConversationContextFile[]
   sshMcpRuntime?: SshMcpRuntime
+  knowledge?: AiKnowledgeAccess
   onBackgroundJobsStarted?: (jobIds: string[]) => void
   onBackgroundJobCollected?: (jobId: string) => void
   pendingBackgroundResults?: () => { notice: string; acknowledge: () => void } | undefined
@@ -99,15 +99,14 @@ export async function runAiChatStream(opts: {
   }
 
   const workspaceTargets = opts.workspaceTargets
-  const contextFiles = opts.contextFiles || []
   const allowQuestions = opts.allowQuestions !== false && !opts.foregroundOnly
   let toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(opts.toolGroups), ...aiToolGroupsFromHistory(opts.contextHistory?.records || [])])
-  const environment = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, contextFiles, sshMcpRuntime, allowQuestions, toolGroups })
+  const environment = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, sshMcpRuntime, allowQuestions, toolGroups, knowledge: opts.knowledge })
   const { boundSessionId, useTools, extraSystem } = environment
   let tools = environment.tools
   const loadTools = (groups: AiToolGroup[]) => {
     toolGroups = normalizeAiToolGroups([...toolGroups, ...groups])
-    tools = (workspaceTargets ? workspaceToolsForChat(toolGroups) : sshToolsForChat(toolGroups))
+    tools = [...(workspaceTargets ? workspaceToolsForChat(toolGroups) : sshToolsForChat(toolGroups)), ...environment.localTools]
       .filter(tool => allowQuestions || tool.function.name !== AI_QUESTION_TOOL)
     return { loadedGroups: toolGroups, tools: tools.map(tool => tool.function.name) }
   }
@@ -145,13 +144,7 @@ export async function runAiChatStream(opts: {
       throw error
     }
   }
-  const packMessages = (incoming: AiChatMessage[], budgetTokens?: number) => {
-    const packed = packRequestMessages(settings, incoming, budgetTokens, extraSystem, contextFiles.length ? 40_000 : undefined, aiToolSchemaTokens(tools))
-    if (contextFiles.some(file => !packed[0]?.content.includes(file.content))) {
-      throw new Error('Fixed context file is too large for the selected model context window')
-    }
-    return packed
-  }
+  const packMessages = (incoming: AiChatMessage[], budgetTokens?: number) => packRequestMessages(settings, incoming, budgetTokens, extraSystem, undefined, aiToolSchemaTokens(tools))
   let packedMessages: AiChatMessage[]
   try { packedMessages = packMessages(contextMessages) } catch (error) { cleanupStream(); throw error }
 
@@ -352,6 +345,7 @@ export async function runAiChatStream(opts: {
         }
         const result = await executeAiToolCall(call, {
           requestId, boundSessionId, workspaceTargets, sshMcpRuntime,
+          knowledge: opts.knowledge,
           signal: abortController.signal, send, getToolPermission: currentToolPermission,
           transferContext: opts.transferContext,
           checkpoint: opts.checkpoint, foregroundOnly: opts.foregroundOnly,
@@ -413,7 +407,6 @@ export async function runAiChatStream(opts: {
     if (!receivedText && !receivedToolCall && streamAccepted && provider.allowsCompletionFallback) {
       const reply = await runAiChatCompletion(
         settings, [...contextMessages, ...receivedBackgroundMessages], abortController.signal, extraSystem,
-        contextFiles.length ? 40_000 : undefined, contextFiles.length ? contextFiles.map(formatAiConversationContextFile).join('\n\n') : undefined,
       )
       if (reply.reasoningContent) send({ type: 'reasoning', value: reply.reasoningContent })
       send({ type: 'content', value: reply.content })

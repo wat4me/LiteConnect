@@ -53,6 +53,7 @@ export function registerStoreHandlers(
   settingsStore: SettingsStore,
   onConnectionDeleted?: (connectionId: string) => void,
   onConnectionSaved?: (connectionId: string) => void,
+  onMonitorIntervalChanged?: (intervalMs: number) => void,
 ): void {
   const ensureCredentialStoreReady = () => credentialStore.init()
   const ensureSettingsStoreReady = () => settingsStore.init()
@@ -410,7 +411,8 @@ export function registerStoreHandlers(
     settingsStore,
     ensureSettingsStoreReady,
     ensureStoresReady,
-    getRecentConnectionsSnapshot
+    getRecentConnectionsSnapshot,
+    onMonitorIntervalChanged,
   )
   registerSnippetHandlers(getMainWindow, settingsStore, ensureSettingsStoreReady)
   registerConnectionsExportHandlers(getMainWindow, credentialStore, ensureCredentialStoreReady)

@@ -17,6 +17,7 @@ import { aggregateAiUsage } from '../../../shared/aiUsage'
 import { readAiCommandResult } from '../../../shared/aiCommandResult'
 import type { SshMcpJobResult } from '../../../shared/mcp/types'
 import type { AiUsage } from '../../../shared/types/ai'
+import type { AiKnowledgeAccess } from '../../../shared/aiKnowledge'
 
 export type AiExecutionOwner = {
   /** A transport identity for interactive clients, or a stable automation identity. */
@@ -66,6 +67,7 @@ export interface AiExecutionPorts {
   workspaceOwned?: (sessionId: string, ownerId: number | string) => boolean
   workspaceTargets?: (sessionId: string, ownerId: number | string) => AiWorkspaceTarget[] | undefined
   runtime?: SshMcpRuntime
+  knowledge?: (sessionId: string, owner: number | string) => AiKnowledgeAccess
   onError?: (error: unknown) => void
 }
 
@@ -156,6 +158,17 @@ export class AiExecutionService {
     this.jobs.flush()
   }
 
+  prepareKnowledge(sessionId: string, owner: number | string) {
+    if (this.disposed) throw new Error('KNOWLEDGE_UNAVAILABLE')
+    return this.ports.knowledge?.(sessionId, owner)
+  }
+
+  knowledgeAccess(sessionId: string, owner: number | string) {
+    const access = this.prepareKnowledge(sessionId, owner)
+    if (!access) throw new Error('KNOWLEDGE_UNAVAILABLE')
+    return access
+  }
+
   async run(request: AiExecutionRequest, observer?: AiExecutionObserver): Promise<AiChatResult> {
     this.validate(request)
     request = { ...request, owner: { ...request.owner }, target: { ...request.target } }
@@ -201,6 +214,7 @@ export class AiExecutionService {
       await this.ports.settings.ready()
       control.controller.signal.throwIfAborted()
       const workspaceTargets = this.ports.workspaceTargets?.(target.sessionId, request.owner.id)
+      const knowledge = this.ports.knowledge?.(target.sessionId, owner.id)
       if (this.ports.runtime && !(workspaceTargets ? workspaceTargets.every(item => this.ports.runtime?.hasSession(item.sessionId)) : this.ports.runtime.hasSession(target.sessionId))) throw new Error('SSH session is unavailable for AI execution')
       const initial = await this.ports.history.read(historyId, this.ports.settings.limits())
       if (!initial.threads.some(thread => thread.id === target.threadId)) throw new Error('AI execution conversation no longer exists')
@@ -211,7 +225,7 @@ export class AiExecutionService {
         await this.ports.history.hydrate(historyId, initial, target.threadId)
         const thread = initial.threads.find(item => item.id === target.threadId)!
         const environment = await buildAiRequestEnvironment({
-          sessionId: target.sessionId, cwd: target.cwd, workspaceTargets, contextFiles: thread.contextFiles, toolGroups: thread.toolGroups, sshMcpRuntime: this.ports.runtime,
+          sessionId: target.sessionId, cwd: target.cwd, workspaceTargets, toolGroups: thread.toolGroups, sshMcpRuntime: this.ports.runtime, knowledge,
         })
         const usage: (AiUsage | undefined)[] = []
         const prepared = await maybeCompactAiContext({
@@ -250,7 +264,7 @@ export class AiExecutionService {
           if (backgroundNotice) messages.push({ role: 'user', content: backgroundNotice })
           return runAiChatStream({
             emit, checkpoint, requestId, messages, abortController: control.controller,
-            workspaceTargets,
+            workspaceTargets, knowledge,
             transferContext: owner.kind === 'interactive' && typeof owner.id === 'number'
               ? { ownerId: owner.id, conversationId: target.sessionId, threadId: target.threadId } : undefined,
             sessionId: target.sessionId, cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
@@ -269,7 +283,7 @@ export class AiExecutionService {
               } : undefined
             },
             persistBackgroundResults,
-            contextFiles: thread.contextFiles, toolGroups: thread.toolGroups, getToolPermission: permission,
+            toolGroups: thread.toolGroups, getToolPermission: permission,
             onToolApprovalRequested: owner.kind === 'interactive' ? observer?.onApproval : undefined,
             contextHistory: {
               // The running background reply is excluded from history projection.

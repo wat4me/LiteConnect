@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import { sanitizeDbOpenMode } from '@shared/dbOpenMode'
+import type { AppMode } from './useAppNavigation'
 
 export function readWindowLaunchParams(search: string) {
   try {
@@ -18,7 +19,7 @@ export function readWindowLaunchParams(search: string) {
 export function useAppWindowRouting(deps: {
   appMode: Ref<'ssh' | 'database' | 'ai'>
   enterDatabase: () => void
-  enterSsh: (forceHome?: boolean) => void
+  selectModule: (mode: AppMode) => Promise<void>
   search?: string
 }) {
   const launchParams = readWindowLaunchParams(deps.search ?? window.location.search)
@@ -27,15 +28,18 @@ export function useAppWindowRouting(deps: {
   if (isDbWindow) deps.enterDatabase()
 
   async function handleEnterDatabaseModule(): Promise<void> {
-    if (isDbWindow) return
+    if (!isDetachedWindow || isDbWindow) {
+      await deps.selectModule('database')
+      return
+    }
     if (deps.appMode.value === 'database') {
-      deps.enterDatabase()
+      await deps.selectModule('database')
       return
     }
     try {
       const all = await window.LiteConnect.getAllSettings()
       if (sanitizeDbOpenMode(all.dbOpenMode) === 'currentWindow') {
-        deps.enterDatabase()
+        await deps.selectModule('database')
         return
       }
     } catch {
@@ -44,13 +48,17 @@ export function useAppWindowRouting(deps: {
     void window.LiteConnect.openDatabaseWindow()
   }
 
-  function handleEnterSshModule(forceHome?: boolean): void {
+  async function handleEnterSshModule(): Promise<void> {
     if (isDbWindow) {
       void window.LiteConnect.focusMainWindow()
       return
     }
-    deps.enterSsh(forceHome)
+    await deps.selectModule('ssh')
   }
 
-  return { launchParams, isDetachedWindow, isDbWindow, handleEnterDatabaseModule, handleEnterSshModule }
+  async function handleEnterAiModule(): Promise<void> {
+    await deps.selectModule('ai')
+  }
+
+  return { launchParams, isDetachedWindow, isDbWindow, handleEnterDatabaseModule, handleEnterSshModule, handleEnterAiModule }
 }

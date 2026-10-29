@@ -1,10 +1,11 @@
 import { randomBytes } from 'crypto'
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { join, extname } from 'path'
 import { t } from '../../i18n'
 import {
   BG_MAX_BYTES,
   wallpaperStoredName,
+  sanitizeWallpaperFileName,
 } from '../../window/appBackgroundProtocol'
 
 const pendingWallpaperPicks = new Map<string, { path: string; expires: number }>()
@@ -16,22 +17,18 @@ export function putWallpaperPick(filePath: string): string {
   return token
 }
 
-export function takeWallpaperPick(token: string): string | null {
+function peekWallpaperPick(token: string): string | null {
   const entry = pendingWallpaperPicks.get(token)
-  pendingWallpaperPicks.delete(token)
-  if (!entry || entry.expires < Date.now()) return null
+  if (!entry || entry.expires < Date.now()) {
+    pendingWallpaperPicks.delete(token)
+    return null
+  }
   return entry.path
 }
 
-export async function clearWallpaperDir(dir: string): Promise<void> {
-  try {
-    const files = await readdir(dir)
-    for (const f of files) {
-      await unlink(join(dir, f)).catch(() => {})
-    }
-  } catch {
-    // dir may not exist yet
-  }
+export async function removeWallpaperFile(dir: string, fileName: string): Promise<void> {
+  const safe = sanitizeWallpaperFileName(fileName)
+  if (safe) await unlink(join(dir, safe)).catch(() => {})
 }
 
 export async function readImageFileCapped(src: string): Promise<Buffer> {
@@ -44,15 +41,23 @@ export async function readImageFileCapped(src: string): Promise<Buffer> {
   return buf
 }
 
-export async function persistWallpaperFromToken(dir: string, token: string): Promise<string> {
-  const src = takeWallpaperPick(token)
+export async function stageWallpaperFromToken(dir: string, token: string) {
+  const src = peekWallpaperPick(token)
   if (!src) throw new Error(t('appBackground.invalidType'))
   const ext = extname(src).toLowerCase()
-  const fileName = wallpaperStoredName(ext)
-  if (!fileName) throw new Error(t('appBackground.invalidType'))
+  if (!wallpaperStoredName(ext)) throw new Error(t('appBackground.invalidType'))
+  const fileName = `wallpaper-${randomBytes(16).toString('hex')}${ext}`
   const buf = await readImageFileCapped(src)
   await mkdir(dir, { recursive: true })
-  await clearWallpaperDir(dir)
-  await writeFile(join(dir, fileName), buf)
-  return fileName
+  try {
+    await writeFile(join(dir, fileName), buf, { flag: 'wx' })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') await removeWallpaperFile(dir, fileName)
+    throw error
+  }
+  return {
+    fileName,
+    commit: () => { pendingWallpaperPicks.delete(token) },
+    rollback: () => removeWallpaperFile(dir, fileName),
+  }
 }

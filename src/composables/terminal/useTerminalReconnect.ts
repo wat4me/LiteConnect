@@ -6,11 +6,13 @@ import {
   clearAutoReconnectAttempts,
   noteAutoReconnectAttempt,
   autoReconnectDelayMs,
+  getAutoReconnectAttempt,
 } from '@/composables/session/useAutoReconnectBudget'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
 import { sshDisconnectDetailKey } from '@/utils/session/sshDisconnectReason'
 import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 import { isSshConnectionCancelled } from '@shared/sshConnectionProgress'
+import type { AppRuntimeSettings } from '@shared/types/settings'
 
 export function useTerminalReconnect(deps: {
   sessionId: () => string
@@ -39,6 +41,10 @@ export function useTerminalReconnect(deps: {
   let autoReconnectEnabled = true
   let userDismissedAutoReconnect = false
   let appUnloading = false
+  let retryAllowed = false
+  let reconnectInFlight = false
+  let unsubscribeSettings: (() => void) | undefined
+  let settingsVersion = 0
 
   function clearAutoReconnectTimer() {
     if (autoReconnectTimer) {
@@ -53,6 +59,8 @@ export function useTerminalReconnect(deps: {
   }) {
     if (appUnloading) return
     const wasDisconnected = disconnected.value
+    retryAllowed = true
+    if (opts?.reschedule) reconnectInFlight = false
     disconnected.value = true
     if (opts?.message) {
       const key = sshDisconnectDetailKey(opts.message)
@@ -88,6 +96,8 @@ export function useTerminalReconnect(deps: {
     autoReconnectExhausted.value = false
     reconnectAttempt.value = 0
     userDismissedAutoReconnect = false
+    retryAllowed = false
+    reconnectInFlight = false
     const terminal = deps.getTerminal()
     if (terminal) {
       terminal.writeln('\r\n\x1b[1;32m--- Reconnected ---\x1b[0m\r\n')
@@ -107,8 +117,10 @@ export function useTerminalReconnect(deps: {
       nonRetryable?: boolean
     }>).detail
     if (!detail || detail.sessionId !== deps.sessionId() || !disconnected.value) return
+    reconnectInFlight = false
     if (isSshConnectionCancelled(detail.message)) { cancelAutoReconnect(); return }
     if (isSshHostKeyConfirmationRequired(detail.message)) {
+      retryAllowed = false
       clearAutoReconnectTimer()
       reconnecting.value = false
       autoReconnectExhausted.value = false
@@ -118,6 +130,7 @@ export function useTerminalReconnect(deps: {
       ? `Reconnect failed: ${detail.message}`
       : 'Reconnect failed'
     if (detail.nonRetryable || isNonRetryableSshError(detail.message)) {
+      retryAllowed = false
       clearAutoReconnectTimer()
       reconnecting.value = false
       disconnected.value = true
@@ -141,6 +154,8 @@ export function useTerminalReconnect(deps: {
     autoReconnectExhausted.value = false
     reconnectAttempt.value = 0
     reconnecting.value = true
+    reconnectInFlight = true
+    retryAllowed = true
     const terminal = deps.getTerminal()
     if (terminal) {
       terminal.writeln('\r\n\x1b[1;33m--- Reconnecting… ---\x1b[0m\r\n')
@@ -153,18 +168,16 @@ export function useTerminalReconnect(deps: {
     clearAutoReconnectTimer()
     reconnecting.value = false
     autoReconnectExhausted.value = false
+    retryAllowed = false
   }
 
   async function scheduleAutoReconnect() {
     if (appUnloading) return
-    if (!autoReconnectEnabled || userDismissedAutoReconnect) return
+    if (!autoReconnectEnabled || autoReconnectMaxRetries.value <= 0 || userDismissedAutoReconnect || !retryAllowed || autoReconnectTimer || reconnectInFlight) return
 
-    const { ok, attempt } = noteAutoReconnectAttempt(
-      deps.connectionId(),
-      autoReconnectMaxRetries.value,
-      deps.sessionId(),
-    )
-    reconnectAttempt.value = attempt
+    const attempt = getAutoReconnectAttempt(deps.connectionId(), deps.sessionId()) + 1
+    const ok = attempt <= autoReconnectMaxRetries.value
+    reconnectAttempt.value = Math.min(attempt, autoReconnectMaxRetries.value)
     if (!ok) {
       reconnecting.value = false
       autoReconnectExhausted.value = true
@@ -178,7 +191,10 @@ export function useTerminalReconnect(deps: {
     clearAutoReconnectTimer()
     autoReconnectTimer = setTimeout(() => {
       autoReconnectTimer = null
-      if (appUnloading) return
+      if (appUnloading || !autoReconnectEnabled || !retryAllowed || userDismissedAutoReconnect) return
+      const budget = noteAutoReconnectAttempt(deps.connectionId(), autoReconnectMaxRetries.value, deps.sessionId())
+      if (!budget.ok) { reconnecting.value = false; autoReconnectExhausted.value = true; return }
+      reconnectInFlight = true
       deps.emitReconnect(deps.sessionId())
     }, delay)
   }
@@ -199,6 +215,8 @@ export function useTerminalReconnect(deps: {
   }
 
   function applyNonRetryableError(error: string) {
+    retryAllowed = false
+    reconnectInFlight = false
     clearAutoReconnectTimer()
     reconnecting.value = false
     disconnected.value = true
@@ -212,14 +230,44 @@ export function useTerminalReconnect(deps: {
     }
   }
 
+  function applyAutoReconnectSettings(settings: Pick<AppRuntimeSettings, 'autoReconnectEnabled' | 'autoReconnectMaxRetries'>) {
+    if (appUnloading) return
+    const previousEnabled = autoReconnectEnabled
+    const previousMax = autoReconnectMaxRetries.value
+    autoReconnectEnabled = settings.autoReconnectEnabled
+    autoReconnectMaxRetries.value = Math.max(0, Math.min(20, Math.round(settings.autoReconnectMaxRetries)))
+    if (!autoReconnectEnabled || autoReconnectMaxRetries.value === 0) {
+      clearAutoReconnectTimer()
+      if (!reconnectInFlight) reconnecting.value = false
+      autoReconnectExhausted.value = false
+      return
+    }
+    if (autoReconnectTimer && reconnectAttempt.value > autoReconnectMaxRetries.value) {
+      clearAutoReconnectTimer()
+      reconnecting.value = false
+      autoReconnectExhausted.value = true
+    }
+    if (disconnected.value && retryAllowed && !userDismissedAutoReconnect && !reconnecting.value
+      && (!previousEnabled || autoReconnectMaxRetries.value > previousMax)) {
+      void scheduleAutoReconnect()
+    }
+  }
+
   async function loadAutoReconnectSettings() {
+    if (appUnloading) return
+    unsubscribeSettings ||= window.LiteConnect.onRuntimeSettingsChanged?.((settings) => {
+      settingsVersion++
+      applyAutoReconnectSettings(settings)
+    })
+    const version = settingsVersion
     try {
       const [enabled, maxRetries] = await Promise.all([
         window.LiteConnect.getAutoReconnectEnabled(),
         window.LiteConnect.getAutoReconnectMaxRetries(),
       ])
-      autoReconnectEnabled = enabled
-      autoReconnectMaxRetries.value = maxRetries
+      if (!appUnloading && version === settingsVersion) {
+        applyAutoReconnectSettings({ autoReconnectEnabled: enabled, autoReconnectMaxRetries: maxRetries })
+      }
     } catch {}
   }
 
@@ -231,6 +279,8 @@ export function useTerminalReconnect(deps: {
 
   function dispose() {
     appUnloading = true
+    unsubscribeSettings?.()
+    unsubscribeSettings = undefined
     clearAutoReconnectTimer()
   }
 

@@ -38,6 +38,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'view-execution', key: string): void
+  (e: 'view-knowledge', run: AiToolRun): void
   (e: 'open-settings'): void
   (e: 'fill-code', code: string): void
   (e: 'run-code', code: string): void
@@ -422,7 +423,7 @@ async function copyText(text: string, key: string) {
           </template>
         </div>
       </details>
-      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" execution-history-available @toggle="onToolRunToggle(message, item.run!, $event)" @view-execution="emit('view-execution', `${message.id}:${item.run!.id}`)" />
+      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" execution-history-available @toggle="onToolRunToggle(message, item.run!, $event)" @view-execution="emit('view-execution', `${message.id}:${item.run!.id}`)" @view-knowledge="emit('view-knowledge', item.run!)" />
       <div v-else-if="item.seg.kind === 'content'" class="message-content">
         <AiWorkspaceResponse v-if="!isLiveContentSegment(message, segIndex) && message.role === 'assistant' && (workspaceTargets?.length || 0) > 1" :text="item.seg.text" :targets="workspaceTargets!" />
         <AiStreamingMarkdown

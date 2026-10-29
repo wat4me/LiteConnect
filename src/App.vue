@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ConnectionsView from './views/ConnectionsView.vue'
 import TabBar from '@/components/app/TabBar.vue'
 import AppTitlebar from '@/components/app/AppTitlebar.vue'
+import AppWorkspaceShell from '@/components/app/AppWorkspaceShell.vue'
+import { applyAppSettings } from '@/composables/settings/applyAppSettings'
 import AppDialogHost from '@/components/app/AppDialogHost.vue'
 import UploadConflictDialog from '@/components/sftp/UploadConflictDialog.vue'
 import { measureRendererModule, measureRendererLayout, recordRendererTiming } from '@/composables/app/rendererPerformance'
@@ -11,7 +13,7 @@ import { measureRendererModule, measureRendererLayout, recordRendererTiming } fr
 const SettingsView = defineAsyncComponent(() => measureRendererModule('settings-load', () => import('./views/SettingsView.vue')))
 const DatabaseView = defineAsyncComponent(() => measureRendererModule('database-load', () => import('./views/DatabaseView.vue')))
 const AiWorkspaceView = defineAsyncComponent(() => measureRendererModule('ai-load', () => import('./views/AiWorkspaceView.vue')))
-const aiWorkspaceViewRef = ref<{ revealConversation: (sessionId: string) => boolean } | null>(null)
+const aiWorkspaceViewRef = ref<{ hasConversation: (sessionId: string) => boolean; revealConversation: (sessionId: string) => boolean } | null>(null)
 const SshWorkspace = defineAsyncComponent(() => measureRendererModule('ssh-load', () => import('@/components/workspace/SshWorkspace.vue')))
 const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
@@ -377,17 +379,18 @@ const {
   showSettingsPage,
   settingsInitialTab,
   appMode,
+  moduleSwitching,
+  selectModule,
+  requestModuleAction,
   databaseMounted,
   aiWorkspaceMounted,
   isAiMode,
-  enterAi,
   sshWorkspaceMounted,
   settingsViewRef,
   isSshMode,
   isDatabaseMode,
   closeSettingsPage,
   openSettingsPage,
-  enterSsh,
   enterDatabase,
   toggleSettingsPage,
   ensureSshWorkspaceMounted,
@@ -458,23 +461,32 @@ function guardedAiSelection(text: string, mode: 'send' | 'insert') {
   handleAiSelection(text, mode)
 }
 
-function jumpToAiApproval(sessionId: string) {
-  if (aiWorkspaceViewRef.value?.revealConversation(sessionId)) {
-    enterAi()
+async function navigateSshHome() {
+  return requestModuleAction('ssh', onSelectHome)
+}
+
+async function navigateQuickConnect(connectionId: string) {
+  return requestModuleAction('ssh', () => onQuickConnect(connectionId))
+}
+
+async function jumpToAiApproval(sessionId: string) {
+  if (aiWorkspaceViewRef.value?.hasConversation(sessionId)) {
+    await requestModuleAction('ai', () => aiWorkspaceViewRef.value?.revealConversation(sessionId))
     return
   }
   const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
   if (!group) return
-  enterSsh()
-  ensureSshWorkspaceMounted()
-  if (isSplit.value) suspendSplit()
-  if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
-  if (activeSessionId.value !== sessionId) selectWorkspaceSession(sessionId)
-  if (isDockerMode.value) enterTerminal()
-  aiSidebarVisible.value = true
+  await requestModuleAction('ssh', () => {
+    ensureSshWorkspaceMounted()
+    if (isSplit.value) suspendSplit()
+    if (activeGroupId.value !== group.connectionId) onSelectGroup(group.connectionId)
+    if (activeSessionId.value !== sessionId) selectWorkspaceSession(sessionId)
+    if (isDockerMode.value) enterTerminal()
+    aiSidebarVisible.value = true
+  })
 }
 function guardedToggleMonitorPanel() {
-  if (isDockerMode.value) return
+  if (isDockerMode.value || !monitorEnabled.value) return
   toggleMonitorPanel()
 }
 function guardedToggleBatchPanel() {
@@ -487,32 +499,28 @@ function guardedToggleSnippetsPanel() {
 }
 
 /** Open the Docker sub-tab under the current SSH host (同列于终端 1 / 终端 2). */
-function handleEnterDocker() {
+async function handleEnterDocker() {
   if (isDbWindow) return
-  closeSettingsPage()
-  if (appMode.value !== 'ssh') {
-    appMode.value = 'ssh'
+  await requestModuleAction('ssh', () => {
     ensureSshWorkspaceMounted()
-  }
-  if (isHomeActive.value || !dockerButtonEnabled.value) {
-    ElMessage.warning(t('toolbar.dockerDisabled'))
-    return
-  }
-  enterDocker()
+    if (isHomeActive.value || !dockerButtonEnabled.value) {
+      ElMessage.warning(t('toolbar.dockerDisabled'))
+      return
+    }
+    enterDocker()
+  })
 }
 
-function handleToggleDocker() {
+async function handleToggleDocker() {
   if (isDbWindow) return
-  closeSettingsPage()
-  if (appMode.value !== 'ssh') {
-    appMode.value = 'ssh'
+  await requestModuleAction('ssh', () => {
     ensureSshWorkspaceMounted()
-  }
-  if (isHomeActive.value || (!isDockerMode.value && !dockerButtonEnabled.value)) {
-    ElMessage.warning(t('toolbar.dockerDisabled'))
-    return
-  }
-  toggleDockerWorkspace()
+    if (isHomeActive.value || (!isDockerMode.value && !dockerButtonEnabled.value)) {
+      ElMessage.warning(t('toolbar.dockerDisabled'))
+      return
+    }
+    toggleDockerWorkspace()
+  })
 }
 
 const {
@@ -529,13 +537,12 @@ const {
   handleKeyboardCancel,
 } = useSecurityDialogs({
   connections,
-  onSelectHome: () => enterSsh(true),
-  editConnection: (conn) => {
-    enterSsh(true)
-    void Promise.resolve().then(() => {
-      connectionsViewRef.value?.editConnection?.(conn)
-    })
-  },
+  onSelectHome: navigateSshHome,
+  editConnection: (conn) => requestModuleAction('ssh', async () => {
+    onSelectHome()
+    await nextTick()
+    connectionsViewRef.value?.editConnection?.(conn)
+  }),
   adoptSession,
   hasOpenSession,
 })
@@ -682,6 +689,8 @@ let unsubMonitorAlertClick: (() => void) | null = null
 let unsubMcpConnect: (() => void) | null = null
 let unsubMcpClose: (() => void) | null = null
 let unsubMcpConnections: (() => void) | null = null
+let unsubRuntimeSettings: (() => void) | null = null
+let unsubSettingsChanged: (() => void) | null = null
 
 watch(
   [activeSessionId, aiSidebarVisible],
@@ -699,19 +708,25 @@ const {
   isDbWindow,
   handleEnterDatabaseModule,
   handleEnterSshModule,
-} = useAppWindowRouting({ appMode, enterDatabase, enterSsh })
+  handleEnterAiModule,
+} = useAppWindowRouting({ appMode, enterDatabase, selectModule })
 
 onMounted(async () => {
+  unsubSettingsChanged = window.LiteConnect.onSettingsChanged?.(({ settings, changed }) => applyAppSettings(settings, changed)) || null
+  unsubRuntimeSettings = window.LiteConnect.onRuntimeSettingsChanged((settings) => {
+    handleMonitorSettingsChange(new CustomEvent('monitor-settings-change', { detail: { enabled: settings.monitorEnabled } }))
+  })
   unsubMonitorAlertClick = window.LiteConnect.onMonitorAlertClick((connectionId) => {
-    enterSsh()
-    ensureSshWorkspaceMounted()
-    if (groups.value.some(group => group.connectionId === connectionId)) {
-      selectConnectionGroup(connectionId)
-      monitorVisible.value = true
-      return
-    }
-    void createSession(connectionId).then((sessionId) => {
-      if (sessionId) monitorVisible.value = true
+    void requestModuleAction('ssh', () => {
+      ensureSshWorkspaceMounted()
+      if (groups.value.some(group => group.connectionId === connectionId)) {
+        selectConnectionGroup(connectionId)
+        monitorVisible.value = monitorEnabled.value
+        return
+      }
+      void createSession(connectionId).then((sessionId) => {
+        if (sessionId) monitorVisible.value = monitorEnabled.value
+    })
     })
   })
   unsubAiApprovalNotification = window.LiteConnect.onAiApprovalNotificationClick((sessionId) => {
@@ -735,7 +750,10 @@ onMounted(async () => {
   unsubMcpConnect = window.LiteConnect.onMcpConnectRequest((payload) => {
     void (async () => {
       try {
-        enterSsh()
+        if (!await requestModuleAction('ssh', () => ensureSshWorkspaceMounted())) {
+          await window.LiteConnect.mcpReportConnectResult(payload.requestId, { error: 'NAVIGATION_CANCELLED' })
+          return
+        }
         ensureSshWorkspaceMounted()
         const sessionId = await createSession(payload.connectionId)
         await window.LiteConnect.mcpReportConnectResult(payload.requestId, {
@@ -824,6 +842,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  unsubSettingsChanged?.()
+  unsubRuntimeSettings?.()
   unsubMonitorAlertClick?.()
   unsubMonitorAlertClick = null
   unsubAiApprovalNotification?.()
@@ -856,12 +876,13 @@ onBeforeUnmount(() => {
       :show-settings-page="showSettingsPage"
       @enter-ssh="handleEnterSshModule"
       @enter-database="handleEnterDatabaseModule"
-      @enter-ai="enterAi"
+      @enter-ai="handleEnterAiModule"
       @toggle-settings="toggleSettingsPage"
       @open-shortcuts="shortcutsHelpVisible = true"
     />
 
-    <div class="workspace">
+    <AppWorkspaceShell :app-mode="appMode" :show-settings-page="showSettingsPage" :navigation-busy="moduleSwitching"
+      :show-modules="!isDetachedWindow && !isDbWindow" @select-module="selectModule">
       <div v-show="!showSettingsPage && appMode === 'ssh'" class="workspace-top">
         <TabBar
           :groups="groups"
@@ -881,8 +902,8 @@ onBeforeUnmount(() => {
           :split-group-active="isSplit"
           @select="selectConnectionGroup"
           @close="onCloseGroup"
-          @select-home="() => enterSsh(true)"
-          @quick-connect="(id) => { showSettingsPage = false; appMode = 'ssh'; onQuickConnect(id) }"
+          @select-home="navigateSshHome"
+          @quick-connect="navigateQuickConnect"
           @split-preview="setSplitPreview"
           @split-commit="onDragSplitCommit"
           @select-split="selectSplitGroup"
@@ -917,7 +938,7 @@ onBeforeUnmount(() => {
           <DatabaseView v-if="databaseMounted" />
         </div>
         <div v-show="isAiMode" class="home-module">
-          <AiWorkspaceView v-if="aiWorkspaceMounted" ref="aiWorkspaceViewRef" :active="isAiMode" @open-connections="enterSsh(true)" />
+          <AiWorkspaceView v-if="aiWorkspaceMounted" ref="aiWorkspaceViewRef" :active="isAiMode" @open-connections="navigateSshHome" />
         </div>
 
         <SshWorkspace
@@ -941,6 +962,7 @@ onBeforeUnmount(() => {
           :sidebar-session-id="sidebarSessionId"
           :ai-selection-request="aiSelectionRequest"
           :monitor-visible="monitorVisible"
+          :monitor-enabled="monitorEnabled"
           :monitor-width="monitorWidth"
           :batch-panel-visible="batchPanelVisible"
           :snippets-panel-visible="snippetsPanelVisible"
@@ -1012,7 +1034,7 @@ onBeforeUnmount(() => {
           @save-as-snippet="openSnippetsPanelWithDraft"
         />
       </div>
-    </div>
+    </AppWorkspaceShell>
 
     <HostKeyMismatchDialog
       v-if="hostKeyMismatchVisible"
@@ -1049,8 +1071,8 @@ onBeforeUnmount(() => {
       :visible="jumpPaletteVisible"
       :connections="connections"
       @close="jumpPaletteVisible = false"
-      @connect="(id) => { jumpPaletteVisible = false; showSettingsPage = false; appMode = 'ssh'; onQuickConnect(id) }"
-      @open-home="() => { jumpPaletteVisible = false; showSettingsPage = false; enterSsh(true) }"
+      @connect="(id) => { jumpPaletteVisible = false; navigateQuickConnect(id) }"
+      @open-home="() => { jumpPaletteVisible = false; navigateSshHome() }"
       @open-settings="() => { jumpPaletteVisible = false; openSettingsPage() }"
       @open-docker="() => { jumpPaletteVisible = false; handleEnterDocker() }"
     />
@@ -1067,19 +1089,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   position: relative;
-  background: transparent;
-}
-
-.workspace {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-  border-top: 1px solid var(--border-color);
   background: transparent;
 }
 

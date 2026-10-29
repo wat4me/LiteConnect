@@ -112,17 +112,7 @@ export function registerWindowHandlers(
       })
       win.setBackgroundColor(finalColors.color)
 
-      try {
-        await settingsStore.setTheme(theme)
-        if (theme === 'custom' && colors) {
-          await settingsStore.setCustomColors({
-            fontColor: colors.symbolColor,
-            bgColor: colors.color,
-          })
-        }
-      } catch (err) {
-        console.error('[Theme] Failed to persist theme:', err)
-      }
+      // Window decoration is presentation only; settings:setMany owns persistence.
     },
   )
 }

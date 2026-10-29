@@ -36,17 +36,20 @@ const { t } = useI18n()
 const showDirectorySync = ref(false)
 const fileListRef = ref<InstanceType<typeof SftpDirTree> | null>(null)
 const sftpFontSize = ref(DEFAULT_SFTP_FONT_SIZE)
+let fontSettingsVersion = 0
 
 async function loadSftpFontSize() {
+  const version = fontSettingsVersion
   try {
     const settings = await window.LiteConnect.getAllSettings()
-    sftpFontSize.value = sanitizeSftpFontSize(settings.sftpFontSize)
+    if (version === fontSettingsVersion) sftpFontSize.value = sanitizeSftpFontSize(settings.sftpFontSize)
   } catch {
     // Keep the current font size when settings are temporarily unavailable.
   }
 }
 
 function onSftpFontSettingsChange(event: Event) {
+  fontSettingsVersion++
   const fontSize = (event as CustomEvent<{ fontSize: number }>).detail?.fontSize
   sftpFontSize.value = sanitizeSftpFontSize(fontSize)
 }

@@ -4,8 +4,9 @@ import { hydrateAiImages } from '../ai/history/imageStore'
 import { workspaceScopes } from '../ai/workspace/workspaceScopes'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import type { SettingsStore } from '../store/settingsStore'
+import type { AiKnowledgeService } from '../ai/knowledge/knowledgeService'
 
-export function createAiExecutionService(settings: SettingsStore, runtime?: SshMcpRuntime): AiExecutionService {
+export function createAiExecutionService(settings: SettingsStore, runtime?: SshMcpRuntime, knowledge?: AiKnowledgeService): AiExecutionService {
   return new AiExecutionService({
     settings: {
       ready: () => settings.init().then(() => settings.initMigrations()),
@@ -17,6 +18,7 @@ export function createAiExecutionService(settings: SettingsStore, runtime?: SshM
     },
     history: { read: readAiSessionStore, save: upsertAiHistoryRecord, checkpoint: writeAiContextCheckpoint, hydrate: hydrateAiImages },
     runtime,
+    knowledge: knowledge ? (sessionId, owner) => knowledge.access(sessionId, owner) : undefined,
     workspaceOwned: (id, owner) => {
       if (!id.startsWith('workspace:')) return false
       try { workspaceScopes.owned(id, owner); return true } catch { return false }

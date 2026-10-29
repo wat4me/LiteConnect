@@ -18,6 +18,7 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
   ipcMain.handle('settings:setTerminalFontFamily', async (_event, family: string) => {
     await ensureSettingsStoreReady()
     await settingsStore.setTerminalFontFamily(family)
+    ctx.notifySettingsChanged(['terminalFontFamily'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getTerminalPalette', async () => {
@@ -28,6 +29,7 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
   ipcMain.handle('settings:setTerminalPalette', async (_event, palette: string) => {
     await ensureSettingsStoreReady()
     await settingsStore.setTerminalPalette(palette)
+    ctx.notifySettingsChanged(['terminalPalette'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getTerminalScrollback', async () => {
@@ -39,6 +41,7 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof n !== 'number' || Number.isNaN(n)) throw new Error('Invalid scrollback')
     await settingsStore.setTerminalScrollback(n)
+    ctx.notifySettingsChanged(['terminalScrollback'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getTerminalPasteConfirmEnabled', async () => {
@@ -49,6 +52,7 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
   ipcMain.handle('settings:setTerminalPasteConfirmEnabled', async (_event, enabled: boolean) => {
     await ensureSettingsStoreReady()
     await settingsStore.setTerminalPasteConfirmEnabled(!!enabled)
+    ctx.notifySettingsChanged(['terminalPasteConfirmEnabled'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getTerminalPasteConfirmMaxChars', async () => {
@@ -65,6 +69,7 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid paste confirm threshold')
     }
     await settingsStore.setTerminalPasteConfirmMaxChars(n)
+    ctx.notifySettingsChanged(['terminalPasteConfirmMaxChars'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getTerminalCommandSuggestEnabled', async () => {
@@ -75,6 +80,7 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
   ipcMain.handle('settings:setTerminalCommandSuggestEnabled', async (_event, enabled: boolean) => {
     await ensureSettingsStoreReady()
     await settingsStore.setTerminalCommandSuggestEnabled(!!enabled)
+    ctx.notifySettingsChanged(['terminalCommandSuggestEnabled'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:setTerminalFontSize', async (_event, size: number) => {
@@ -83,5 +89,6 @@ export function registerTerminalSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid font size')
     }
     await settingsStore.setTerminalFontSize(size)
+    ctx.notifySettingsChanged(['terminalFontSize'], _event?.sender?.id)
   })
 }

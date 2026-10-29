@@ -102,6 +102,7 @@ const {
   retryConnect,
   openCurrent,
   revealConversation,
+  hasConversation,
   revealGeneration,
   openHistory,
   cancelConnect,
@@ -112,6 +113,7 @@ const {
 } = useAiWorkspace({ active: () => props.active })
 
 defineExpose({
+  hasConversation,
   revealConversation(id: string) {
     if (!revealConversation(id)) return false
     showModelSettings.value = false

@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget } from './aiContextPressure'
 import { estimateSidebarAiRequest, sshToolsForChat, sshToolSystemAddendum } from './aiSidebarPrompt'
-import { formatAiConversationContextFile } from './aiFixedContext'
 import { parseAiModel } from './aiContext'
 
 describe('shared AI context pressure', () => {
-  it('prices the same fixed context and tool schema in the sidebar and runtime', () => {
-    const file = { source: 'local' as const, path: '/runbook.md', content: '恢复服务前检查健康状态。' }
+  it('prices the same SSH context and tool schema in the sidebar and runtime', () => {
     const messages = [{ role: 'user' as const, content: '检查磁盘' }]
     const config = { model: 'test', contextWindowTokens: 32000, maxOutputTokens: 6000, compactionRetainTokens: 4000 }
-    const sidebar = estimateSidebarAiRequest({ ...config, systemPrompt: 'sys', sessionId: 'session', cwd: '/srv', contextFiles: [file], messages })
+    const sidebar = estimateSidebarAiRequest({ ...config, systemPrompt: 'sys', sessionId: 'session', cwd: '/srv', messages })
     const runtime = measureAiContextPressure({ ...config, systemPrompt: 'sys', messages,
-      extraSystem: [sshToolSystemAddendum({ sessionId: 'session', cwd: '/srv' }), formatAiConversationContextFile(file)].join('\n\n'),
+      extraSystem: sshToolSystemAddendum({ sessionId: 'session', cwd: '/srv' }),
       toolSchemaTokens: aiToolSchemaTokens(sshToolsForChat()),
     })
     expect(sidebar.pressure).toEqual(runtime)

@@ -117,6 +117,10 @@ export class SettingsStore {
   }
 
   private async runMigrations(): Promise<void> {
+    if ('credentialAutoFillEnabled' in this.settings) {
+      delete this.settings.credentialAutoFillEnabled
+      await this.save()
+    }
     if ('workspaceLayout' in this.settings) {
       delete this.settings.workspaceLayout
       await this.save()
@@ -659,15 +663,6 @@ export class SettingsStore {
     return paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
   }
 
-  getCredentialAutoFillEnabled(): boolean {
-    return this.settings.credentialAutoFillEnabled === true
-  }
-
-  async setCredentialAutoFillEnabled(enabled: boolean): Promise<void> {
-    this.settings.credentialAutoFillEnabled = enabled
-    await this.save()
-  }
-
   async addRecentDownloadPath(dirPath: string): Promise<void> {
     const paths = this.getRecentDownloadPaths().filter((p) => p !== dirPath)
     paths.unshift(dirPath)
@@ -1026,7 +1021,7 @@ export class SettingsStore {
         fileName: bg.fileName,
         fit: bg.fit,
         overlay: bg.overlay,
-        imageUrl: bg.fileName ? appBackgroundImageUrl(bg.fileName, Date.now()) : '',
+        imageUrl: bg.fileName ? appBackgroundImageUrl(bg.fileName) : '',
       },
       monitorEnabled: this.getMonitorEnabled(),
       monitorIntervalMs: this.getMonitorIntervalMs(),
@@ -1047,11 +1042,20 @@ export class SettingsStore {
 
   /** Apply many fields then persist once. Wallpaper file bytes are handled by IPC. */
   async applyMany(patch: SettingsAllPatch): Promise<SettingsAll> {
-    applySettingsPatch(this.settings, patch, {
-      connectionUsageStatsEnabled: () => this.getConnectionUsageStatsEnabled(),
-      appBackground: () => this.getAppBackground(),
-    })
-    await this.save()
-    return this.getAll()
+    const previous = this.settings
+    this.settings = { ...previous }
+    try {
+      applySettingsPatch(this.settings, patch, {
+        connectionUsageStatsEnabled: () => this.getConnectionUsageStatsEnabled(),
+        appBackground: () => this.getAppBackground(),
+      })
+      // SQLite persistence is synchronous; publish no partially committed in-memory state.
+      const saved = this.getAll()
+      getAppDatabase().setSingleton(SINGLETONS.settings, this.settings)
+      return saved
+    } catch (error) {
+      this.settings = previous
+      throw error
+    }
   }
 }

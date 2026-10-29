@@ -13,7 +13,6 @@ export function useAiSidebarHistory(deps: {
   threadSummaries: Ref<AiThreadSummary[]>
   activeThreadId: () => string | null
   loading: Ref<boolean>
-  contextFileBusy: Ref<boolean>
   syncMessages: (messages: ChatItem[]) => void
   syncFromState: () => void
   switchConversation: ThreadOperation
@@ -98,7 +97,7 @@ export function useAiSidebarHistory(deps: {
   }
 
   async function handleSwitchConversation(threadId: string) {
-    if (disposed || historyBusy.value || deps.loading.value || deps.contextFileBusy.value) return
+    if (disposed || historyBusy.value || deps.loading.value) return
     const target = capture()
     historyBusy.value = true
     try {
@@ -109,7 +108,7 @@ export function useAiSidebarHistory(deps: {
 
   async function handleDeleteConversation(threadId: string, event?: Event) {
     event?.stopPropagation()
-    if (disposed || historyBusy.value || deps.loading.value || deps.contextFileBusy.value) return
+    if (disposed || historyBusy.value || deps.loading.value) return
     const target = capture()
     try {
       await appConfirm({
@@ -154,7 +153,7 @@ export function useAiSidebarHistory(deps: {
   }
 
   async function handleClearAllHistory() {
-    if (disposed || historyBusy.value || deps.loading.value || deps.contextFileBusy.value) return
+    if (disposed || historyBusy.value || deps.loading.value) return
     const target = capture()
     const count = historyItems.value.length
     if (count === 0) return

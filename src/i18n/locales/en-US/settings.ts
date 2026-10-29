@@ -3,6 +3,8 @@ export default {
     title: 'Settings',
     subtitle: 'Configure the interface, features, connections, and app behavior',
     loading: 'Loading settings…',
+    loadFailed: 'Settings could not be loaded. The actual configuration is not available yet.',
+    retryLoad: 'Retry loading',
     dirtyHint: 'Unsaved changes · only the settings preview follows edits',
     cleanHint: 'Changes take effect and are written to disk only after you choose Save',
     immediateHint: 'Switches on this page take effect and are written to disk immediately. Save is not required.',

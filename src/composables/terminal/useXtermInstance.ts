@@ -41,6 +41,7 @@ export function useXtermInstance(deps: {
   const pasteConfirmMaxChars = ref(PASTE_CONFIRM_MAX_CHARS)
   const fontFamily = ref('Cascadia Code, Fira Code, Consolas, Courier New, monospace')
   const terminalPalette = ref<TerminalPaletteId>('auto')
+  let fontVersion = 0, paletteVersion = 0, behaviorVersion = 0
 
   const getTerminal = () => terminal
   const getSearchAddon = () => searchAddon
@@ -241,14 +242,15 @@ export function useXtermInstance(deps: {
   }
 
   function onTerminalFontSettingsChange(e: Event) {
+    fontVersion++
     const detail = (e as CustomEvent).detail || {}
-    if (typeof detail.fontSize === 'number' && terminal) {
+    if (typeof detail.fontSize === 'number') {
       fontSize.value = detail.fontSize
-      terminal.options.fontSize = detail.fontSize
+      if (terminal) terminal.options.fontSize = detail.fontSize
     }
-    if (typeof detail.fontFamily === 'string' && terminal) {
+    if (typeof detail.fontFamily === 'string') {
       fontFamily.value = detail.fontFamily
-      terminal.options.fontFamily = detail.fontFamily
+      if (terminal) terminal.options.fontFamily = detail.fontFamily
     }
     // Font change changes cell size → PTY cols/rows may change; allow resize.
     scheduleTerminalRefresh(true, { forceSshResize: false })
@@ -257,16 +259,18 @@ export function useXtermInstance(deps: {
   function onTerminalPaletteChange(e: Event) {
     const detail = (e as CustomEvent).detail || {}
     if (typeof detail.palette === 'string') {
+      paletteVersion++
       terminalPalette.value = detail.palette as TerminalPaletteId
       applyTerminalTheme()
     }
   }
 
   function onTerminalBehaviorChange(e: Event) {
+    behaviorVersion++
     const detail = (e as CustomEvent).detail || {}
-    if (typeof detail.scrollback === 'number' && terminal) {
+    if (typeof detail.scrollback === 'number') {
       scrollbackLines.value = detail.scrollback
-      terminal.options.scrollback = detail.scrollback
+      if (terminal) terminal.options.scrollback = detail.scrollback
     }
     if (typeof detail.pasteConfirmEnabled === 'boolean') {
       pasteConfirmEnabled.value = detail.pasteConfirmEnabled
@@ -291,6 +295,7 @@ export function useXtermInstance(deps: {
   }
 
   async function loadTerminalSettings() {
+    const versions = { font: fontVersion, palette: paletteVersion, behavior: behaviorVersion }
     try {
       const [size, family, palette, scrollback, pasteConfirm, pasteMaxChars] = await Promise.all([
         window.LiteConnect.getTerminalFontSize(),
@@ -300,14 +305,15 @@ export function useXtermInstance(deps: {
         window.LiteConnect.getTerminalPasteConfirmEnabled(),
         window.LiteConnect.getTerminalPasteConfirmMaxChars().catch(() => PASTE_CONFIRM_MAX_CHARS),
       ])
-      fontSize.value = size
-      fontFamily.value = family
-      terminalPalette.value = (palette as TerminalPaletteId) || 'auto'
-      scrollbackLines.value = scrollback
-      pasteConfirmEnabled.value = pasteConfirm
-      pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(pasteMaxChars)
+      if (versions.font === fontVersion) { fontSize.value = size; fontFamily.value = family }
+      if (versions.palette === paletteVersion) terminalPalette.value = (palette as TerminalPaletteId) || 'auto'
+      if (versions.behavior === behaviorVersion) {
+        scrollbackLines.value = scrollback
+        pasteConfirmEnabled.value = pasteConfirm
+        pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(pasteMaxChars)
+      }
     } catch {
-      fontSize.value = 14
+      if (versions.font === fontVersion) fontSize.value = 14
     }
   }
 

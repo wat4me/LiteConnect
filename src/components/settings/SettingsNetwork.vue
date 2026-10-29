@@ -275,6 +275,7 @@ watch(
         {{ t('settingsNetwork.autoStartHint') }}
       </div>
       <div v-if="x11Bundled" class="settings-hint">{{ t('settingsNetwork.bundledReady') }}</div>
+      <div v-if="x11Platform === 'win32' && draft.x11ServerPath" class="settings-hint">{{ t('settingsNetwork.customServerConfigured') }}</div>
       <div v-if="!x11Supported" class="settings-hint warn">
         {{ t('settingsNetwork.autoStartUnsupported') }}
       </div>
@@ -286,8 +287,12 @@ watch(
       </div>
       <div v-if="x11DependencyMissing === 'desktop'" class="settings-hint warn">{{ t('settingsNetwork.desktopMissing') }}</div>
       <div v-if="x11DisplayAddress" class="settings-hint">{{ t('settingsNetwork.systemDisplayDetected', { display: x11DisplayAddress }) }}</div>
-      <div v-if="x11Platform === 'win32'" class="settings-label" style="margin-top: 12px">{{ t('settingsNetwork.serverPath') }}</div>
-      <div v-if="x11Platform === 'win32'" class="path-row">
+      <div v-if="!x11ResolvedPath && x11Platform === 'win32'" class="settings-hint warn">{{ t('settingsNetwork.notFound') }}</div>
+      <details v-if="x11Platform === 'win32'" class="x11-advanced" :open="!!draft.x11ServerPath">
+      <summary>{{ t('settingsNetwork.advancedDisplayServer') }}</summary>
+      <div class="settings-hint">{{ t('settingsNetwork.customServerHint') }}</div>
+      <div class="settings-label">{{ t('settingsNetwork.serverPath') }}</div>
+      <div class="path-row">
         <input
           v-model="draft.x11ServerPath"
           class="settings-input"
@@ -295,14 +300,12 @@ watch(
           :placeholder="t('settingsNetwork.serverPathPlaceholder')"
         />
         <button type="button" class="ui-btn" @click="pickX11Executable">{{ t('common.browse') }}</button>
-        <button type="button" class="ui-btn" :disabled="!draft.x11ServerPath" @click="clearX11Path">{{ t('common.clear') }}</button>
+        <button type="button" class="ui-btn" :disabled="!draft.x11ServerPath" @click="clearX11Path">{{ t('settingsNetwork.useBundledServer') }}</button>
       </div>
       <div v-if="x11ResolvedPath && x11Platform === 'win32'" class="settings-hint">
         {{ t('settingsNetwork.willUse', { path: x11ResolvedPath }) }}
       </div>
-      <div v-else-if="x11Platform === 'win32'" class="settings-hint warn">
-        {{ t('settingsNetwork.notFound') }}
-      </div>
+      </details>
 
       <div class="settings-label" style="margin-top: 14px">{{ t('settingsNetwork.testX11') }}</div>
       <div class="x11-test-row">
@@ -344,6 +347,9 @@ watch(
 </template>
 
 <style scoped>
+.x11-advanced { margin-top: 12px; }
+.x11-advanced > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--font-ui-sm); }
+.x11-advanced > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .x11-install-help {
   display: flex;
   align-items: center;

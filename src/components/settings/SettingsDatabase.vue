@@ -92,15 +92,7 @@ function onDefaultTimeoutSecInput(ev: Event) {
 
     <div class="content-grid">
       <div class="settings-card">
-        <div class="settings-label" data-setting="database.openMode">{{ t('settingsDatabase.openMode') }}</div>
-        <select v-model="draft.dbOpenMode" class="settings-select">
-          <option v-for="opt in openModeOptions" :key="opt.value" :value="opt.value">
-            {{ t(opt.labelKey) }}
-          </option>
-        </select>
-        <div class="settings-hint">{{ t('settingsDatabase.openModeHint') }}</div>
-
-        <div class="settings-label" style="margin-top: 14px" data-setting="database.fontFamily">{{ t('settingsDatabase.fontFamily') }}</div>
+        <div class="settings-label" data-setting="database.fontFamily">{{ t('settingsDatabase.fontFamily') }}</div>
         <select v-model="draft.dbFontFamily" class="settings-select">
           <option v-for="item in availableFonts" :key="item.id" :value="item.value">
             {{ item.label }}
@@ -159,6 +151,14 @@ function onDefaultTimeoutSecInput(ev: Event) {
           {{ t('settingsDatabase.confirmDangerousSql') }}
         </label>
         <div class="settings-hint">{{ t('settingsDatabase.confirmDangerousSqlHint') }}</div>
+        <details class="db-window-advanced" data-setting="database.openMode">
+          <summary>{{ t('settingsDatabase.advancedWindowOptions') }}</summary>
+          <div class="settings-label">{{ t('settingsDatabase.openMode') }}</div>
+          <select v-model="draft.dbOpenMode" class="settings-select">
+            <option v-for="opt in openModeOptions" :key="opt.value" :value="opt.value">{{ t(opt.labelKey) }}</option>
+          </select>
+          <div class="settings-hint">{{ t('settingsDatabase.openModeHint') }}</div>
+        </details>
       </div>
 
       <div class="preview-card">
@@ -201,6 +201,9 @@ function onDefaultTimeoutSecInput(ev: Event) {
 </template>
 
 <style scoped>
+.db-window-advanced { margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+.db-window-advanced > summary { cursor: pointer; color: var(--text-secondary); }
+.db-window-advanced[open] > summary { margin-bottom: 12px; }
 .db-preview-sample {
   color: var(--text-secondary);
   opacity: 0.9;

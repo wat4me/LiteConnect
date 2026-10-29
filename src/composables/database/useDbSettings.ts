@@ -53,6 +53,7 @@ const cached = ref<DbSettingsSnapshot>({
   defaultQueryTimeoutSec: DEFAULT_DB_DEFAULT_QUERY_TIMEOUT_SEC,
   defaultRunScope: DEFAULT_DB_DEFAULT_RUN_SCOPE,
 })
+let cacheVersion = 0
 
 function clampFontSize(n: number): number {
   return Math.max(10, Math.min(24, Math.round(n)))
@@ -120,11 +121,13 @@ export function applyDbSettingsToElement(el: HTMLElement | null, settings: DbSet
 }
 
 export function dispatchDbSettingsChange(settings: DbSettingsSnapshot) {
+  cacheVersion++
   cached.value = normalizeSnapshot(settings)
   window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { ...cached.value } }))
 }
 
 export async function loadDbSettings(): Promise<DbSettingsSnapshot> {
+  const version = cacheVersion
   const [
     fontFamily,
     fontSize,
@@ -151,6 +154,7 @@ export async function loadDbSettings(): Promise<DbSettingsSnapshot> {
     defaultQueryTimeoutSec,
     defaultRunScope,
   })
+  if (version !== cacheVersion) return { ...cached.value }
   cached.value = next
   return { ...next }
 }

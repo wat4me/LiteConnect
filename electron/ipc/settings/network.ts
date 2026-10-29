@@ -28,19 +28,6 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
     }
   })
 
-  ipcMain.handle('settings:getCredentialAutoFillEnabled', async () => {
-    await ensureSettingsStoreReady()
-    return settingsStore.getCredentialAutoFillEnabled()
-  })
-
-  ipcMain.handle('settings:setCredentialAutoFillEnabled', async (_event, enabled: boolean) => {
-    await ensureSettingsStoreReady()
-    if (typeof enabled !== 'boolean') {
-      throw new Error('Invalid value')
-    }
-    await settingsStore.setCredentialAutoFillEnabled(enabled)
-  })
-
   ipcMain.handle('settings:getLatencyEnabled', async () => {
     await ensureSettingsStoreReady()
     return settingsStore.getLatencyEnabled()
@@ -52,6 +39,7 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid value')
     }
     await settingsStore.setLatencyEnabled(enabled)
+    ctx.notifySettingsChanged(['latencyEnabled'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getLatencyIntervalMs', async () => {
@@ -65,6 +53,7 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid interval')
     }
     await settingsStore.setLatencyIntervalMs(intervalMs)
+    ctx.notifySettingsChanged(['latencyIntervalMs'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getConnectionUsageStatsEnabled', async () => {
@@ -78,6 +67,7 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid value')
     }
     await settingsStore.setConnectionUsageStatsEnabled(enabled)
+    ctx.notifySettingsChanged(['connectionUsageStatsEnabled'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getAutoReconnectEnabled', async () => {
@@ -88,6 +78,8 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
   ipcMain.handle('settings:setAutoReconnectEnabled', async (_event, enabled: boolean) => {
     await ensureSettingsStoreReady()
     await settingsStore.setAutoReconnectEnabled(!!enabled)
+    ctx.notifySettingsChanged(['autoReconnectEnabled'], _event?.sender?.id)
+    ctx.notifyRuntimeSettingsChanged()
   })
 
   ipcMain.handle('settings:getAutoReconnectMaxRetries', async () => {
@@ -99,6 +91,8 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
     await ensureSettingsStoreReady()
     if (typeof n !== 'number') throw new Error('Invalid retries')
     await settingsStore.setAutoReconnectMaxRetries(n)
+    ctx.notifySettingsChanged(['autoReconnectMaxRetries'], _event?.sender?.id)
+    ctx.notifyRuntimeSettingsChanged()
   })
 
   ipcMain.handle('settings:getMonitorEnabled', async () => {
@@ -112,6 +106,8 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid value')
     }
     await settingsStore.setMonitorEnabled(enabled)
+    ctx.notifySettingsChanged(['monitorEnabled'], _event?.sender?.id)
+    ctx.notifyRuntimeSettingsChanged()
   })
 
   ipcMain.handle('settings:getMonitorIntervalMs', async () => {
@@ -125,5 +121,7 @@ export function registerNetworkSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid interval')
     }
     await settingsStore.setMonitorIntervalMs(intervalMs)
+    ctx.notifySettingsChanged(['monitorIntervalMs'], _event?.sender?.id)
+    ctx.onMonitorIntervalChanged?.(settingsStore.getMonitorIntervalMs())
   })
 }

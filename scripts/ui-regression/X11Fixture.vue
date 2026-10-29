@@ -24,13 +24,12 @@ const draft = ref({ x11AutoStartEnabled: true, x11ServerPath: '', autoReconnectE
   getGroups: async () => [{ id: 'default', name: '默认分组', isDefault: true }],
   getConnections: async () => [],
   getSavedCredentials: async () => [],
-  getCredentialAutoFillEnabled: async () => false,
   getConnectionSecrets: async () => ({ password: '', privateKey: '', jumpPassword: '', jumpPrivateKey: '' }),
   saveConnection: async (value: unknown) => { saved.push(value); return value },
   getAppInfo: async () => ({ platform: 'win32-x64' }),
   getX11ServerStatus: async () => ({
-    platform, supported: true, bundled: platform === 'win32',
-    resolvedExecutablePath: platform === 'win32' ? 'C:/LiteConnect/resources/third-party/vcxsrv-runtime/vcxsrv.exe' : platform === 'darwin' && !missing ? '/Applications/Utilities/XQuartz.app' : null,
+    platform, supported: true, bundled: platform === 'win32' && !draft.value.x11ServerPath,
+    resolvedExecutablePath: platform === 'win32' ? draft.value.x11ServerPath || 'C:/LiteConnect/resources/third-party/vcxsrv-runtime/vcxsrv.exe' : platform === 'darwin' && !missing ? '/Applications/Utilities/XQuartz.app' : null,
     displayAddress: platform !== 'win32' && !missing ? address() : undefined,
     dependencyMissing: missing ? platform === 'darwin' ? 'xquartz' : 'desktop' : undefined,
   }),
@@ -46,9 +45,10 @@ onMounted(() => {
       connection.value = { id: 'fixture', name: 'Linux Installer', host: '10.0.0.1', port: 22, username: 'root', x11Forwarding: false, x11Mode: mode } as Connection
       show.value = true
     },
-    async settings(os = 'win32', dependencyMissing = false) {
+    async settings(os = 'win32', dependencyMissing = false, customPath = '') {
       show.value = false; network.value = false; await nextTick()
       setPlatform(os); missing = dependencyMissing
+      draft.value.x11ServerPath = customPath
       network.value = true; await nextTick()
     },
   }

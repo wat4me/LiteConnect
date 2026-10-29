@@ -87,11 +87,10 @@ export function useSecurityDialogs(deps: {
     const connId = decryptionFailedData.value.connectionId
     decryptionFailedVisible.value = false
     decryptionFailedData.value = null
-    deps.onSelectHome()
     const conn = deps.connections.value.find((c) => c.id === connId)
     if (conn) {
       deps.editConnection(conn)
-    }
+    } else deps.onSelectHome()
   }
 
   function handleDecryptionFailedDismiss() {

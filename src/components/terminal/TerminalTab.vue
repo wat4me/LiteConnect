@@ -484,8 +484,8 @@ onMounted(async () => {
     typingDiagnosticsEnabled = false
   }
 
-  await loadTerminalSettings()
   attachSettingsListeners()
+  await loadTerminalSettings()
   await suggest.loadCommandSuggestSetting()
   window.addEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
   window.addEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)

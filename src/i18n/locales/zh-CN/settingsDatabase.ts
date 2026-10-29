@@ -2,11 +2,12 @@ export default {
   settingsDatabase: {
     title: '数据库',
     intro: '设置数据库打开方式、SQL 显示、结果分页和新建查询的默认行为。',
-    openMode: '从 SSH 切换到数据库',
+    openMode: '分离的 SSH 窗口中打开数据库',
+    advancedWindowOptions: '高级窗口选项',
     openModeNewWindow: '新窗口',
     openModeCurrentWindow: '当前窗口',
     openModeHint:
-      '标题栏从 SSH 切到数据库时：打开独立数据库窗口，或在当前窗口切换模块。默认新窗口。',
+      '仅适用于分离的 SSH 窗口，默认打开新窗口。主窗口的顶部菜单和左侧快捷栏始终在当前窗口切换。',
     fontFamily: '等宽字体',
     fontSize: '字体大小',
     pageSize: '默认每页行数',

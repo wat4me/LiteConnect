@@ -4,7 +4,6 @@ import { useAiClearConversation } from '@/composables/ai/useAiClearConversation'
 import { useAiSidebarSession } from '@/composables/ai/useAiSidebarSession'
 import { useAiMessageActions } from '@/composables/ai/useAiMessageActions'
 import { useAiSidebarModelMenu } from '@/composables/ai/useAiSidebarModelMenu'
-import { useAiSidebarContextFiles } from '@/composables/ai/useAiSidebarContextFiles'
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -29,6 +28,7 @@ import AiContextMeter from './AiContextMeter.vue'
 import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
 import AiExecutionHistory from './AiExecutionHistory.vue'
+import AiKnowledge from './AiKnowledge.vue'
 import { formatTokenCount, modelContextSource } from '@shared/aiContext'
 import { aiToolSchemaTokens } from '@shared/aiContextPressure'
 import { aiToolGroupsFromHistory, normalizeAiToolGroups } from '@shared/aiToolCatalog'
@@ -36,7 +36,7 @@ import { flattenConversationForApi } from '@shared/aiMessages'
 import { projectAiHistoryForContext, AI_COMPACTION_NEW_THREAD_AT } from '@shared/aiCompaction'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
 import { workspaceToolsForChat, workspaceToolSystemAddendum } from '@shared/aiWorkspacePrompt'
-import { estimateSidebarAiRequest, sidebarContextFilesFit } from '@shared/aiSidebarPrompt'
+import { estimateSidebarAiRequest } from '@shared/aiSidebarPrompt'
 import { useAiSidebarHistory } from '@/composables/ai/useAiSidebarHistory'
 import { threadTitleTooltip } from '@/utils/ai/threadTitle'
 import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
@@ -80,8 +80,6 @@ const {
   compactContext,
   getSessionState,
   startNewConversation,
-  setConversationContextFile,
-  removeConversationContextFile,
   updateConversation,
   switchConversation,
   deleteConversation,
@@ -95,7 +93,13 @@ const {
   getQuestionDraft,
 } = chat
 
-const contextFiles = computed(() => getSessionState(props.sessionId).contextFiles)
+const knowledgeRef = ref<InstanceType<typeof AiKnowledge> | null>(null)
+function openKnowledge(run: AiToolRun) {
+  try {
+    const result = JSON.parse(run.content)
+    void knowledgeRef.value?.show(result.connectionId, result.documentId)
+  } catch { void knowledgeRef.value?.show() }
+}
 const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)
 const reminderKey = computed(() => `${props.sessionId}:${getSessionState(props.sessionId).activeThreadId}`)
 const showExecutionHistory = ref(false)
@@ -121,8 +125,8 @@ const { messages, input, loading, threadSummaries, syncMessages, syncFromState,
   chat, sessionId: () => props.sessionId, active: () => props.active,
   openGeneration: () => props.openGeneration, selectionRequest: () => props.selectionRequest,
   selectionConsumed: id => emit('selectionConsumed', id), canSend: () => canSend.value,
-  sendBlocked: () => savingComposer.value || newConversationBusy.value || clearingConversation.value || contextFilesTooLong.value || !props.executionAvailable,
-  canCompact: () => !loading.value && !savingComposer.value && !contextFileBusy.value && !newConversationBusy.value && !clearingConversation.value && props.executionAvailable,
+  sendBlocked: () => savingComposer.value || newConversationBusy.value || clearingConversation.value || !props.executionAvailable,
+  canCompact: () => !loading.value && !savingComposer.value && !newConversationBusy.value && !clearingConversation.value && props.executionAvailable,
   compact: handleCompactContext, applySettings: () => settingsPanelRef.value?.applyExternal(settings.value),
   t: key => t(key),
 })
@@ -136,7 +140,6 @@ let sidebarDisposed = false
 function attachSidebarDomListeners() {
   if (!documentKeydownActive) {
     document.addEventListener('keydown', closePopoverOnEscape)
-    document.addEventListener('pointerdown', closeContextFileMenuOnOutsideClick)
     documentKeydownActive = true
   }
   if (sidebarRef.value) composerObserver?.observe(sidebarRef.value)
@@ -149,7 +152,6 @@ function detachSidebarDomListeners() {
   composerObserver?.disconnect()
   if (documentKeydownActive) {
     document.removeEventListener('keydown', closePopoverOnEscape)
-    document.removeEventListener('pointerdown', closeContextFileMenuOnOutsideClick)
     documentKeydownActive = false
   }
 }
@@ -206,18 +208,6 @@ const permissionLabel = computed(() => t(`ai.permissionShort${settings.value.too
 const savingComposer = ref(false)
 
 const {
-  contextFileBusy, contextFileMenuRef, contextFilePreviewKey, previewContextFile,
-  contextFileName, contextFileKey, contextFileSourceStatus, contextFileTitle, contextFileChipLabel,
-  onContextFileMenuToggle, toggleContextFilePreview, chooseLocalContextFile, chooseSshContextFile,
-  removeContextFile, refreshContextFile,
-} = useAiSidebarContextFiles({
-  sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
-  loading: () => loading.value, active: () => props.active, openGeneration: () => props.openGeneration,
-  files: contextFiles, ensureLoaded: () => ensureInitialLoad(false),
-  setFile: setConversationContextFile, removeFile: removeConversationContextFile,
-  t: (key, params) => t(key, params ?? {}),
-})
-const {
   showSettings, showModelSwitcher, modelSwitcherButtonRef, modelSwitcherDropdownRef,
   modelSwitcherStyle, modelSwitcherGroups, switchModel, openSettingsPanel, closeSettingsPanel,
   openModelSwitcher, closeModelSwitcher, toggleModelSwitcher, onModelMenuKeydown,
@@ -228,7 +218,7 @@ const {
 })
 const { handleRegenerate, handleRetry, handleEditResend, handleDeleteMessage } = useAiMessageActions({
   sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
-  blocked: () => clearingConversation.value || contextFilesTooLong.value || !props.executionAvailable,
+  blocked: () => clearingConversation.value || !props.executionAvailable,
   loading, sessionLoading: id => getSessionState(id).loading, syncMessages,
   regenerate: regenerateMessage, retry: retryMessage, edit: editUserMessageAndResend, remove: deleteMessage,
   t: key => t(key),
@@ -257,7 +247,6 @@ const {
   threadSummaries,
   activeThreadId: () => getSessionState(props.sessionId).activeThreadId,
   loading,
-  contextFileBusy,
   syncMessages,
   syncFromState,
   switchConversation,
@@ -269,8 +258,8 @@ const {
   closeSettings: closeSettingsPanel,
 })
 const {
-  draftImages, imageInputRef, imageBusy, imageDragOver,
-  onImageSelection, onImagePaste, onImageDragOver, onImageDrop, onImageDragLeave,
+  draftImages, imageBusy, imageDragOver,
+  onImagePaste, onImageDragOver, onImageDrop, onImageDragLeave,
 } = useAiComposerImages({
   sessionId: () => props.sessionId,
   draft: () => getSessionState(props.sessionId),
@@ -281,7 +270,7 @@ const {
   ensureLoaded: () => ensureInitialLoad(false),
   t: key => t(key),
 })
-watch([input, showSettings, showHistory, contextFiles, showLongSessionReminder, () => draftImages.value.length], () => { void nextTick(resizeComposer) })
+watch([input, showSettings, showHistory, showLongSessionReminder, () => draftImages.value.length], () => { void nextTick(resizeComposer) })
 
 const hasApiConfigured = computed(() => {
   const list = settings.value.providers || []
@@ -300,7 +289,7 @@ const workspaceJobTargets = computed(() => Object.fromEntries(messages.value.fla
 const targetSessionIds = computed(() => props.workspaceTargets?.map(target => target.sessionId).filter(Boolean) || [props.sessionId])
 const { newConversationBusy, handleNewConversation } = useAiNewConversation({
   sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
-  blocked: () => loading.value || clearingConversation.value || contextFileBusy.value || !!props.connectionBusy,
+  blocked: () => loading.value || clearingConversation.value || !!props.connectionBusy,
   sessionLoading: id => getSessionState(id).loading,
   targetSessionIds: () => targetSessionIds.value, jobIds: () => workspaceJobIds.value,
   start: startNewConversation, syncMessages, syncFromState,
@@ -308,26 +297,13 @@ const { newConversationBusy, handleNewConversation } = useAiNewConversation({
 })
 const { clearingConversation, handleClearConversation } = useAiClearConversation({
   sessionId: () => props.sessionId, threadId: () => getSessionState(props.sessionId).activeThreadId,
-  blocked: () => loading.value || newConversationBusy.value || contextFileBusy.value || imageBusy.value || savingComposer.value || historyBusy.value || !!props.connectionBusy,
+  blocked: () => loading.value || newConversationBusy.value || imageBusy.value || savingComposer.value || historyBusy.value || !!props.connectionBusy,
   hasMessages: () => messages.value.length > 0,
   targetSessionIds: () => targetSessionIds.value, jobIds: () => workspaceJobIds.value,
   clear: clearMessages, syncMessages,
   cleared: () => { syncFromState(); emit('conversation-cleared') }, t: key => t(key),
 })
-const contextFilesTooLong = computed(() => !sidebarContextFilesFit({
-  translate: t,
-  ...activeProvider.value?.models.find(model => model.id === displayModelName.value),
-  systemPrompt: settings.value.systemPrompt,
-  toolContext: toolContext.value,
-  toolGroups: toolGroups.value,
-  sessionId: props.sessionId,
-  cwd: sftpListedCwdState()[props.sessionId],
-  model: settings.value.activeModel || displayModelName.value,
-  contextWindowTokens: activeContextWindowTokens.value,
-  contextFiles: contextFiles.value,
-}))
-const canSend = computed(() => props.executionAvailable && (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !clearingConversation.value && !contextFileBusy.value && !contextFilesTooLong.value)
-watch(contextFilesTooLong, () => { void nextTick(resizeComposer) })
+const canSend = computed(() => props.executionAvailable && (input.value.trim().length > 0 || draftImages.value.length > 0) && (!draftImages.value.length || supportsImages.value) && !imageBusy.value && !loading.value && !savingComposer.value && !newConversationBusy.value && !clearingConversation.value)
 
 /** Tool calls awaiting user approval — confirmed from the bar above the composer. */
 const pendingApprovals = computed(() => {
@@ -375,7 +351,6 @@ const contextDroppedCount = computed(() => {
     cwd: sftpListedCwdState()[props.sessionId],
     model: settings.value.activeModel || displayModelName.value,
     contextWindowTokens: activeContextWindowTokens.value,
-    contextFiles: contextFiles.value,
   }).droppedCount
 })
 
@@ -388,7 +363,7 @@ const contextPressure = computed(() => {
   return estimateSidebarAiRequest({
     translate: t,
     ...contextModelConfig.value, model: displayModelName.value, contextWindowTokens: activeContextWindowTokens.value,
-    systemPrompt: settings.value.systemPrompt, messages: projected, contextFiles: contextFiles.value,
+    systemPrompt: settings.value.systemPrompt, messages: projected,
     toolContext: toolContext.value, sessionId: props.sessionId, cwd: sftpListedCwdState()[props.sessionId],
     toolGroups: toolGroups.value,
   }).pressure
@@ -426,7 +401,7 @@ const contextSourceLabel = computed(() => {
 })
 
 async function handleCompactContext() {
-  if (loading.value || clearingConversation.value || savingComposer.value || contextFileBusy.value || newConversationBusy.value || !props.executionAvailable) return
+  if (loading.value || clearingConversation.value || savingComposer.value || newConversationBusy.value || !props.executionAvailable) return
   await compactContext(props.sessionId)
 }
 
@@ -495,19 +470,8 @@ async function openSettingsCta() {
 function closePopoverOnEscape(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   showModelSwitcher.value = false
-  contextFileMenuRef.value?.removeAttribute('open')
-  contextFilePreviewKey.value = ''
   closeSettingsPanel()
   closeHistoryPanel()
-}
-
-function closeContextFileMenuOnOutsideClick(event: PointerEvent) {
-  if (!contextFileMenuRef.value?.contains(event.target as Node)) {
-    contextFileMenuRef.value?.removeAttribute('open')
-  }
-  if (!composerAreaRef.value?.querySelector('.composer-context-files')?.contains(event.target as Node)) {
-    contextFilePreviewKey.value = ''
-  }
 }
 
 async function confirmAiTerminalAction(action: 'fill' | 'run', code: string): Promise<string | null> {
@@ -570,7 +534,7 @@ async function runCodeToTerminal(code: string) {
       <div class="ai-header-actions">
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-execution-history-trigger" :title="t('ai.execution.title')" :aria-label="t('ai.execution.title')" aria-haspopup="dialog" @click="openExecutionHistory()"><AppIcon name="terminal-history" size="sm" /></button>
         <button v-if="workspace" type="button" class="ui-btn ui-btn-xs workspace-clear-chat"
-          :disabled="!messages.length || loading || clearingConversation || newConversationBusy || contextFileBusy || imageBusy || savingComposer || historyBusy || connectionBusy"
+          :disabled="!messages.length || loading || clearingConversation || newConversationBusy || imageBusy || savingComposer || historyBusy || connectionBusy"
           :title="t('ai.clearConversationTitle')" :aria-label="t('ai.clearConversationTitle')" :aria-busy="clearingConversation"
           @click="handleClearConversation"><AppIcon name="delete" size="sm" /><span>{{ t('ai.clear') }}</span></button>
         <AiConversationMenu v-if="workspace" :items="conversationMenuItems" :active="active" @select="selectConversationAction" />
@@ -603,6 +567,7 @@ async function runCodeToTerminal(code: string) {
     <div v-show="!showSettings && !showHistory" class="ai-body">
       <AiChatView
         @view-execution="openExecutionHistory"
+        @view-knowledge="openKnowledge"
         :conversation-key="reminderKey"
         :terminal-actions="!workspace"
         :workspace-host-count="workspaceTargets?.length"
@@ -631,50 +596,13 @@ async function runCodeToTerminal(code: string) {
       <div v-if="showLongSessionReminder" class="composer-long-session" role="status">
         <p>{{ t('ai.longSessionReminder', { n: compactionCount }) }}</p>
         <div class="long-session-actions">
-          <button type="button" class="ui-btn ui-btn-xs" :disabled="loading || contextFileBusy || imageBusy || newConversationBusy" @click="handleNewConversation">{{ t('ai.newConversationTitle') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs" :disabled="loading || imageBusy || newConversationBusy" @click="handleNewConversation">{{ t('ai.newConversationTitle') }}</button>
           <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="continueLongSession">{{ t('ai.continueCurrentConversation') }}</button>
         </div>
       </div>
-      <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden @change="onImageSelection" />
       <div class="composer-context-files">
         <div class="composer-context-strip">
-          <details ref="contextFileMenuRef" class="composer-context-menu" @toggle="onContextFileMenuToggle">
-            <summary :aria-label="t('ai.contextFileAdd')" :title="`${t('ai.contextFileAdd')} · ${t('ai.contextFileCount', { count: contextFiles.length })}`">
-              <AppIcon name="plus" size="sm" />
-            </summary>
-            <div class="composer-context-dropdown">
-              <div class="composer-context-info">
-                <div class="composer-context-info-title">{{ t('ai.contextFileHowItWorks') }}</div>
-                <p>{{ t('ai.contextFileMenuHint') }}</p>
-              </div>
-              <div class="composer-context-add-actions">
-                <div class="composer-context-actions-title">{{ t('ai.contextFileChooseSource') }}</div>
-                <button type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseLocalContextFile">{{ t('ai.contextFileLocal') }}</button>
-                <button v-if="!workspaceTargets" type="button" :disabled="loading || contextFileBusy || contextFiles.length >= 5" @click="chooseSshContextFile">{{ t('ai.contextFileSsh') }}</button>
-                <div v-if="contextFiles.length >= 5" class="composer-context-limit">{{ t('ai.contextFileLimit') }}</div>
-              </div>
-            </div>
-          </details>
-          <button type="button" class="ui-icon-btn composer-add-image" :disabled="loading || imageBusy || !supportsImages || draftImages.length >= 4" :title="supportsImages ? t('ai.addImageHint') : t('ai.imagesNotEnabled')" :aria-label="t('ai.addImage')" @click="imageInputRef?.click()"><AppIcon name="image" size="sm" /></button>
-          <div v-if="contextFiles.length" class="composer-context-chips" role="list" :aria-label="t('ai.contextFileCount', { count: contextFiles.length })">
-            <div v-for="file in contextFiles" :key="contextFileKey(file)" class="composer-context-chip" role="listitem" :class="{ missing: contextFileSourceStatus[contextFileKey(file)] === 'missing', previewing: contextFilePreviewKey === contextFileKey(file) }">
-              <button type="button" class="composer-context-chip-main" :aria-expanded="contextFilePreviewKey === contextFileKey(file)" :aria-label="contextFileChipLabel(file)" :title="contextFileTitle(file)" @click="toggleContextFilePreview(file)">
-                <AppIcon name="file-text" size="xs" />
-                <span class="composer-context-chip-name">{{ contextFileName(file) }}</span>
-                <span v-if="contextFileSourceStatus[contextFileKey(file)] === 'missing'" class="composer-context-chip-alert"><AppIcon name="alert-triangle" size="xs" /></span>
-                <span v-else-if="contextFileSourceStatus[contextFileKey(file)] === 'unavailable'" class="composer-context-chip-alert is-unavailable"><AppIcon name="alert-circle" size="xs" /></span>
-              </button>
-              <button type="button" class="composer-context-chip-remove" :disabled="loading || contextFileBusy" :aria-label="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" :title="t('ai.contextFileRemoveNamed', { name: contextFileName(file) })" @click="removeContextFile(file)"><AppIcon name="close" size="xs" /></button>
-            </div>
-          </div>
-        </div>
-        <div v-if="previewContextFile" class="composer-context-preview">
-          <div class="composer-context-preview-head">
-            <span>{{ t('ai.contextFilePreviewCaption') }}</span>
-            <span class="composer-context-preview-path" :title="previewContextFile.path">{{ previewContextFile.path }}</span>
-            <button type="button" class="composer-context-refresh" :disabled="loading || contextFileBusy" @click="refreshContextFile(previewContextFile)"><AppIcon name="refresh" size="xs" />{{ t('ai.contextFileCheckUpdate') }}</button>
-          </div>
-          <pre>{{ previewContextFile.content }}</pre>
+          <AiKnowledge ref="knowledgeRef" :session-id="sessionId" :active="active" :busy="loading" />
         </div>
       </div>
       <AiImageStrip v-if="draftImages.length" class="composer-images" :images="draftImages" removable :disabled="loading || imageBusy" @remove="draftImages.splice($event, 1)" />
@@ -716,7 +644,7 @@ async function runCodeToTerminal(code: string) {
             <AiContextMeter
               v-if="workspace && displayModelName" :key="reminderKey"
               :pressure="contextPressure" :source-label="contextSourceLabel" :compaction-count="compactionCount"
-              :can-compact="!loading && !savingComposer && !contextFileBusy && !newConversationBusy && !!messages.length && props.executionAvailable"
+              :can-compact="!loading && !savingComposer && !newConversationBusy && !!messages.length && props.executionAvailable"
               @compact="handleCompactContext"
             />
           </div>
@@ -736,8 +664,7 @@ async function runCodeToTerminal(code: string) {
           </button>
         </div>
       </div>
-      <span v-if="contextFilesTooLong" class="composer-context-warning danger context-file-too-long" role="alert">{{ t('ai.contextFileTooLong') }}</span>
-      <span v-else-if="showContextMeter" class="composer-context-warning" :class="contextTone" :title="contextMeterTitle" role="status">{{ t('ai.contextPercent', { n: Math.round(contextRatio * 100) }) }}</span>
+      <span v-if="showContextMeter" class="composer-context-warning" :class="contextTone" :title="contextMeterTitle" role="status">{{ t('ai.contextPercent', { n: Math.round(contextRatio * 100) }) }}</span>
     </form>
     </div>
 
@@ -813,7 +740,7 @@ async function runCodeToTerminal(code: string) {
             type="button"
             class="ui-btn ui-btn-xs ui-btn-ghost"
             v-if="historyItems.length > 0"
-            :disabled="historyBusy || loading || contextFileBusy"
+            :disabled="historyBusy || loading"
             @click="handleClearAllHistory"
           >
             <AppIcon name="delete" size="sm" />
@@ -836,7 +763,7 @@ async function runCodeToTerminal(code: string) {
           <button
             type="button"
             class="ai-history-item-main"
-            :disabled="historyBusy || loading || contextFileBusy"
+            :disabled="historyBusy || loading"
             :title="item.tip || item.title"
             @click="handleSwitchConversation(item.id)"
           >

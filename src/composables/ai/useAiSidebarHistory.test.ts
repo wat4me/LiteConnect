@@ -35,7 +35,7 @@ function setup() {
   const api = scope.run(() => useAiSidebarHistory({ sessionId: () => session.value,
     activeThreadId: () => thread.value, threadSummaries: ref<AiThreadSummary[]>([
       { id: 'old', title: 'old', createdAt: 1, updatedAt: 1, messageCount: 1, active: true },
-    ]), loading: ref(false), contextFileBusy: ref(false), syncMessages, syncFromState,
+    ]), loading: ref(false), syncMessages, syncFromState,
     switchConversation, deleteConversation: remove, clearAllConversations: clear,
     updateConversation: update, closeModelSwitcher: () => {}, closeSettings: () => {}, t: key => key,
   }))!

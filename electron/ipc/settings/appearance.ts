@@ -1,15 +1,13 @@
 import { ipcMain } from 'electron'
 import { basename, extname } from 'path'
-import { mkdir } from 'fs/promises'
 import { t } from '../../i18n'
 import { BG_EXTS, mimeForWallpaperExt } from '../../window/appBackgroundProtocol'
 import type { SettingsIpcCtx } from './ctx'
 import {
-  clearWallpaperDir,
-  persistWallpaperFromToken,
   putWallpaperPick,
   readImageFileCapped,
 } from './wallpaper'
+import { commitSettings } from './commitSettings'
 
 export function registerAppearanceSettingsHandlers(ctx: SettingsIpcCtx): void {
   const { settingsStore, ensureSettingsStoreReady } = ctx
@@ -59,26 +57,9 @@ export function registerAppearanceSettingsHandlers(ctx: SettingsIpcCtx): void {
       },
     ) => {
       await ensureSettingsStoreReady()
-      const dir = settingsStore.getAppBackgroundDir()
-      if (payload?.clear) {
-        await mkdir(dir, { recursive: true })
-        await clearWallpaperDir(dir)
-        await settingsStore.clearAppBackgroundFile()
-        if (payload.fit != null || payload.overlay != null) {
-          await settingsStore.setAppBackground({ fit: payload.fit, overlay: payload.overlay })
-        }
-        return settingsStore.getAll().appBackground
-      }
-      let fileName = settingsStore.getAppBackground().fileName
-      if (payload?.token) {
-        fileName = await persistWallpaperFromToken(dir, payload.token)
-      }
-      await settingsStore.setAppBackground({
-        fileName,
-        fit: payload?.fit,
-        overlay: payload?.overlay,
-      })
-      return settingsStore.getAll().appBackground
+      const saved = await commitSettings(ctx, { appBackground: payload || {} })
+      ctx.notifySettingsChanged(['appBackground'], _event.sender?.id)
+      return saved.appBackground
     },
   )
 
@@ -93,6 +74,7 @@ export function registerAppearanceSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid value')
     }
     await settingsStore.setFancyCursorEnabled(enabled)
+    ctx.notifySettingsChanged(['fancyCursorEnabled'], _event?.sender?.id)
   })
 
   ipcMain.handle('settings:getFancyCursorStyle', async () => {
@@ -106,5 +88,6 @@ export function registerAppearanceSettingsHandlers(ctx: SettingsIpcCtx): void {
       throw new Error('Invalid value')
     }
     await settingsStore.setFancyCursorStyle(style)
+    ctx.notifySettingsChanged(['fancyCursorStyle'], _event?.sender?.id)
   })
 }

@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import type { SettingsTabId } from '@/domain/settings/types'
 
 export type { SettingsTabId }
+export type AppMode = 'ssh' | 'database' | 'ai'
 
 /**
  * Top-level module navigation: SSH / database / AI / settings.
@@ -11,7 +12,8 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
   const showSettingsPage = ref(false)
   /** Tab to select when SettingsView mounts / re-opens. */
   const settingsInitialTab = ref<SettingsTabId | undefined>(undefined)
-  const appMode = ref<'ssh' | 'database' | 'ai'>('ssh')
+  const appMode = ref<AppMode>('ssh')
+  const moduleSwitching = ref(false)
   const aiWorkspaceMounted = ref(false)
   const databaseMounted = ref(false)
   /** Lazy: mount terminal workspace only after first host session is needed. */
@@ -61,6 +63,32 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     aiWorkspaceMounted.value = true
   }
 
+  /** Main-window quick switching keeps mounted workspaces and their drafts alive. */
+  async function selectModule(mode: AppMode) {
+    if (moduleSwitching.value || (appMode.value === mode && !showSettingsPage.value)) return
+    moduleSwitching.value = true
+    try {
+      if (showSettingsPage.value) {
+        await settingsViewRef.value?.requestClose()
+        if (showSettingsPage.value) return
+      }
+      // Closing settings is sufficient when returning to the same module.
+      if (appMode.value === mode) return
+      if (mode === 'ssh') enterSsh()
+      else if (mode === 'database') enterDatabase()
+      else enterAi()
+    } finally { moduleSwitching.value = false }
+  }
+
+  /** Run a navigation side effect only after the destination was actually accepted. */
+  async function requestModuleAction(mode: AppMode, action: () => unknown | Promise<unknown>): Promise<boolean> {
+    if (moduleSwitching.value) return false
+    await selectModule(mode)
+    if (showSettingsPage.value || appMode.value !== mode) return false
+    await action()
+    return true
+  }
+
   function toggleSettingsPage() {
     if (showSettingsPage.value) {
       void settingsViewRef.value?.requestClose()
@@ -73,6 +101,9 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     showSettingsPage,
     settingsInitialTab,
     appMode,
+    moduleSwitching,
+    selectModule,
+    requestModuleAction,
     databaseMounted,
     aiWorkspaceMounted,
     isAiMode,

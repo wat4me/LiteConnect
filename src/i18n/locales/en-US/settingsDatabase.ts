@@ -2,11 +2,12 @@ export default {
   settingsDatabase: {
     title: 'Database',
     intro: 'Set how the database opens, SQL display, result paging, and defaults for new queries.',
-    openMode: 'Switch from SSH to Database',
+    openMode: 'Open Database from a detached SSH window',
+    advancedWindowOptions: 'Advanced window options',
     openModeNewWindow: 'New window',
     openModeCurrentWindow: 'Current window',
     openModeHint:
-      'When the title bar switches from SSH to Database: open a separate database window, or switch modules in the current window. The default is a new window.',
+      'Applies only to detached SSH windows; the default is a new window. The main window title menu and left navigation always switch in the current window.',
     fontFamily: 'Monospace font',
     fontSize: 'Font size',
     pageSize: 'Default rows per page',

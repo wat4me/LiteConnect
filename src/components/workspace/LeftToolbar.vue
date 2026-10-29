@@ -3,10 +3,11 @@ import AppIcon from '@/components/icons/AppIcon.vue'
 import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   aiActive: boolean
   filesActive: boolean
   monitorActive: boolean
+  monitorEnabled?: boolean
   batchActive: boolean
   syncActive?: boolean
   snippetsActive: boolean
@@ -24,7 +25,7 @@ const props = defineProps<{
   dockerDisabled?: boolean
   /** When Docker mode is on, side-panel buttons are inert. */
   sidePanelsDisabled?: boolean
-}>()
+}>(), { monitorEnabled: true })
 
 const emit = defineEmits<{
   (e: 'toggle-ai'): void
@@ -103,7 +104,7 @@ const sftpTooltip = computed(() => {
       </button>
     </el-tooltip>
 
-    <el-tooltip :content="t('toolbar.monitorShortcut')" placement="right" :show-after="300">
+    <el-tooltip v-if="monitorEnabled !== false" :content="t('toolbar.monitorShortcut')" placement="right" :show-after="300">
       <button
         class="toolbar-icon-btn"
         type="button"
