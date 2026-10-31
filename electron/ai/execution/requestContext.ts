@@ -10,7 +10,7 @@ import { isValidUUID } from '../../utils/validation'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import type { AiToolGroup } from '../../../shared/aiToolCatalog'
 import { localFileTransferSystemAddendum } from './localEnvironment'
-import { knowledgeTools, type AiKnowledgeAccess } from '../../../shared/aiKnowledge'
+import { knowledgeTools, KNOWLEDGE_TOOLS, type AiKnowledgeAccess } from '../../../shared/aiKnowledge'
 
 export async function buildAiRequestEnvironment(opts: {
   sessionId?: string; cwd?: string; workspaceTargets?: AiWorkspaceTarget[]
@@ -34,7 +34,8 @@ export async function buildAiRequestEnvironment(opts: {
   const knowledgePrompt = await opts.knowledge?.prompt()
   extraSystem = [extraSystem, localEnvironment, knowledgePrompt, t('toolPolicy.visibleLanguage')].filter(text => text?.trim()).join('\n\n')
   const tools = useTools ? (opts.workspaceTargets ? workspaceToolsForChat(opts.toolGroups) : sshToolsForChat(opts.toolGroups)).filter(tool => opts.allowQuestions !== false || tool.function.name !== AI_QUESTION_TOOL) : undefined
-  const localTools = useTools && knowledgePrompt ? knowledgeTools : []
+  const allowedKnowledgeTools = useTools && knowledgePrompt ? await opts.knowledge?.tools?.() ?? KNOWLEDGE_TOOLS : []
+  const localTools = knowledgeTools.filter(tool => allowedKnowledgeTools.some(name => name === tool.function.name))
   return { boundSessionId, useTools, extraSystem, tools: tools ? [...tools, ...localTools] : tools, localTools }
 }
 

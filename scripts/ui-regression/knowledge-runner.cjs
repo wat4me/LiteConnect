@@ -27,7 +27,7 @@ app.whenReady().then(async () => {
       return true
     }
     if (op==='manage') {
-      if (args.input.action==='enable' && failNextEnable) { failNextEnable=false; throw new Error('Test enable failure') }
+      if (['enable','setMode'].includes(args.input.action) && failNextEnable) { failNextEnable=false; throw new Error('Test enable failure') }
       return access.manage(args.input)
     }
     if (op==='import') return { source: 'local', path: '/fixture/deploy.md', content: '# Deployment\n\nRestart with the documented command.' }
@@ -81,39 +81,50 @@ app.whenReady().then(async () => {
     closeCases++
   }
   window.webContents.setZoomFactor(1); window.setSize(1100,900)
-  stage = 'checking external per-server knowledge switch'
+  const changeMode = mode => run(`(() => {const field=document.querySelector('.knowledge-mode-select');field.value='${mode}';field.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+  const modeIs = mode => wait(`document.querySelector('.knowledge-mode-select').value==='${mode}'&&!document.querySelector('.knowledge-mode-select').disabled`)
+  stage = 'checking per-server knowledge modes'
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await run('window.__knowledge.scope("fixture-a")')
-  await wait('!!document.querySelector(".knowledge-usage-switch:not(:disabled)")')
-  await pointerClick('.knowledge-usage-switch')
-  await wait('!!document.querySelector(".app-dialog")')
+  await wait('!!document.querySelector(".knowledge-mode-select:not(:disabled)")')
+  await changeMode('readonly'); await wait('!!document.querySelector(".app-dialog")')
   assert.ok(await run(`document.querySelector('.app-dialog').textContent.includes('不会在服务器上创建文件')`))
-  await cancel(); await wait('!document.querySelector(".app-dialog")')
-  assert.equal(database.listSingletonKeys('ai-knowledge:').length,0,'Cancelling enablement creates no knowledge records')
-  await pointerClick('.knowledge-usage-switch'); await wait('!!document.querySelector(".app-dialog")'); await confirm()
-  await wait(`document.querySelector('.knowledge-usage-switch').getAttribute('aria-checked')==='true'`)
-  assert.equal((await service.access('fixture-a',1).manage({action:'overview'})).targets[0].enabled,true)
-  await pointerClick('.knowledge-usage-switch')
-  await wait(`document.querySelector('.knowledge-usage-switch').getAttribute('aria-checked')==='false'`)
-  assert.equal((await service.access('fixture-a',1).manage({action:'list',connectionId:'a'})).documents.length,1,'Disabling retains documents')
-  assert.equal(await service.access('fixture-a',1).prompt(),'','Disabled knowledge contributes no automatic prompt')
-  assert.equal((await service.access('fixture-a',1).call('knowledge_read',{documentId:'memory'},new AbortController().signal)).isError,true,'AI reads are blocked when off')
+  await cancel(); await wait('!document.querySelector(".app-dialog")'); await modeIs('off')
+  assert.equal(database.listSingletonKeys('ai-knowledge:').length,0,'Cancelling mode enablement creates no records')
+  await changeMode('readwrite'); await wait('!!document.querySelector(".app-dialog")'); await confirm(); await modeIs('readwrite')
+  assert.equal((await service.access('fixture-a',1).manage({action:'overview'})).targets[0].mode,'readwrite')
+  await changeMode('readonly'); await modeIs('readonly')
+  const readOnly = service.access('fixture-a',1)
+  assert.deepEqual(await readOnly.tools(),['knowledge_search','knowledge_read'])
+  assert.ok((await readOnly.prompt()).includes('"mode":"readonly"'),'Read-only mode keeps automatic knowledge context')
+  assert.equal((await readOnly.call('knowledge_read',{documentId:'memory'},new AbortController().signal)).isError,false)
+  assert.equal((await readOnly.call('knowledge_save',{title:'Should not save',content:'Unwanted',expectedRevision:0},new AbortController().signal)).structuredContent.code,'KNOWLEDGE_READ_ONLY')
   await pointerClick('.knowledge-trigger'); await wait('!!document.querySelector(".knowledge-panel h3")')
+  assert.ok(await run(`!document.querySelector('.knowledge-actions button').disabled&&document.querySelector('.knowledge-notice').textContent`),'Users can still edit in read-only mode')
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  fs.writeFileSync(path.join(artifacts,'knowledge-readonly.png'),(await window.webContents.capturePage()).toPNG())
+  if (process.env.LITECONNECT_KNOWLEDGE_MODE_ONLY === '1') {
+    console.log(JSON.stringify({ passed:true, mode:'readonly', artifacts }))
+    clearTimeout(timeout); window.destroy(); database.close(); app.quit(); return
+  }
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
+  await changeMode('off'); await modeIs('off')
+  assert.equal((await readOnly.manage({action:'list',connectionId:'a'})).documents.length,1,'Turning knowledge off retains documents')
+  assert.equal(await readOnly.prompt(),'','Off contributes no automatic prompt')
+  assert.equal((await readOnly.call('knowledge_read',{documentId:'memory'},new AbortController().signal)).isError,true,'Off blocks AI reads')
   await run(`window.__knowledgeBackend.invoke('fail-next-enable')`)
-  await pointerClick('.knowledge-usage-switch'); await wait('!!document.querySelector(".el-message--error")')
-  assert.equal(await run(`document.querySelector('.knowledge-usage-switch').getAttribute('aria-checked')`),'false','A failed toggle does not show success')
-  await wait('!document.querySelector(".knowledge-usage-switch").disabled')
-  await pointerClick('.knowledge-usage-switch')
-  await wait(`document.querySelector('.knowledge-usage-switch').getAttribute('aria-checked')==='true'`)
-  assert.equal(await run('!!document.querySelector(".app-dialog")'),false,'Existing documents can be re-enabled directly')
+  await changeMode('readwrite'); await wait('!!document.querySelector(".el-message--error")'); await modeIs('off')
+  assert.equal((await readOnly.manage({action:'overview'})).targets[0].mode,'off','A failed mode change does not show success')
+  await changeMode('readonly'); await modeIs('readonly')
+  assert.equal(await run('!!document.querySelector(".app-dialog")'),false,'Existing documents can be enabled directly')
+  await changeMode('readwrite'); await modeIs('readwrite')
   await run('window.__knowledge.busy(true)')
-  assert.equal(await run('document.querySelector(".knowledge-usage-switch").disabled'),true,'In-flight AI context cannot be toggled')
+  assert.equal(await run('document.querySelector(".knowledge-mode-select").disabled'),true,'In-flight AI context cannot be changed')
   await run('window.__knowledge.busy(false)')
-  await run('window.__knowledge.scope("fixture-b")'); await wait('!!document.querySelector(".knowledge-usage-switch:not(:disabled)")')
-  await pointerClick('.knowledge-usage-switch'); await wait('!!document.querySelector(".app-dialog")')
+  await run('window.__knowledge.scope("fixture-b")'); await wait('!!document.querySelector(".knowledge-mode-select:not(:disabled)")')
+  await changeMode('readonly'); await wait('!!document.querySelector(".app-dialog")')
   await run('window.__knowledge.scope("fixture-a")'); await confirm(); await wait('!document.querySelector(".app-dialog")')
-  assert.equal((await service.access('fixture-b',1).manage({action:'overview'})).targets[0].enabled,false,'Stale consent cannot enable another server after a scope change')
+  assert.equal((await service.access('fixture-b',1).manage({action:'overview'})).targets[0].mode,'off','Stale consent cannot change another server after a scope change')
   await run('window.__knowledge.scope("fixture")'); await wait('!!document.querySelector(".knowledge-usage-summary")')
   assert.equal(await run('document.querySelector(".knowledge-usage-summary").textContent.trim()'),'知识 1/2')
   await pointerClick('.knowledge-usage-summary'); await wait('!!document.querySelector(".knowledge-panel h3")')
@@ -163,8 +174,8 @@ app.whenReady().then(async () => {
   await wait('!document.querySelector(".knowledge-panel")')
   await click('.tool-run-knowledge')
   await wait(`document.querySelector('.knowledge-panel h3')?.textContent==='deploy.md'`)
-  await click('.knowledge-toolbar > button')
-  await wait(`document.querySelector('.knowledge-toolbar > button').textContent==='启用知识库' && !document.querySelector('.knowledge-actions button').disabled`)
+  await changeMode('off'); await modeIs('off')
+  await wait(`!document.querySelector('.knowledge-actions button').disabled`)
   assert.equal(await run(`document.querySelector('.knowledge-panel h3').textContent`),'deploy.md','Disabling automatic use retains the selected document')
   await action(1); await edit('.knowledge-panel textarea','# Managed while disabled'); await action(1)
   await wait(`!document.querySelector('.knowledge-panel textarea') && document.querySelector('.knowledge-panel main').textContent.includes('Managed while disabled')`)
@@ -216,17 +227,16 @@ app.whenReady().then(async () => {
   await run('window.__knowledge.scope("fixture-b")')
   await wait('!document.querySelector(".knowledge-panel")')
   await click('.knowledge-trigger')
-  await wait('document.querySelectorAll(".knowledge-toolbar select option").length===1')
+  await wait('document.querySelectorAll(".knowledge-toolbar > select option").length===1')
   assert.ok(await run(`document.querySelector('.knowledge-toolbar select').textContent.includes('Server B')`))
   assert.equal(await run('document.querySelectorAll(".knowledge-doc").length'),0)
   assert.equal(await run('window.__knowledgeError || null'),null)
   await run(`window.__knowledgeBackend.invoke('migrate-legacy')`)
   await click('.knowledge-toolbar button:last-child')
   await wait(`document.querySelector('.knowledge-panel main').textContent.includes('Migrated service: /srv/app')`)
-  assert.equal(await run(`document.querySelector('.knowledge-usage-switch').getAttribute('aria-checked')`),'false','Migration keeps the knowledge switch off')
+  assert.equal(await run(`document.querySelector('.knowledge-mode-select').value`),'off','Migration keeps knowledge off')
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
-  await pointerClick('.knowledge-usage-switch')
-  await wait(`document.querySelector('.knowledge-usage-switch').getAttribute('aria-checked')==='true'`)
+  await changeMode('readonly'); await modeIs('readonly')
   assert.equal(await run('!!document.querySelector(".app-dialog")'),false,'Imported documents are managed by the same external switch')
   stage = 'checking knowledge counts in the actual sidebar composer'
   await window.loadURL(new URL('index.html', process.env.LITECONNECT_UI_TEST_URL).href)
@@ -245,7 +255,7 @@ app.whenReady().then(async () => {
     assert.ok(await run(`(() => {
       const trigger=document.querySelector('.ai-sidebar .knowledge-trigger'), strip=trigger.closest('.composer-context-strip');
       const button=trigger.getBoundingClientRect(), icon=trigger.querySelector('svg').getBoundingClientRect(), badge=trigger.querySelector('.knowledge-count')?.getBoundingClientRect();
-      const usage=strip.querySelector('.knowledge-usage-switch, .knowledge-usage-summary').getBoundingClientRect();
+      const usage=strip.querySelector('.knowledge-mode-field, .knowledge-usage-summary').getBoundingClientRect();
       return !strip.querySelector('.composer-context-menu, .composer-context-chips, .composer-add-image, input[type=file]') && icon.left>=button.left && icon.right<=button.right && (!badge || badge.left>=icon.right && badge.right<=button.right-1)
         && usage.left>=button.right+3 && strip.scrollWidth<=strip.clientWidth+1
         && (!${count} || trigger.title.includes('${count}') && trigger.getAttribute('aria-label').includes('${count}'));
@@ -261,6 +271,6 @@ app.whenReady().then(async () => {
   await pointerClick('.ai-sidebar .knowledge-trigger'); await wait('!!document.querySelector(".knowledge-panel")')
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await wait('document.activeElement?.classList.contains("knowledge-trigger")')
-  console.log(JSON.stringify({passed:true,layouts,closeCases,triggerLayouts,flows:['pointer close/titlebar safety/zoom','unsaved close cancel/confirm','enable consent/cancel','local SQLite storage','standalone memory without sources','per-record include choice without duplication','Markdown editing/import/export','optional source navigation/rename/deletion','revision conflict preserves draft','restore','server isolation','AI view locator','scope change','actual sidebar/workspace knowledge icon counts and click/focus'],artifacts}))
+  console.log(JSON.stringify({passed:true,layouts,closeCases,triggerLayouts,flows:['pointer close/titlebar safety/zoom','unsaved close cancel/confirm','three modes, consent/cancel and read-only enforcement','local SQLite storage','standalone memory without sources','per-record include choice without duplication','Markdown editing/import/export','optional source navigation/rename/deletion','revision conflict preserves draft','restore','server isolation','AI view locator','scope change','actual sidebar/workspace knowledge icon counts and click/focus'],artifacts}))
   clearTimeout(timeout); window.destroy(); database.close(); app.quit()
 }).catch(error=>{console.error(error,{artifacts});clearTimeout(timeout);if(window)window.destroy();database?.close();app.exit(1)})

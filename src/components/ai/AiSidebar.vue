@@ -19,7 +19,6 @@ import AiImageStrip from './AiImageStrip.vue'
 import AiToolApprovals from './AiToolApprovals.vue'
 import AiConversationMenu, { type AiConversationMenuItem } from './AiConversationMenu.vue'
 import AiBackgroundTasks from './AiBackgroundTasks.vue'
-import AiFileTransfers from './AiFileTransfers.vue'
 import AiUserQuestion from './AiUserQuestion.vue'
 import { useAiComposerImages } from '@/composables/ai/useAiComposerImages'
 import AiSettingsPanel from './AiSettingsPanel.vue'
@@ -562,9 +561,8 @@ async function runCodeToTerminal(code: string) {
     </div>
 
     <AiExecutionHistory v-if="showExecutionHistory && active" :messages="messages" :initial-record-key="executionRecordKey" :fallback-target="workspaceTargets?.length === 1 ? workspaceTargets[0].name : undefined" @close="showExecutionHistory = false" />
-    <AiBackgroundTasks v-show="!showSettings && !showHistory" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
-    <AiFileTransfers v-show="!showSettings && !showHistory" :key="reminderKey" :session-id="sessionId" :thread-id="getSessionState(sessionId).activeThreadId" :targets="workspaceTargets" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
+      <AiBackgroundTasks :key="reminderKey" :thread-id="getSessionState(sessionId).activeThreadId" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
       <AiChatView
         @view-execution="openExecutionHistory"
         @view-knowledge="openKnowledge"

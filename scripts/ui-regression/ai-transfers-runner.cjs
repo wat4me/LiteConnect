@@ -5,7 +5,7 @@ const path = require('node:path')
 const os = require('node:os')
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-ai-transfers-'))
 app.setPath('userData', path.join(artifacts, 'profile'))
-const timeout = setTimeout(() => { console.error('AI transfers UI timed out', { artifacts }); app.exit(1) }, 120_000)
+const timeout = setTimeout(() => { console.error('AI transfers UI timed out', { artifacts }); app.exit(1) }, 240_000)
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 1280, height: 1000, webPreferences: { contextIsolation: true, backgroundThrottling: false } })
   const run = code => win.webContents.executeJavaScript(code)
@@ -22,6 +22,12 @@ app.whenReady().then(async () => {
   const start = (id, direction = 'download', source = origin(), session = 'ssh-163') => emit('start', [session, id, `${id}-应用服务日志和归档文件-application-production.log`, `C:/Downloads/${id}.log`, direction, `/var/log/${id}.log`, 'file', source])
   const root = '.ai-image-composer-fixture'
   const panel = `${root} .ai-file-transfers`
+  const openTasks = async () => {
+    await wait(`!!document.querySelector('${root} .background-float-trigger')`)
+    await run(`(() => {const button=document.querySelector('${root} .background-float-trigger');if(button.getAttribute('aria-expanded')!=='true')button.click()})()`)
+    await wait(`!!document.querySelector('${root} .background-popover')`)
+    await wait(`!document.querySelector('${root} .background-popover').getAnimations({subtree:true}).length`)
+  }
   await win.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   await wait('!!window.__uiRegression')
   await run('window.__uiRegression.openImageComposer()')
@@ -42,11 +48,15 @@ app.whenReady().then(async () => {
   await start('old-thread', 'download', origin('image-fixture', 'older-thread'))
   // Ordinary file-panel events omit AI origin entirely.
   await emit('start', ['ssh-163', 'ordinary', 'ordinary.log', 'C:/ordinary.log', 'download', '/ordinary.log', 'file'])
-  await wait(`!!document.querySelector('${panel}')`)
-  await run(`document.querySelector('${panel} summary').click()`)
+  await openTasks()
   await wait(`document.querySelectorAll('${panel} .transfer-item').length===2`)
   assert.ok(await run(`document.querySelector('${panel}').textContent.includes('50%') && !!document.querySelector('${panel} .transfer-speed')`), 'Live byte progress and speed reuse the transfer list')
   assert.equal(await run(`document.querySelectorAll('${panel} .ai-transfer-group').length`), 2, 'Transfers identify their server and direction')
+  assert.equal(await run(`document.querySelectorAll('${root} .background-float-trigger').length`), 1, 'Uploads and downloads share a single floating task entry')
+  assert.equal(await run(`document.querySelector('${root} .background-float-count').textContent`), '2', 'The collapsed badge counts active transfers')
+  await run(`window.__uiRegression.setBackgroundJobs([{jobId:'transfer-concurrent-command',sessionId:'image-fixture',command:'sleep 30',status:'running',startedAt:Date.now()}])`)
+  await wait(`document.querySelector('${root} .background-float-count').textContent==='3'`)
+  assert.ok(await run(`document.querySelector('${root} .task-section-heading').textContent.includes('后台命令')&&document.querySelectorAll('${root} .background-float-trigger').length===1`), 'Concurrent background commands and transfers share one entry with distinct sections')
   let layouts = 0
   for (const theme of ['light', 'dark', 'eyecare']) {
     await run(`window.__uiRegression.setTheme('${theme}')`)
@@ -60,6 +70,7 @@ app.whenReady().then(async () => {
       layouts++
     }
   }
+  await run(`window.__uiRegression.setBackgroundJobs([])`)
   await run(`Array.from(document.querySelectorAll('${panel} .transfer-item')).find(row=>row.textContent.includes('download-')).querySelector('.transfer-action').click()`)
   await wait(`document.querySelector('${panel}').textContent.includes('已取消')`)
   assert.deepEqual(await run('window.__uiRegression.transferActions.cancelled'), ['download'])
@@ -71,12 +82,12 @@ app.whenReady().then(async () => {
   await run(`document.querySelector('${panel} .transfer-open-folder').click()`)
   assert.deepEqual(await run('window.__uiRegression.transferActions.opened'), ['C:/Downloads/finished-download.log'])
   await run(`window.__uiRegression.switchImageSession('other-fixture')`)
+  await openTasks()
   await wait(`document.querySelectorAll('${panel} .transfer-item').length===1`)
-  await run(`document.querySelector('${panel} summary').click()`)
   assert.ok(await run(`document.querySelector('${panel}').textContent.includes('other-')`), 'A shared SSH does not mix conversation transfers')
   await run(`window.__uiRegression.switchImageSession('image-fixture')`)
+  await openTasks()
   await wait(`!!document.querySelector('${panel} .transfer-clear-finished')`)
-  await run(`document.querySelector('${panel} summary').click()`)
   await run(`document.querySelector('${panel} .transfer-clear-finished').click()`)
   await wait(`!document.querySelector('${panel}')`)
   await start('offscreen')
@@ -84,11 +95,12 @@ app.whenReady().then(async () => {
   await emit('progress', ['ssh-163', 'offscreen', 8192, 8192])
   await emit('complete', ['ssh-163', 'offscreen', 'C:/Downloads/offscreen.log'])
   await run('window.__uiRegression.openImageComposer()')
+  await openTasks()
   await wait(`!!document.querySelector('${panel} .transfer-completed')`)
   assert.ok(await run(`document.querySelector('${panel}').textContent.includes('offscreen-')`), 'Progress listeners survive closing and reopening the AI view')
   await run('window.__uiRegression.resetQuestion(false);window.__uiRegression.showIntegratedQuestion(true)')
   await wait(`!!document.querySelector('${root} .ai-question-card')`)
-  await run(`document.querySelector('${panel} summary').click()`)
+  await openTasks()
   await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
   assert.ok(await run(`(()=>{const q=document.querySelector('${root} .ai-question-card').getBoundingClientRect(),body=document.querySelector('${root} .ai-body').getBoundingClientRect(),submit=document.querySelector('${root} .ai-question-card button[type="submit"]').getBoundingClientRect(),pane=document.querySelector('${root}').getBoundingClientRect();return q.top>=body.top-2 && submit.bottom<=pane.bottom+1})()`), 'Opening transfers leaves a pending answer and its submit action visible')
   // Upload conflicts are App-owned and remain actionable with the file/AI panels closed.

@@ -3,7 +3,7 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, w
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm } from '@/composables/app/useAppDialog'
-import { knowledgeAlwaysIncluded, KNOWLEDGE_MAX_BYTES, KNOWLEDGE_MEMORY_MAX_CHARS, KNOWLEDGE_MEMORY_MAX_ENTRIES, type KnowledgeMemoryEntry, type KnowledgeDocument, type KnowledgeDocumentInfo, type KnowledgeOverview, type KnowledgeRequest, type KnowledgeResponse } from '@shared/aiKnowledge'
+import { knowledgeAlwaysIncluded, knowledgeMode, KNOWLEDGE_MODES, KNOWLEDGE_MAX_BYTES, KNOWLEDGE_MEMORY_MAX_CHARS, KNOWLEDGE_MEMORY_MAX_ENTRIES, type KnowledgeMode, type KnowledgeMemoryEntry, type KnowledgeDocument, type KnowledgeDocumentInfo, type KnowledgeOverview, type KnowledgeRequest, type KnowledgeResponse } from '@shared/aiKnowledge'
 import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
 import AppIcon from '../icons/AppIcon.vue'
 
@@ -26,7 +26,12 @@ const count = computed(() => overview.value.targets.reduce((total, item) => tota
 const triggerLabel = computed(() => count.value ? t('ai.knowledge.documentCount', { count: count.value }) : t('ai.knowledge.title'))
 const singleTarget = computed(() => overview.value.targets.length === 1 ? overview.value.targets[0] : undefined)
 const enabledCount = computed(() => overview.value.targets.filter(server => server.enabled).length)
-const usageHint = computed(() => props.busy ? t('ai.knowledge.waitUntilIdle') : !overview.value.targets.length ? t('ai.knowledge.noServer') : t(singleTarget.value?.enabled ? 'ai.knowledge.usageOnHint' : 'ai.knowledge.usageOffHint'))
+const targetMode = computed(() => knowledgeMode(target.value))
+function modeHelp(server?: KnowledgeOverview['targets'][number]) {
+  return [t('ai.knowledge.modePurpose'), server ? t(`ai.knowledge.modeHint.${knowledgeMode(server)}`) : t('ai.knowledge.noServer'), t('ai.knowledge.modeScope'), props.busy ? t('ai.knowledge.waitUntilIdle') : ''].filter(Boolean).join('\n')
+}
+const usageHint = computed(() => modeHelp(singleTarget.value))
+const targetUsageHint = computed(() => modeHelp(target.value))
 const isMemory = computed(() => document.value?.id === 'memory')
 const usesMemoryEntries = computed(() => isMemory.value && memoryEntryMode.value)
 const sourceDocuments = computed(() => documents.value.filter(doc => doc.id !== 'memory'))
@@ -37,7 +42,7 @@ const oversize = computed(() => new TextEncoder().encode(content.value).length >
 const changed = computed(() => document.value && documents.value.find(item => item.id === document.value!.id)?.revision !== document.value.revision)
 function report(error: unknown) {
   const code = String(error instanceof Error ? error.message : error).match(/KNOWLEDGE_([A-Z_]+)/)?.[1] || 'UNAVAILABLE'
-  const message = t(`ai.knowledge.errors.${['CONFLICT', 'DISABLED', 'OUT_OF_SCOPE', 'NOT_FOUND', 'LIMIT', 'INVALID_INPUT', 'SOURCE_NOT_FOUND', 'MEMORY_ENTRIES_REQUIRED'].includes(code) ? code : 'UNAVAILABLE'}`)
+  const message = t(`ai.knowledge.errors.${['CONFLICT', 'DISABLED', 'READ_ONLY', 'OUT_OF_SCOPE', 'NOT_FOUND', 'LIMIT', 'INVALID_INPUT', 'SOURCE_NOT_FOUND', 'MEMORY_ENTRIES_REQUIRED'].includes(code) ? code : 'UNAVAILABLE'}`)
   if (open.value) errorMessage.value = message
   else ElMessage.error(message)
 }
@@ -106,16 +111,16 @@ async function close() {
   open.value = false; editing.value = false
   await nextTick(); (previousFocus?.isConnected ? previousFocus : trigger.value)?.focus()
 }
-async function enable(server = target.value) {
+async function setMode(mode: KnowledgeMode, server = target.value) {
   if (!server || pending.value || props.busy) return
   const version = generation, sessionId = props.sessionId, selectedId = document.value?.id
   pending.value = true
   try {
     if (!await mayLeave()) return
-    if (!server.enabled && !server.count) await appConfirm({ title: t('ai.knowledge.enableTitle'), message: t('ai.knowledge.enableNotice', { name: server.name }), detail: overview.value.storagePath,
+    if (mode !== 'off' && knowledgeMode(server) === 'off' && !server.count) await appConfirm({ title: t('ai.knowledge.enableTitle'), message: t('ai.knowledge.enableNotice', { name: server.name }), detail: overview.value.storagePath,
       confirmText: t('ai.knowledge.enable'), cancelText: t('common.cancel') })
     if (version !== generation || props.busy || overview.value.targets.find(item => item.connectionId === server.connectionId)?.binding !== server.binding) return
-    const response = await window.LiteConnect.aiKnowledge(sessionId, { action: 'enable', connectionId: server.connectionId, binding: server.binding, enabled: !server.enabled })
+    const response = await window.LiteConnect.aiKnowledge(sessionId, { action: 'setMode', connectionId: server.connectionId, binding: server.binding, mode })
     if (version !== generation || sessionId !== props.sessionId || !props.active) return
     overview.value = response
     errorMessage.value = ''
@@ -126,6 +131,11 @@ async function enable(server = target.value) {
     }
   } catch (error) { if (version === generation && error !== 'cancel' && error !== 'close') report(error) }
   finally { if (version === generation) pending.value = false }
+}
+async function changeMode(event: Event, server = target.value) {
+  const select = event.target as HTMLSelectElement
+  await setMode(select.value as KnowledgeMode, server)
+  select.value = knowledgeMode(overview.value.targets.find(item => item.connectionId === server?.connectionId))
 }
 async function create(importFile = false) {
   if (pending.value || !target.value || !await mayLeave()) return
@@ -198,7 +208,7 @@ async function refresh() {
   } catch (error) { report(error) } finally { if (version === generation) pending.value = false }
 }
 function trapFocus(event: KeyboardEvent) {
-  const controls = [...(panel.value?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select,summary') || [])].filter(el => el.checkVisibility())
+  const controls = [...(panel.value?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary') || [])].filter(el => el.checkVisibility())
   const first = controls[0], last = controls.at(-1)
   if (event.shiftKey && (globalThis.document.activeElement === first || !panel.value?.contains(globalThis.document.activeElement))) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && globalThis.document.activeElement === last) { event.preventDefault(); first?.focus() }
@@ -215,7 +225,7 @@ defineExpose({ show })
 <template>
   <span class="knowledge-controls">
     <button ref="trigger" type="button" class="knowledge-trigger" :title="triggerLabel" :aria-label="triggerLabel" aria-haspopup="dialog" :aria-expanded="open" @click="show()"><AppIcon name="file-text" size="sm" /><span v-if="count" class="knowledge-count" aria-hidden="true">{{ count > 99 ? '99+' : count }}</span></button>
-    <button v-if="singleTarget || !overview.targets.length" type="button" class="knowledge-usage-switch" role="switch" :aria-checked="!!singleTarget?.enabled" :aria-label="t('ai.knowledge.automaticUsage')" :title="usageHint" :disabled="!singleTarget || !active || pending || busy" @click="enable(singleTarget)"><span>{{ t('ai.knowledge.usage') }}</span><span class="knowledge-switch-track" aria-hidden="true"></span></button>
+    <label v-if="singleTarget || !overview.targets.length" class="knowledge-mode-field" :title="usageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="knowledgeMode(singleTarget)" :title="usageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="usageHint" :disabled="!singleTarget || !active || pending || busy" @change="changeMode($event, singleTarget)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
     <button v-else type="button" class="knowledge-usage-summary" :title="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" :aria-label="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">{{ t('ai.knowledge.usageEnabled', { enabled: enabledCount, total: overview.targets.length }) }}<AppIcon name="chevron-down" size="xs" /></button>
   </span>
   <Teleport to="body">
@@ -224,12 +234,13 @@ defineExpose({ show })
         <header><strong>{{ t('ai.knowledge.title') }}</strong><span class="knowledge-local">{{ t('ai.knowledge.local') }}</span><button type="button" class="ui-icon-btn" :aria-label="t('common.close')" @click="close"><AppIcon name="close" size="sm" /></button></header>
         <div class="knowledge-toolbar">
           <select :value="connectionId" :disabled="pending" :aria-label="t('ai.knowledge.server')" @change="changeServer"><option v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></select>
-          <button type="button" class="ui-btn ui-btn-sm" :disabled="!target || pending || busy" :title="busy ? t('ai.knowledge.waitUntilIdle') : undefined" @click="enable()">{{ t(target?.enabled ? 'ai.knowledge.disable' : 'ai.knowledge.enable') }}</button>
+          <label class="knowledge-mode-field" :title="targetUsageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="targetMode" :title="targetUsageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="targetUsageHint" :disabled="!target || pending || busy" @change="changeMode($event)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
           <button type="button" class="ui-icon-btn" :disabled="pending" :title="t('ai.knowledge.refresh')" :aria-label="t('ai.knowledge.refresh')" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
         </div>
         <p class="knowledge-notice">{{ t('ai.knowledge.storageNotice') }} <span :title="overview.storagePath">{{ overview.storagePath }}</span></p>
         <p v-if="!overview.targets.length" class="knowledge-notice">{{ t('ai.knowledge.noServer') }}</p>
         <p v-else-if="!target?.enabled" class="knowledge-notice">{{ t('ai.knowledge.disabledHint') }}</p>
+        <p v-else-if="targetMode === 'readonly'" class="knowledge-notice">{{ t('ai.knowledge.modeHint.readonly') }}</p>
         <p v-if="errorMessage" class="knowledge-error knowledge-notice" role="alert">{{ errorMessage }}</p>
         <div class="knowledge-body">
           <aside><div class="knowledge-create"><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create()">{{ t('ai.knowledge.new') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create(true)">{{ t('ai.knowledge.import') }}</button></div>
@@ -270,14 +281,13 @@ defineExpose({ show })
 
 <style scoped>
 .knowledge-controls { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; min-width: 0; }
-.knowledge-usage-switch, .knowledge-usage-summary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; height: var(--ai-composer-tool-size, 26px); padding: 0 3px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-caption); white-space: nowrap; cursor: pointer; }
-.knowledge-usage-switch:hover:not(:disabled), .knowledge-usage-summary:hover:not(:disabled) { background: var(--hover-bg); color: var(--text-primary); }
-.knowledge-usage-switch:focus-visible, .knowledge-usage-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.knowledge-usage-switch:disabled, .knowledge-usage-summary:disabled { opacity: .5; cursor: not-allowed; }
-.knowledge-switch-track { position: relative; width: 24px; height: 14px; flex-shrink: 0; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-tertiary); }
-.knowledge-switch-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary); }
-.knowledge-usage-switch[aria-checked="true"] .knowledge-switch-track { border-color: var(--accent); background: var(--accent); }
-.knowledge-usage-switch[aria-checked="true"] .knowledge-switch-track::after { transform: translateX(10px); background: #fff; }
+.knowledge-mode-field, .knowledge-usage-summary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-width: 0; height: var(--ai-composer-tool-size, 26px); padding: 0 3px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-caption); white-space: nowrap; }
+.knowledge-usage-summary { cursor: pointer; }
+.knowledge-usage-summary:hover:not(:disabled) { background: var(--hover-bg); color: var(--text-primary); }
+.knowledge-mode-select:focus-visible, .knowledge-usage-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.knowledge-mode-select:disabled, .knowledge-usage-summary:disabled { opacity: .5; cursor: not-allowed; }
+.knowledge-mode-field .knowledge-mode-select { flex: 0 0 auto; width: auto; min-width: 0; max-width: 120px; height: 100%; padding: 0 3px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.knowledge-toolbar .knowledge-mode-field { height: var(--control-h-sm); }
 .knowledge-trigger { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); box-sizing: border-box; padding: 0 5px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: var(--font-caption); line-height: 1; white-space: nowrap; cursor: pointer; }
 .knowledge-count { flex-shrink: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
 .knowledge-trigger:hover { color: var(--accent); border-color: var(--accent); }

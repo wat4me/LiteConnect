@@ -117,4 +117,26 @@ it('completes a conversation through tool loading, knowledge reads, approved sav
   expect(JSON.parse(fetcher.mock.calls[6][1].body).messages[0].content).toContain('This is a test environment.')
   expect(direct.toolRuns?.length || 0).toBe(0)
   expect(remote).not.toHaveBeenCalled()
+  await knowledge.manage({ action: 'setMode', connectionId: 'host-a', binding, mode: 'readonly' })
+  const beforeReadonly = structuredClone(records)
+  const firstReadonlyRequest = fetcher.mock.calls.length
+  fetcher.mockResolvedValueOnce(response('load_tools', { groups: ['file_transfer'] }))
+    .mockResolvedValueOnce(response('knowledge_read', { connectionId: 'host-a', documentId: source.id, risk: 'read', explanation: 'Read the saved deployment path.' }))
+    .mockResolvedValueOnce(response('knowledge_save', { connectionId: 'host-a', title: 'Unwanted note', content: 'Do not save', expectedRevision: 0, risk: 'write', explanation: 'Try to update read-only knowledge.' }))
+    .mockResolvedValueOnce(response())
+  const readonly = await runAiChatStream({ requestId: 'knowledge-frozen', settings: { ...settings, toolPermission: 'auto' }, messages: [{ role: 'user', content: 'Use existing knowledge without changing it.' }],
+    workspaceTargets: [{ ...targets[0], sessionId: 'd92f01d3-8124-4491-9104-b251e788d812' }], emit: () => {}, knowledge, sshMcpRuntime: { call: remote } as unknown as SshMcpRuntime,
+  })
+  const readonlyBodies = fetcher.mock.calls.slice(firstReadonlyRequest).map(([, init]) => JSON.parse(init.body))
+  expect(readonlyBodies.every(body => !body.tools.some((tool: { function: { name: string } }) => tool.function.name === 'knowledge_save'))).toBe(true)
+  expect(readonlyBodies[1].tools.some((tool: { function: { name: string } }) => tool.function.name === 'upload_file')).toBe(true)
+  expect(readonlyBodies[0].messages[0].content).toContain('This is a test environment.')
+  expect(readonly.toolRuns).toEqual([
+    expect.objectContaining({ name: 'load_tools', isError: false }),
+    expect.objectContaining({ name: 'knowledge_read', isError: false }),
+    expect.objectContaining({ name: 'knowledge_save', status: 'blocked' }),
+  ])
+  expect(records).toEqual(beforeReadonly)
+  expect(approved).toHaveBeenCalledOnce()
+  expect(remote).not.toHaveBeenCalled()
 })

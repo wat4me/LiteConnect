@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { AiKnowledgeService } from './knowledgeService'
+import { AiKnowledgeService, knowledgeStorageKey } from './knowledgeService'
 import type { KnowledgeRequest, KnowledgeTarget } from '../../../shared/aiKnowledge'
 import { clampToolResultForModel } from '../../../shared/mcp/toolResultClamp'
 
@@ -23,6 +23,63 @@ async function action(input: KnowledgeRequest) {
 }
 const signal = () => new AbortController().signal
 const enable = () => action({ action: 'enable', connectionId: 'a', enabled: true })
+
+it('maps legacy enabled flags to modes without rewriting existing knowledge on access', async () => {
+  const key = knowledgeStorageKey(server('a'))
+  records.set(key, { enabled: true, documents: [] })
+  const access = service.access('session', 1)
+  expect((await access.manage({ action: 'overview' })).targets[0]).toMatchObject({ enabled: true, mode: 'readwrite' })
+  expect(await access.tools!()).toContain('knowledge_save')
+  expect(records.get(key)).toEqual({ enabled: true, documents: [] })
+  records.set(key, { enabled: false, documents: [] })
+  expect((await access.manage({ action: 'overview' })).targets[0].mode).toBe('off')
+  expect(await access.tools!()).toEqual([])
+})
+
+it('keeps knowledge readable and included while blocking stale AI writes and retaining manual management', async () => {
+  await enable()
+  const doc = (await action({ action: 'save', connectionId: 'a', title: 'Service paths', content: 'Confirmed path: /srv/app', alwaysInclude: true, expectedRevision: 0 })).document!
+  // An already-running turn may have received the save schema before a mode change.
+  const access = service.access('session', 1)
+  await action({ action: 'setMode', connectionId: 'a', mode: 'readonly' })
+  const before = structuredClone(records)
+  expect(await access.tools!()).toEqual(['knowledge_search', 'knowledge_read'])
+  expect(await access.prompt()).toContain('Confirmed path: /srv/app')
+  expect(await access.prompt()).toContain('"mode":"readonly"')
+  expect((await access.call('knowledge_search', { connectionId: 'a', query: 'Confirmed path' }, signal())).isError).toBe(false)
+  expect((await access.call('knowledge_read', { connectionId: 'a', documentId: doc.id }, signal())).structuredContent).toMatchObject({ content: doc.content, revision: 1 })
+  for (const documentId of [undefined, doc.id, 'memory']) {
+    const result = await access.call('knowledge_save', { connectionId: 'a', documentId, title: 'Unexpected update', content: 'Do not save', expectedRevision: documentId ? 1 : 0 }, signal())
+    expect(result.structuredContent).toMatchObject({ code: 'KNOWLEDGE_READ_ONLY' })
+  }
+  expect(records).toEqual(before)
+  const edited = (await action({ action: 'save', connectionId: 'a', documentId: doc.id, title: doc.title, content: 'User path: /srv/manual', expectedRevision: 1 })).document!
+  expect(edited).toMatchObject({ author: 'user', revision: 2 })
+  expect((await action({ action: 'restore', connectionId: 'a', documentId: doc.id, revision: 1, expectedRevision: 2 })).document?.content).toBe(doc.content)
+  await action({ action: 'delete', connectionId: 'a', documentId: doc.id, expectedRevision: 3 })
+  expect((await service.access('session', 1).manage({ action: 'overview' })).targets[0].mode).toBe('readonly')
+  await action({ action: 'setMode', connectionId: 'a', mode: 'off' })
+  expect(await access.prompt()).toBe('')
+  expect(await access.tools!()).toEqual([])
+  expect((await access.call('knowledge_read', { connectionId: 'a', documentId: 'memory' }, signal())).structuredContent).toMatchObject({ code: 'KNOWLEDGE_DISABLED' })
+})
+
+it('enforces knowledge modes per server in a mixed workspace and restores writes only when enabled', async () => {
+  await action({ action: 'setMode', connectionId: 'a', mode: 'readonly' })
+  await action({ action: 'setMode', connectionId: 'b', mode: 'readwrite' })
+  const access = service.access('session', 1)
+  const save = (connectionId: string) => access.call('knowledge_save', { connectionId, title: 'Service', content: '/srv/app', expectedRevision: 0 }, signal())
+  expect(await access.tools!()).toContain('knowledge_save')
+  expect((await save('a')).structuredContent).toMatchObject({ code: 'KNOWLEDGE_READ_ONLY' })
+  expect((await save('b')).isError).toBe(false)
+  await action({ action: 'setMode', connectionId: 'b', mode: 'readonly' })
+  expect(await access.tools!()).not.toContain('knowledge_save')
+  expect((await save('b')).structuredContent).toMatchObject({ code: 'KNOWLEDGE_READ_ONLY' })
+  await action({ action: 'setMode', connectionId: 'b', mode: 'readwrite' })
+  expect((await save('b')).isError).toBe(false)
+  await expect(action({ action: 'setMode', connectionId: 'a', mode: 'invalid' as never })).rejects.toThrow('INVALID_INPUT')
+  expect((await access.manage({ action: 'overview' })).targets.map(target => target.mode)).toEqual(['readonly', 'readwrite'])
+})
 
 it('creates no records until explicit enablement and exposes no prompt or tool access while disabled', async () => {
   const access = service.access('session', 1)

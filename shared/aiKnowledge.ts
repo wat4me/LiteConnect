@@ -6,6 +6,12 @@ export type KnowledgeMemoryEntry = { text: string; documentIds: string[] }
 export type KnowledgeMemoryInput = { text: string; documentIds?: string[] }
 export const KNOWLEDGE_TOOLS = ['knowledge_search', 'knowledge_read', 'knowledge_save'] as const
 export type KnowledgeTool = typeof KNOWLEDGE_TOOLS[number]
+export const KNOWLEDGE_MODES = ['off', 'readonly', 'readwrite'] as const
+export type KnowledgeMode = typeof KNOWLEDGE_MODES[number]
+/** Older databases stored only enabled; retain their existing read/write behavior. */
+export function knowledgeMode(value?: { mode?: KnowledgeMode; enabled?: boolean }): KnowledgeMode {
+  return value?.mode && KNOWLEDGE_MODES.includes(value.mode) ? value.mode : value?.enabled ? 'readwrite' : 'off'
+}
 export type KnowledgeTarget = { connectionId: string; name: string; host: string; port: number; username: string }
 export type KnowledgeVersion = { revision: number; title: string; content: string; updatedAt: number; author: 'user' | 'ai'; memoryEntries?: KnowledgeMemoryEntry[]; alwaysInclude?: boolean }
 export type KnowledgeDocument = KnowledgeVersion & { id: string; history: KnowledgeVersion[] }
@@ -15,13 +21,14 @@ export function formatKnowledgeExport(document: Pick<KnowledgeDocument, 'content
 }
 export type KnowledgeDocumentInfo = Omit<KnowledgeVersion, 'content' | 'memoryEntries'> & { id: string }
 export type KnowledgeImportFile = { path: string; content: string }
-export type KnowledgeOverview = { storagePath: string; targets: Array<KnowledgeTarget & { enabled: boolean; count: number; binding: string }> }
+export type KnowledgeOverview = { storagePath: string; targets: Array<KnowledgeTarget & { enabled: boolean; mode?: KnowledgeMode; count: number; binding: string }> }
 export type KnowledgeRequest = {
-  action: 'overview' | 'list' | 'read' | 'enable' | 'save' | 'delete' | 'restore'
+  action: 'overview' | 'list' | 'read' | 'enable' | 'setMode' | 'save' | 'delete' | 'restore'
   connectionId?: string
   binding?: string
   documentId?: string
   enabled?: boolean
+  mode?: KnowledgeMode
   title?: string
   content?: string
   memoryEntries?: KnowledgeMemoryInput[]
@@ -33,6 +40,7 @@ export type KnowledgeResponse = KnowledgeOverview & { documents?: KnowledgeDocum
 export interface AiKnowledgeAccess {
   manage(input: KnowledgeRequest): Promise<KnowledgeResponse>
   prompt(): Promise<string>
+  tools?(): Promise<KnowledgeTool[]>
   call(name: KnowledgeTool, args: Record<string, unknown>, signal: AbortSignal): Promise<{ isError: boolean; content: string; structuredContent?: unknown }>
 }
 export function isKnowledgeTool(name: string): name is KnowledgeTool { return (KNOWLEDGE_TOOLS as readonly string[]).includes(name) }
