@@ -1,4 +1,6 @@
-import type { AiConversationThread, AiSessionStore, AiThreadSummary } from '@shared/types/ai'
+import type {
+  AiConversationSummary, AiConversationThread, AiSaveConversationPayload, AiSessionStore, AiThreadSummary,
+} from '@shared/types/ai'
 import type { AiSessionState, ChatItem } from '@/domain/ai/chat'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '@/i18n'
@@ -44,28 +46,42 @@ export function pruneEmptyThreadsLocal(store: AiSessionStore): void {
   }
 }
 
+/** Thread list and selection as reported by main; message bodies stay out of this path. */
+export function applyConversationSummary(state: AiSessionState, summary: AiConversationSummary) {
+  state.defaultContextFiles = summary.defaultContextFiles || []
+  const summaries: AiThreadSummary[] = summary.threads
+    .map((thread) => ({
+      ...thread,
+      title: thread.title || t('ai.newConversationTitle'),
+      pinned: thread.pinned === true,
+      active: thread.id === summary.activeThreadId,
+    }))
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
+
+  state.threads.splice(0, state.threads.length, ...summaries)
+  state.activeThreadId = summary.activeThreadId
+  const retainedThreads = new Set(summaries.map(thread => thread.id))
+  for (const [key, draft] of state.questionDrafts || []) {
+    if (!retainedThreads.has(draft.threadId)) state.questionDrafts!.delete(key)
+  }
+}
+
 export function syncThreadSummaries(state: AiSessionState, store: AiSessionStore) {
   pruneEmptyThreadsLocal(store)
-  state.defaultContextFiles = store.defaultContextFiles || []
-  const summaries: AiThreadSummary[] = store.threads
-    .map((thread) => ({
+  applyConversationSummary(state, {
+    activeThreadId: store.activeThreadId,
+    defaultContextFiles: store.defaultContextFiles || [],
+    threads: store.threads.map((thread) => ({
       id: thread.id,
-      title: thread.title || t('ai.newConversationTitle'),
+      title: thread.title,
       customTitle: thread.customTitle,
       pinned: thread.pinned === true,
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
       messageCount: thread.messages.length,
       active: thread.id === store.activeThreadId,
-    }))
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
-
-  state.threads.splice(0, state.threads.length, ...summaries)
-  state.activeThreadId = store.activeThreadId
-  const retainedThreads = new Set(summaries.map(thread => thread.id))
-  for (const [key, draft] of state.questionDrafts || []) {
-    if (!retainedThreads.has(draft.threadId)) state.questionDrafts!.delete(key)
-  }
+    })),
+  })
 }
 
 /**
@@ -157,6 +173,22 @@ export async function buildStoreFromState(
   return store
 }
 
+/** Everything main needs to replace one conversation, without the rest of the store. */
+export function conversationPayload(
+  state: AiSessionState,
+  invalidateContextCheckpoint = false,
+  selectThreadId?: string,
+): AiSaveConversationPayload {
+  return {
+    messages: state.messages.filter((m) => !m.streaming).map(toHistoryRecord),
+    ...(invalidateContextCheckpoint ? { invalidateContextCheckpoint: true } : {}),
+    ...(state.toolGroups?.length ? { toolGroups: [...state.toolGroups] } : {}),
+    ...(state.compactionCount ? { compactionCount: state.compactionCount } : {}),
+    ...(state.contextFiles.length ? { contextFiles: state.contextFiles.map((file) => ({ ...file })) } : {}),
+    ...(selectThreadId ? { selectThreadId } : {}),
+  }
+}
+
 export async function persistActiveThread(
   sessionId: string,
   invalidateContextCheckpoint = false,
@@ -164,9 +196,13 @@ export async function persistActiveThread(
   const state = getAiSessionState(sessionId)
   state.persisting = true
   try {
-    const store = await buildStoreFromState(sessionId, invalidateContextCheckpoint)
-    await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
-    syncThreadSummaries(state, store)
+    if (!state.activeThreadId) state.activeThreadId = createThreadId()
+    const result = await window.LiteConnect.aiSaveConversation(
+      sessionId,
+      state.activeThreadId,
+      cloneForIpc(conversationPayload(state, invalidateContextCheckpoint)),
+    )
+    applyConversationSummary(state, result)
     if (invalidateContextCheckpoint) state.contextCheckpoint = undefined
     return true
   } catch (err) {

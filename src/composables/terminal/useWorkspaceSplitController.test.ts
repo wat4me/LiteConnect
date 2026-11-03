@@ -23,8 +23,6 @@ function setup() {
   const splitVisible = ref(true)
   const primarySessionId = ref<string | null>('a1')
   const secondarySessionId = ref<string | null>('b1')
-  const sidebarVisible = ref(true)
-  const aiSidebarVisible = ref(false)
   const activeSessionId = computed(() => groups.value[0]?.activeSessionId ?? null)
   const getGroupBySessionId = (sessionId: string) =>
     groups.value.find((group) => group.sessions.some((session) => session.id === sessionId)) ?? null
@@ -38,8 +36,6 @@ function setup() {
     activeSessionId,
     primarySessionId,
     secondarySessionId,
-    sidebarVisible,
-    aiSidebarVisible,
     getGroupBySessionId,
     createSession: vi.fn(async () => null),
     closeSession,
@@ -50,7 +46,7 @@ function setup() {
     suspendSplit: () => { splitVisible.value = false },
     restoreSplit: () => { splitVisible.value = true },
   })
-  return { groups, splitVisible, primarySessionId, secondarySessionId, sidebarVisible, aiSidebarVisible, closeSession, controller }
+  return { groups, splitVisible, primarySessionId, secondarySessionId, closeSession, controller }
 }
 
 describe('useWorkspaceSplitController', () => {
@@ -72,47 +68,17 @@ describe('useWorkspaceSplitController', () => {
     expect(state.splitVisible.value).toBe(true)
   })
 
-  it('hides SFTP for a cross-host split and restores the prior preference', async () => {
+  it('tracks cross-host splits through suspend, restore and pane replacement', async () => {
     const state = setup()
+    expect(state.controller.isCrossHostSplit.value).toBe(true)
     state.splitVisible.value = false
     await nextTick()
-    state.sidebarVisible.value = true
+    expect(state.controller.isCrossHostSplit.value).toBe(false)
     state.splitVisible.value = true
     await nextTick()
     expect(state.controller.isCrossHostSplit.value).toBe(true)
-    expect(state.sidebarVisible.value).toBe(false)
-
-    state.splitVisible.value = false
-    await nextTick()
-    expect(state.sidebarVisible.value).toBe(true)
-  })
-
-  it('hides AI while a split is on screen and restores the previous choice', async () => {
-    const state = setup()
     state.secondarySessionId.value = 'a2'
-    state.splitVisible.value = false
-    await nextTick()
-    state.aiSidebarVisible.value = true
-    state.splitVisible.value = true
     await nextTick()
     expect(state.controller.isCrossHostSplit.value).toBe(false)
-    expect(state.aiSidebarVisible.value).toBe(false)
-
-    state.splitVisible.value = false
-    await nextTick()
-    expect(state.aiSidebarVisible.value).toBe(true)
-  })
-
-  it('leaves AI closed when it was closed before the split', async () => {
-    const state = setup()
-    state.splitVisible.value = false
-    await nextTick()
-    state.aiSidebarVisible.value = false
-    state.splitVisible.value = true
-    await nextTick()
-    expect(state.aiSidebarVisible.value).toBe(false)
-    state.splitVisible.value = false
-    await nextTick()
-    expect(state.aiSidebarVisible.value).toBe(false)
   })
 })

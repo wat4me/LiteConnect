@@ -56,6 +56,7 @@ export async function runAiChatStream(opts: {
   knowledge?: AiKnowledgeAccess
   onBackgroundJobsStarted?: (jobIds: string[]) => void
   onBackgroundJobCollected?: (jobId: string) => void
+  scheduleBackgroundJob?: Parameters<typeof executeAiToolCall>[1]['scheduleBackgroundJob']
   pendingBackgroundResults?: () => { notice: string; acknowledge: () => void } | undefined
   persistBackgroundResults?: (notice: string, apiMessages: AiChatMessage[]) => Promise<void>
   foregroundOnly?: boolean
@@ -354,6 +355,7 @@ export async function runAiChatStream(opts: {
           onToolApprovalRequested: opts.onToolApprovalRequested,
           onBackgroundJobsStarted: opts.onBackgroundJobsStarted,
           onBackgroundJobCollected: opts.onBackgroundJobCollected,
+          scheduleBackgroundJob: opts.scheduleBackgroundJob,
         })
         if (!result) break
         toolRuns.push(result.run)

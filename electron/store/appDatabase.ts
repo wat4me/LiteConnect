@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync } from 'fs'
 import { readFile, readdir, rename } from 'fs/promises'
 import { basename, join } from 'path'
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 
 export const DB_FILE_NAME = 'liteconnect.sqlite'
 
@@ -23,7 +23,9 @@ export const SINGLETONS = {
 const AI_SESSION_PREFIX = 'ai-session:'
 const RENDERER_STATE_PREFIX = 'renderer-state:'
 const LEGACY_MIGRATION_ID = 'legacy-json-v1'
-const CURRENT_SCHEMA_VERSION = 1
+const CURRENT_SCHEMA_VERSION = 2
+/** MCP audit rows beyond this count are dropped oldest-first on every append. */
+export const MCP_AUDIT_MAX_ROWS = 5000
 
 type JsonObject = Record<string, unknown>
 
@@ -40,18 +42,33 @@ export class AppDatabase {
   private closed = false
   get isOpen(): boolean { return !this.closed }
   private transactionDepth = 0
+  private readonly singletonVersions = new Map<string, number>()
+  private rollbackVersion = 0
+  private readonly statements = new Map<string, StatementSync>()
 
   constructor(filePath: string) {
     this.db = new DatabaseSync(filePath)
     this.db.exec('PRAGMA journal_mode = WAL')
-    this.db.exec('PRAGMA synchronous = FULL')
+    // WAL with NORMAL survives application crashes without an fsync per commit;
+    // only an OS crash or power loss can lose the most recent commits.
+    this.db.exec('PRAGMA synchronous = NORMAL')
     this.db.exec('PRAGMA foreign_keys = ON')
     this.db.exec('PRAGMA busy_timeout = 5000')
     this.createSchema()
   }
 
+  /** One parse per SQL text; node:sqlite resets a statement after each get/all/run. */
+  private statement(sql: string): StatementSync {
+    let prepared = this.statements.get(sql)
+    if (!prepared) {
+      prepared = this.db.prepare(sql)
+      this.statements.set(sql, prepared)
+    }
+    return prepared
+  }
+
   private createSchema(): void {
-    const row = this.db.prepare('PRAGMA user_version').get() as { user_version: number }
+    const row = this.statement('PRAGMA user_version').get() as { user_version: number }
     const version = Number(row.user_version)
     if (version > CURRENT_SCHEMA_VERSION) {
       throw new Error(`Database schema ${version} is newer than this app supports`)
@@ -101,6 +118,7 @@ export class AppDatabase {
       return result
     } catch (error) {
       this.db.exec('ROLLBACK')
+      this.rollbackVersion++
       throw error
     } finally {
       this.transactionDepth--
@@ -108,17 +126,46 @@ export class AppDatabase {
   }
 
   getCollection<T>(collection: string): T[] {
-    const rows = this.db
-      .prepare('SELECT data_json FROM documents WHERE collection = ? ORDER BY sort_order, id')
+    const rows = this.statement('SELECT data_json FROM documents WHERE collection = ? ORDER BY sort_order, id')
       .all(collection) as Array<{ data_json: string }>
     return rows.map((row) => JSON.parse(row.data_json) as T)
   }
 
   countCollection(collection: string): number {
-    const row = this.db
-      .prepare('SELECT COUNT(*) AS count FROM documents WHERE collection = ?')
+    const row = this.statement('SELECT COUNT(*) AS count FROM documents WHERE collection = ?')
       .get(collection) as { count: number }
     return Number(row.count)
+  }
+
+  getDocument<T>(collection: string, id: string): T | undefined {
+    const row = this.statement('SELECT data_json FROM documents WHERE collection = ? AND id = ?').get(collection, id) as { data_json: string } | undefined
+    return row ? JSON.parse(row.data_json) as T : undefined
+  }
+
+  setDocument(collection: string, id: string, value: unknown, sortOrder = 0): void {
+    this.statement(`INSERT INTO documents(collection, id, sort_order, updated_at, data_json) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(collection, id) DO UPDATE SET sort_order=excluded.sort_order, updated_at=excluded.updated_at, data_json=excluded.data_json`)
+      .run(collection, id, sortOrder, Date.now(), JSON.stringify(value))
+  }
+
+  deleteDocument(collection: string, id: string): void {
+    this.statement('DELETE FROM documents WHERE collection = ? AND id = ?').run(collection, id)
+  }
+
+  listCollections(prefix: string): string[] {
+    const rows = this.statement("SELECT DISTINCT collection FROM documents WHERE collection LIKE ? ESCAPE '\\' ORDER BY collection")
+      .all(`${escapeLike(prefix)}%`) as Array<{ collection: string }>
+    return rows.map((row) => row.collection)
+  }
+
+  deleteCollection(collection: string): void {
+    this.statement('DELETE FROM documents WHERE collection = ?').run(collection)
+  }
+
+  /** Local writes, external SQLite commits and rollbacks all invalidate metadata caches. */
+  getSingletonRevision(key: string): string {
+    const row = this.statement('PRAGMA data_version').get() as { data_version: number }
+    return `${this.rollbackVersion}:${row.data_version}:${this.singletonVersions.get(key) || 0}`
   }
 
   replaceCollection<T>(
@@ -127,11 +174,10 @@ export class AppDatabase {
     getId: (value: T, index: number) => string,
   ): void {
     this.transaction(() => {
-      const existingRows = this.db
-        .prepare('SELECT id FROM documents WHERE collection = ?')
+      const existingRows = this.statement('SELECT id FROM documents WHERE collection = ?')
         .all(collection) as Array<{ id: string }>
       const retainedIds = new Set<string>()
-      const upsert = this.db.prepare(`
+      const upsert = this.statement(`
         INSERT INTO documents(collection, id, sort_order, updated_at, data_json)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(collection, id) DO UPDATE SET
@@ -149,7 +195,7 @@ export class AppDatabase {
         retainedIds.add(id)
         upsert.run(collection, id, index, now, JSON.stringify(value))
       })
-      const remove = this.db.prepare('DELETE FROM documents WHERE collection = ? AND id = ?')
+      const remove = this.statement('DELETE FROM documents WHERE collection = ? AND id = ?')
       for (const row of existingRows) {
         if (!retainedIds.has(row.id)) remove.run(collection, row.id)
       }
@@ -157,65 +203,68 @@ export class AppDatabase {
   }
 
   getSingleton<T>(key: string): T | undefined {
-    const row = this.db
-      .prepare('SELECT data_json FROM singletons WHERE key = ?')
+    const row = this.statement('SELECT data_json FROM singletons WHERE key = ?')
       .get(key) as { data_json: string } | undefined
     return row ? (JSON.parse(row.data_json) as T) : undefined
   }
 
   hasSingleton(key: string): boolean {
-    return Boolean(this.db.prepare('SELECT 1 AS ok FROM singletons WHERE key = ?').get(key))
+    return Boolean(this.statement('SELECT 1 AS ok FROM singletons WHERE key = ?').get(key))
   }
 
   setSingleton(key: string, value: unknown): void {
-    this.db.prepare(`
+    this.statement(`
       INSERT INTO singletons(key, updated_at, data_json)
       VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET
         updated_at = excluded.updated_at,
         data_json = excluded.data_json
     `).run(key, Date.now(), JSON.stringify(value))
+    this.singletonVersions.set(key, (this.singletonVersions.get(key) || 0) + 1)
   }
 
   listSingletonKeys(prefix: string): string[] {
-    const rows = this.db
-      .prepare("SELECT key FROM singletons WHERE key LIKE ? ESCAPE '\\' ORDER BY key")
+    const rows = this.statement("SELECT key FROM singletons WHERE key LIKE ? ESCAPE '\\' ORDER BY key")
       .all(`${escapeLike(prefix)}%`) as Array<{ key: string }>
     return rows.map((row) => row.key)
   }
 
   deleteSingleton(key: string): void {
-    this.db.prepare('DELETE FROM singletons WHERE key = ?').run(key)
+    this.statement('DELETE FROM singletons WHERE key = ?').run(key)
+    this.singletonVersions.set(key, (this.singletonVersions.get(key) || 0) + 1)
   }
 
   appendMcpAudit(event: unknown, timestamp = Date.now()): void {
-    this.db.prepare('INSERT INTO mcp_audit(ts, data_json) VALUES (?, ?)')
+    this.statement('INSERT INTO mcp_audit(ts, data_json) VALUES (?, ?)')
       .run(timestamp, JSON.stringify(event))
+    this.statement('DELETE FROM mcp_audit WHERE id <= (SELECT id FROM mcp_audit ORDER BY id DESC LIMIT 1 OFFSET ?)')
+      .run(MCP_AUDIT_MAX_ROWS)
   }
 
   listMcpAudit(): unknown[] {
-    const rows = this.db.prepare('SELECT data_json FROM mcp_audit ORDER BY id')
+    const rows = this.statement('SELECT data_json FROM mcp_audit ORDER BY id')
       .all() as Array<{ data_json: string }>
     return rows.map((row) => JSON.parse(row.data_json))
   }
 
   countMcpAudit(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS count FROM mcp_audit').get() as { count: number }
+    const row = this.statement('SELECT COUNT(*) AS count FROM mcp_audit').get() as { count: number }
     return Number(row.count)
   }
 
   hasMigration(id: string): boolean {
-    return Boolean(this.db.prepare('SELECT 1 AS ok FROM data_migrations WHERE id = ?').get(id))
+    return Boolean(this.statement('SELECT 1 AS ok FROM data_migrations WHERE id = ?').get(id))
   }
 
   markMigration(id: string): void {
-    this.db.prepare('INSERT OR IGNORE INTO data_migrations(id, applied_at) VALUES (?, ?)')
+    this.statement('INSERT OR IGNORE INTO data_migrations(id, applied_at) VALUES (?, ?)')
       .run(id, Date.now())
   }
 
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.statements.clear()
     this.db.close()
   }
 }

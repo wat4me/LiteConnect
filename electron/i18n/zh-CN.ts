@@ -9,6 +9,7 @@ import sharedText from '../../shared/i18n/zh-CN'
 
 export default {
   ...sharedText,
+  knowledgeGroup: { target: '组知识 · {name}（{count} 台成员）' },
   toolPolicy: {
     classReadOnly: '只读', classSafe: '会改动状态', classDestructive: '破坏性', classPrivileged: '提权', classForbidden: '高危',
     riskRead: '只读', riskWrite: '修改', riskPrivileged: '提权',
@@ -236,6 +237,8 @@ export default {
     dockerRequestTimeout: 'Docker 检测超时：经 SSH 转发访问 Docker API 未在时限内响应。请确认网络与远端 Docker 状态后刷新。',
     dockerRequestFailed: 'Docker 检测请求失败：经 SSH 转发调用 Docker API 出错。请确认 SSH 仍连接后刷新重试。',
     scheduleClosedInterrupted: '应用关闭，执行已中断。',
+    deferredJobClosedInterrupted: '应用关闭时预约命令正在执行，结果已丢失。',
+    deferredJobExpired: '预约已过期：到期后 {hours} 小时内主机没有可用连接，命令未执行。',
     scheduleClosedNotifyUnconfirmed: '应用关闭，未确认通知送达。',
     scheduleTimedOut: '巡检超过 10 分钟，已中断。',
     schedulePartialFailure: '部分主机或巡检工具未能执行，请查看执行详情。',

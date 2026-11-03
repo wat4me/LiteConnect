@@ -8,6 +8,7 @@ import sharedText from '../../shared/i18n/en-US'
 
 export default {
   ...sharedText,
+  knowledgeGroup: { target: 'Group knowledge · {name} ({count} members)' },
   toolPolicy: {
     classReadOnly: 'read-only', classSafe: 'state-changing', classDestructive: 'destructive', classPrivileged: 'privileged', classForbidden: 'high risk',
     riskRead: 'read-only', riskWrite: 'write', riskPrivileged: 'privileged',
@@ -235,6 +236,8 @@ export default {
     dockerRequestTimeout: 'Docker detection timed out: the Docker API through the SSH forward did not respond in time. Check the network and the remote Docker status, then refresh.',
     dockerRequestFailed: 'Docker detection failed: the Docker API call through the SSH forward returned an error. Confirm SSH is still connected, then refresh and try again.',
     scheduleClosedInterrupted: 'The app closed, so the check was stopped.',
+    deferredJobClosedInterrupted: 'The app closed while the scheduled command was running; its result was lost.',
+    deferredJobExpired: 'The scheduled command expired: no session was available within {hours} hours of its due time, so it did not run.',
     scheduleClosedNotifyUnconfirmed: 'The app closed before notification delivery was confirmed.',
     scheduleTimedOut: 'The check ran longer than 10 minutes and was stopped.',
     schedulePartialFailure: 'Some hosts or check tools did not finish. See the run details.',

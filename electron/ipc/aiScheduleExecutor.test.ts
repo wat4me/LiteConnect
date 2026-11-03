@@ -3,7 +3,7 @@ import { createScheduleExecutor } from './aiScheduleExecutor'
 import type { AiSchedule } from '../../shared/aiSchedules'
 
 const mocks = vi.hoisted(() => ({ write: vi.fn(async (_id?: string, _store?: unknown) => {}), remove: vi.fn() }))
-vi.mock('../ai/history/historyStore', () => ({ writeAiSessionStore: mocks.write }))
+vi.mock('../ai/history/historyStore', () => ({ writeAiSessionStore: mocks.write, deleteAiHistory: mocks.remove }))
 vi.mock('../store/appDatabase', () => ({ aiSessionKey: (id: string) => `ai-session:${id}`, getAppDatabase: () => ({ deleteSingleton: mocks.remove }) }))
 beforeEach(() => vi.clearAllMocks())
 const plan: AiSchedule = { id: 'plan', name: '巡检', connectionId: 'host', prompt: 'inspect', intervalMinutes: 60, enabled: true, nextRunAt: 1, createdAt: 1, updatedAt: 1 }
@@ -19,7 +19,7 @@ it('uses an isolated read-only automation identity and foreground-only execution
   expect(await execute(plan, 'run', signal.signal)).toMatchObject({ content: 'healthy' })
   expect(service.run).toHaveBeenCalledWith(expect.objectContaining({ owner: expect.objectContaining({ id: 'schedule:run', kind: 'automation' }), foregroundOnly: true, historyId: 'schedule:run', target: expect.objectContaining({ sessionId: 'dedicated' }) }))
   expect(ssh.disconnect).toHaveBeenCalledWith('dedicated')
-  expect(mocks.remove).toHaveBeenCalledWith('ai-session:schedule:run')
+  expect(mocks.remove).toHaveBeenCalledWith('schedule:run')
 })
 
 it('passes the plan-resolved model config into automation execution', async () => {

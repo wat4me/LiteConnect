@@ -4,8 +4,7 @@ import { aiScheduleHasToolFailure, type AiSchedule, type AiScheduleExecutionResu
 import type { AiExecutionService } from '../ai/execution/executionService'
 import type { SSHManager } from '../ssh/manager'
 import type { CredentialStore } from '../store/credentialStore'
-import { writeAiSessionStore } from '../ai/history/historyStore'
-import { aiSessionKey, getAppDatabase } from '../store/appDatabase'
+import { deleteAiHistory, writeAiSessionStore } from '../ai/history/historyStore'
 import { formatToolRunDisplay, parseJsonValue } from '../../shared/aiToolRunDisplay'
 import { orchestrateInspection, scheduleHealth } from '../ai/schedules/orchestrator'
 import { runAiChatCompletion } from '../ai/execution/chatCompletion'
@@ -82,7 +81,7 @@ export function createScheduleExecutor(service: AiExecutionService, ssh: SSHMana
       if (sessionId) ssh.disconnect(sessionId)
       // Quit can close storage before an aborted provider finishes unwinding.
       // Startup also clears any temporary histories left by an interrupted run.
-      try { getAppDatabase().deleteSingleton(aiSessionKey(historyId)) } catch (error) { if (!signal.aborted) throw error }
+      try { deleteAiHistory(historyId) } catch (error) { if (!signal.aborted) throw error }
     }
   }
   return async (plan: AiSchedule, runId: string, signal: AbortSignal, progress?: (hosts: AiScheduleHostRun[]) => void) => {

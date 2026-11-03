@@ -17,7 +17,15 @@ import { aggregateAiUsage } from '../../../shared/aiUsage'
 import { readAiCommandResult } from '../../../shared/aiCommandResult'
 import type { SshMcpJobResult } from '../../../shared/mcp/types'
 import type { AiUsage } from '../../../shared/types/ai'
-import type { AiKnowledgeAccess } from '../../../shared/aiKnowledge'
+import type { AiKnowledgeAccess, KnowledgeRequest, KnowledgeResponse } from '../../../shared/aiKnowledge'
+import type { KnowledgeGroupRequest, KnowledgeGroupResponse } from '../../../shared/aiKnowledgeGroups'
+import type { AiScheduledExecInput } from '../tools/toolExecutionContext'
+import type { AiDeferredJobInput } from '../schedules/deferredJobs'
+
+/** The deferred-job service, attached after construction because it also calls back into execution. */
+export interface AiDeferredJobScheduler {
+  schedule(input: AiDeferredJobInput): { id: string; dueAt: number }
+}
 
 export type AiExecutionOwner = {
   /** A transport identity for interactive clients, or a stable automation identity. */
@@ -66,8 +74,12 @@ export interface AiExecutionPorts {
   }
   workspaceOwned?: (sessionId: string, ownerId: number | string) => boolean
   workspaceTargets?: (sessionId: string, ownerId: number | string) => AiWorkspaceTarget[] | undefined
+  /** The window that owns a connected SSH session; scheduled results are delivered there. */
+  sessionOwner?: (sessionId: string) => number | undefined
   runtime?: SshMcpRuntime
   knowledge?: (sessionId: string, owner: number | string) => AiKnowledgeAccess
+  knowledgeGroups?: (input: KnowledgeGroupRequest) => KnowledgeGroupResponse
+  groupKnowledge?: (groupId: string, input: KnowledgeRequest) => Promise<KnowledgeResponse>
   onError?: (error: unknown) => void
 }
 
@@ -83,6 +95,7 @@ export class AiExecutionService {
   private readonly active = new Map<string, { owner: AiExecutionOwner; event: AiExecutionEvent; done: Promise<void> }>()
   private readonly jobs: AiBackgroundJobs
   private readonly unsubscribeJobs?: () => void
+  private deferredJobs?: AiDeferredJobScheduler
   private disposed = false
   private persistenceClosed = false
 
@@ -152,6 +165,42 @@ export class AiExecutionService {
     } catch { return false }
   }
 
+  attachDeferredJobs(scheduler: AiDeferredJobScheduler) {
+    this.deferredJobs = scheduler
+  }
+
+  private scheduleDeferredJob(request: AiExecutionRequest, input: AiScheduledExecInput): { jobId: string; dueAt: number } {
+    const scheduler = this.deferredJobs
+    if (!scheduler || this.disposed) throw new Error('SCHEDULE_UNAVAILABLE')
+    const snapshot = this.ports.runtime?.getSessionSnapshot(input.sessionId)
+    if (!snapshot) throw new Error('SESSION_NOT_FOUND')
+    const job = scheduler.schedule({
+      historyId: request.historyId, threadId: request.target.threadId, sessionId: input.sessionId,
+      connectionId: snapshot.connectionId, connectionName: snapshot.connectionName,
+      command: input.command, stdin: input.stdin, jobTimeoutMs: input.jobTimeoutMs, startAfterMs: input.startAfterMs,
+      note: input.note, risk: input.risk, class: input.class,
+    })
+    return { jobId: job.id, dueAt: job.dueAt }
+  }
+
+  /** A due job runs on whichever session is open; deliver its result to the window owning that session. */
+  bindDeferredJob(input: { jobId: string; sessionId: string; historyId: string; threadId: string }): boolean {
+    if (this.disposed) return false
+    const ownerId = this.ports.sessionOwner?.(input.sessionId)
+    const destination = ownerId === undefined ? undefined : this.owners.get(ownerId)
+    if (ownerId === undefined || !destination || destination.owner.isAlive?.() === false) {
+      this.jobs.unbind(input.jobId)
+      return false
+    }
+    return this.jobs.rebind(input.jobId, { historyId: input.historyId, threadId: input.threadId, sessionId: input.sessionId, ownerId })
+  }
+
+  /** No window owned the session when a scheduled job settled: keep the result in the conversation for later. */
+  async recordDeferredJobResult(binding: { historyId: string; threadId: string; sessionId: string }, job: SshMcpJobResult): Promise<void> {
+    const ownerId = this.ports.sessionOwner?.(binding.sessionId) ?? `deferred:${job.jobId}`
+    await this.recordCancelledJob({ historyId: binding.historyId, threadId: binding.threadId, sessionId: binding.sessionId, ownerId }, job)
+  }
+
   selectConversation(ownerId: number | string, sessionId: string, threadId?: string) {
     if (this.disposed) return
     if (threadId) this.selections.set(selectionKey(ownerId, sessionId), { ownerId, threadId })
@@ -167,6 +216,16 @@ export class AiExecutionService {
     const access = this.prepareKnowledge(sessionId, owner)
     if (!access) throw new Error('KNOWLEDGE_UNAVAILABLE')
     return access
+  }
+
+  knowledgeGroups(input: KnowledgeGroupRequest) {
+    if (this.disposed || !this.ports.knowledgeGroups) throw new Error('KNOWLEDGE_UNAVAILABLE')
+    return this.ports.knowledgeGroups(input)
+  }
+
+  groupKnowledge(groupId: string, input: KnowledgeRequest) {
+    if (this.disposed || !this.ports.groupKnowledge) throw new Error('KNOWLEDGE_UNAVAILABLE')
+    return this.ports.groupKnowledge(groupId, input)
   }
 
   async run(request: AiExecutionRequest, observer?: AiExecutionObserver): Promise<AiChatResult> {
@@ -274,6 +333,8 @@ export class AiExecutionService {
               if (!this.disposed && this.owners.has(owner.id)) this.jobs.bind(this.jobOwner(request, workspaceTargets), ids)
             },
             onBackgroundJobCollected: id => this.jobs.collected(id, this.jobOwner(request, workspaceTargets)),
+            scheduleBackgroundJob: this.deferredJobs && owner.kind === 'interactive' && !request.foregroundOnly && !workspaceTargets
+              ? async input => this.scheduleDeferredJob(request, input) : undefined,
             pendingBackgroundResults: () => {
               const jobOwner = this.jobOwner(request, workspaceTargets)
               const jobs = this.jobs.pendingFor(jobOwner)

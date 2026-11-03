@@ -23,6 +23,7 @@ import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
 import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
+import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -985,6 +986,7 @@ export class SettingsStore {
   getAll(): SettingsAll {
     const bg = this.getAppBackground()
     return {
+      sshWorkspaceLayout: normalizeWorkspaceLayout(this.settings.sshWorkspaceLayout),
       theme: this.getTheme(),
       customColors: this.getCustomColors(),
       downloadPath: this.getDownloadPath(),

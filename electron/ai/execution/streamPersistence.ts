@@ -21,7 +21,7 @@ export async function runPersistedAiReply(opts: {
     segments: [],
     toolRuns: [],
   }
-  const save = () => opts.save(JSON.parse(JSON.stringify(record)) as AiHistoryRecord)
+  const save = () => opts.save(structuredClone(record))
   const checkpoint = createAssistantCheckpoint(save)
   const append = (kind: 'content' | 'reasoning', text: string) => {
     const segments = record.segments!

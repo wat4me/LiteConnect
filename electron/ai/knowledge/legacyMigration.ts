@@ -1,14 +1,15 @@
 import { createHash } from 'node:crypto'
-import type { AppDatabase } from '../../store/appDatabase'
 import { KNOWLEDGE_MAX_BYTES, type KnowledgeTarget } from '../../../shared/aiKnowledge'
-import { knowledgeIndex, knowledgeStorageKey, type KnowledgeState } from './knowledgeService'
+import { knowledgeStorageKey } from './knowledgeIdentity'
+import { KnowledgeRepository, type KnowledgeDatabase } from './knowledgeRepository'
 
-type Database = Pick<AppDatabase, 'getSingleton' | 'setSingleton' | 'transaction'>
+type Database = KnowledgeDatabase
 const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 
 /** One-time local import. Legacy snapshots remain as recovery data, never model context. */
 export function migrateLegacyKnowledge(database: Database, server: KnowledgeTarget, sources: Array<{ id: string; raw?: unknown; read?: () => unknown }>) {
   const key = knowledgeStorageKey(server)
+  const repository = new KnowledgeRepository(() => database)
   for (const source of sources) {
     const marker = `ai-knowledge-import-v1:${digest(`${key}:${source.id}`)}`
     if (database.getSingleton(marker)) continue
@@ -22,21 +23,21 @@ export function migrateLegacyKnowledge(database: Database, server: KnowledgeTarg
     if (!candidates.length) { database.setSingleton(marker, { completedAt: Date.now() }); continue }
     database.transaction(() => {
       if (database.getSingleton(marker)) return
-      const saved = database.getSingleton<KnowledgeState>(key) || { enabled: false, documents: [] }
-      const contentHashes = new Set(saved.documents.map(doc => digest(doc.content)))
+      const documents = repository.current(key)
+      const contentHashes = new Set(documents.map(doc => digest(doc.content)))
       for (const file of candidates) {
         const hash = digest(file.content)
         if (contentHashes.has(hash)) continue
         const base = (file.path.split(/[\\/]/).pop() || 'Imported.md').replace(/[\0\r\n]/g, ' ').trim().slice(0, 110) || 'Imported.md'
         let title = base, number = 2
-        while (saved.documents.some(doc => doc.title === title)) title = `${base} (${number++})`
+        while (documents.some(doc => doc.title === title)) title = `${base} (${number++})`
         // Migration may exceed the normal creation cap: never discard existing user content.
-        saved.documents.push({ id: `legacy-${digest(`${source.id}:${file.path}:${hash}`).slice(0, 32)}`, title,
-          content: file.content, revision: 1, author: 'user', updatedAt: Date.now(), history: [], alwaysInclude: false })
+        const document = { id: `legacy-${digest(`${source.id}:${file.path}:${hash}`).slice(0, 32)}`, title,
+          content: file.content, revision: 1, author: 'user' as const, updatedAt: Date.now(), history: [], alwaysInclude: false }
+        repository.save(key, document)
+        documents.push(document)
         contentHashes.add(hash)
       }
-      database.setSingleton(key, saved)
-      database.setSingleton(`index:${key}`, knowledgeIndex(saved))
       database.setSingleton(marker, { completedAt: Date.now() })
     })
   }

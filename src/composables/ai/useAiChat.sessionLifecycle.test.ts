@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import type { AiSessionStore } from '@shared/types/ai'
+import type { AiSaveConversationPayload, AiSaveConversationResult, AiSessionStore } from '@shared/types/ai'
 import { disposeAiSessionState, useAiChat } from './useAiChat'
 
 vi.mock('../../i18n', () => ({ t: (key: string) => key }))
@@ -29,10 +29,33 @@ function setup() {
   })
   const stream = vi.fn(async () => ({ content: 'new reply' }))
   const append = vi.fn(async () => {})
+  const summary = (): AiSaveConversationResult => ({
+    activeThreadId: store.activeThreadId, defaultContextFiles: store.defaultContextFiles,
+    threads: store.threads.map(thread => ({ id: thread.id, title: thread.title, createdAt: thread.createdAt, updatedAt: thread.updatedAt, messageCount: thread.messages.length, active: thread.id === store.activeThreadId })),
+  })
+  // Mirrors main: replace one thread, activate the saved or selected one, drop empty drafts.
+  const save = vi.fn(async (_id: string, threadId: string, payload: AiSaveConversationPayload): Promise<AiSaveConversationResult> => {
+    const selectId = payload.selectThreadId
+    if (selectId !== undefined && !store.threads.some(thread => thread.id === selectId)) return summary()
+    let thread = store.threads.find(item => item.id === threadId)
+    if (!thread) {
+      thread = { id: threadId, title: '', createdAt: 3, updatedAt: 3, contextFiles: [], messages: [] }
+      store.threads.push(thread)
+    }
+    thread.messages = clone(payload.messages)
+    if (payload.toolGroups?.length) thread.toolGroups = clone(payload.toolGroups)
+    if (payload.compactionCount) thread.compactionCount = Math.max(payload.compactionCount, thread.compactionCount || 0)
+    if (payload.invalidateContextCheckpoint) delete thread.contextCheckpoint
+    store.activeThreadId = selectId ?? threadId
+    store.threads = store.threads.filter(item => item.messages.length > 0 || item.id === store.activeThreadId)
+    const selected = selectId ? store.threads.find(item => item.id === selectId) : undefined
+    return { ...summary(), ...(selected ? { thread: clone(selected) } : {}) }
+  })
   vi.stubGlobal('window', { LiteConnect: {
     aiCreateConversation: create,
     getAiSessionStore: async () => clone(store),
     setAiSessionStore: async (_id: string, value: AiSessionStore) => { store = clone(value) },
+    aiSaveConversation: save,
     appendAiSessionHistory: append,
     onAiChatStream: () => () => {}, aiChatStream: stream,
   } })

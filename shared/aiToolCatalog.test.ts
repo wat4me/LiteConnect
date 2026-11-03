@@ -30,7 +30,7 @@ it('loads only requested groups in stable order and budgets exactly the selected
   expect(workspaceToolsForChat([...groups].reverse())).toEqual(tools)
   expect(sidebarToolSchemaTokens(groups)).toBe(aiToolSchemaTokens(sshToolsForChat(groups)))
   expect(sidebarToolSchemaTokens()).toBeLessThan(sidebarToolSchemaTokens(groups))
-  expect(aiToolSchemaTokens(workspaceToolsForChat())).toBeLessThan(3500)
+  expect(aiToolSchemaTokens(workspaceToolsForChat())).toBeLessThan(3650)
   for (const tool of tools.filter(tool => !['ask_user', 'load_tools'].includes(tool.function.name))) {
     expect(tool.function.parameters.required).toEqual(expect.arrayContaining(['risk', 'explanation', 'connectionId']))
     expect(tool.function.parameters.properties).not.toHaveProperty('confirmed')

@@ -4,10 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import { knowledgeAlwaysIncluded, knowledgeMode, KNOWLEDGE_MODES, KNOWLEDGE_MAX_BYTES, KNOWLEDGE_MEMORY_MAX_CHARS, KNOWLEDGE_MEMORY_MAX_ENTRIES, type KnowledgeMode, type KnowledgeMemoryEntry, type KnowledgeDocument, type KnowledgeDocumentInfo, type KnowledgeOverview, type KnowledgeRequest, type KnowledgeResponse } from '@shared/aiKnowledge'
+import { SYSTEM_DOCUMENT_ID, emptyKnowledgeSystem, validateKnowledgeSystem, formatKnowledgeSystem, type KnowledgeSystem } from '@shared/aiKnowledgeSystem'
+import AiKnowledgeSystemGraph from './AiKnowledgeSystemGraph.vue'
+import AiKnowledgeSystemForm from './AiKnowledgeSystemForm.vue'
+import AiKnowledgeGroupDialog from './AiKnowledgeGroupDialog.vue'
+import { knowledgeGroupConnectionId, type KnowledgeGroup } from '@shared/aiKnowledgeGroups'
 import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
 import AppIcon from '../icons/AppIcon.vue'
 
-const props = defineProps<{ sessionId: string; active: boolean; busy: boolean }>()
+const props = defineProps<{ sessionId: string; groupId?: string; active: boolean; busy: boolean }>()
+const emit = defineEmits<{ (event: 'close'): void }>()
 const { t } = useI18n()
 const overview = ref<KnowledgeOverview>({ storagePath: '', targets: [] })
 const open = ref(false), pending = ref(false), editing = ref(false)
@@ -16,33 +22,46 @@ const document = ref<KnowledgeDocument>(), title = ref(''), content = ref('')
 const documentBinding = ref<string>()
 const errorMessage = ref('')
 const memoryEntries = ref<KnowledgeMemoryEntry[]>([])
+const systemDraft = ref<KnowledgeSystem>()
 const alwaysInclude = ref(false)
 const memoryEntryMode = ref(false)
 const panel = ref<HTMLElement>(), trigger = ref<HTMLButtonElement>()
 let generation = 0
 let previousFocus: HTMLElement | null = null
-const target = computed(() => overview.value.targets.find(item => item.connectionId === connectionId.value))
-const count = computed(() => overview.value.targets.reduce((total, item) => total + item.count, 0))
+const groupDialog = ref(false), editingGroupId = ref<string>()
+const guideDismissed = ref(false)
+try { guideDismissed.value = localStorage.getItem('liteconnect-knowledge-group-hint') === 'dismissed' } catch { /* Keep the contextual hint available. */ }
+const scopes = computed(() => [...overview.value.targets, ...(overview.value.groups || [])])
+const target = computed(() => scopes.value.find(item => item.connectionId === connectionId.value))
+const count = computed(() => scopes.value.reduce((total, item) => total + item.count, 0))
 const triggerLabel = computed(() => count.value ? t('ai.knowledge.documentCount', { count: count.value }) : t('ai.knowledge.title'))
-const singleTarget = computed(() => overview.value.targets.length === 1 ? overview.value.targets[0] : undefined)
+const singleTarget = computed(() => overview.value.targets.length === 1 && !overview.value.groups?.length ? overview.value.targets[0] : undefined)
 const enabledCount = computed(() => overview.value.targets.filter(server => server.enabled).length)
 const targetMode = computed(() => knowledgeMode(target.value))
 function modeHelp(server?: KnowledgeOverview['targets'][number]) {
+  if (server?.groupId) return [t(props.groupId ? 'ai.knowledge.group.offlineHint' : 'ai.knowledge.group.scopeHint', { count: server.memberCount, selected: server.memberConnectionIds?.length }), t(`ai.knowledge.modeHint.${knowledgeMode(server)}`), t('ai.knowledge.modeScope'), props.busy ? t('ai.knowledge.waitUntilIdle') : ''].filter(Boolean).join('\n')
   return [t('ai.knowledge.modePurpose'), server ? t(`ai.knowledge.modeHint.${knowledgeMode(server)}`) : t('ai.knowledge.noServer'), t('ai.knowledge.modeScope'), props.busy ? t('ai.knowledge.waitUntilIdle') : ''].filter(Boolean).join('\n')
 }
 const usageHint = computed(() => modeHelp(singleTarget.value))
 const targetUsageHint = computed(() => modeHelp(target.value))
+const isSystem = computed(() => document.value?.id === SYSTEM_DOCUMENT_ID || (!document.value && !!systemDraft.value))
+const systemMembers = computed(() => target.value?.systemMembers || [])
+const systemError = computed(() => {
+  if (!isSystem.value || !systemDraft.value) return ''
+  try { validateKnowledgeSystem(systemDraft.value, systemMembers.value); return '' } catch (error) { return String(error).includes('SYSTEM_MEMBER_CHANGED') ? t('ai.knowledge.system.memberChanged') : t('ai.knowledge.system.invalid') }
+})
+const invalidEditor = computed(() => isSystem.value ? !!systemError.value || oversize.value : usesMemoryEntries.value ? invalidMemory.value : oversize.value)
 const isMemory = computed(() => document.value?.id === 'memory')
 const usesMemoryEntries = computed(() => isMemory.value && memoryEntryMode.value)
 const sourceDocuments = computed(() => documents.value.filter(doc => doc.id !== 'memory'))
 const memoryChars = computed(() => memoryEntries.value.reduce((total, entry) => total + entry.text.trim().length, 0))
 const invalidMemory = computed(() => memoryEntries.value.length > KNOWLEDGE_MEMORY_MAX_ENTRIES || memoryChars.value > KNOWLEDGE_MEMORY_MAX_CHARS || memoryEntries.value.some(entry => !entry.text.trim() || entry.text.trim().length > 160 || /[\r\n]/.test(entry.text) || entry.documentIds.length > 3 || entry.documentIds.some(id => !sourceDocuments.value.some(doc => doc.id === id))))
-const dirty = computed(() => editing.value && (title.value !== (document.value?.title || '') || alwaysInclude.value !== (document.value ? knowledgeAlwaysIncluded(document.value) : false) || (usesMemoryEntries.value ? JSON.stringify(memoryEntries.value) !== JSON.stringify(document.value?.memoryEntries) : content.value !== (document.value?.content || ''))))
-const oversize = computed(() => new TextEncoder().encode(content.value).length > KNOWLEDGE_MAX_BYTES)
+const dirty = computed(() => editing.value && (title.value !== (document.value?.title || '') || alwaysInclude.value !== (document.value ? knowledgeAlwaysIncluded(document.value) : false) || (isSystem.value ? JSON.stringify(systemDraft.value) !== JSON.stringify(document.value?.system) : usesMemoryEntries.value ? JSON.stringify(memoryEntries.value) !== JSON.stringify(document.value?.memoryEntries) : content.value !== (document.value?.content || ''))))
+const oversize = computed(() => new TextEncoder().encode(isSystem.value && systemDraft.value ? formatKnowledgeSystem(systemDraft.value) : content.value).length > KNOWLEDGE_MAX_BYTES)
 const changed = computed(() => document.value && documents.value.find(item => item.id === document.value!.id)?.revision !== document.value.revision)
 function report(error: unknown) {
   const code = String(error instanceof Error ? error.message : error).match(/KNOWLEDGE_([A-Z_]+)/)?.[1] || 'UNAVAILABLE'
-  const message = t(`ai.knowledge.errors.${['CONFLICT', 'DISABLED', 'READ_ONLY', 'OUT_OF_SCOPE', 'NOT_FOUND', 'LIMIT', 'INVALID_INPUT', 'SOURCE_NOT_FOUND', 'MEMORY_ENTRIES_REQUIRED'].includes(code) ? code : 'UNAVAILABLE'}`)
+  const message = ['INVALID_SYSTEM', 'SYSTEM_REQUIRED', 'SYSTEM_MEMBER_CHANGED'].includes(code) ? t(code === 'SYSTEM_MEMBER_CHANGED' ? 'ai.knowledge.system.memberChanged' : 'ai.knowledge.system.invalid') : code === 'GROUP_MEMBER_EXISTS' ? t('ai.knowledge.group.memberExists') : t(`ai.knowledge.errors.${['CONFLICT', 'DISABLED', 'READ_ONLY', 'OUT_OF_SCOPE', 'NOT_FOUND', 'LIMIT', 'INVALID_INPUT', 'SOURCE_NOT_FOUND', 'MEMORY_ENTRIES_REQUIRED', 'GROUP_MEMBER_EXISTS'].includes(code) ? code : 'UNAVAILABLE'}`)
   if (open.value) errorMessage.value = message
   else ElMessage.error(message)
 }
@@ -51,7 +70,8 @@ function apply(response: KnowledgeResponse) {
   if (response.documents) documents.value = response.documents
   if (response.document) {
     document.value = response.document
-    documentBinding.value = response.targets.find(item => item.connectionId === connectionId.value)?.binding
+    systemDraft.value = response.document.system ? structuredClone(response.document.system) : undefined
+    documentBinding.value = [...response.targets, ...(response.groups || [])].find(item => item.connectionId === connectionId.value)?.binding
     title.value = response.document.title; content.value = response.document.content
     memoryEntries.value = structuredClone(response.document.memoryEntries || [])
     alwaysInclude.value = knowledgeAlwaysIncluded(response.document)
@@ -60,14 +80,15 @@ function apply(response: KnowledgeResponse) {
 }
 async function request(input: KnowledgeRequest) {
   const version = generation, sessionId = props.sessionId, server = connectionId.value
-  const response = await window.LiteConnect.aiKnowledge(sessionId, { connectionId: connectionId.value || undefined, binding: target.value?.binding, ...input })
+  const scopedInput = { connectionId: connectionId.value || undefined, binding: target.value?.binding, ...input }
+  const response = props.groupId ? await window.LiteConnect.aiGroupKnowledge(props.groupId, scopedInput) : await window.LiteConnect.aiKnowledge(sessionId, scopedInput)
   if (version !== generation || sessionId !== props.sessionId || !props.active || (input.action !== 'overview' && server !== connectionId.value)) return
   if (input.action !== 'overview') errorMessage.value = ''
   apply(response)
   return response
 }
 async function overviewRefresh(showError = false) {
-  if (!props.active || pending.value || !window.LiteConnect.aiKnowledge) return
+  if (!props.active || pending.value || !(props.groupId ? window.LiteConnect.aiGroupKnowledge : window.LiteConnect.aiKnowledge)) return
   try { await request({ action: 'overview' }) } catch (error) { if (showError) report(error) }
 }
 async function mayLeave() {
@@ -95,21 +116,23 @@ async function loadServer(id: string) {
   } catch (error) { report(error) } finally { if (version === generation) pending.value = false }
 }
 async function changeServer(event: Event) { const select = event.target as HTMLSelectElement; await loadServer(select.value); select.value = connectionId.value }
-async function show(server?: string, id?: string) {
+async function show(server?: string, id?: string, createEmpty = false) {
   if (pending.value) return
   previousFocus = globalThis.document.activeElement as HTMLElement | null
   await overviewRefresh(true)
   if (!props.active) return
   open.value = true
-  const selected = server || connectionId.value || overview.value.targets[0]?.connectionId
+  const selected = server || (scopes.value.some(scope => scope.connectionId === connectionId.value) ? connectionId.value : '') || overview.value.groups?.[0]?.connectionId || overview.value.targets[0]?.connectionId
   if (selected) await loadServer(selected)
   if (id && selected === connectionId.value) await selectDocument(id)
-  await nextTick(); panel.value?.querySelector<HTMLElement>('button')?.focus()
+  if (createEmpty && selected && !documents.value.length && target.value?.enabled) await create()
+  await nextTick(); panel.value?.querySelector<HTMLElement>(editing.value ? 'main input' : 'button')?.focus()
 }
 async function close() {
   if (pending.value || !await mayLeave()) return
   open.value = false; editing.value = false
   await nextTick(); (previousFocus?.isConnected ? previousFocus : trigger.value)?.focus()
+  emit('close')
 }
 async function setMode(mode: KnowledgeMode, server = target.value) {
   if (!server || pending.value || props.busy) return
@@ -119,8 +142,9 @@ async function setMode(mode: KnowledgeMode, server = target.value) {
     if (!await mayLeave()) return
     if (mode !== 'off' && knowledgeMode(server) === 'off' && !server.count) await appConfirm({ title: t('ai.knowledge.enableTitle'), message: t('ai.knowledge.enableNotice', { name: server.name }), detail: overview.value.storagePath,
       confirmText: t('ai.knowledge.enable'), cancelText: t('common.cancel') })
-    if (version !== generation || props.busy || overview.value.targets.find(item => item.connectionId === server.connectionId)?.binding !== server.binding) return
-    const response = await window.LiteConnect.aiKnowledge(sessionId, { action: 'setMode', connectionId: server.connectionId, binding: server.binding, mode })
+    if (version !== generation || props.busy || scopes.value.find(item => item.connectionId === server.connectionId)?.binding !== server.binding) return
+    const input = { action: 'setMode' as const, connectionId: server.connectionId, binding: server.binding, mode }
+    const response = props.groupId ? await window.LiteConnect.aiGroupKnowledge(props.groupId, input) : await window.LiteConnect.aiKnowledge(sessionId, input)
     if (version !== generation || sessionId !== props.sessionId || !props.active) return
     overview.value = response
     errorMessage.value = ''
@@ -135,7 +159,7 @@ async function setMode(mode: KnowledgeMode, server = target.value) {
 async function changeMode(event: Event, server = target.value) {
   const select = event.target as HTMLSelectElement
   await setMode(select.value as KnowledgeMode, server)
-  select.value = knowledgeMode(overview.value.targets.find(item => item.connectionId === server?.connectionId))
+  select.value = knowledgeMode(scopes.value.find(item => item.connectionId === server?.connectionId))
 }
 async function create(importFile = false) {
   if (pending.value || !target.value || !await mayLeave()) return
@@ -144,10 +168,18 @@ async function create(importFile = false) {
   try {
     const file = importFile ? await window.LiteConnect.aiImportKnowledgeFile() : undefined
     if (importFile && !file || version !== generation || binding !== target.value?.binding) return
+    systemDraft.value = undefined
     document.value = undefined; documentBinding.value = binding; title.value = file?.path.split(/[\\/]/).pop() || ''; content.value = file?.content || ''; alwaysInclude.value = false; editing.value = true
+    return true
   } catch (error) { report(error) } finally { if (version === generation) pending.value = false }
 }
+async function createSystem() {
+  if (!target.value?.groupId || pending.value) return
+  if (!await create()) return
+  systemDraft.value = emptyKnowledgeSystem(); title.value = 'SYSTEM.md'; alwaysInclude.value = true
+}
 function beginEdit() {
+  systemDraft.value = document.value?.system ? JSON.parse(JSON.stringify(document.value.system)) : undefined
   memoryEntryMode.value = document.value?.memoryEntries !== undefined
   if (isMemory.value) memoryEntries.value = document.value?.memoryEntries?.map(entry => ({ text: entry.text, documentIds: [...entry.documentIds] })) || []
   editing.value = true
@@ -157,12 +189,12 @@ function organizeMemory() {
   memoryEntryMode.value = true
 }
 async function save() {
-  if (pending.value || !title.value.trim() || (usesMemoryEntries.value ? invalidMemory.value : oversize.value)) return
+  if (pending.value || !title.value.trim() || invalidEditor.value) return
   pending.value = true
   const version = generation
   try {
-    const response = await request({ action: 'save', binding: documentBinding.value, documentId: document.value?.id, expectedRevision: document.value?.revision || 0, title: title.value, alwaysInclude: alwaysInclude.value,
-      ...(usesMemoryEntries.value ? { memoryEntries: memoryEntries.value.map(entry => ({ text: entry.text, documentIds: [...entry.documentIds] })) } : { content: content.value }) })
+    const response = await request({ action: 'save', binding: documentBinding.value, documentId: isSystem.value ? SYSTEM_DOCUMENT_ID : document.value?.id, expectedRevision: document.value?.revision || 0, title: title.value, alwaysInclude: alwaysInclude.value,
+      ...(isSystem.value && systemDraft.value ? { system: JSON.parse(JSON.stringify(systemDraft.value)) } : usesMemoryEntries.value ? { memoryEntries: memoryEntries.value.map(entry => ({ text: entry.text, documentIds: [...entry.documentIds] })) } : { content: content.value }) })
     if (response) { editing.value = false; ElMessage.success(t('ai.knowledge.saved')) }
   } catch (error) { report(error) } finally { if (version === generation) pending.value = false }
 }
@@ -189,7 +221,10 @@ async function exportDocument() {
   if (!document.value || pending.value) return
   const version = generation
   pending.value = true
-  try { await window.LiteConnect.aiExportKnowledge(props.sessionId, connectionId.value, document.value.id) } catch (error) { report(error) }
+  try {
+    if (props.groupId) await window.LiteConnect.aiExportGroupKnowledge(props.groupId, document.value.id)
+    else await window.LiteConnect.aiExportKnowledge(props.sessionId, connectionId.value, document.value.id)
+  } catch (error) { report(error) }
   finally { if (version === generation) pending.value = false }
 }
 async function refresh() {
@@ -207,53 +242,93 @@ async function refresh() {
     if (selected) await selectDocument(selected.id)
   } catch (error) { report(error) } finally { if (version === generation) pending.value = false }
 }
+function dismissGuide() {
+  guideDismissed.value = true
+  try { localStorage.setItem('liteconnect-knowledge-group-hint', 'dismissed') } catch { /* Current session dismissal is sufficient. */ }
+}
+async function openGroupDialog(edit = false) {
+  if (pending.value || props.busy || !await mayLeave()) return
+  editing.value = false; editingGroupId.value = edit ? target.value?.groupId : undefined; groupDialog.value = true
+}
+async function groupSaved(group?: KnowledgeGroup) {
+  const version = generation
+  groupDialog.value = false
+  if (props.groupId && !group) { open.value = false; editing.value = false; emit('close'); return }
+  await overviewRefresh(true)
+  if (version !== generation || !props.active) return
+  const selected = group && overview.value.groups?.some(scope => scope.groupId === group.id) ? knowledgeGroupConnectionId(group.id) : overview.value.groups?.[0]?.connectionId || overview.value.targets[0]?.connectionId || ''
+  await loadServer(selected)
+  if (version === generation && group && !documents.value.length && target.value?.groupId === group.id) await create()
+}
+async function copyToGroup() {
+  const doc = document.value, version = generation
+  const group = overview.value.groups?.find(item => item.memberConnectionIds?.includes(connectionId.value))
+  if (!doc || !group || pending.value || props.busy || !await mayLeave()) return
+  try {
+    await appConfirm({ title: t('ai.knowledge.group.copy'), message: t('ai.knowledge.group.copyNotice', { title: doc.title, count: group.memberCount }), confirmText: t('ai.knowledge.group.copy'), cancelText: t('common.cancel') })
+    if (version !== generation) return
+    const copied = doc.content, copiedTitle = doc.title
+    await loadServer(group.connectionId)
+    if (version !== generation || target.value?.binding !== group.binding) return
+    await create()
+    title.value = copiedTitle; content.value = copied; alwaysInclude.value = knowledgeAlwaysIncluded(doc)
+    ElMessage.info(t('ai.knowledge.group.copyPreview'))
+  } catch (error) { if (error !== 'cancel' && error !== 'close') report(error) }
+}
 function trapFocus(event: KeyboardEvent) {
   const controls = [...(panel.value?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary') || [])].filter(el => el.checkVisibility())
   const first = controls[0], last = controls.at(-1)
   if (event.shiftKey && (globalThis.document.activeElement === first || !panel.value?.contains(globalThis.document.activeElement))) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && globalThis.document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
-watch(() => props.sessionId, () => { generation++; pending.value = false; open.value = false; editing.value = false; document.value = undefined; documents.value = []; connectionId.value = ''; overview.value = { storagePath: '', targets: [] }; void overviewRefresh() }, { immediate: true })
-watch(() => props.active, active => { generation++; pending.value = false; open.value = false; if (active) void overviewRefresh() })
+watch(() => [props.sessionId, props.groupId], () => { generation++; pending.value = false; open.value = false; groupDialog.value = false; editing.value = false; document.value = undefined; documents.value = []; connectionId.value = ''; overview.value = { storagePath: '', targets: [] }; void overviewRefresh() }, { immediate: true })
+watch(() => props.active, active => { generation++; pending.value = false; open.value = false; groupDialog.value = false; if (active) void overviewRefresh() })
 watch(() => props.busy, busy => { if (!busy && !pending.value) { void overviewRefresh(); if (open.value) void request({ action: 'list' }).catch(report) } })
-onDeactivated(() => { generation++; pending.value = false; open.value = false })
+onDeactivated(() => { generation++; pending.value = false; open.value = false; groupDialog.value = false })
 onActivated(() => { void overviewRefresh() })
 onBeforeUnmount(() => { generation++ })
 defineExpose({ show })
 </script>
 
 <template>
-  <span class="knowledge-controls">
+  <AiKnowledgeGroupDialog v-if="groupDialog && active" :group-id="editingGroupId" :initial-ids="overview.targets.map(server => server.connectionId)" @close="groupDialog = false" @saved="groupSaved" />
+  <span v-if="!groupId" class="knowledge-controls">
     <button ref="trigger" type="button" class="knowledge-trigger" :title="triggerLabel" :aria-label="triggerLabel" aria-haspopup="dialog" :aria-expanded="open" @click="show()"><AppIcon name="file-text" size="sm" /><span v-if="count" class="knowledge-count" aria-hidden="true">{{ count > 99 ? '99+' : count }}</span></button>
     <label v-if="singleTarget || !overview.targets.length" class="knowledge-mode-field" :title="usageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="knowledgeMode(singleTarget)" :title="usageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="usageHint" :disabled="!singleTarget || !active || pending || busy" @change="changeMode($event, singleTarget)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
-    <button v-else type="button" class="knowledge-usage-summary" :title="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" :aria-label="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">{{ t('ai.knowledge.usageEnabled', { enabled: enabledCount, total: overview.targets.length }) }}<AppIcon name="chevron-down" size="xs" /></button>
+    <button v-else type="button" class="knowledge-usage-summary" :title="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" :aria-label="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">{{ overview.groups?.length ? t('ai.knowledge.group.summary', { servers: enabledCount, groups: overview.groups.filter(group => group.enabled).length }) : t('ai.knowledge.usageEnabled', { enabled: enabledCount, total: overview.targets.length }) }}<AppIcon name="chevron-down" size="xs" /></button>
   </span>
   <Teleport to="body">
     <div v-if="open && active" class="knowledge-layer" @click.self="close" @keydown.esc.stop.prevent="close">
       <section ref="panel" class="knowledge-panel" role="dialog" aria-modal="true" :aria-label="t('ai.knowledge.title')" @keydown.tab="trapFocus">
-        <header><strong>{{ t('ai.knowledge.title') }}</strong><span class="knowledge-local">{{ t('ai.knowledge.local') }}</span><button type="button" class="ui-icon-btn" :aria-label="t('common.close')" @click="close"><AppIcon name="close" size="sm" /></button></header>
+        <header><strong>{{ t(groupId ? 'ai.knowledge.group.shared' : 'ai.knowledge.title') }}</strong><span class="knowledge-local">{{ t('ai.knowledge.local') }}</span><button type="button" class="ui-icon-btn" :aria-label="t('common.close')" @click="close"><AppIcon name="close" size="sm" /></button></header>
         <div class="knowledge-toolbar">
-          <select :value="connectionId" :disabled="pending" :aria-label="t('ai.knowledge.server')" @change="changeServer"><option v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></select>
+          <select :value="connectionId" :disabled="pending" :aria-label="t('ai.knowledge.server')" @change="changeServer"><optgroup v-if="overview.groups?.length" :label="t('ai.knowledge.group.shared')"><option v-for="group in overview.groups" :key="group.connectionId" :value="group.connectionId">{{ t('ai.knowledge.group.scope', { name: group.name, count: group.memberCount }) }}</option></optgroup><optgroup :label="t('ai.knowledge.group.individual')"><option v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></optgroup></select>
           <label class="knowledge-mode-field" :title="targetUsageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="targetMode" :title="targetUsageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="targetUsageHint" :disabled="!target || pending || busy" @change="changeMode($event)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
+          <button v-if="target?.groupId" type="button" class="ui-btn ui-btn-sm knowledge-group-manage" :disabled="pending || busy" @click="openGroupDialog(true)">{{ t('ai.knowledge.group.manage') }}</button><button v-if="!groupId" type="button" class="ui-btn ui-btn-sm knowledge-group-create" :disabled="pending || busy || !overview.targets.length" @click="openGroupDialog()">{{ t('ai.knowledge.group.create') }}</button>
           <button type="button" class="ui-icon-btn" :disabled="pending" :title="t('ai.knowledge.refresh')" :aria-label="t('ai.knowledge.refresh')" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
         </div>
+        <p v-if="overview.targets.length > 1 && !overview.groups?.length && !guideDismissed" class="knowledge-notice knowledge-group-guide">{{ t('ai.knowledge.group.guide') }} <button type="button" class="ui-btn ui-btn-xs" :disabled="pending || busy" @click="openGroupDialog()">{{ t('ai.knowledge.group.share') }}</button><button type="button" class="ui-icon-btn" :aria-label="t('ai.knowledge.group.dismiss')" @click="dismissGuide"><AppIcon name="close" size="xs" /></button></p>
+        <p v-if="target?.groupId" class="knowledge-notice knowledge-group-scope">{{ t(groupId ? 'ai.knowledge.group.offlineHint' : 'ai.knowledge.group.scopeHint', { count: target.memberCount, selected: target.memberConnectionIds?.length }) }}</p>
         <p class="knowledge-notice">{{ t('ai.knowledge.storageNotice') }} <span :title="overview.storagePath">{{ overview.storagePath }}</span></p>
-        <p v-if="!overview.targets.length" class="knowledge-notice">{{ t('ai.knowledge.noServer') }}</p>
+        <p v-if="!scopes.length" class="knowledge-notice">{{ t('ai.knowledge.noServer') }}</p>
         <p v-else-if="!target?.enabled" class="knowledge-notice">{{ t('ai.knowledge.disabledHint') }}</p>
+        <p v-else-if="target?.groupId && targetMode === 'readwrite'" class="knowledge-notice knowledge-group-write-hint">{{ t('ai.knowledge.group.writeHint') }}</p>
         <p v-else-if="targetMode === 'readonly'" class="knowledge-notice">{{ t('ai.knowledge.modeHint.readonly') }}</p>
         <p v-if="errorMessage" class="knowledge-error knowledge-notice" role="alert">{{ errorMessage }}</p>
         <div class="knowledge-body">
-          <aside><div class="knowledge-create"><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create()">{{ t('ai.knowledge.new') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create(true)">{{ t('ai.knowledge.import') }}</button></div>
-            <button v-for="doc in documents" :key="doc.id" type="button" class="knowledge-doc" :class="{ selected: document?.id === doc.id }" :disabled="pending" @click="selectDocument(doc.id)"><span>{{ doc.title }}</span><small>{{ t(knowledgeAlwaysIncluded(doc) ? 'ai.knowledge.summary' : 'ai.knowledge.onDemand') }}</small></button>
+          <aside><div class="knowledge-create"><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create()">{{ t('ai.knowledge.new') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create(true)">{{ t('ai.knowledge.import') }}</button><button v-if="target?.groupId && !documents.some(doc => doc.id === SYSTEM_DOCUMENT_ID)" type="button" class="ui-btn ui-btn-sm system-create" :disabled="!target?.enabled || pending" @click="createSystem">{{ t('ai.knowledge.system.create') }}</button></div>
+            <button v-for="doc in documents" :key="doc.id" type="button" class="knowledge-doc" :class="{ selected: document?.id === doc.id }" :disabled="pending" @click="selectDocument(doc.id)"><span>{{ doc.id === SYSTEM_DOCUMENT_ID ? t('ai.knowledge.system.title') : doc.title }}</span><small>{{ t(knowledgeAlwaysIncluded(doc) ? 'ai.knowledge.summary' : 'ai.knowledge.onDemand') }}</small></button>
           </aside>
           <main>
             <template v-if="document || editing">
-              <div class="knowledge-actions"><button type="button" class="ui-btn ui-btn-sm" :disabled="pending || (editing && (!title.trim() || (usesMemoryEntries ? invalidMemory : oversize)))" @click="editing ? save() : beginEdit()">{{ t(editing ? 'common.save' : 'ai.knowledge.edit') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="exportDocument">{{ t('ai.knowledge.export') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="remove">{{ t('common.delete') }}</button></div>
+              <div class="knowledge-actions"><button type="button" class="ui-btn ui-btn-sm" :disabled="pending || (editing && (!title.trim() || invalidEditor))" @click="editing ? save() : beginEdit()">{{ t(editing ? 'common.save' : 'ai.knowledge.edit') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="exportDocument">{{ t('ai.knowledge.export') }}</button><button v-if="!isSystem && !target?.groupId && overview.groups?.some(group => group.memberConnectionIds?.includes(connectionId))" type="button" class="ui-btn ui-btn-sm knowledge-copy-group" :disabled="!document || pending || editing || busy" @click="copyToGroup">{{ t('ai.knowledge.group.copy') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="remove">{{ t('common.delete') }}</button></div>
               <p v-if="document" class="knowledge-meta">{{ t('ai.knowledge.updated', { revision: document.revision, author: t(document.author === 'ai' ? 'ai.knowledge.aiAuthor' : 'ai.knowledge.userAuthor'), time: new Date(document.updatedAt).toLocaleString() }) }}</p>
               <p v-if="changed" class="knowledge-warning">{{ t('ai.knowledge.changed') }}</p>
               <template v-if="editing"><input v-model="title" maxlength="120" :disabled="pending" :aria-label="t('ai.knowledge.documentTitle')" :placeholder="t('ai.knowledge.documentTitle')" />
                 <label class="knowledge-include-choice"><input v-model="alwaysInclude" type="checkbox" :disabled="pending" />{{ t('ai.knowledge.alwaysInclude') }}</label><p class="knowledge-meta">{{ t('ai.knowledge.includeHint') }}</p>
-                <template v-if="usesMemoryEntries">
+                <AiKnowledgeSystemForm v-if="isSystem && systemDraft" v-model="systemDraft" :members="systemMembers" :disabled="pending" />
+                <p v-if="isSystem && (systemError || oversize)" class="knowledge-warning" role="alert">{{ systemError || t('ai.knowledge.tooLarge') }}</p>
+                <template v-else-if="!isSystem && usesMemoryEntries">
                   <p class="knowledge-meta">{{ t('ai.knowledge.memoryHint', { count: memoryChars }) }}</p>
                   <fieldset v-for="(entry, index) in memoryEntries" :key="index" class="memory-edit-entry" :disabled="pending"><legend>{{ t('ai.knowledge.memoryItem', { index: index + 1 }) }}</legend>
                     <textarea v-model="entry.text" class="memory-entry-text" :aria-label="t('ai.knowledge.memoryItem', { index: index + 1 })" rows="2" spellcheck="false"></textarea>
@@ -264,10 +339,11 @@ defineExpose({ show })
                   <button type="button" class="ui-btn ui-btn-sm memory-add" :disabled="pending || memoryEntries.length >= KNOWLEDGE_MEMORY_MAX_ENTRIES" @click="memoryEntries.push({ text: '', documentIds: [] })">{{ t('ai.knowledge.addItem') }}</button>
                   <p v-if="invalidMemory" class="knowledge-warning" role="alert">{{ t('ai.knowledge.memoryLimit') }}</p>
                 </template>
-                <template v-else><button v-if="isMemory" type="button" class="ui-btn ui-btn-sm memory-organize" :disabled="pending" @click="organizeMemory">{{ t('ai.knowledge.organizeMemory') }}</button><textarea v-model="content" :disabled="pending" :aria-label="t('ai.knowledge.content')" spellcheck="false"></textarea><p v-if="oversize" class="knowledge-warning" role="alert">{{ t('ai.knowledge.tooLarge') }}</p></template>
+                <template v-else-if="!isSystem"><button v-if="isMemory" type="button" class="ui-btn ui-btn-sm memory-organize" :disabled="pending" @click="organizeMemory">{{ t('ai.knowledge.organizeMemory') }}</button><textarea v-model="content" :disabled="pending" :aria-label="t('ai.knowledge.content')" spellcheck="false"></textarea><p v-if="oversize" class="knowledge-warning" role="alert">{{ t('ai.knowledge.tooLarge') }}</p></template>
               </template>
-              <template v-else><h3>{{ document?.title }}</h3>
-                <template v-if="document?.memoryEntries?.length"><article v-for="(entry, index) in document.memoryEntries" :key="index" class="memory-preview-entry"><p>{{ entry.text }}</p><div class="memory-source-links"><template v-for="id in entry.documentIds" :key="id"><button v-if="sourceDocuments.some(doc => doc.id === id)" type="button" class="ui-btn ui-btn-xs" :disabled="pending" @click="selectDocument(id)"><AppIcon name="file-text" size="xs" />{{ sourceDocuments.find(doc => doc.id === id)?.title }}</button><span v-else class="knowledge-warning">{{ t('ai.knowledge.sourceMissing') }}</span></template></div></article></template>
+              <template v-else><h3>{{ isSystem ? t('ai.knowledge.system.title') : document?.title }}</h3>
+                <AiKnowledgeSystemGraph v-if="document?.system" :system="document.system" :members="systemMembers" :selected-ids="target?.memberConnectionIds" :offline="!!groupId" />
+                <template v-else-if="document?.memoryEntries?.length"><article v-for="(entry, index) in document.memoryEntries" :key="index" class="memory-preview-entry"><p>{{ entry.text }}</p><div class="memory-source-links"><template v-for="id in entry.documentIds" :key="id"><button v-if="sourceDocuments.some(doc => doc.id === id)" type="button" class="ui-btn ui-btn-xs" :disabled="pending" @click="selectDocument(id)"><AppIcon name="file-text" size="xs" />{{ sourceDocuments.find(doc => doc.id === id)?.title }}</button><span v-else class="knowledge-warning">{{ t('ai.knowledge.sourceMissing') }}</span></template></div></article></template>
                 <template v-else-if="document?.content"><p v-if="isMemory" class="knowledge-meta">{{ t('ai.knowledge.legacyMemory') }}</p><AiStreamingMarkdown :content="document.content" :streaming="false" :terminal-actions="false" /></template><p v-else>{{ t('ai.knowledge.emptyDocument') }}</p>
               </template>
               <details v-if="document?.history.length" class="knowledge-history"><summary>{{ t('ai.knowledge.history') }}</summary><article v-for="version in [...document.history].reverse()" :key="version.revision"><div><span>{{ t('ai.knowledge.updated', { revision: version.revision, author: t(version.author === 'ai' ? 'ai.knowledge.aiAuthor' : 'ai.knowledge.userAuthor'), time: new Date(version.updatedAt).toLocaleString() }) }}</span><button type="button" class="ui-btn ui-btn-xs" :disabled="pending" @click="restore(version.revision)">{{ t('ai.knowledge.restore') }}</button></div><pre>{{ version.content }}</pre></article></details>
@@ -280,6 +356,8 @@ defineExpose({ show })
 </template>
 
 <style scoped>
+.knowledge-group-guide { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; background: var(--accent-bg); border-radius: 6px; }
+.knowledge-group-scope { padding: 8px; border-left: 3px solid var(--accent); background: var(--bg-secondary); }
 .knowledge-controls { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; min-width: 0; }
 .knowledge-mode-field, .knowledge-usage-summary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-width: 0; height: var(--ai-composer-tool-size, 26px); padding: 0 3px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-caption); white-space: nowrap; }
 .knowledge-usage-summary { cursor: pointer; }

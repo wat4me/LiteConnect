@@ -6,7 +6,7 @@ import { registerAiHandlers } from './registerAiHandlers'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
-  saveDialog: vi.fn(), write: vi.fn(), owned: vi.fn(), manage: vi.fn(), access: vi.fn(),
+  saveDialog: vi.fn(), write: vi.fn(), owned: vi.fn(), manage: vi.fn(), access: vi.fn(), groups: vi.fn(), groupKnowledge: vi.fn(),
 }))
 vi.mock('electron', () => ({
   ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => mocks.handlers.set(name, handler), removeHandler: vi.fn() },
@@ -26,7 +26,7 @@ beforeEach(() => {
 })
 function setup() {
   const scope = new ServiceIpcScope()
-  registerAiHandlers(settings, { knowledgeAccess: mocks.access } as unknown as AiExecutionService, () => 'host-history', scope)
+  registerAiHandlers(settings, { knowledgeAccess: mocks.access, knowledgeGroups: mocks.groups, groupKnowledge: mocks.groupKnowledge } as unknown as AiExecutionService, () => 'host-history', scope)
   return scope
 }
 it('validates window ownership before exposing a workspace knowledge scope', async () => {
@@ -36,6 +36,26 @@ it('validates window ownership before exposing a workspace knowledge scope', asy
   expect(mocks.manage).toHaveBeenCalledWith({ action: 'overview' })
   mocks.access.mockClear()
   await expect(handler('knowledge')({ sender: { id: 8 } }, 'workspace:one', { action: 'overview' })).rejects.toThrow('not open')
+  expect(mocks.access).not.toHaveBeenCalled()
+})
+it('keeps group management on a user-only IPC route instead of granting a knowledge tool global access', async () => {
+  setup()
+  const input = { action: 'create', name: 'Orders', connectionIds: ['server-a', 'server-b'] }
+  mocks.groups.mockReturnValueOnce({ groups: [], group: { id: 'group-one' } })
+  expect(await handler('knowledgeGroups')(event, input)).toMatchObject({ group: { id: 'group-one' } })
+  expect(mocks.groups).toHaveBeenCalledExactlyOnceWith(input)
+  expect(mocks.access).not.toHaveBeenCalled()
+})
+it('manages and exports local group documents without resolving an SSH history or session', async () => {
+  setup()
+  const response = { targets: [], document: { id: 'group-doc', title: 'Shared paths', content: '/opt/orders' } }
+  mocks.groupKnowledge.mockResolvedValue(response)
+  const input = { action: 'list' }
+  expect(await handler('groupKnowledge')(event, 'group-one', input)).toEqual(response)
+  expect(mocks.groupKnowledge).toHaveBeenLastCalledWith('group-one', input)
+  expect(await handler('exportGroupKnowledge')(event, 'group-one', 'group-doc')).toBe(true)
+  expect(mocks.groupKnowledge).toHaveBeenLastCalledWith('group-one', { action: 'read', documentId: 'group-doc' })
+  expect(mocks.write).toHaveBeenCalledExactlyOnceWith('C:/chosen/notes.md', '/opt/orders', 'utf8')
   expect(mocks.access).not.toHaveBeenCalled()
 })
 it('exports only scoped document content to the native dialog selection', async () => {

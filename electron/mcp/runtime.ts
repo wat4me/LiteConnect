@@ -1,7 +1,9 @@
 import { decideCommandPolicy, policyErrorMessage } from '../../shared/mcp/policy'
+import { classifyCommand } from '../../shared/mcp/classify'
 import { SSH_MCP_TOOLS } from '../../shared/mcp/tools'
 import type {
   ApprovalMode,
+  CommandClass,
   CommandClassification,
   SshMcpErrorPayload,
   SshMcpToolDefinition,
@@ -24,7 +26,7 @@ import {
   listSessions,
   saveConnection,
 } from './tools/sessions'
-import { cancelJob, execCommand, getJob, runForegroundExec } from './tools/exec'
+import { cancelJob, execCommand, getJob, runForegroundExec, startJob } from './tools/exec'
 import {
   downloadFile,
   editFileTool,
@@ -102,6 +104,61 @@ export class SshMcpRuntime {
   getJobResult(jobId: string) {
     const job = this.jobs.get(jobId)
     return job ? this.jobs.detail(job) : undefined
+  }
+
+  getSessionSnapshot(sessionId: string) {
+    return this.disposed ? undefined : this.ssh.getSessionSnapshot(sessionId)
+  }
+
+  listSessionsForConnection(connectionId: string): string[] {
+    if (this.disposed) return []
+    return this.ssh.listSessionSnapshots().filter(snap => snap.connectionId === connectionId).map(snap => snap.sessionId)
+  }
+
+  /** Register an AI-scheduled job so job tools and task lists see it before it starts. */
+  registerScheduledJob(input: {
+    jobId: string
+    sessionId: string
+    connectionId?: string
+    connectionName?: string
+    command: string
+    class: CommandClass
+    dueAt: number
+    note?: string
+    cancel: () => void
+  }) {
+    this.assertActive()
+    return this.jobs.summary(this.jobs.createScheduled(input))
+  }
+
+  setScheduledJobAwaiting(jobId: string, waiting: boolean) {
+    if (!this.disposed) this.jobs.setAwaitingConnection(jobId, waiting)
+  }
+
+  /** Start a registered scheduled job on an open session of its connection; the job id is preserved. */
+  async startScheduledJob(jobId: string, sessionId: string, input: { command: string; jobTimeoutMs: number; stdin?: string }) {
+    this.assertActive()
+    const snap = this.ssh.getSessionSnapshot(sessionId)
+    if (!snap) throw toolError('SESSION_NOT_FOUND', 'No open SSH session for the scheduled job')
+    await readyCommandClassifier()
+    const classification = classifyCommand(input.command)
+    // Approval was decided when the job was scheduled; only policy-denied commands stop here.
+    const denied = await this.ensureCommandAllowed(classification, sessionId, input.command, 'auto')
+    if (denied) {
+      const payload = denied.structuredContent as SshMcpErrorPayload
+      throw toolError(payload.code, payload.message)
+    }
+    const target = { sessionId: snap.sessionId, generation: snap.generation, connectionId: snap.connectionId, connectionName: snap.connectionName }
+    return startJob(this.host(), target, input.command, classification, input.jobTimeoutMs, input.stdin, jobId)
+  }
+
+  /** Settle a scheduled job that could not start, so its failure reaches the conversation. */
+  failScheduledJob(jobId: string, message: string) {
+    if (!this.disposed) this.jobs.finish(jobId, 'failed', undefined, message)
+  }
+
+  cancelJob(jobId: string) {
+    if (!this.disposed) this.jobs.cancel(jobId)
   }
 
   getPtySessionId(ptyId: string) { return this.ptys.list().find(pty => pty.ptyId === ptyId)?.sessionId }

@@ -178,7 +178,7 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
     name: 'exec',
     title: 'Run a remote command',
     description:
-      'Run a non-interactive command (separate exec channel, not a PTY / user terminal). Not suitable for prompts that wait for a TTY. Feed a one-shot answer with stdin, or use noninteractive flags (e.g. DEBIAN_FRONTEND=noninteractive). sessionId from list_sessions/connect, or fan out with sessionIds / group. Foreground timeout 1s–10min (default 30s). For deploys/imports longer than a minute set background=true and poll get_job. If the tool returns APPROVAL_REQUIRED, ask the human in this client to confirm the exact command, then retry with confirmed=true. Never set confirmed=true unless they agreed. Catastrophic commands (e.g. rm -rf /) stay denied.',
+      'Run a non-interactive command (separate exec channel, not a PTY / user terminal). Not suitable for prompts that wait for a TTY. Feed a one-shot answer with stdin, or use noninteractive flags (e.g. DEBIAN_FRONTEND=noninteractive). sessionId from list_sessions/connect, or fan out with sessionIds / group. Foreground timeout 1s–10min (default 30s). For deploys/imports longer than a minute set background=true and poll get_job. To re-check something later, set background=true with startAfterMs instead of waiting or polling. If the tool returns APPROVAL_REQUIRED, ask the human in this client to confirm the exact command, then retry with confirmed=true. Never set confirmed=true unless they agreed. Catastrophic commands (e.g. rm -rf /) stay denied.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -215,6 +215,18 @@ export const SSH_MCP_TOOLS: SshMcpToolDefinition[] = [
         jobTimeoutMs: {
           type: 'integer',
           description: 'Background job timeout in milliseconds (1000–7200000). Default 1800000 (30 min).',
+        },
+        startAfterMs: {
+          type: 'integer',
+          description: 'Run later: delay in ms (60000–86400000) with background=true and one sessionId. Approved now, never re-asked; the result arrives like any background completion, so do not poll. Waits for the next connection if the host has no open session when due; cancel_job cancels it.',
+        },
+        note: {
+          type: 'string',
+          description: 'With startAfterMs: one short sentence telling the operator why the command is scheduled (max 200 characters).',
+        },
+        startAt: {
+          type: 'string',
+          description: 'Instead of startAfterMs: local time "YYYY-MM-DD HH:mm" (timezone from the system prompt) or ISO 8601 with offset; same window and rules.',
         },
         concurrency: {
           type: 'integer',

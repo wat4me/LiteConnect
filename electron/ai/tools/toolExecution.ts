@@ -13,6 +13,18 @@ import { executeUserQuestion } from './userQuestion'
 import { AI_LOAD_TOOLS, parseAiToolGroupRequest } from '../../../shared/aiToolCatalog'
 import type { AiToolExecutionContext } from './toolExecutionContext'
 import { isKnowledgeTool } from '../../../shared/aiKnowledge'
+import { classifyCommand, validateMcpCommand } from '../../../shared/mcp/classify'
+import { MCP_SCHEDULE_MAX_DELAY_MS, MCP_SCHEDULE_MIN_DELAY_MS, MCP_SCHEDULE_NOTE_MAX_CHARS } from '../../../shared/mcp/limits'
+import { clampJobTimeout, parseStdin } from '../../mcp/args'
+import { formatLocalDateTime, parseLocalDateTime } from '../../../shared/localTime'
+
+const SCHEDULE_FAILURES: Record<string, string> = {
+  SCHEDULE_LIMIT: 'Too many scheduled commands are pending; wait for some to run or cancel them with cancel_job.',
+  SCHEDULE_DUPLICATE: 'The same command is already scheduled for this conversation.',
+  SCHEDULE_UNAVAILABLE: 'Scheduled execution is not available in this conversation. Run the command now or ask the user to check later.',
+  SESSION_NOT_FOUND: 'The SSH session is no longer open, so nothing could be scheduled.',
+  INVALID_SCHEDULE_TIME: 'startAt could not be read as a time. Pass "YYYY-MM-DD HH:mm" with the date included.',
+}
 
 /** Policy/routing/execution only; conversation history remains with the caller. */
 export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolExecutionContext): Promise<{ run: AiToolRun; message: AiChatMessage } | undefined> {
@@ -40,8 +52,8 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
     if (isKnowledgeTool(call.function.name)) {
       boundArgs = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs as Record<string, unknown> : {}
       if (!opts.knowledge) throw new Error('KNOWLEDGE_UNAVAILABLE')
-      const selected = workspaceTargets?.find(item => item.connectionId === boundArgs.connectionId) || (workspaceTargets?.length === 1 && boundArgs.connectionId === undefined ? workspaceTargets[0] : undefined)
-      targetLabel = selected?.name
+      const selected = workspaceTargets?.find(item => item.connectionId === boundArgs.connectionId) || (workspaceTargets?.length === 1 && boundArgs.connectionId === undefined && boundArgs.groupId === undefined ? workspaceTargets[0] : undefined)
+      targetLabel = opts.knowledge.targetLabel?.(boundArgs) || selected?.name
     } else if (workspaceTargets) {
       const routed = routeWorkspaceTool(call.function.name, rawArgs, workspaceTargets, sshMcpRuntime)
       boundArgs = routed.args
@@ -70,6 +82,52 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
     }
   }
   if (opts.foregroundOnly && call.function.name === 'exec') boundArgs.background = false
+  // A delayed exec is approved like an immediate one, then registered instead of run.
+  const scheduling = call.function.name === 'exec' && (boundArgs.startAfterMs !== undefined || boundArgs.startAt !== undefined) && !opts.foregroundOnly
+  const scheduleExec = async (): Promise<{ isError: boolean; content: string; structuredContent?: unknown }> => {
+    const failure = (code: string, message: string) => ({ isError: true, content: `${code}: ${message}`, structuredContent: { code, message } })
+    if (!opts.scheduleBackgroundJob) return failure('SCHEDULE_UNAVAILABLE', SCHEDULE_FAILURES.SCHEDULE_UNAVAILABLE)
+    if (workspaceTargets) return failure('SCHEDULE_UNAVAILABLE', 'Scheduling is only available for a single SSH session, not for a workspace.')
+    const now = Date.now()
+    let delay = boundArgs.startAfterMs
+    if (delay !== undefined && boundArgs.startAt !== undefined) return failure('INVALID_ARGUMENTS', 'Pass either startAfterMs or startAt, not both.')
+    if (boundArgs.startAt !== undefined) {
+      const dueAt = typeof boundArgs.startAt === 'string' ? parseLocalDateTime(boundArgs.startAt) : undefined
+      if (dueAt === undefined) return failure('INVALID_SCHEDULE_TIME', `startAt was not a readable time; use "YYYY-MM-DD HH:mm" local time or ISO 8601 with an offset. Now: ${formatLocalDateTime(now)}.`)
+      delay = dueAt - now
+    }
+    if (typeof delay !== 'number' || !Number.isInteger(delay) || delay < MCP_SCHEDULE_MIN_DELAY_MS || delay > MCP_SCHEDULE_MAX_DELAY_MS) {
+      const requested = typeof delay === 'number' && Number.isFinite(delay) ? formatLocalDateTime(now + delay) : 'unknown'
+      return failure('INVALID_SCHEDULE_DELAY', `The start time must be 1 minute to 24 hours ahead. Now: ${formatLocalDateTime(now)}; requested start: ${requested}.`)
+    }
+    if (boundArgs.background !== true) return failure('INVALID_ARGUMENTS', 'startAfterMs requires background=true.')
+    if (boundArgs.sessionIds !== undefined || boundArgs.group !== undefined) return failure('INVALID_ARGUMENTS', 'startAfterMs cannot be combined with sessionIds or group.')
+    const validated = validateMcpCommand(boundArgs.command)
+    if (!validated.ok) return failure('INVALID_COMMAND', validated.reason)
+    const classification = classifyCommand(validated.command)
+    if (classification.class === 'forbidden') return failure('COMMAND_FORBIDDEN', 'This command is denied by policy and cannot be scheduled.')
+    const stdin = parseStdin(boundArgs.stdin)
+    if (stdin === false) return failure('INVALID_ARGUMENTS', 'stdin is too long for a scheduled command.')
+    const note = typeof boundArgs.note === 'string' ? boundArgs.note.replace(/\s+/g, ' ').trim().slice(0, MCP_SCHEDULE_NOTE_MAX_CHARS) : ''
+    const sessionId = String(boundArgs.sessionId || boundSessionId)
+    try {
+      const scheduled = await opts.scheduleBackgroundJob({
+        sessionId, command: validated.command, stdin: stdin || undefined, jobTimeoutMs: clampJobTimeout(boundArgs.jobTimeoutMs),
+        startAfterMs: delay, note: note || undefined, risk: gate.risk, class: classification.class,
+      })
+      const payload = {
+        jobId: scheduled.jobId, sessionId, command: validated.command, status: 'scheduled' as const,
+        dueAt: scheduled.dueAt, dueAtLocal: formatLocalDateTime(scheduled.dueAt), scheduledAtLocal: formatLocalDateTime(now), startAfterMs: delay,
+        ...(note ? { note } : {}),
+        notice: `Scheduled, not executed. It starts at ${formatLocalDateTime(scheduled.dueAt)}; tell the user that local time. The result is delivered later as a background-task completion; do not poll get_job or wait for it. Cancel with cancel_job before it starts.`,
+      }
+      return { isError: false, content: JSON.stringify(payload, null, 2), structuredContent: payload }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const code = /^[A-Z_]+$/.test(message) ? message : 'SCHEDULE_FAILED'
+      return failure(code, SCHEDULE_FAILURES[code] || message)
+    }
+  }
   // The declaration decides whether to ask; the command classifier is an
   // escalate-only floor on top of it, so a call labelled `read` that is
   // really a delete cannot ride through `auto` mode unexamined.
@@ -176,10 +234,10 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
       })
       await opts.checkpoint?.()
       if (signal.aborted) return undefined
-      result = await executeTool()
+      result = await (scheduling ? scheduleExec() : executeTool())
     }
   } else {
-    result = await executeTool()
+    result = await (scheduling ? scheduleExec() : executeTool())
   }
 
   let jobIds: string[] | undefined

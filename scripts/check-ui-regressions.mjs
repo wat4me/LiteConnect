@@ -8,6 +8,7 @@ import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const dock = process.argv.includes('--dock')
 const x11 = process.argv.includes('--x11')
 const knowledge = process.argv.includes('--knowledge')
 const images = process.argv.includes('--images')
@@ -44,10 +45,10 @@ const server = await createServer({
 try {
   await server.listen()
   const address = server.httpServer.address()
-  const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/${settings ? 'settings' : navigation ? 'navigation' : knowledge ? 'knowledge' : x11 ? 'x11' : docker ? 'docker' : largeViews ? 'large-views' : performance ? 'performance' : 'index'}.html`, LITECONNECT_UI_QUESTIONS_INTEGRATED: questionsIntegrated ? '1' : '', LITECONNECT_UI_GROUPS_ONLY: groupsOnly ? '1' : '' }
+  const env = { ...process.env, LITECONNECT_UI_TEST_URL: `http://127.0.0.1:${address.port}/scripts/ui-regression/${dock ? 'dock' : settings ? 'settings' : navigation ? 'navigation' : knowledge ? 'knowledge' : x11 ? 'x11' : docker ? 'docker' : largeViews ? 'large-views' : performance ? 'performance' : 'index'}.html`, LITECONNECT_UI_QUESTIONS_INTEGRATED: questionsIntegrated ? '1' : '', LITECONNECT_UI_GROUPS_ONLY: groupsOnly ? '1' : '' }
   delete env.ELECTRON_RUN_AS_NODE
   const electron = createRequire(import.meta.url)('electron')
-  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${settings ? 'settings-runner' : navigation ? 'navigation-runner' : images ? 'images-runner' : knowledge ? 'knowledge-runner' : x11 ? 'x11-runner' : toolRows ? 'tool-rows-runner' : docker ? 'docker-runner' : largeViews ? 'large-views-runner' : drag ? 'connection-drag-runner' : connectionsLayout ? 'connections-layout-runner' : performance ? 'performance-runner' : executionHistory ? 'execution-history-runner' : questions ? 'questions-runner' : aiTransfers ? 'ai-transfers-runner' : workspacePending ? 'workspace-pending-runner' : workspaceDisconnect ? 'workspace-disconnect-runner' : aiRetention ? 'ai-retention-runner' : chatHistory ? 'chat-history-runner' : markdownStress ? 'markdown-stress-runner' : markdown ? 'markdown-runner' : backgroundTiming ? 'background-timing-runner' : 'runner'}.cjs`)], {
+  const child = spawn(electron, [resolve(root, `scripts/ui-regression/${dock ? 'dock-runner' : settings ? 'settings-runner' : navigation ? 'navigation-runner' : images ? 'images-runner' : knowledge ? 'knowledge-runner' : x11 ? 'x11-runner' : toolRows ? 'tool-rows-runner' : docker ? 'docker-runner' : largeViews ? 'large-views-runner' : drag ? 'connection-drag-runner' : connectionsLayout ? 'connections-layout-runner' : performance ? 'performance-runner' : executionHistory ? 'execution-history-runner' : questions ? 'questions-runner' : aiTransfers ? 'ai-transfers-runner' : workspacePending ? 'workspace-pending-runner' : workspaceDisconnect ? 'workspace-disconnect-runner' : aiRetention ? 'ai-retention-runner' : chatHistory ? 'chat-history-runner' : markdownStress ? 'markdown-stress-runner' : markdown ? 'markdown-runner' : backgroundTiming ? 'background-timing-runner' : 'runner'}.cjs`)], {
     cwd: root, env, stdio: 'inherit', windowsHide: true,
   })
   process.exitCode = await new Promise((accept, reject) => {

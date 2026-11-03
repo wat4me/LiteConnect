@@ -163,7 +163,13 @@ it('atomically saves an edited user message before resending it', async () => {
       defaultContextFiles: [],
       threads: [{ id: 'edit-thread', title: 'old', createdAt: 1, updatedAt: 2, messages: [], contextFiles: [] }],
     }),
-    setAiSessionStore: async (_id: string, store: unknown) => { saved.push(store) },
+    aiSaveConversation: async (_id: string, threadId: string, payload: any) => {
+      saved.push(payload)
+      return {
+        activeThreadId: threadId, defaultContextFiles: [],
+        threads: [{ id: threadId, title: 'old', createdAt: 1, updatedAt: 2, messageCount: payload.messages.length, active: true }],
+      }
+    },
     onAiChatStream: () => () => {},
     aiChatStream: stream,
   } })
@@ -177,8 +183,9 @@ it('atomically saves an edited user message before resending it', async () => {
     'edit-success', user.id, 'revised', () => {}, started,
   )).toBe(true)
   expect(started).toHaveBeenCalledOnce()
-  expect((saved[0] as any).threads[0].messages).toHaveLength(1)
-  expect((saved[0] as any).threads[0].messages[0].content).toBe('revised')
+  expect(saved[0].messages).toHaveLength(1)
+  expect(saved[0].messages[0].content).toBe('revised')
+  expect(saved[0].invalidateContextCheckpoint).toBe(true)
   expect(state.messages.map(message => message.content)).toEqual(['revised', 'new answer'])
 })
 
@@ -190,7 +197,7 @@ it('restores the original turn when saving an edit fails', async () => {
       defaultContextFiles: [],
       threads: [{ id: 'edit-thread', title: 'old', createdAt: 1, updatedAt: 2, messages: [], contextFiles: [] }],
     }),
-    setAiSessionStore: async () => { throw new Error('disk full') },
+    aiSaveConversation: async () => { throw new Error('disk full') },
     onAiChatStream: () => () => {},
     aiChatStream: stream,
   } })
@@ -216,6 +223,7 @@ it('rolls back regenerate, delete, and clear when history persistence fails', as
       defaultContextFiles: [],
       threads: [{ id: 'thread', title: 'question', createdAt: 1, updatedAt: 2, messages: [], contextFiles: [] }],
     }),
+    aiSaveConversation: async () => { throw new Error('disk full') },
     setAiSessionStore: async () => { throw new Error('disk full') },
     onAiChatStream: () => () => {},
     aiChatStream: stream,

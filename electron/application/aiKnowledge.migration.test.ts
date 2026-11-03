@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { AppDatabase, aiSessionKey } from '../store/appDatabase'
 import { migrateLegacyKnowledge } from '../ai/knowledge/legacyMigration'
-import { AiKnowledgeService, knowledgeStorageKey, type KnowledgeState } from '../ai/knowledge/knowledgeService'
+import { AiKnowledgeService, knowledgeStorageKey } from '../ai/knowledge/knowledgeService'
+import { KnowledgeRepository } from '../ai/knowledge/knowledgeRepository'
 import { createAiKnowledgeService } from './aiKnowledge'
 import { aiHistoryIdForHost } from '../ai/history/historyScope'
 import { createNewConversationAtomic } from '../ai/history/historyStore'
@@ -19,11 +20,29 @@ const server: KnowledgeTarget = { connectionId: 'a', name: 'A', host: 'a.test', 
 const file = (content: string, name = 'runbook.md') => ({ source: 'local', path: `C:/notes/${name}`, content })
 const snapshot = (...files: ReturnType<typeof file>[]) => ({ version: 1, activeThreadId: 'old', defaultContextFiles: files,
   threads: [{ id: 'old', title: 'Old', createdAt: 1, updatedAt: 2, contextFiles: files, messages: [{ id: 'u', role: 'user', content: 'old question', createdAt: 1 }] }] })
-const state = (target = server) => database.getSingleton<KnowledgeState>(knowledgeStorageKey(target))!
+const state = (target = server) => new KnowledgeRepository(() => database).snapshot(knowledgeStorageKey(target))!
 beforeEach(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-knowledge-migration-'))
   database = new AppDatabase(path.join(directory, 'test.sqlite'))
   runtime.database = database
+})
+
+it('indexes workspace associations once and uses identity lookups for a thousand saved servers', async () => {
+  const profiles = Array.from({ length: 1000 }, (_, i) => ({ id: String(i), name: String(i), host: `${i}.test`, port: 22, username: 'ops' }))
+  const directory = new Map(profiles.map(profile => [profile.id, profile]))
+  const credentials = { getConnections: vi.fn(() => { throw new Error('full connection enumeration') }), getConnection: vi.fn(() => { throw new Error('secret-bearing lookup') }),
+    getKnowledgeProfiles: () => profiles, getKnowledgeProfile: (id: string) => directory.get(id), getKnowledgeProfileRevision: () => 1 } as unknown as Parameters<typeof createAiKnowledgeService>[1]
+  const ssh = { getSessionSnapshot: () => ({ connectionId: '0' }) } as unknown as Parameters<typeof createAiKnowledgeService>[0]
+  const read = vi.spyOn(database, 'getSingleton'), write = vi.spyOn(database, 'setSingleton')
+  const service = createAiKnowledgeService(ssh, credentials)
+  expect(read.mock.calls.filter(([key]) => key === WORKSPACE_SCOPE_KEY)).toHaveLength(1)
+  write.mockClear(); read.mockClear()
+  await service.access('session', 1).manage({ action: 'overview' })
+  expect(credentials.getConnection).not.toHaveBeenCalled()
+  expect(credentials.getConnections).not.toHaveBeenCalled()
+  createAiKnowledgeService(ssh, credentials)
+  expect(write).not.toHaveBeenCalled()
+  expect(read.mock.calls.filter(([key]) => key === WORKSPACE_SCOPE_KEY)).toHaveLength(1)
 })
 afterEach(() => {
   database.close()
@@ -55,7 +74,7 @@ it('imports every distinct snapshot once, preserving exact text and defaulting t
 it('does not resurrect deleted imports or re-read the history after its migration marker is committed', () => {
   const read = vi.fn(() => snapshot(file('Original')))
   migrateLegacyKnowledge(database, server, [{ id: 'host', read }])
-  const saved = state(); saved.documents = []; database.setSingleton(knowledgeStorageKey(server), saved)
+  const saved = state(); saved.documents = []; new KnowledgeRepository(() => database).initialize(knowledgeStorageKey(server), saved)
   migrateLegacyKnowledge(database, server, [{ id: 'host', read }])
   expect(read).toHaveBeenCalledOnce()
   expect(state().documents).toEqual([])

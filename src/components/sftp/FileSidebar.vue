@@ -278,7 +278,10 @@ function cancelPathInput() {
   pathInput.value = currentPath.value || ''
 }
 
-/** 当前目录列表变化时：写入树缓存 + 跟随展开路径（不收起其它节点） */
+/**
+ * 当前目录列表变化时：写入树缓存 + 跟随展开路径（不收起其它节点）。
+ * 列表只会被整体替换，按引用监听即可，不必逐条深度遍历几千个文件项。
+ */
 watch(
   [currentPath, files],
   async () => {
@@ -286,7 +289,6 @@ watch(
     dirTree.ingestListing(currentPath.value, files.value)
     await dirTree.followPath(currentPath.value)
   },
-  { deep: true },
 )
 
 async function onTreeSelectDir(path: string) {

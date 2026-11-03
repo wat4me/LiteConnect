@@ -272,6 +272,30 @@ export interface AiThreadSummary {
   active: boolean
 }
 
+/** Thread list without message bodies: what a window needs back after a main-process save. */
+export interface AiConversationSummary {
+  activeThreadId: string
+  defaultContextFiles: AiConversationContextFile[]
+  threads: AiThreadSummary[]
+}
+
+export interface AiSaveConversationPayload {
+  /** Complete, non-streaming records of the conversation being saved. */
+  messages: AiHistoryRecord[]
+  invalidateContextCheckpoint?: boolean
+  toolGroups?: import('../aiToolCatalog').AiToolGroup[]
+  compactionCount?: number
+  /** Reference files for the draft when another window already pruned it. */
+  contextFiles?: AiConversationContextFile[]
+  /** Activate this conversation after saving; the result then carries its thread. */
+  selectThreadId?: string
+}
+
+export interface AiSaveConversationResult extends AiConversationSummary {
+  /** The selected conversation with image data; absent when it no longer exists. */
+  thread?: AiConversationThread
+}
+
 export interface AiContextPressure {
   usedTokens: number
   windowTokens: number

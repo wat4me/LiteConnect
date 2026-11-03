@@ -16,11 +16,16 @@ app.whenReady().then(async () => {
   const storage = path.join(artifacts, 'knowledge.sqlite')
   database = new AppDatabase(storage)
   const targets = ['a', 'b'].map(id => ({ connectionId: id, name: `Server ${id.toUpperCase()}`, host: `${id}.test`, port: 22, username: 'root' }))
-  const service = new AiKnowledgeService(session => session==='fixture-b' ? [targets[1]] : session==='fixture-a' ? [targets[0]] : targets, () => database, storage)
+  let extraProfiles = []
+  const service = new AiKnowledgeService(session => session==='fixture-b' ? [targets[1]] : session==='fixture-a' ? [targets[0]] : targets, () => database, storage, () => [...targets,...extraProfiles])
   let failNextEnable = false
   const exportPath = path.join(artifacts, 'export.md')
   ipcMain.handle('knowledge-test', async (_event, op, args = {}) => {
     const access = service.access(args.session || 'fixture', 1)
+    if (op==='groups') return service.groups.manage(args.input)
+    if (op==='large-profiles') { extraProfiles=Array.from({length:5000},(_,i)=>({connectionId:`bulk-${String(i).padStart(4,'0')}`,name:`Bulk ${String(i).padStart(4,'0')}`,host:`bulk-${i}.test`,port:22,username:'ops'}));return true }
+    if (op==='group-manage') return service.groupAccess(args.groupId).manage(args.input)
+    if (op==='group-export') { const result=await service.groupAccess(args.groupId).manage({action:'read',documentId:args.documentId});fs.writeFileSync(exportPath,formatKnowledgeExport(result.document));return true }
     if (op==='fail-next-enable') { failNextEnable = true; return true }
     if (op==='migrate-legacy') {
       migrateLegacyKnowledge(database, targets[1], [{ id: 'old-host-b', raw: { defaultContextFiles: [{ source: 'local', path: 'C:/legacy/service.md', content: 'Migrated service: /srv/app; update: /srv/update.sh' }] } }])
@@ -32,6 +37,22 @@ app.whenReady().then(async () => {
     }
     if (op==='import') return { source: 'local', path: '/fixture/deploy.md', content: '# Deployment\n\nRestart with the documented command.' }
     if (op==='export') { const result=await access.manage({ action: 'read', connectionId: args.connectionId, documentId: args.documentId }); fs.writeFileSync(exportPath,formatKnowledgeExport(result.document)); return true }
+    if (op==='group-ai-save') {
+      const doc=(await access.manage({action:'read',groupId:args.groupId,documentId:args.id})).document
+      return access.call('knowledge_save',{groupId:args.groupId,documentId:doc.id,expectedRevision:doc.revision,title:doc.title,content:doc.content+'\n共同发布约定：发布前先检查目标环境。'},new AbortController().signal)
+    }
+    if (op==='system-reset') {
+      for (const group of service.groups.list()) service.groups.manage({action:'delete',groupId:group.id,expectedRevision:group.revision})
+      if (targets.length===2) targets.push(...['c','d'].map(id=>({connectionId:id,name:`Server ${id.toUpperCase()}`,host:`${id}.test`,port:22,username:'root'})))
+      return true
+    }
+    if (op==='system-retarget') { targets[0]={...targets[0],host:args.reset?'a.test':'replacement.test'};return true }
+    if (op==='system-ai') {
+      const meta=(await access.manage({action:'overview'})).groups.find(group=>group.groupId===args.groupId)
+      const doc=(await access.manage({action:'read',groupId:args.groupId,documentId:'system'})).document
+      const system={description:'订单系统：网关对外提供入口，业务服务访问数据库与缓存。发布顺序：数据库 → 业务服务 → 网关。',nodes:meta.systemMembers.map((member,index)=>({id:`service-${index}`,connectionId:member.connectionId,binding:member.binding,role:['网关','订单服务','数据库','缓存'][index],note:['对外 HTTP 入口','订单业务逻辑','持久化订单数据','缓存用途待核实'][index],status:index===3?'unconfirmed':'confirmed'})),dependencies:[{from:'service-0',to:'service-1',label:'HTTP',status:'confirmed'},{from:'service-1',to:'service-2',label:'SQL',status:'confirmed'},{from:'service-1',to:'service-3',label:'Redis',status:'unconfirmed'}]}
+      return access.call('knowledge_save',{groupId:args.groupId,documentId:'system',title:'SYSTEM.md',system,alwaysInclude:true,expectedRevision:doc.revision},new AbortController().signal)
+    }
     if (op==='ai-save') {
       const doc=(await access.manage({ action: 'read', connectionId: 'a', documentId: args.id })).document
       return access.call('knowledge_save',{connectionId:'a',documentId:doc.id,expectedRevision:doc.revision,title:doc.title,content:'# Updated by AI\n\nConfirmed service path: /srv/tomcat'},new AbortController().signal)
@@ -62,9 +83,160 @@ app.whenReady().then(async () => {
   const action = index => click(`.knowledge-actions button:nth-child(${index})`)
   const confirm = () => click('.app-dialog-actions button:last-child')
   const cancel = () => click('.app-dialog-actions button:first-child')
+  async function checkLargeMembers() {
+    stage='checking 5000-server searchable virtual member list'
+    await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+    await wait('!!window.__knowledge')
+    await run(`window.__knowledgeBackend.invoke('large-profiles')`)
+    await run(`window.__knowledge.show()`)
+    await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
+    await click('.knowledge-group-create')
+    await wait('!!document.querySelector(".knowledge-group-dialog input:not(:disabled)")')
+    await edit('.knowledge-group-field input','Large fleet selection')
+    await wait('!!document.querySelector(".knowledge-group-members input[value=bulk-0000]")')
+    while (await run('!!document.querySelector(".knowledge-group-members input[type=checkbox]:checked")')) {
+      await click('.knowledge-group-members input[type=checkbox]:checked')
+      await run('new Promise(resolve=>requestAnimationFrame(resolve))')
+    }
+    assert.ok(await run('document.querySelectorAll(".knowledge-group-members input[type=checkbox]").length<60'),'5000 profiles render only visible rows')
+    await click('.knowledge-group-members input[value=bulk-0000]')
+    await edit('.knowledge-group-search','bulk-4999.test')
+    await wait('!!document.querySelector(".knowledge-group-members input[value=bulk-4999]")')
+    assert.equal(await run('document.querySelectorAll(".knowledge-group-members input[type=checkbox]").length'),1)
+    await click('.knowledge-group-members input[value=bulk-4999]')
+    await edit('.knowledge-group-search','no matching server')
+    await wait('document.querySelectorAll(".knowledge-group-members input[type=checkbox]").length===0')
+    await edit('.knowledge-group-search','')
+    await wait('document.querySelector(".knowledge-group-members input[value=bulk-0000]")?.checked')
+    window.setSize(500,720);window.webContents.setZoomFactor(1.25)
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    assert.ok(await run('document.querySelectorAll(".knowledge-group-members input[type=checkbox]").length<60'))
+    fs.writeFileSync(path.join(artifacts,'knowledge-large-members.png'),(await window.webContents.capturePage()).toPNG())
+    await click('.knowledge-group-save')
+    await wait('!document.querySelector(".knowledge-group-dialog")')
+    const group=service.groups.list().find(group=>group.name==='Large fleet selection')
+    assert.deepEqual(group.members.map(member=>member.connectionId),['bulk-0000','bulk-4999'])
+    await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
+    await click('.knowledge-panel header button')
+    await wait('!document.querySelector(".knowledge-panel")')
+    service.groups.manage({action:'delete',groupId:group.id,expectedRevision:group.revision})
+    extraProfiles=[]
+    return 5000
+  }
+  async function checkGroupEntry() {
+    await window.loadURL(new URL('index.html', process.env.LITECONNECT_UI_TEST_URL).href)
+    await wait('!!window.__uiRegression')
+  stage = 'checking the LiteAI server-list group entry'
+  await run(`window.LiteConnect.aiKnowledgeGroups = input => window.__knowledgeBackend.invoke('groups', { input }); window.LiteConnect.aiGroupKnowledge = (groupId,input) => window.__knowledgeBackend.invoke('group-manage',{groupId,input}); window.LiteConnect.aiExportGroupKnowledge = (groupId,documentId) => window.__knowledgeBackend.invoke('group-export',{groupId,documentId}); window.__uiRegression.setWorkspacePreview(${JSON.stringify(targets.map(server => ({id:server.connectionId,name:server.name,host:server.host,port:server.port,username:server.username,password:'',group:'dev',createdAt:1,updatedAt:1})))}, []); window.__uiRegression.openLiteAi(); true`)
+  await wait('!!document.querySelector(".lite-ai-workspace-fixture .titlebar-brand-module")')
+  await click('.lite-ai-workspace-fixture .titlebar-brand-module')
+  await wait('document.querySelectorAll(".titlebar-mode-menu .titlebar-mode-item").length===3')
+  await click('.titlebar-mode-menu .titlebar-mode-item:last-child')
+  await wait('document.querySelectorAll(".workspace-host-checkbox").length===2')
+  await click('.workspace-host-checkbox'); await click('.workspace-card:nth-child(2) .workspace-host-checkbox')
+  const openedBeforeGroup = await run('window.__uiRegression.workspaceOpens.length')
+  await click('.workspace-knowledge-group'); await wait('document.querySelectorAll(".knowledge-group-members input:checked").length===2')
+  await edit('.knowledge-group-field input','从服务器列表创建的组')
+  await click('.knowledge-group-save'); await wait('!document.querySelector(".knowledge-group-dialog")')
+  assert.equal(service.groups.list().length,1)
+  await wait('!!document.querySelector(".knowledge-panel main textarea")')
+  await edit('.knowledge-panel main input:not([type="checkbox"])','公共发布流程')
+  await edit('.knowledge-panel main textarea','离线维护的发布步骤：检查目标机器后运行已确认的发布脚本。')
+  await action(1); await wait('!document.querySelector(".knowledge-panel main textarea") && !!document.querySelector(".knowledge-panel h3")')
+  await action(2); await wait('!document.querySelector(".knowledge-actions button:nth-child(2)").disabled')
+  assert.ok(fs.readFileSync(exportPath,'utf8').includes('离线维护的发布步骤'),'Groups can be edited and exported without an SSH conversation')
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  fs.writeFileSync(path.join(artifacts,'knowledge-group-offline.png'),(await window.webContents.capturePage()).toPNG())
+  await click('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
+  assert.equal(await run('window.__uiRegression.workspaceOpens.length'),openedBeforeGroup,'Creating a group never opens remote sessions or expands the operation scope')
+  let groupEntryLayouts = 0
+  for (const width of [720,1100]) {
+    window.setSize(width,900); await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    assert.ok(await run(`(() => { const panel=document.querySelector('.workspace-browser').getBoundingClientRect(),button=document.querySelector('.workspace-knowledge-group').getBoundingClientRect();return button.left>=panel.left-1&&button.right<=panel.right+1&&button.bottom<=panel.bottom+1 })()`),'Knowledge group entry fits the server browser')
+    groupEntryLayouts++
+  }
+    return groupEntryLayouts
+  }
+  async function checkSystem() {
+    stage = 'checking composite business systems'
+    await run(`window.__knowledgeBackend.invoke('system-reset')`)
+    await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+    await wait('!!window.__knowledge')
+    await click('.knowledge-trigger'); await wait('!!document.querySelector(".knowledge-group-create:not(:disabled)")')
+    await click('.knowledge-group-create'); await wait('!!document.querySelector(".knowledge-group-dialog input:not(:disabled)")')
+    assert.equal(await run('document.querySelectorAll(".knowledge-group-members input:checked").length'),4)
+    await edit('.knowledge-group-field input','订单业务系统')
+    await click('.knowledge-group-business input')
+    await edit('.knowledge-group-field textarea','四台服务器分工协作，对外提供订单服务。')
+    await click('.knowledge-group-save'); await wait('!!document.querySelector(".knowledge-system-view") && !document.querySelector(".knowledge-group-dialog")')
+    const group=service.groups.list()[0]
+    assert.equal((await service.groupAccess(group.id).manage({action:'read',documentId:'system'})).document.system.nodes.length,0)
+    await run(`(() => {const field=document.querySelector('.knowledge-toolbar .knowledge-mode-select');field.value='readwrite';field.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+    await wait('document.querySelector(".knowledge-toolbar .knowledge-mode-select").value==="readwrite"&&!document.querySelector(".knowledge-toolbar .knowledge-mode-select").disabled')
+    await run(`window.__knowledge.mapSystem('${group.id}')`)
+    await wait('!!document.querySelector(".knowledge-panel .knowledge-warning")')
+    await click('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
+    await click('.tool-run-knowledge'); await wait('document.querySelectorAll(".system-graph-node").length===4')
+    assert.equal(await run('document.querySelectorAll(".system-graph-node.unconfirmed").length'),1)
+    assert.equal(await run('document.querySelectorAll(".system-graph-scroll svg > path[stroke-dasharray]").length'),1)
+    assert.equal((await service.groupAccess(group.id).manage({action:'read',documentId:'system'})).document.author,'ai')
+    let systemLayouts=0
+    for(const locale of ['zh-CN','en-US']) for(const theme of ['light','dark','eyecare']) for(const width of [380,1100]) {
+      window.setSize(width,900);await run(`window.__knowledge.theme('${theme}','${locale}')`)
+      await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+      assert.ok(await run(`(() => {const p=document.querySelector('.knowledge-panel'),g=document.querySelector('.system-graph-scroll'),r=p.getBoundingClientRect(),gr=g.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&p.scrollWidth<=p.clientWidth+1&&gr.right<=r.right&&g.clientWidth<=g.parentElement.clientWidth})()`),`System graph fits ${locale}/${theme}/${width}`)
+      assert.ok(await run(`Array.from(document.querySelectorAll('.system-graph-node text')).every(text=>text.getBBox().x+text.getBBox().width<=170)`),'Node labels stay inside their cards')
+      systemLayouts++
+    }
+    window.setSize(1100,900);await run('window.__knowledge.theme("light","zh-CN")')
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    await window.webContents.capturePage();await new Promise(resolve=>setTimeout(resolve,100))
+    fs.writeFileSync(path.join(artifacts,'knowledge-system.png'),(await window.webContents.capturePage()).toPNG())
+    await action(1);await wait('document.querySelectorAll(".system-node-form").length===4')
+    await click('.system-add-node');await wait('document.querySelectorAll(".system-node-form").length===5')
+    assert.equal(await run('document.querySelector(".knowledge-actions button").disabled'),true,'An unnamed role cannot be saved')
+    await edit('.system-node-form:nth-of-type(5) input','异步任务')
+    await click('.system-add-edge');await wait('document.querySelectorAll(".system-edge-form").length===4')
+    assert.equal(await run('document.querySelector(".knowledge-actions button").disabled'),true,'Duplicate dependencies cannot be saved')
+    await run(`(() => {const row=document.querySelectorAll('.system-edge-form')[3],field=row.querySelectorAll('select')[1];field.value=Array.from(field.options).find(option=>option.textContent==='异步任务').value;field.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+    await wait('!document.querySelector(".knowledge-actions button").disabled')
+    await action(1);await wait('document.querySelectorAll(".system-graph-node").length===5')
+    const saved=(await service.groupAccess(group.id).manage({action:'read',documentId:'system'})).document
+    assert.equal(saved.system.dependencies.length,4)
+    assert.equal(saved.system.nodes[4].status,'unconfirmed')
+    await run('document.querySelector(".knowledge-history").open=true')
+    await click('.knowledge-history article:first-of-type button');await wait('document.querySelectorAll(".system-graph-node").length===4')
+    await action(2);await wait('!document.querySelector(".knowledge-actions button:nth-child(2)").disabled')
+    assert.ok(fs.readFileSync(exportPath,'utf8').includes('service-3')&&fs.readFileSync(exportPath,'utf8').includes('unconfirmed'),'System exports retain identity and verification data')
+    await run('window.__knowledge.scope("fixture-a")')
+    await run(`window.__knowledge.show('knowledge-group:${group.id}','system')`)
+    await wait('document.querySelectorAll(".system-graph-node").length===4')
+    assert.equal(await run(`Array.from(document.querySelectorAll('.system-graph-node')).filter(node=>node.textContent.includes('会话外成员')).length`),3,'Reference roles never become selected operation targets')
+    await run(`window.__knowledgeBackend.invoke('system-retarget')`)
+    await run('window.__knowledge.scope("fixture-b")')
+    await run(`window.__knowledge.show('knowledge-group:${group.id}','system')`)
+    await wait('document.querySelectorAll(".system-graph-node.stale").length===1')
+    assert.ok(await run(`document.querySelector('.system-warning').textContent.includes('身份已变化')`),'Changed endpoints remain visibly stale until explicitly rebound')
+    return systemLayouts
+  }
   stage = 'loading Vue fixture'
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   await wait('!!window.__knowledge')
+  if (process.env.LITECONNECT_KNOWLEDGE_LARGE_ONLY === '1') {
+    const largeMembers=await checkLargeMembers()
+    console.log(JSON.stringify({passed:true,largeMembers,artifacts}))
+    clearTimeout(timeout);window.destroy();database.close();app.quit();return
+  }
+  if (process.env.LITECONNECT_KNOWLEDGE_SYSTEM_ONLY === '1') {
+    const systemLayouts=await checkSystem()
+    console.log(JSON.stringify({passed:true,systemLayouts,artifacts}))
+    clearTimeout(timeout);window.destroy();database.close();app.quit();return
+  }
+  if (process.env.LITECONNECT_KNOWLEDGE_ENTRY_ONLY === '1') {
+    const groupEntryLayouts = await checkGroupEntry()
+    console.log(JSON.stringify({passed:true,groupEntryLayouts,artifacts}))
+    clearTimeout(timeout); window.destroy(); database.close(); app.quit(); return
+  }
   stage = 'checking close interactions'
   assert.equal(database.listSingletonKeys('ai-knowledge:').length,0)
   await pointerClick('.knowledge-trigger')
@@ -238,6 +410,73 @@ app.whenReady().then(async () => {
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await changeMode('readonly'); await modeIs('readonly')
   assert.equal(await run('!!document.querySelector(".app-dialog")'),false,'Imported documents are managed by the same external switch')
+  stage = 'creating and maintaining shared knowledge groups'
+  await run('window.__knowledge.scope("fixture")')
+  await click('.knowledge-trigger'); await wait('!!document.querySelector(".knowledge-group-create")')
+  assert.ok(await run(`!!document.querySelector('.knowledge-group-guide')`),'Multi-server knowledge offers a contextual sharing guide')
+  await click('.knowledge-group-guide .ui-icon-btn')
+  assert.equal(await run(`localStorage.getItem('liteconnect-knowledge-group-hint')`),'dismissed')
+  stage = 'opening group creation dialog'
+  await click('.knowledge-group-create'); await wait('!!document.querySelector(".knowledge-group-dialog input:not(:disabled)")')
+  assert.equal(await run(`document.querySelectorAll('.knowledge-group-members input:checked').length`),2)
+  await edit('.knowledge-group-field input','订单服务 · 生产环境')
+  await edit('.knowledge-group-field textarea','应用目录：/opt/orders\n日志目录：/var/log/orders\n发布前检查目标机器，单机例外按本机知识处理。')
+  let groupLayouts = 0
+  for (const locale of ['zh-CN','en-US']) for (const theme of ['light','dark','eyecare']) for (const width of [380,1100]) {
+    window.setSize(width,800); await run(`window.__knowledge.theme('${theme}','${locale}')`)
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    assert.ok(await run(`(() => { const p=document.querySelector('.knowledge-group-dialog'),r=p.getBoundingClientRect(); return r.left>=0&&r.right<=innerWidth+1&&r.top>=36&&r.bottom<=innerHeight&&p.scrollWidth<=p.clientWidth+1 })()`),`Group creation fits ${locale}/${theme}/${width}`)
+    groupLayouts++
+  }
+  await run('window.__knowledge.theme("light","zh-CN")'); window.setSize(1100,800)
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  fs.writeFileSync(path.join(artifacts,'knowledge-group-create.png'),(await window.webContents.capturePage()).toPNG())
+  stage = 'saving a new shared group'
+  await click('.knowledge-group-save'); await wait('!document.querySelector(".knowledge-group-dialog") && !!document.querySelector(".knowledge-group-scope")')
+  await wait(`document.querySelector('.knowledge-panel main').textContent.includes('/opt/orders')`)
+  let group = service.groups.manage({action:'overview'}).groups[0]
+  assert.equal(group.members.length,2)
+  const sharedPrompt = await service.access('fixture',1).prompt()
+  assert.equal(sharedPrompt.split('/opt/orders').length-1,1,'Shared content is attached once for multiple members')
+  assert.ok((await service.access('fixture-a',1).prompt()).includes('/opt/orders'),'A single member inherits group knowledge without enabling its own knowledge')
+  assert.equal(await run(`!!document.querySelector('.knowledge-toolbar .knowledge-mode-select option[value="readwrite"]')`),true,'Group knowledge supports explicit AI updates')
+  await changeMode('readwrite'); await modeIs('readwrite')
+  const groupDoc=(await service.access('fixture',1).manage({action:'list',groupId:group.id})).documents[0]
+  await run(`window.__knowledge.aiSaveGroup('${group.id}','${groupDoc.id}')`)
+  await wait(`!!document.querySelector('.knowledge-panel .knowledge-warning')`)
+  assert.equal((await service.access('fixture',1).manage({action:'read',groupId:group.id,documentId:groupDoc.id})).document.author,'ai')
+  await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
+  await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
+  await click('.tool-run-knowledge'); await wait(`document.querySelector('.knowledge-toolbar > select').value==='knowledge-group:${group.id}'`)
+  await wait(`document.querySelector('.knowledge-panel main').textContent.includes('共同发布约定')`)
+  await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
+  await changeMode('readonly'); await modeIs('readonly')
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  fs.writeFileSync(path.join(artifacts,'knowledge-group.png'),(await window.webContents.capturePage()).toPNG())
+  await run(`window.__knowledge.show('a','memory')`)
+  await wait('!!document.querySelector(".knowledge-copy-group")')
+  const original = (await service.access('fixture',1).manage({action:'read',connectionId:'a',documentId:'memory'})).document
+  await click('.knowledge-copy-group'); await wait('!!document.querySelector(".app-dialog")'); await confirm()
+  await wait('!!document.querySelector(".knowledge-panel textarea") && !!document.querySelector(".knowledge-group-scope")')
+  assert.equal((await service.access('fixture',1).manage({action:'list',groupId:group.id})).documents.length,1,'Copying opens a reviewable draft without immediately writing shared knowledge')
+  await edit('.knowledge-panel input:not([type="checkbox"])','经过检查的公共说明')
+  await action(1); await wait('!document.querySelector(".knowledge-panel textarea")')
+  assert.equal((await service.access('fixture',1).manage({action:'list',groupId:group.id})).documents.length,2)
+  assert.deepEqual((await service.access('fixture',1).manage({action:'read',connectionId:'a',documentId:'memory'})).document,original,'Sharing retains original server knowledge')
+  await wait('!!document.querySelector(".knowledge-group-manage:not(:disabled)")')
+  await click('.knowledge-group-manage'); await wait('!!document.querySelector(".knowledge-group-dialog input:not(:disabled)")')
+  await edit('.knowledge-group-field input','订单服务 · 公共知识')
+  await click('.knowledge-group-save'); await wait('!document.querySelector(".knowledge-group-dialog")')
+  group=service.groups.manage({action:'overview'}).groups[0]
+  assert.equal(group.name,'订单服务 · 公共知识')
+  await wait('!!document.querySelector(".knowledge-group-manage:not(:disabled)")')
+  await click('.knowledge-group-manage'); await wait('!!document.querySelector(".knowledge-group-dialog input:not(:disabled)")')
+  await click('.knowledge-group-dialog footer button:first-child'); await wait('!!document.querySelector(".app-dialog")'); await cancel()
+  assert.equal(service.groups.manage({action:'overview'}).groups.length,1,'Cancelling group deletion retains shared knowledge')
+  await click('.knowledge-group-dialog footer button:first-child'); await wait('!!document.querySelector(".app-dialog")'); await confirm()
+  await wait('!document.querySelector(".knowledge-group-dialog") && !document.querySelector(".knowledge-group-scope")')
+  assert.equal(service.groups.manage({action:'overview'}).groups.length,0)
+  assert.deepEqual((await service.access('fixture',1).manage({action:'read',connectionId:'a',documentId:'memory'})).document,original,'Deleting a group retains member knowledge')
   stage = 'checking knowledge counts in the actual sidebar composer'
   await window.loadURL(new URL('index.html', process.env.LITECONNECT_UI_TEST_URL).href)
   await wait('!!window.__uiRegression')
@@ -269,8 +508,23 @@ app.whenReady().then(async () => {
   const composerBounds=await run(`(() => {const r=document.querySelector('.ai-sidebar .composer').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)}})()`)
   fs.writeFileSync(path.join(artifacts,'knowledge-trigger.png'),(await window.webContents.capturePage(composerBounds)).toPNG())
   await pointerClick('.ai-sidebar .knowledge-trigger'); await wait('!!document.querySelector(".knowledge-panel")')
+  await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await wait('document.activeElement?.classList.contains("knowledge-trigger")')
-  console.log(JSON.stringify({passed:true,layouts,closeCases,triggerLayouts,flows:['pointer close/titlebar safety/zoom','unsaved close cancel/confirm','three modes, consent/cancel and read-only enforcement','local SQLite storage','standalone memory without sources','per-record include choice without duplication','Markdown editing/import/export','optional source navigation/rename/deletion','revision conflict preserves draft','restore','server isolation','AI view locator','scope change','actual sidebar/workspace knowledge icon counts and click/focus'],artifacts}))
+  stage = 'checking saved group document navigation in the real sidebar'
+  const locatorGroup=service.groups.manage({action:'create',name:'Shared locator group',connectionIds:['a','b'],initialContent:'AI_GROUP_LINK: /opt/shared'}).group
+  const locatorDoc=(await service.access('fixture',1).manage({action:'list',groupId:locatorGroup.id})).documents[0]
+  await run(`(async()=>{const {useAiChat}=await import('/src/composables/ai/useAiChat.ts');useAiChat().getSessionState('knowledge-trigger-preview').messages.push({id:'group-result-link',role:'assistant',content:'',createdAt:Date.now(),status:'completed',toolRuns:[{id:'group-result',name:'knowledge_save',args:'{}',status:'done',isError:false,content:JSON.stringify({groupId:'${locatorGroup.id}',documentId:'${locatorDoc.id}',saved:true})}]})})()`)
+  await wait('!!document.querySelector(".ai-sidebar .tool-run-knowledge")')
+  await click('.ai-sidebar .tool-run-knowledge')
+  await wait(`document.querySelector('.knowledge-toolbar > select')?.value==='knowledge-group:${locatorGroup.id}'`)
+  await wait(`document.querySelector('.knowledge-panel main').textContent.includes('AI_GROUP_LINK')`)
+  await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
+  await click('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
+  service.groups.manage({action:'delete',groupId:locatorGroup.id,expectedRevision:1})
+  const groupEntryLayouts = await checkGroupEntry()
+  const systemLayouts = await checkSystem()
+  const largeMembers = await checkLargeMembers()
+  console.log(JSON.stringify({passed:true,largeMembers,systemLayouts,layouts,groupLayouts,closeCases,triggerLayouts,groupEntryLayouts,flows:['pointer close/titlebar safety/zoom','unsaved close cancel/confirm','three modes, consent/cancel and read-only enforcement','local SQLite storage','standalone memory without sources','per-record include choice without duplication','Markdown editing/import/export','optional source navigation/rename/deletion','revision conflict preserves draft','restore','server isolation','AI view locator','scope change','knowledge group creation/copy/rename/delete and deduplication','server-list group entry without connecting','actual sidebar/workspace knowledge icon counts and click/focus'],artifacts}))
   clearTimeout(timeout); window.destroy(); database.close(); app.quit()
-}).catch(error=>{console.error(error,{artifacts});clearTimeout(timeout);if(window)window.destroy();database?.close();app.exit(1)})
+}).catch(error=>{console.error(error,{stage,artifacts}); if(window) console.error('Renderer failure captured at stage',stage);clearTimeout(timeout);if(window)window.destroy();database?.close();app.exit(1)})

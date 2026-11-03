@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { knowledgeGroupConnectionId } from '@shared/aiKnowledgeGroups'
 import { useAiNewConversation } from '@/composables/ai/useAiNewConversation'
 import { useAiClearConversation } from '@/composables/ai/useAiClearConversation'
 import { useAiSidebarSession } from '@/composables/ai/useAiSidebarSession'
@@ -96,7 +97,7 @@ const knowledgeRef = ref<InstanceType<typeof AiKnowledge> | null>(null)
 function openKnowledge(run: AiToolRun) {
   try {
     const result = JSON.parse(run.content)
-    void knowledgeRef.value?.show(result.connectionId, result.documentId)
+    void knowledgeRef.value?.show(result.groupId ? knowledgeGroupConnectionId(result.groupId) : result.connectionId, result.documentId)
   } catch { void knowledgeRef.value?.show() }
 }
 const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)

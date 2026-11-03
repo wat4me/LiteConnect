@@ -1,177 +1,82 @@
 <script setup lang="ts">
-import AppIcon from '@/components/icons/AppIcon.vue'
-import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import AppIcon from '@/components/icons/AppIcon.vue'
+import { WORKSPACE_TOOLS, type WorkspaceEdge, type WorkspaceTool } from '@shared/workspaceLayout'
 
 const props = withDefaults(defineProps<{
-  aiActive: boolean
-  filesActive: boolean
-  monitorActive: boolean
-  monitorEnabled?: boolean
-  batchActive: boolean
-  syncActive?: boolean
-  snippetsActive: boolean
-  showAiUnread: boolean
-  showAiApproval?: boolean
-  backgroundTaskCount?: number
-  /** Active SFTP transfers (all sessions); shown when files panel closed */
-  activeTransfers?: number
-  /** SFTP is hidden while a cross-host split uses the full SSH canvas. */
-  filesDisabled?: boolean
-  /** AI is hidden for every visible split and restored when the split ends. */
-  aiDisabled?: boolean
-  /** Docker workspace mode button (not a side panel). */
-  dockerActive?: boolean
-  dockerDisabled?: boolean
-  /** When Docker mode is on, side-panel buttons are inert. */
+  aiActive: boolean; filesActive: boolean; monitorActive: boolean; batchActive: boolean; snippetsActive: boolean
+  monitorEnabled?: boolean; syncActive?: boolean; showAiUnread?: boolean; showAiApproval?: boolean
+  backgroundTaskCount?: number; scheduledTaskCount?: number; activeTransfers?: number; dockerActive?: boolean; dockerDisabled?: boolean
   sidePanelsDisabled?: boolean
-}>(), { monitorEnabled: true })
-
+  edge?: WorkspaceEdge; toolIds?: WorkspaceTool[]; rearrange?: boolean; locked?: boolean
+}>(), { edge: 'left', toolIds: () => [...WORKSPACE_TOOLS], rearrange: false, locked: false })
 const emit = defineEmits<{
-  (e: 'toggle-ai'): void
-  (e: 'toggle-files'): void
-  (e: 'toggle-monitor'): void
-  (e: 'toggle-batch'): void
-  (e: 'toggle-sync'): void
-  (e: 'toggle-snippets'): void
-  (e: 'toggle-docker'): void
+  (e: 'toggle-ai'): void; (e: 'toggle-files'): void; (e: 'toggle-monitor'): void
+  (e: 'toggle-batch'): void; (e: 'toggle-sync'): void; (e: 'toggle-snippets'): void; (e: 'toggle-docker'): void
+  (e: 'tool-menu', id: WorkspaceTool | undefined, event: MouseEvent): void
+  (e: 'tool-drag', id: WorkspaceTool, event: DragEvent): void; (e: 'tool-drag-end'): void
 }>()
-
 const { t } = useI18n()
-
-const dockerTooltip = computed(() => {
-  if (props.dockerDisabled) return t('toolbar.dockerDisabled')
-  if (props.dockerActive) return t('toolbar.dockerActive')
-  return t('toolbar.dockerShortcut')
-})
-
-const aiTooltip = computed(() => {
-  if (props.aiDisabled) return t('toolbar.aiSplitDisabled')
-  if (props.backgroundTaskCount) return t('ai.backgroundTaskCount', { count: props.backgroundTaskCount })
-  return t('toolbar.aiShortcut')
-})
-
-const sftpTooltip = computed(() => {
-  if (props.filesDisabled) return t('toolbar.sftpCrossHostSplitDisabled')
-  if (props.activeTransfers) return t('toolbar.sftpActive', { count: props.activeTransfers })
-  return t('toolbar.sftp')
-})
+const aiTaskSummary = computed(() => [
+  props.backgroundTaskCount ? t('ai.backgroundTaskCount', { count: props.backgroundTaskCount }) : '',
+  props.scheduledTaskCount ? t('ai.scheduledTaskCount', { count: props.scheduledTaskCount }) : '',
+].filter(Boolean).join(' · '))
+const definitions = computed(() => ({
+  ai: { icon: 'ai-chat', active: props.aiActive, disabled: props.sidePanelsDisabled, label: aiTaskSummary.value || t('toolbar.ai'), tooltip: aiTaskSummary.value || t('toolbar.aiShortcut') },
+  files: { icon: 'folder', active: props.filesActive, disabled: props.sidePanelsDisabled, label: props.activeTransfers ? t('toolbar.sftpAriaActive', { count: props.activeTransfers }) : t('toolbar.sftpAria'), tooltip: props.activeTransfers ? t('toolbar.sftpActive', { count: props.activeTransfers }) : t('toolbar.sftp') },
+  monitor: { icon: 'monitor-activity', active: props.monitorActive, disabled: props.sidePanelsDisabled, label: t('toolbar.monitor'), tooltip: t('toolbar.monitorShortcut') },
+  batch: { icon: 'batch-command', active: props.batchActive, disabled: props.sidePanelsDisabled, label: t('toolbar.batch'), tooltip: t('toolbar.batchShortcut') },
+  sync: { icon: 'terminal-sync', active: props.syncActive, disabled: props.sidePanelsDisabled, label: t('terminal.syncTitle'), tooltip: t('terminal.syncTitle') },
+  snippets: { icon: 'file-terminal', active: props.snippetsActive, disabled: props.sidePanelsDisabled, label: t('toolbar.snippets'), tooltip: t('toolbar.snippetsShortcut') },
+  docker: { icon: 'docker', active: props.dockerActive, disabled: props.dockerDisabled, label: t('toolbar.docker'), tooltip: props.dockerDisabled ? t('toolbar.dockerDisabled') : props.dockerActive ? t('toolbar.dockerActive') : t('toolbar.dockerShortcut') },
+} as const))
+const tools = computed(() => props.toolIds.filter(id => id !== 'monitor' || props.monitorEnabled !== false).map(id => ({ id, ...definitions.value[id] })))
+const tooltipPlacement = computed(() => ({ left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const)[props.edge])
+function toggle(id: WorkspaceTool) {
+  switch (id) {
+    case 'ai': emit('toggle-ai'); break
+    case 'files': emit('toggle-files'); break
+    case 'monitor': emit('toggle-monitor'); break
+    case 'batch': emit('toggle-batch'); break
+    case 'sync': emit('toggle-sync'); break
+    case 'snippets': emit('toggle-snippets'); break
+    case 'docker': emit('toggle-docker'); break
+  }
+}
+function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
+  if (!props.rearrange) return
+  event.preventDefault(); event.stopPropagation(); emit('tool-menu', id, event)
+}
 </script>
 
 <template>
-  <div class="left-toolbar" role="toolbar" :aria-label="t('toolbar.aria')">
-    <el-tooltip :content="aiTooltip" placement="right" :show-after="300">
-      <button
-        class="toolbar-icon-btn"
-        type="button"
-        :class="{ active: aiActive }"
-        :aria-label="backgroundTaskCount ? t('ai.backgroundTaskCount', { count: backgroundTaskCount }) : t('toolbar.ai')"
-        :aria-pressed="aiActive"
-        :disabled="sidePanelsDisabled || aiDisabled"
-        @click="emit('toggle-ai')"
-      >
-        <AppIcon name="ai-chat" size="lg" />
-        <span v-if="backgroundTaskCount" class="ai-task-count-badge">{{ backgroundTaskCount }}</span>
-        <span
-          v-if="showAiApproval || showAiUnread"
-          class="ai-reply-badge"
-          :class="{ approval: showAiApproval }"
-          :aria-label="showAiApproval ? t('toolbar.aiApproval') : t('toolbar.aiUnread')"
-        ></span>
-      </button>
-    </el-tooltip>
-
-    <el-tooltip
-      :content="sftpTooltip"
-      placement="right"
-      :show-after="300"
-    >
-      <button
-        class="toolbar-icon-btn"
-        type="button"
-        :class="{ active: filesActive }"
-        :aria-label="activeTransfers ? t('toolbar.sftpAriaActive', { count: activeTransfers }) : t('toolbar.sftpAria')"
-        :aria-pressed="filesActive"
-        :disabled="sidePanelsDisabled || filesDisabled"
-        @click="emit('toggle-files')"
-      >
-        <AppIcon name="folder" size="lg" />
-        <span
-          v-if="!filesActive && activeTransfers && activeTransfers > 0"
-          class="transfer-count-badge"
-          :aria-label="t('toolbar.transferring', { count: activeTransfers })"
-        >{{ activeTransfers > 99 ? '99+' : activeTransfers }}</span>
-      </button>
-    </el-tooltip>
-
-    <el-tooltip v-if="monitorEnabled !== false" :content="t('toolbar.monitorShortcut')" placement="right" :show-after="300">
-      <button
-        class="toolbar-icon-btn"
-        type="button"
-        :class="{ active: monitorActive }"
-        :aria-label="t('toolbar.monitor')"
-        :aria-pressed="monitorActive"
-        :disabled="sidePanelsDisabled"
-        @click="emit('toggle-monitor')"
-      >
-        <AppIcon name="monitor-activity" size="lg" />
-      </button>
-    </el-tooltip>
-
-    <el-tooltip :content="t('toolbar.batchShortcut')" placement="right" :show-after="300">
-      <button
-        class="toolbar-icon-btn"
-        type="button"
-        :class="{ active: batchActive }"
-        :aria-label="t('toolbar.batch')"
-        :aria-pressed="batchActive"
-        :disabled="sidePanelsDisabled"
-        @click="emit('toggle-batch')"
-      >
-        <AppIcon name="batch-command" size="lg" />
-      </button>
-    </el-tooltip>
-
-    <el-tooltip :content="t('terminal.syncTitle')" placement="right" :show-after="300">
-      <button class="toolbar-icon-btn" type="button" :class="{ active: syncActive }" :aria-label="t('terminal.syncTitle')" :aria-pressed="!!syncActive" :disabled="sidePanelsDisabled" @click="emit('toggle-sync')">
-        <AppIcon name="terminal-sync" size="lg" />
-      </button>
-    </el-tooltip>
-    <el-tooltip :content="t('toolbar.snippetsShortcut')" placement="right" :show-after="300">
-      <button
-        class="toolbar-icon-btn"
-        type="button"
-        :class="{ active: snippetsActive }"
-        :aria-label="t('toolbar.snippets')"
-        :aria-pressed="snippetsActive"
-        :disabled="sidePanelsDisabled"
-        @click="emit('toggle-snippets')"
-      >
-        <AppIcon name="file-terminal" size="lg" />
-      </button>
-    </el-tooltip>
-
-    <div class="toolbar-divider" role="separator" aria-hidden="true"></div>
-
-    <el-tooltip :content="dockerTooltip" placement="right" :show-after="300">
-      <button
-        class="toolbar-icon-btn"
-        type="button"
-        :class="{ active: dockerActive }"
-        :aria-label="t('toolbar.docker')"
-        :aria-pressed="!!dockerActive"
-        :disabled="dockerDisabled"
-        @click="emit('toggle-docker')"
-      >
-        <AppIcon name="docker" size="lg" />
-      </button>
-    </el-tooltip>
+  <div class="left-toolbar" :class="`toolbar-${edge}`" role="toolbar" :aria-label="t('toolbar.aria')" :aria-orientation="edge === 'top' || edge === 'bottom' ? 'horizontal' : 'vertical'" :data-dock-edge="edge" @contextmenu.self="menu(undefined, $event)">
+    <template v-for="tool in tools" :key="tool.id">
+      <div v-if="tool.id === 'docker' && tools.length > 1" class="toolbar-divider" role="separator" aria-hidden="true"></div>
+      <el-tooltip :content="tool.tooltip" :placement="tooltipPlacement" :show-after="300">
+        <button class="toolbar-icon-btn" type="button" :class="{ active: tool.active }" :aria-label="tool.label" :aria-pressed="!!tool.active" :disabled="!!tool.disabled" :data-tool-id="tool.id"
+          :draggable="rearrange && !locked" @click="toggle(tool.id)" @contextmenu="menu(tool.id, $event)" @keydown.shift.f10.prevent="menu(tool.id, $event as unknown as MouseEvent)"
+          @dragstart="emit('tool-drag', tool.id, $event)" @dragend="emit('tool-drag-end')">
+          <AppIcon :name="tool.icon" size="lg" />
+          <span v-if="tool.id === 'ai' && backgroundTaskCount" class="ai-task-count-badge">{{ backgroundTaskCount }}</span>
+          <span v-else-if="tool.id === 'ai' && scheduledTaskCount" class="ai-task-count-badge scheduled" :aria-label="t('ai.scheduledTaskCount', { count: scheduledTaskCount })">{{ scheduledTaskCount }}</span>
+          <span v-if="tool.id === 'ai' && (showAiApproval || showAiUnread)" class="ai-reply-badge" :class="{ approval: showAiApproval }" :aria-label="showAiApproval ? t('toolbar.aiApproval') : t('toolbar.aiUnread')"></span>
+          <span v-if="tool.id === 'files' && !filesActive && activeTransfers" class="transfer-count-badge" :aria-label="t('toolbar.transferring', { count: activeTransfers })">{{ activeTransfers > 99 ? '99+' : activeTransfers }}</span>
+        </button>
+      </el-tooltip>
+    </template>
+    <slot />
   </div>
 </template>
 
 <style scoped>
 .left-toolbar {
   width: var(--left-toolbar-width, 40px);
+  flex-shrink: 0;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
   min-width: var(--left-toolbar-width, 40px);
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
@@ -182,6 +87,12 @@ const sftpTooltip = computed(() => {
   gap: 4px;
 }
 
+.toolbar-right { border-right: 0; border-left: 1px solid var(--border-color); }
+.toolbar-top, .toolbar-bottom { flex-direction: row; width: 100%; min-width: 0; height: 40px; padding: 0 8px; border-right: 0; }
+.toolbar-top { border-bottom: 1px solid var(--border-color); }
+.toolbar-bottom { border-top: 1px solid var(--border-color); }
+.toolbar-top .toolbar-divider, .toolbar-bottom .toolbar-divider { width: 1px; height: 20px; margin: 0 4px; }
+.toolbar-icon-btn { flex-shrink: 0; }
 .left-toolbar .app-icon:not([data-size]) {
   font-size: var(--icon-lg);
 }
@@ -260,6 +171,13 @@ const sftpTooltip = computed(() => {
   font-weight: 700;
   line-height: 14px;
   pointer-events: none;
+}
+
+/* Pending scheduled commands are not activity: a dashed, muted badge instead of the accent count. */
+.ai-task-count-badge.scheduled {
+  border-style: dashed;
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
 }
 
 .transfer-count-badge {

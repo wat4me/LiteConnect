@@ -6,6 +6,7 @@ import {
   aiSessionKey,
   AppDatabase,
   COLLECTIONS,
+  MCP_AUDIT_MAX_ROWS,
   migrateLegacyStorage,
   SINGLETONS,
 } from './appDatabase'
@@ -16,6 +17,54 @@ describe('AppDatabase', () => {
     const db = new AppDatabase(join(dir, 'app.sqlite'))
     db.replaceCollection('items', [{ id: 'b' }, { id: 'a' }], (item) => item.id)
     expect(db.getCollection('items')).toEqual([{ id: 'b' }, { id: 'a' }])
+    db.close()
+  })
+
+  it('runs WAL with NORMAL synchronous so commits do not fsync individually', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'liteconnect-pragma-'))
+    const db = new AppDatabase(join(dir, 'app.sqlite'))
+    const raw = (db as unknown as { db: { prepare(sql: string): { get(): Record<string, unknown> } } }).db
+    expect(raw.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+    expect(raw.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 1 })
+    db.close()
+  })
+
+  it('reuses prepared statements across calls and releases them on close', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'liteconnect-statements-'))
+    const db = new AppDatabase(join(dir, 'app.sqlite'))
+    const statements = (db as unknown as { statements: Map<string, unknown> }).statements
+    db.setSingleton('a', 1)
+    db.setSingleton('b', 2)
+    const prepared = statements.size
+    expect(db.getSingleton('a')).toBe(1)
+    expect(db.getSingleton('b')).toBe(2)
+    expect(db.getSingleton('missing')).toBeUndefined()
+    expect(statements.size).toBe(prepared + 1)
+    db.close()
+    expect(statements.size).toBe(0)
+  })
+
+  it('lists and deletes document collections by prefix', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'liteconnect-collections-'))
+    const db = new AppDatabase(join(dir, 'app.sqlite'))
+    db.setDocument('items:a', '1', { id: '1' })
+    db.setDocument('items:a', '2', { id: '2' })
+    db.setDocument('items:b', '1', { id: '1' })
+    expect(db.listCollections('items:')).toEqual(['items:a', 'items:b'])
+    db.deleteCollection('items:a')
+    expect(db.listCollections('items:')).toEqual(['items:b'])
+    expect(db.getCollection('items:a')).toEqual([])
+    db.close()
+  })
+
+  it('keeps only the newest MCP audit rows', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'liteconnect-audit-'))
+    const db = new AppDatabase(join(dir, 'app.sqlite'))
+    db.transaction(() => {
+      for (let index = 0; index < MCP_AUDIT_MAX_ROWS + 3; index++) db.appendMcpAudit({ index }, index)
+    })
+    expect(db.countMcpAudit()).toBe(MCP_AUDIT_MAX_ROWS)
+    expect(db.listMcpAudit()[0]).toEqual({ index: 3 })
     db.close()
   })
 

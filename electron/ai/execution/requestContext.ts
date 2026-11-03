@@ -10,6 +10,7 @@ import { isValidUUID } from '../../utils/validation'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import type { AiToolGroup } from '../../../shared/aiToolCatalog'
 import { localFileTransferSystemAddendum } from './localEnvironment'
+import { localDateLine } from '../../../shared/localTime'
 import { knowledgeTools, KNOWLEDGE_TOOLS, type AiKnowledgeAccess } from '../../../shared/aiKnowledge'
 
 export async function buildAiRequestEnvironment(opts: {
@@ -32,7 +33,7 @@ export async function buildAiRequestEnvironment(opts: {
   if (opts.allowQuestions === false && !useTools) extraSystem = t('sharedText.promptUnattended')
   const localEnvironment = useTools ? localFileTransferSystemAddendum(opts.sshMcpRuntime?.getLocalEnvironment?.() ?? { platform: process.platform }, t) : ''
   const knowledgePrompt = await opts.knowledge?.prompt()
-  extraSystem = [extraSystem, localEnvironment, knowledgePrompt, t('toolPolicy.visibleLanguage')].filter(text => text?.trim()).join('\n\n')
+  extraSystem = [extraSystem, localDateLine(Date.now()), localEnvironment, knowledgePrompt, t('toolPolicy.visibleLanguage')].filter(text => text?.trim()).join('\n\n')
   const tools = useTools ? (opts.workspaceTargets ? workspaceToolsForChat(opts.toolGroups) : sshToolsForChat(opts.toolGroups)).filter(tool => opts.allowQuestions !== false || tool.function.name !== AI_QUESTION_TOOL) : undefined
   const allowedKnowledgeTools = useTools && knowledgePrompt ? await opts.knowledge?.tools?.() ?? KNOWLEDGE_TOOLS : []
   const localTools = knowledgeTools.filter(tool => allowedKnowledgeTools.some(name => name === tool.function.name))

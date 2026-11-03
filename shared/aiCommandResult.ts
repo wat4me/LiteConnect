@@ -15,7 +15,9 @@ export function serializeAiCommandResult(raw: Payload): string {
   for (const key of ['jobId', 'sessionId', 'connectionId', 'status', 'signal', 'code']) text(key, 100)
   text('connectionName', 500)
   text('command', 500)
-  for (const key of ['startedAt', 'finishedAt']) {
+  text('note', 200)
+  for (const key of ['dueAtLocal', 'scheduledAtLocal']) text(key, 60)
+  for (const key of ['startedAt', 'finishedAt', 'dueAt']) {
     if (typeof raw[key] === 'number' && Number.isFinite(raw[key])) payload[key] = raw[key]
   }
   text('stdout', AI_COMMAND_RESULT_MAX - 240, true)

@@ -195,6 +195,14 @@ describe('SshMcpRuntime', () => {
     expect(ssh.executeSessionExec).not.toHaveBeenCalled()
   })
 
+  it('rejects startAfterMs on the external exec path instead of running the command now', async () => {
+    const { runtime } = makeRuntime()
+    const reply = await runtime.call('exec', { sessionId: SESSION_ID, command: 'uptime', background: true, startAfterMs: 60_000 })
+    expect(reply.isError).toBe(true)
+    expect((reply.structuredContent as { code: string }).code).toBe('INVALID_ARGUMENTS')
+    expect(runtime.listJobs()).toEqual([])
+  })
+
   it('cancels a background handle that arrives after disposal', async () => {
     let open!: (value: { promise: Promise<SessionExecResult>; cancel: () => void }) => void
     const beginSessionExec = vi.fn(() => new Promise<{ promise: Promise<SessionExecResult>; cancel: () => void }>(resolve => { open = resolve }))

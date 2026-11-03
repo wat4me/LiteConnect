@@ -13,8 +13,6 @@ export function useWorkspaceSplitController(deps: {
   activeSessionId: ComputedRef<string | null>
   primarySessionId: Ref<string | null>
   secondarySessionId: Ref<string | null>
-  sidebarVisible: Ref<boolean>
-  aiSidebarVisible: Ref<boolean>
   getGroupBySessionId: (sessionId: string) => ConnectionGroup | null
   createSession: CreateSession
   closeSession: (sessionId: string) => Promise<void>
@@ -35,31 +33,6 @@ export function useWorkspaceSplitController(deps: {
       : null
     return !!primaryGroup && !!secondaryGroup && primaryGroup.connectionId !== secondaryGroup.connectionId
   })
-
-  let sftpVisibleBeforeCrossHostSplit: boolean | null = null
-  let aiVisibleBeforeSplit: boolean | null = null
-  watch(deps.isSplit, (split, wasSplit) => {
-    if (split && !wasSplit) {
-      aiVisibleBeforeSplit = deps.aiSidebarVisible.value
-      deps.aiSidebarVisible.value = false
-      return
-    }
-    if (!split && wasSplit && aiVisibleBeforeSplit !== null) {
-      deps.aiSidebarVisible.value = aiVisibleBeforeSplit
-      aiVisibleBeforeSplit = null
-    }
-  }, { flush: 'sync' })
-  watch(isCrossHostSplit, (crossHost, wasCrossHost) => {
-    if (crossHost) {
-      if (!wasCrossHost) sftpVisibleBeforeCrossHostSplit = deps.sidebarVisible.value
-      deps.sidebarVisible.value = false
-      return
-    }
-    if (wasCrossHost && sftpVisibleBeforeCrossHostSplit !== null) {
-      deps.sidebarVisible.value = sftpVisibleBeforeCrossHostSplit
-      sftpVisibleBeforeCrossHostSplit = null
-    }
-  }, { flush: 'sync' })
 
   // A counter is safe when both SSH panes create/close sessions concurrently.
   let paneMutationDepth = 0
@@ -100,7 +73,6 @@ export function useWorkspaceSplitController(deps: {
       } else {
         deps.setSecondarySessionId(sessionId)
       }
-      deps.sidebarVisible.value = false
       deps.restoreSplit()
     } finally {
       paneMutationDepth -= 1

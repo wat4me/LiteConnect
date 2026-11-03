@@ -3,10 +3,10 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, provide, rea
 import SynchronizedInputBar from '@/components/terminal/SynchronizedInputBar.vue'
 import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useI18n } from 'vue-i18n'
-import LeftToolbar from '@/components/workspace/LeftToolbar.vue'
+import WorkspaceDock from '@/components/workspace/WorkspaceDock.vue'
+import { WORKSPACE_TOOLS, workspacePanelEdge, type SshWorkspaceLayout, type WorkspaceTool } from '@shared/workspaceLayout'
 const synchronizedInput = createSynchronizedInput()
 provide(synchronizedInputKey, synchronizedInput)
-const syncInputOpen = ref(false)
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
 import type { Connection } from '@/env.d'
@@ -40,6 +40,11 @@ const CommandSnippetPalette = defineAsyncComponent(() => import('@/components/sn
 const DockerWorkspace = defineAsyncComponent(() => import('@/components/docker/DockerWorkspace.vue'))
 
 const props = withDefaults(defineProps<{
+  layout: SshWorkspaceLayout
+  layoutReady: boolean
+  layoutError: boolean
+  layoutSaving: boolean
+  syncInputOpen: boolean
   activeGroup: ConnectionGroup | null
   activeSession: Session | null
   activeSessionId: string | null
@@ -54,11 +59,6 @@ const props = withDefaults(defineProps<{
 
   aiSidebarVisible: boolean
   sidebarVisible: boolean
-  /** Cross-host split owns the full SSH canvas; SFTP returns after leaving it. */
-  sftpDisabled?: boolean
-  /** Visible split closes AI; the previous choice returns when the split ends. */
-  aiDisabled?: boolean
-  sidebarWidth: number
   sidebarSessionId: string | null
   aiSelectionRequest: {
     id: number
@@ -69,7 +69,6 @@ const props = withDefaults(defineProps<{
 
   monitorVisible: boolean
   monitorEnabled?: boolean
-  monitorWidth: number
   batchPanelVisible: boolean
   snippetsPanelVisible: boolean
   snippetPaletteVisible?: boolean
@@ -98,10 +97,15 @@ const props = withDefaults(defineProps<{
   disconnectedSessionIds?: Set<string>
 }>(), { monitorEnabled: true })
 
-const { runningCount: aiBackgroundTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
+const { runningCount: aiBackgroundTaskCount, scheduledCount: aiScheduledTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
 watch(() => props.dockerMode, (active) => { if (active) synchronizedInput.stop() })
 
 const emit = defineEmits<{
+  (e: 'layout-change', layout: SshWorkspaceLayout): void
+  (e: 'layout-retry'): void
+  (e: 'single-panel-mode', single: boolean): void
+  (e: 'toggle-sync'): void
+  (e: 'close-sync'): void
   (e: 'jump-ai-approval', sessionId: string): void
   (e: 'toggle-ai'): void
   (e: 'toggle-files'): void
@@ -121,8 +125,6 @@ const emit = defineEmits<{
   (e: 'clear-snippet-draft'): void
   (e: 'save-as-snippet', command: string): void
   (e: 'ai-selection-consumed', id: number): void
-  (e: 'start-resize', event: MouseEvent): void
-  (e: 'start-resize-right', event: MouseEvent): void
   (e: 'bind-file-sidebar', el: unknown): void
 
   (e: 'select-session', sessionId: string): void
@@ -186,7 +188,6 @@ watch(
       if (!liveConnections.has(key)) dockerCacheSessionIds.delete(key)
     }
   },
-  { deep: true },
 )
 
 watch(
@@ -204,9 +205,9 @@ watch(
 )
 
 watch(
-  [() => props.sidebarVisible, () => props.aiSidebarVisible, () => props.sidebarSessionId],
-  ([visible, aiVisible, sessionId]) => {
-    if (visible && !aiVisible) rememberWorkspace('sftp', sessionId as string | null)
+  [() => props.sidebarVisible, () => props.sidebarSessionId],
+  ([visible, sessionId]) => {
+    if (visible) rememberWorkspace('sftp', sessionId as string | null)
   },
   { immediate: true },
 )
@@ -307,89 +308,60 @@ watch(
     if (!visible) monitorDetailsOpen.value = false
   },
 )
+const availableTools = computed(() => WORKSPACE_TOOLS.filter(id => id !== 'monitor' || props.monitorEnabled !== false))
+const activeTools = computed(() => ({
+  ai: !props.dockerMode && !!props.activeSession && props.aiSidebarVisible,
+  files: !props.dockerMode && !!props.sidebarSessionId && props.sidebarVisible,
+  monitor: !props.dockerMode && !!props.activeGroup?.sessions.length && props.monitorVisible && props.monitorEnabled !== false,
+  batch: !props.dockerMode && props.batchPanelVisible && props.batchSessions.length > 0,
+  snippets: !props.dockerMode && props.snippetsPanelVisible,
+  sync: !props.dockerMode && props.syncInputOpen,
+}))
+const toolbar = computed(() => ({
+  aiActive: activeTools.value.ai, filesActive: activeTools.value.files, monitorActive: activeTools.value.monitor,
+  monitorEnabled: props.monitorEnabled, batchActive: activeTools.value.batch, snippetsActive: activeTools.value.snippets,
+  syncActive: synchronizedInput.enabled.value || props.syncInputOpen, showAiUnread: props.showAiUnread, showAiApproval: props.showAiApproval,
+  backgroundTaskCount: aiBackgroundTaskCount.value, scheduledTaskCount: aiScheduledTaskCount.value, activeTransfers: globalActiveTransfers.value,
+  dockerActive: !!props.dockerMode, dockerDisabled: !props.dockerButtonEnabled && !props.dockerTabOpen,
+  sidePanelsDisabled: !!props.dockerMode,
+}))
+const workspaceRoot = ref<HTMLElement>()
+watch(() => Object.values(activeTools.value).some(Boolean), async (visible, wasVisible) => {
+  if (visible || !wasVisible || props.dockerMode || !props.activeSession) return
+  if (!workspaceRoot.value?.contains(document.activeElement)) return
+  await nextTick()
+  if (!workspaceRoot.value?.checkVisibility()) return
+  cancelPendingTerminalFocus?.()
+  cancelPendingTerminalFocus = scheduleAfterTerminalVisible(() => {
+    cancelPendingTerminalFocus = null
+    if (workspaceRoot.value?.checkVisibility() && !props.dockerMode && !Object.values(activeTools.value).some(Boolean)) terminalWorkspaceRef.value?.focusActiveTerminal()
+  })
+})
+const monitorCompact = computed(() => ['top', 'bottom'].includes(workspacePanelEdge(props.layout, 'monitor')) && !monitorDetailsOpen.value)
+const compactPanels = computed(() => monitorCompact.value ? ['monitor', 'sync'] as const : ['sync'] as const)
+const opened = reactive({ batch: false, snippets: false })
+watch(() => props.batchPanelVisible, visible => { if (visible) opened.batch = true }, { immediate: true })
+watch(() => props.snippetsPanelVisible, visible => { if (visible) opened.snippets = true }, { immediate: true })
+function toggleTool(id: WorkspaceTool) {
+  switch (id) {
+    case 'ai': emit('toggle-ai'); break
+    case 'files': emit('toggle-files'); break
+    case 'monitor': emit('toggle-monitor'); break
+    case 'batch': emit('toggle-batch'); break
+    case 'sync': emit('toggle-sync'); break
+    case 'snippets': emit('toggle-snippets'); break
+    case 'docker': emit('toggle-docker'); break
+  }
+}
 </script>
 
 <template>
-  <div class="workspace-content">
-    <LeftToolbar
-      :ai-active="aiSidebarVisible"
-      :files-active="sidebarVisible && !aiSidebarVisible"
-      :monitor-active="monitorVisible"
-      :monitor-enabled="monitorEnabled"
-      :batch-active="batchPanelVisible"
-      :sync-active="synchronizedInput.enabled.value || syncInputOpen"
-      :snippets-active="snippetsPanelVisible"
-      :show-ai-unread="showAiUnread"
-      :show-ai-approval="showAiApproval"
-      :background-task-count="aiBackgroundTaskCount"
-      :active-transfers="globalActiveTransfers"
-      :docker-active="!!dockerMode"
-      :docker-disabled="!dockerButtonEnabled && !dockerTabOpen"
-      :files-disabled="sftpDisabled"
-      :ai-disabled="aiDisabled"
-      :side-panels-disabled="!!dockerMode"
-      @toggle-ai="emit('toggle-ai')"
-      @toggle-files="emit('toggle-files')"
-      @toggle-monitor="emit('toggle-monitor')"
-      @toggle-batch="emit('toggle-batch')"
-      @toggle-sync="syncInputOpen = !syncInputOpen"
-      @toggle-snippets="emit('toggle-snippets')"
-      @toggle-docker="emit('toggle-docker')"
-    />
-
-    <div
-      v-show="activeSession && aiSidebarVisible"
-      class="sidebar-panel"
-      :style="{ width: sidebarWidth + 'px' }"
-    >
-      <AiSidebar
-        v-for="sessionId in workspaceCacheKeys.ai"
-        v-show="activeSession?.id === sessionId"
-        :key="sessionId"
-        :session-id="sessionId"
-        :active="activeSession?.id === sessionId && aiSidebarVisible"
-        :open-generation="aiFreshOpenTokens[sessionId] || 0"
-        :selection-request="activeSession?.id === sessionId ? aiSelectionRequest : null"
-        @close="emit('close-ai')"
-        @selection-consumed="emit('ai-selection-consumed', $event)"
-      />
-    </div>
-    <div
-      v-show="activeSession && aiSidebarVisible"
-      class="resize-handle"
-      @mousedown="emit('start-resize', $event)"
-    ></div>
-
-    <!--
-      Per-session SFTP panes. Keep explorers mounted so directory trees,
-      expanded nodes, and scroll position survive tab changes. Closed
-      sessions are removed immediately.
-    -->
-    <div
-      v-show="!aiSidebarVisible && sidebarVisible && sidebarSessionId"
-      class="sidebar-panel"
-      :style="{ width: sidebarWidth + 'px' }"
-    >
-      <FileSidebar
-        v-for="sessionId in workspaceCacheKeys.sftp"
-        v-show="sidebarSessionId === sessionId"
-        :key="sessionId"
-        :ref="(el) => { if (sidebarSessionId === sessionId) emit('bind-file-sidebar', el) }"
-        :session-id="sessionId"
-        :connection-id="connectionIdForSession(sessionId)"
-        :connection-name="connectionNameForSession(sessionId)"
-        :terminal-label="terminalLabelForSession(sessionId)"
-        @close="emit('close-files')"
-      />
-    </div>
-    <div
-      v-show="!aiSidebarVisible && sidebarVisible && sidebarSessionId"
-      class="resize-handle"
-      @mousedown="emit('start-resize', $event)"
-    ></div>
-
-    <div class="workspace-main">
-      <SynchronizedInputBar :sessions="batchSessions" :open="syncInputOpen && !dockerMode" @close="syncInputOpen = false" />
+  <div ref="workspaceRoot" class="workspace-content">
+    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :compact-panels="[...compactPanels]" :split-mode="isSplit ? splitMode : 'none'"
+      @toggle="toggleTool" @change="emit('layout-change', $event)" @retry="emit('layout-retry')" @single-panel-mode="emit('single-panel-mode', $event)">
+      <template #center>
+        <div class="workspace-main">
+          <SynchronizedInputBar v-if="!syncInputOpen" :sessions="batchSessions" :open="false" @close="emit('close-sync')" />
       <div v-if="approvalHint" class="ai-approval-bar">
         <span class="ai-approval-bar-text">
           {{
@@ -470,24 +442,77 @@ watch(
         </TerminalWorkspace>
       </div>
 
-      <div
-        v-if="monitorEnabled !== false && monitorVisible && activeGroup && activeGroup.sessions.length > 0"
-        v-show="!monitorDetailsOpen"
-        class="monitor-dock"
+        </div>
+      </template>
+      <template #ai>
+      <AiSidebar
+        v-for="sessionId in workspaceCacheKeys.ai"
+        v-show="activeSession?.id === sessionId"
+        :key="sessionId"
+        :session-id="sessionId"
+        :active="activeSession?.id === sessionId && activeTools.ai"
+        :open-generation="aiFreshOpenTokens[sessionId] || 0"
+        :selection-request="activeSession?.id === sessionId ? aiSelectionRequest : null"
+        :class="{ 'ssh-split-ai': isSplit }"
+        @close="emit('close-ai')"
+        @selection-consumed="emit('ai-selection-consumed', $event)"
       >
-        <MonitorPanel
-          :key="'dock-' + activeGroup.connectionId"
-          layout="bottom"
-          :details-open="monitorDetailsOpen"
-          :session-id="monitorExecSessionId"
-          :connection-id="activeGroup.connectionId"
-          :connection-name="activeGroup.connectionName"
-          @close="emit('close-monitor')"
-          @toggle-details="monitorDetailsOpen = true"
-        />
-      </div>
-    </div>
-
+        <template v-if="isSplit" #header-trailing>
+          <div class="ssh-ai-target" :title="t('toolbar.aiSplitTargetHint')">
+            {{ t('toolbar.aiSplitTarget', { name: connectionNameForSession(sessionId), terminal: terminalLabelForSession(sessionId) }) }}
+          </div>
+        </template>
+      </AiSidebar>
+      </template>
+      <template #files>
+      <FileSidebar
+        v-for="sessionId in workspaceCacheKeys.sftp"
+        v-show="sidebarSessionId === sessionId"
+        :key="sessionId"
+        :ref="(el) => { if (sidebarSessionId === sessionId) emit('bind-file-sidebar', el) }"
+        :session-id="sessionId"
+        :connection-id="connectionIdForSession(sessionId)"
+        :connection-name="connectionNameForSession(sessionId)"
+        :terminal-label="terminalLabelForSession(sessionId)"
+        @close="emit('close-files')" />
+      </template>
+      <template #monitor>
+        <MonitorPanel v-if="activeTools.monitor && activeGroup" :key="activeGroup.connectionId" :layout="monitorCompact ? 'bottom' : 'side'" :details-open="monitorDetailsOpen"
+          :session-id="monitorExecSessionId" :connection-id="activeGroup.connectionId" :connection-name="activeGroup.connectionName"
+          @close="emit('close-monitor')" @toggle-details="monitorDetailsOpen = true" @dock="monitorDetailsOpen = false" />
+      </template>
+      <template #batch>
+        <template v-if="opened.batch">
+        <BatchCommandPanel
+          :sessions="batchSessions"
+          :initial-command="batchInitialCommand"
+          @close="emit('close-batch')"
+          @clear-initial="emit('clear-batch-initial')" />
+        </template>
+      </template>
+      <template #snippets>
+        <template v-if="opened.snippets">
+        <CommandSnippetsPanel
+          :session-id="activeSessionId"
+          :snippet-context="activeSession ? getSnippetContext(connections, activeSession.connectionId) : null"
+          :sessions="batchSessions.map((s) => ({
+            id: s.id,
+            label: s.displayName || s.terminalLabel || s.id,
+            host: s.host,
+            user: s.user,
+            port: s.port,
+            name: s.connectionName,
+          }))"
+          :draft-command="snippetDraftCommand"
+          @close="emit('close-snippets')"
+          @send-to-batch="emit('send-to-batch', $event)"
+          @clear-draft="emit('clear-snippet-draft')" />
+        </template>
+      </template>
+      <template #sync>
+        <SynchronizedInputBar :sessions="batchSessions" :open="syncInputOpen && !dockerMode" @close="emit('close-sync')" />
+      </template>
+    </WorkspaceDock>
     <CommandSnippetPalette
       :visible="!!snippetPaletteVisible"
       :session-id="activeSessionId"
@@ -503,54 +528,6 @@ watch(
       @close="emit('close-snippet-palette')"
     />
 
-    <template v-if="snippetsPanelVisible">
-      <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
-      <div class="batch-panel-wrapper">
-        <CommandSnippetsPanel
-          :session-id="activeSessionId"
-          :snippet-context="activeSession ? getSnippetContext(connections, activeSession.connectionId) : null"
-          :sessions="batchSessions.map((s) => ({
-            id: s.id,
-            label: s.displayName || s.terminalLabel || s.id,
-            host: s.host,
-            user: s.user,
-            port: s.port,
-            name: s.connectionName,
-          }))"
-          :draft-command="snippetDraftCommand"
-          @close="emit('close-snippets')"
-          @send-to-batch="emit('send-to-batch', $event)"
-          @clear-draft="emit('clear-snippet-draft')"
-        />
-      </div>
-    </template>
-
-    <template v-if="batchPanelVisible && batchSessions.length > 0">
-      <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
-      <div class="batch-panel-wrapper">
-        <BatchCommandPanel
-          :sessions="batchSessions"
-          :initial-command="batchInitialCommand"
-          @close="emit('close-batch')"
-          @clear-initial="emit('clear-batch-initial')"
-        />
-      </div>
-    </template>
-
-    <template v-if="monitorEnabled !== false && monitorVisible && monitorDetailsOpen && activeGroup && activeGroup.sessions.length > 0">
-      <div class="resize-handle" @mousedown="emit('start-resize-right', $event)"></div>
-      <div class="monitor-panel-wrapper" :style="{ width: monitorWidth + 'px' }">
-        <MonitorPanel
-          :key="'side-' + activeGroup.connectionId"
-          layout="side"
-          :session-id="monitorExecSessionId"
-          :connection-id="activeGroup.connectionId"
-          :connection-name="activeGroup.connectionName"
-          @close="emit('close-monitor')"
-          @dock="monitorDetailsOpen = false"
-        />
-      </div>
-    </template>
   </div>
 </template>
 
@@ -561,6 +538,9 @@ watch(
   overflow: hidden;
   min-width: 0;
 }
+
+.ssh-split-ai :deep(.ai-header) { flex-wrap: wrap; }
+.ssh-ai-target { flex: 0 0 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: var(--font-caption); }
 
 .workspace-main {
   flex: 1;
@@ -623,46 +603,4 @@ watch(
   min-height: 0;
 }
 
-.monitor-dock {
-  flex-shrink: 0;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  overflow: hidden;
-}
-
-.sidebar-panel {
-  min-width: 0;
-  flex-shrink: 0;
-  overflow: hidden;
-  transition: opacity 0.15s ease;
-}
-
-.resize-handle {
-  width: 4px;
-  cursor: col-resize;
-  background: transparent;
-  transition: background 0.15s;
-  flex-shrink: 0;
-}
-
-.resize-handle:hover {
-  background: var(--accent);
-}
-
-.batch-panel-wrapper {
-  width: 320px;
-  min-width: 280px;
-  max-width: 500px;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border-color);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.monitor-panel-wrapper {
-  flex-shrink: 0;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border-color);
-  overflow: hidden;
-}
 </style>

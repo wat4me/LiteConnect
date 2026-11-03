@@ -22,6 +22,26 @@ const connection = (name: string, group: string) =>
 
 beforeEach(() => { db.collections.clear() })
 
+it('keeps the knowledge identity directory fresh across edits, imports and deletion without exposing secrets', async () => {
+  const initial = await setup()
+  const a = await initial.saveConnection(connection('a', initial.getDefaultGroupId()))
+  db.collections.set('connections', [{ ...a, password: 'stored-secret', privateKey: 'stored-key', encrypted: true }])
+  const store = await setup()
+  const revision = store.getKnowledgeProfileRevision()
+  expect(store.getKnowledgeProfile(a.id)).toEqual({ id: a.id, name: 'a', host: 'a.example', port: 22, username: 'user' })
+  expect(store.getKnowledgeProfileRevision()).toBe(revision)
+  const copy = store.getKnowledgeProfile(a.id)!; copy.host = 'mutated-copy'
+  expect(store.getKnowledgeProfile(a.id)?.host).toBe('a.example')
+  await store.saveConnection({ ...a, host: 'replacement.example', username: 'ops', password: '' })
+  expect(store.getKnowledgeProfileRevision()).toBeGreaterThan(revision)
+  expect(store.getKnowledgeProfile(a.id)).toMatchObject({ host: 'replacement.example', username: 'ops' })
+  await store.importConnections([connection('b', store.getDefaultGroupId())])
+  expect(store.getKnowledgeProfiles()).toHaveLength(2)
+  await store.deleteConnection(a.id)
+  expect(store.getKnowledgeProfile(a.id)).toBeUndefined()
+  expect(store.getKnowledgeProfiles().map(profile => profile.name)).toEqual(['b'])
+})
+
 describe('nested connection groups', () => {
   it('persists nested groups and preserves the parent when renaming', async () => {
     const store = await setup()

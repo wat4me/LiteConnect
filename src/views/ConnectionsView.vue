@@ -14,7 +14,16 @@ import { appConfirm } from '@/composables/app/useAppDialog'
 import { useConnectionList } from '@/composables/connections/useConnectionList'
 import { useBatchTest } from '@/composables/connections/useBatchTest'
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '@shared/connectionSort'
+import type { KnowledgeGroup } from '@shared/aiKnowledgeGroups'
 
+const AiKnowledgeGroupDialog = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupDialog.vue'))
+const AiKnowledgeGroupEditor = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupEditor.vue'))
+const selectingKnowledge = ref(false), showKnowledgeGroup = ref(false), knowledgeSelection = ref<string[]>([])
+const knowledgeGroupId = ref<string>()
+function knowledgeGroupSaved(group?: KnowledgeGroup) {
+  showKnowledgeGroup.value = false; selectingKnowledge.value = false; knowledgeSelection.value = []
+  knowledgeGroupId.value = group?.id
+}
 const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
 const CredentialManagerModal = defineAsyncComponent(() => import('../components/connections/CredentialManagerModal.vue'))
 
@@ -28,6 +37,7 @@ const emit = defineEmits<{
 }>()
 
 const props = withDefaults(defineProps<{
+  active?: boolean
   initialData?: {
     connections: Connection[]
     groups: Group[]
@@ -37,6 +47,7 @@ const props = withDefaults(defineProps<{
   connectionStages?: Record<string, import('@shared/sshConnectionProgress').SshConnectionStage>
   connectionErrors?: Record<string, string>
 }>(), {
+  active: true,
   initialData: null,
   initialDataPending: false,
   connectingConnectionIds: () => new Set<string>(),
@@ -46,6 +57,9 @@ const showForm = ref(false)
 const editingConnection = ref<Connection | null>(null)
 const showCredentialManager = ref(false)
 const pageRootRef = ref<HTMLElement | null>(null)
+watch(() => props.active, active => {
+  if (!active) { showKnowledgeGroup.value = false; knowledgeGroupId.value = undefined; selectingKnowledge.value = false; knowledgeSelection.value = [] }
+})
 const connectionsListRef = ref<HTMLElement | null>(null)
 const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
 const virtualListRef = ref<{ scrollToIndex: (index: number) => void; resetScroll: () => void } | null>(null)
@@ -365,6 +379,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
         @clear-filters="clearFilters"
       >
       <template #filters>
+        <button type="button" class="ui-btn ui-btn-sm knowledge-select-toggle" :aria-pressed="selectingKnowledge" @click="selectingKnowledge = !selectingKnowledge; knowledgeSelection = []">{{ t(selectingKnowledge ? 'common.cancel' : 'ai.knowledge.group.select') }}</button>
+        <button v-if="selectingKnowledge" type="button" class="ui-btn ui-btn-sm knowledge-create-selected" :disabled="!knowledgeSelection.length" @click="showKnowledgeGroup = true">{{ t('ai.knowledge.group.create') }} ({{ knowledgeSelection.length }})</button>
       <div class="filter-bar">
         <div v-if="!smartView?.startsWith('tag:')" class="color-filter">
           <ToolbarDropdown
@@ -434,11 +450,13 @@ defineExpose({ loadData, editConnection: onEditConnection })
             'drop-before': !reorderDisabled && dropInsertIndex === index && dragConnId && dragConnId !== conn.id,
             'is-dragging-source': dragConnId === conn.id,
             'keyboard-active': listKeyboardIndex === index,
+            'knowledge-selectable': selectingKnowledge,
           }"
           @dragover="!reorderDisabled && onConnRowDragOver($event, index)"
           @drop="onConnRowDrop"
           @mouseenter="listKeyboardIndex = index"
         >
+          <input v-if="selectingKnowledge" v-model="knowledgeSelection" type="checkbox" class="connection-knowledge-checkbox" :value="conn.id" :aria-label="t('ai.workspace.selectNamed', { name: conn.name })" />
           <ConnectionRow
             :connection="conn"
             :compact="compactList"
@@ -522,6 +540,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
       </div>
     </div>
 
+    <AiKnowledgeGroupDialog v-if="showKnowledgeGroup && active" :initial-ids="knowledgeSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
+    <AiKnowledgeGroupEditor v-if="knowledgeGroupId && active" :group-id="knowledgeGroupId" :active="active" @close="knowledgeGroupId = undefined" />
     <CredentialManagerModal v-if="showCredentialManager" v-model="showCredentialManager" />
 
     <ConnectionForm
@@ -658,6 +678,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
 .density-switch button.active { background: var(--accent-bg); color: var(--accent); }
 .density-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+.knowledge-selectable { padding-left: 28px; }
+.connection-knowledge-checkbox { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); }
 .connection-row-wrap {
   position: relative;
 }

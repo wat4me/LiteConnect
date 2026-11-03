@@ -69,9 +69,24 @@ export function broadcast(channel: string, ...args: unknown[]): void {
   }
 }
 
+const sessionOwnedListeners = new Set<(sessionId: string, webContentsId: number) => void>()
+
 export function setSessionOwner(sessionId: string, webContentsId: number): void {
   if (!sessionId) return
   sessionOwners.set(sessionId, webContentsId)
+  for (const listener of sessionOwnedListeners) {
+    try { listener(sessionId, webContentsId) } catch (error) { console.warn('[Window Registry] session listener failed:', error) }
+  }
+}
+
+export function getSessionOwner(sessionId: string): number | undefined {
+  return sessionOwners.get(sessionId)
+}
+
+/** Fires when a window takes ownership of a connected session (connect, reconnect, adopt). */
+export function onSessionOwned(listener: (sessionId: string, webContentsId: number) => void): () => void {
+  sessionOwnedListeners.add(listener)
+  return () => { sessionOwnedListeners.delete(listener) }
 }
 
 export function clearSessionOwner(sessionId: string): void {

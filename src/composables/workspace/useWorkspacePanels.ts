@@ -1,10 +1,11 @@
 import { ref, type Ref } from 'vue'
+import type { WorkspacePanel } from '@shared/workspaceLayout'
 
 /**
- * Right-side panels (batch / snippets) are mutually exclusive.
- * Monitor is a bottom dock and can stay open alongside them.
+ * Default batch/snippet behavior remains exclusive; the workspace layout can
+ * place them in separate regions. The shared panel policy handles other conflicts.
  */
-export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
+export function useWorkspacePanels(monitorVisible: Ref<boolean>, canShowAlongside: (a: WorkspacePanel, b: WorkspacePanel) => boolean = () => false) {
   const batchPanelVisible = ref(false)
   const snippetsPanelVisible = ref(false)
   const batchInitialCommand = ref('')
@@ -13,21 +14,21 @@ export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
 
   function toggleBatchPanel() {
     batchPanelVisible.value = !batchPanelVisible.value
-    if (batchPanelVisible.value) {
+    if (batchPanelVisible.value && !canShowAlongside('batch', 'snippets')) {
       snippetsPanelVisible.value = false
     }
   }
 
   function toggleSnippetsPanel() {
     snippetsPanelVisible.value = !snippetsPanelVisible.value
-    if (snippetsPanelVisible.value) {
+    if (snippetsPanelVisible.value && !canShowAlongside('snippets', 'batch')) {
       batchPanelVisible.value = false
     }
   }
 
   function openSnippetsPanelWithDraft(command: string) {
     snippetDraftCommand.value = command
-    batchPanelVisible.value = false
+    if (!canShowAlongside('snippets', 'batch')) batchPanelVisible.value = false
     snippetsPanelVisible.value = true
   }
 
@@ -53,7 +54,7 @@ export function useWorkspacePanels(monitorVisible: Ref<boolean>) {
 
   function openBatchWithCommand(command: string) {
     batchInitialCommand.value = command
-    snippetsPanelVisible.value = false
+    if (!canShowAlongside('batch', 'snippets')) snippetsPanelVisible.value = false
     batchPanelVisible.value = true
   }
 

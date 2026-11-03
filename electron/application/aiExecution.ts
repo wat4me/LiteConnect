@@ -2,6 +2,7 @@ import { AiExecutionService } from '../ai/execution/executionService'
 import { readAiSessionStore, upsertAiHistoryRecord, writeAiContextCheckpoint } from '../ai/history/historyStore'
 import { hydrateAiImages } from '../ai/history/imageStore'
 import { workspaceScopes } from '../ai/workspace/workspaceScopes'
+import { getSessionOwner } from '../window/windowRegistry'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import type { SettingsStore } from '../store/settingsStore'
 import type { AiKnowledgeService } from '../ai/knowledge/knowledgeService'
@@ -19,11 +20,14 @@ export function createAiExecutionService(settings: SettingsStore, runtime?: SshM
     history: { read: readAiSessionStore, save: upsertAiHistoryRecord, checkpoint: writeAiContextCheckpoint, hydrate: hydrateAiImages },
     runtime,
     knowledge: knowledge ? (sessionId, owner) => knowledge.access(sessionId, owner) : undefined,
+    knowledgeGroups: knowledge ? input => knowledge.groups.manage(input) : undefined,
+    groupKnowledge: knowledge ? (groupId, input) => knowledge.groupAccess(groupId).manage(input) : undefined,
     workspaceOwned: (id, owner) => {
       if (!id.startsWith('workspace:')) return false
       try { workspaceScopes.owned(id, owner); return true } catch { return false }
     },
     workspaceTargets: (id, owner) => workspaceScopes.targets(id, owner),
+    sessionOwner: id => getSessionOwner(id),
     onError: error => console.warn('Could not deliver AI background results', error),
   })
 }

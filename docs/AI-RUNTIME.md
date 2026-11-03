@@ -61,6 +61,20 @@ OpenAI 兼容流必须有 `[DONE]` 或明确的 `finish_reason`；Claude 流必�
 
 监听器关闭与调用方销毁分开处理：没有页面的任务可继续执行；通过 `onDisposed` 或 `disposeOwner` 明确销毁调用方时，取消其模型请求并清理结果队列。应用退出调用 `dispose`，释放任务完成订阅并中止活动模型请求。
 
+## 预约任务
+
+模型可以在 `exec` 上加 `startAfterMs`（1 分钟到 24 小时，须 `background=true` 且只针对单个会话）把一条命令推迟执行，并用 `note` 给操作者一句说明。创建时走与立即执行完全相同的权限门控：只读直接放行，修改或提权命令按当前权限模式弹出审批卡，审批卡展示的参数包含延迟时间；到点执行不再二次询问，只有策略永久拒绝的命令会在到点时失败。预约记录持久化在 `ai-deferred-jobs` 单例里，重启后恢复，同时在任务存储中以 `scheduled` 状态出现，`list_jobs`、`get_job`、`cancel_job` 和任务卡片都按普通任务处理。外部 MCP 客户端和无人值守巡检的 `exec` 收到 `startAfterMs` 会返回 `INVALID_ARGUMENTS`，不会静默立即执行；历史里的工具结果保留 `dueAt` 和 `note`，供重启后的上下文重放。
+
+`electron/ai/schedules/deferredJobs.ts` 每 30 秒检查到期记录。到期时该主机有打开的会话，就在其中一个会话里以普通后台任务启动，任务 id 不变，并把结果绑定到拥有该会话的窗口，完成后沿用后台任务的投递路径回到原对话。没有会话时标记为等待连接，用户下次连上这台主机时立即执行，不会自动建立连接。到点时没有窗口拥有该会话，结果以 `backgroundNotice` 记录写入原对话，用户打开对话时可见，模型在下一次请求中按同一前缀识别。应用关闭时正在执行的预约命令标记失败并说明原因，待执行的记录保留并在启动后重新登记。工作区多机会话和无人值守巡检不提供预约。
+
+时间输入有两种：相对延迟 `startAfterMs`，或本地时间 `startAt`（`YYYY-MM-DD HH:mm`，也接受带时区偏移的 ISO 8601），主进程按应用所在时区换算成延迟。每次请求的系统附加文本带一行本地日期和时区（不含时分，避免每分钟打破提示缓存），模型据此把"明早八点"换成 `startAt`；预约结果回传 `scheduledAtLocal` 与 `dueAtLocal`，模型应把到期本地时间告诉用户，换算错了可以取消重排。到期后超过 `MCP_SCHEDULE_GRACE_MS`（2 小时）仍没有可用会话的记录标记为过期，以失败结果写回对话而不再补跑；取消和过期的投递与运行结果一致：有窗口拥有该会话就走后台任务路径，否则直接写入对话。任务面板的预约行显示倒计时，展开后显示创建时间和预计执行的绝对时刻。
+
+## 历史存储
+
+AI 会话历史按主机存储，布局为"索引加一条消息一行"：`ai-session:<主机>` 单例只保存对话元数据和每个对话按时间排序的 `{ id, createdAt, role }`，消息体存在 documents 表的 `ai-msg-v2:<主机>:<对话>` 集合里，每条消息一行。流式回复的检查点和 `appendSessionHistory` 只写一行加索引，`contextCheckpoint` 只改索引；整库读取按对话逐个集合取回并走统一正规化。首次读到旧的整块 JSON 或 JSONL 时在一个事务里拆行迁移，原始数据保留在 `ai-session-v1-backup:<主机>` 以便恢复；定时任务的临时历史通过 `deleteAiHistory` 一并清理索引、备份和消息行。
+
+消息行采用压缩形态：`segments` 的文本、`apiMessages` 中助手消息的正文与推理都改为引用记录自身 `content` / `reasoningContent` 的长度片段，与 `toolRuns` 完全一致的工具结果改为 `contentRef: 'toolRun'` 引用，工具结果在两处统一按 `AI_TOOL_RUN_CONTENT_MAX` 封顶；`normalizeAiHistoryRecord` 读取时展开，服务层与渲染端永远看不到压缩形态。渲染端保存当前对话和切换对话走 `ai:saveConversation`，只传当前对话的消息，由主进程替换该对话的行并返回线程摘要与选中的对话；删除、清空仍整库回写，但未变化的行会被跳过。
+
 ## 当前边界
 
 LiteAI 工作区通过 `ai:openWorkspaceConnection` 选择已保存的连接并自动建立专用 SSH 会话，沿用凭据、主机密钥确认和交互认证流程。`electron/ai/workspace/workspaceConnections.ts` 按窗口和连接编号管理传输，合并并发连接、复用本工作区连接，关闭时校验归属；取消后迟到的连接也会释放。工作区传输不创建终端标签，不借用或关闭普通 SSH 窗口的连接。

@@ -1,7 +1,7 @@
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
   AiChatStreamPayload, AiConversationThread, AiConversationContextFile,
-  AiSessionStore, AiToolRun, AiImageAttachment,
+  AiSaveConversationResult, AiSessionStore, AiToolRun, AiImageAttachment,
 } from '@shared/types/ai'
 import type { AiSessionState, ChatItem } from '@/domain/ai/chat'
 import { t } from '@/i18n'
@@ -27,7 +27,7 @@ import {
 import { settings, refreshAiSettings, replaceAiSettings, useAiModelSelection } from './chat/settings'
 import { clearAiQuestionDrafts, getAiQuestionDraft, pruneAiQuestionDrafts } from './chat/questionDrafts'
 import {
-  createThreadId, pruneEmptyThreadsLocal, syncThreadSummaries, applyThreadMessages,
+  createThreadId, syncThreadSummaries, applyThreadMessages, applyConversationSummary, conversationPayload,
   loadThreadImages, buildStoreFromState, persistActiveThread, persistMessage, loadHistory,
 } from './chat/history'
 
@@ -590,27 +590,29 @@ export function useAiChat() {
     }
     if (threadId === state.activeThreadId) return true
 
-    // Save current thread before switch
-    const store = await buildStoreFromState(sessionId)
-    const target = store.threads.find((t) => t.id === threadId)
-    if (!target) {
-      ElMessage.warning(t('ai.conversationNotFound'))
-      return false
-    }
-    store.activeThreadId = threadId
-    // Leaving an empty draft: drop it so it is not kept as history
-    pruneEmptyThreadsLocal(store)
+    // One main-process step saves the current thread, selects the target and
+    // returns it with image data; the renderer never round-trips the whole store.
+    if (!state.activeThreadId) state.activeThreadId = createThreadId()
+    let result: AiSaveConversationResult
     try {
-      await window.LiteConnect.setAiSessionStore(sessionId, cloneForIpc(store))
+      result = await window.LiteConnect.aiSaveConversation(
+        sessionId,
+        state.activeThreadId,
+        cloneForIpc(conversationPayload(state, false, threadId)),
+      )
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.switchConversationFailed'))
+      return false
+    }
+    if (!result.thread) {
+      ElMessage.warning(t('ai.conversationNotFound'))
       return false
     }
 
     state.activeThreadId = threadId
     state.draftImages = []
-    applyThreadMessages(state, await loadThreadImages(sessionId, target))
-    syncThreadSummaries(state, store)
+    applyThreadMessages(state, result.thread)
+    applyConversationSummary(state, result)
     onUpdate(state.messages)
     return true
   }

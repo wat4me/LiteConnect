@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applySettingsPatch } from './settingsPatch'
+import { defaultWorkspaceLayout } from '../../shared/workspaceLayout'
 
 function current(settings: Record<string, any>) {
   return {
@@ -9,6 +10,14 @@ function current(settings: Record<string, any>) {
 }
 
 describe('applySettingsPatch', () => {
+  it('normalizes layout settings at the persistence boundary and leaves them untouched by unrelated saves', () => {
+    const settings: Record<string, unknown> = {}
+    applySettingsPatch(settings, { sshWorkspaceLayout: { version: 1, tools: [{ id: 'ai', edge: 'right', panelEdge: 'right' }], sizes: { left: NaN }, locked: true } as unknown as ReturnType<typeof defaultWorkspaceLayout> }, current(settings))
+    expect(settings.sshWorkspaceLayout).toMatchObject({ version: 1, locked: true, sizes: { left: 360 } })
+    const saved = structuredClone(settings.sshWorkspaceLayout)
+    applySettingsPatch(settings, { theme: 'light' }, current(settings))
+    expect(settings.sshWorkspaceLayout).toEqual(saved)
+  })
   it('normalizes a bulk patch while preserving fields not in the patch', () => {
     const settings = { theme: 'dark', terminalScrollback: 5000, appBackground: { fileName: 'existing.png' } }
     applySettingsPatch(settings, {

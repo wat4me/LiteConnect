@@ -2,18 +2,19 @@ import type { AiToolRun } from '@shared/types/ai'
 import { parseJsonValue, type ToolRunSummary } from '@shared/aiToolRunDisplay'
 import { readAiCommandResult } from '@shared/aiCommandResult'
 
-export type ToolDisplayState = 'waiting' | 'question' | 'answered' | 'skipped' | 'running' | 'completed' | 'started' | 'failed' | 'denied' | 'blocked' | 'invalid' | 'stopped' | 'timeout'
+export type ToolDisplayState = 'waiting' | 'question' | 'answered' | 'skipped' | 'scheduled' | 'running' | 'completed' | 'started' | 'failed' | 'denied' | 'blocked' | 'invalid' | 'stopped' | 'timeout'
 
 export const toolStateKeys: Record<ToolDisplayState, string> = {
   question: 'ai.question.waiting',
   answered: 'ai.question.answered', skipped: 'ai.question.skipped',
-  waiting: 'ai.toolWaitingApproval', running: 'ai.toolRunning', completed: 'ai.toolCompleted',
+  waiting: 'ai.toolWaitingApproval', scheduled: 'ai.toolScheduled', running: 'ai.toolRunning', completed: 'ai.toolCompleted',
   started: 'ai.toolStarted', failed: 'ai.toolFailed', denied: 'ai.toolDenied',
   blocked: 'ai.toolBlocked', invalid: 'ai.toolReclassify', stopped: 'ai.toolAborted', timeout: 'ai.toolTimeout',
 }
 
 /** Shared wording for job rows and job results, independent of tool-call lifecycle. */
 export function backgroundJobState(status: string, exitCode?: number | null, signal?: string): ToolDisplayState {
+  if (status === 'scheduled') return 'scheduled'
   if (status === 'running') return 'running'
   if (status === 'cancelled') return 'stopped'
   if (status === 'timeout') return 'timeout'
@@ -42,6 +43,7 @@ export function toolRunPresentation(run: AiToolRun, summary: ToolRunSummary, str
     ? payload as Record<string, unknown> : undefined
   if (run.isError) return { state: result?.code === 'EXEC_TIMEOUT' || /^EXEC_TIMEOUT\b/.test(run.content) ? 'timeout' : 'failed' }
   if (run.name === 'exec' && result) {
+    if (result.status === 'scheduled' && result.jobId) return { state: 'scheduled' }
     if (result.status === 'cancelled' || result.signal) return { state: 'stopped', truncated: result.truncated === true }
     if (result.status === 'timeout' || result.code === 'EXEC_TIMEOUT') return { state: 'timeout' }
     if (result.status === 'failed' || (typeof result.exitCode === 'number' && result.exitCode !== 0)) return { state: 'failed', truncated: result.truncated === true }

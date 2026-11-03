@@ -15,8 +15,14 @@ export type McpJobRecord = {
   finishedAt?: number
   result?: SessionExecResult
   error?: string
+  dueAt?: number
+  awaitingConnection?: boolean
+  note?: string
   cancel: () => void
 }
+
+/** Running and scheduled jobs are never evicted; only settled ones expire. */
+const isActive = (job: McpJobRecord) => job.status === 'running' || job.status === 'scheduled'
 
 export class McpJobStore {
   private readonly jobs = new Map<string, McpJobRecord>()
@@ -77,14 +83,75 @@ export class McpJobStore {
     return this.jobs.get(jobId)
   }
 
+  /** An AI-scheduled command: visible to job tools and task lists before it starts. */
+  createScheduled(input: {
+    jobId: string
+    sessionId: string
+    connectionId?: string
+    connectionName?: string
+    command: string
+    class: CommandClass
+    dueAt: number
+    note?: string
+    cancel: () => void
+  }): McpJobRecord {
+    if (this.disposed) throw new Error('MCP job store disposed')
+    const existing = this.jobs.get(input.jobId)
+    if (existing) return existing
+    this.prune()
+    while (this.jobs.size >= MCP_MAX_JOBS) {
+      const oldest = this.oldestFinished()
+      if (oldest) this.jobs.delete(oldest)
+      else break
+    }
+    const job: McpJobRecord = {
+      jobId: input.jobId,
+      sessionId: input.sessionId,
+      connectionId: input.connectionId,
+      connectionName: input.connectionName,
+      command: input.command,
+      class: input.class,
+      status: 'scheduled',
+      startedAt: Date.now(),
+      dueAt: input.dueAt,
+      note: input.note,
+      cancel: input.cancel,
+    }
+    this.jobs.set(job.jobId, job)
+    this.notifyChanged()
+    return job
+  }
+
+  /** A scheduled job begins on the session that executes it; the id is preserved. */
+  start(jobId: string, input: { sessionId: string; connectionId?: string; connectionName?: string; cancel: () => void }): McpJobRecord | undefined {
+    const job = this.jobs.get(jobId)
+    if (!job || job.status !== 'scheduled') return undefined
+    job.sessionId = input.sessionId
+    if (input.connectionId) job.connectionId = input.connectionId
+    if (input.connectionName) job.connectionName = input.connectionName
+    job.status = 'running'
+    job.startedAt = Date.now()
+    job.awaitingConnection = undefined
+    job.cancel = input.cancel
+    this.notifyChanged()
+    return job
+  }
+
+  setAwaitingConnection(jobId: string, waiting: boolean) {
+    const job = this.jobs.get(jobId)
+    if (!job || job.status !== 'scheduled' || Boolean(job.awaitingConnection) === waiting) return
+    job.awaitingConnection = waiting || undefined
+    this.notifyChanged()
+  }
+
   list(): McpJobRecord[] {
     this.prune()
     return [...this.jobs.values()].sort((a, b) => b.startedAt - a.startedAt)
   }
 
-  finish(jobId: string, status: Exclude<SshMcpJobStatus, 'running'>, result?: SessionExecResult, error?: string) {
+  finish(jobId: string, status: Exclude<SshMcpJobStatus, 'running' | 'scheduled'>, result?: SessionExecResult, error?: string) {
     const job = this.jobs.get(jobId)
-    if (!job || job.status !== 'running') return
+    if (!job || !isActive(job)) return
     job.status = status
     job.finishedAt = Date.now()
     job.result = result
@@ -99,7 +166,7 @@ export class McpJobStore {
   cancel(jobId: string): boolean {
     const job = this.jobs.get(jobId)
     if (!job) return false
-    if (job.status !== 'running') return true
+    if (!isActive(job)) return true
     try {
       job.cancel()
     } catch {}
@@ -137,6 +204,9 @@ export class McpJobStore {
       finishedAt: job.finishedAt,
       exitCode: job.result?.exitCode,
       signal: job.result?.signal,
+      ...(job.dueAt !== undefined ? { dueAt: job.dueAt } : {}),
+      ...(job.awaitingConnection ? { awaitingConnection: true } : {}),
+      ...(job.note ? { note: job.note } : {}),
     }
   }
 
@@ -155,7 +225,7 @@ export class McpJobStore {
   private oldestFinished(): string | null {
     let oldest: McpJobRecord | null = null
     for (const job of this.jobs.values()) {
-      if (job.status === 'running') continue
+      if (isActive(job)) continue
       if (!oldest || (job.finishedAt || 0) < (oldest.finishedAt || 0)) oldest = job
     }
     return oldest?.jobId ?? null
@@ -164,7 +234,7 @@ export class McpJobStore {
   private prune() {
     const now = Date.now()
     for (const [id, job] of this.jobs) {
-      if (job.status === 'running') continue
+      if (isActive(job)) continue
       if (job.finishedAt && now - job.finishedAt > MCP_JOB_TTL_MS) this.jobs.delete(id)
     }
   }

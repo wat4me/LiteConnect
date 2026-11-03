@@ -177,7 +177,8 @@ export type SshMcpGroup = {
   connectionIds: string[]
 }
 
-export type SshMcpJobStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout'
+/** `scheduled`: an AI-scheduled command that has not started yet. */
+export type SshMcpJobStatus = 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout'
 
 export type SshMcpJobSummary = {
   jobId: string
@@ -190,6 +191,12 @@ export type SshMcpJobSummary = {
   finishedAt?: number
   exitCode?: number | null
   signal?: string
+  /** When a scheduled job is due to start. */
+  dueAt?: number
+  /** Due, but the connection has no open session; starts on the next connection. */
+  awaitingConnection?: boolean
+  /** Operator-facing reason supplied by the model when scheduling. */
+  note?: string
 }
 
 export type SshMcpJobResult = SshMcpJobSummary & {

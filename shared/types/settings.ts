@@ -2,6 +2,7 @@ import type { Connection, Group } from './connection'
 import type { ConnectionSortMode } from '../connectionSort'
 import type { DbOpenMode } from '../dbOpenMode'
 import type { AppLocale } from '../appLocale'
+import type { SshWorkspaceLayout } from '../workspaceLayout'
 
 export type AppBackgroundFit = 'cover' | 'contain' | 'fill'
 
@@ -26,6 +27,7 @@ export interface WorkspaceTabsState {
 }
 
 export type AppSettingsAll = {
+  sshWorkspaceLayout: SshWorkspaceLayout
   theme: string
   customColors: { fontColor: string; bgColor: string } | null
   downloadPath: string

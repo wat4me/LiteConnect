@@ -4,12 +4,15 @@ import type {
   AiChatStreamPayload,
   AiChatStreamOptions,
   AiHistoryRecord,
+  AiSaveConversationPayload,
+  AiSaveConversationResult,
   AiSessionStore,
   AiSettings,
   AiDiscoveredModel,
 } from '@shared/types/ai'
 import type { AppResourceStats } from '@shared/appResourceStats'
 import type { KnowledgeImportFile, KnowledgeRequest, KnowledgeResponse } from '@shared/aiKnowledge'
+import type { KnowledgeGroupRequest, KnowledgeGroupResponse } from '@shared/aiKnowledgeGroups'
 import type { AiUserAnswer } from '@shared/aiQuestions'
 import type { SftpApi } from '@shared/ipc/sftp'
 import type { AiHistoryLimits, AiHistoryPrunePreview } from '@shared/aiHistoryLimits'
@@ -63,6 +66,9 @@ import type { CommandSnippet, ShellCommandHistoryItem } from '@shared/types/snip
 
 export interface LiteConnectApi extends SftpApi {
   aiKnowledge: (sessionId: string, input: KnowledgeRequest) => Promise<KnowledgeResponse>
+  aiKnowledgeGroups: (input: KnowledgeGroupRequest) => Promise<KnowledgeGroupResponse>
+  aiGroupKnowledge: (groupId: string, input: KnowledgeRequest) => Promise<KnowledgeResponse>
+  aiExportGroupKnowledge: (groupId: string, documentId: string) => Promise<boolean>
   aiExportKnowledge: (sessionId: string, connectionId: string, documentId: string) => Promise<boolean>
   getAppBootstrap: () => Promise<AppBootstrapData>
   getConnections: () => Promise<Connection[]>
@@ -219,6 +225,7 @@ export interface LiteConnectApi extends SftpApi {
   aiImportKnowledgeFile: () => Promise<KnowledgeImportFile | null>
   aiUpdateConversation: (sessionId: string, threadId: string, patch: { customTitle?: string | null; pinned?: boolean }) => Promise<AiSessionStore>
   setAiSessionStore: (sessionId: string, store: AiSessionStore) => Promise<void>
+  aiSaveConversation: (sessionId: string, threadId: string, payload: AiSaveConversationPayload) => Promise<AiSaveConversationResult>
   aiCreateConversation: (
     sessionId: string,
     payload: {

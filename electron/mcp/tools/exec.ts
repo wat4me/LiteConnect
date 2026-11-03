@@ -5,7 +5,7 @@ import { capExecOutput } from '../../../shared/mcp/truncate'
 import type { ApprovalMode, CommandClass, SshMcpToolErrorCode, SshMcpToolResult } from '../../../shared/mcp/types'
 import { isValidUUID } from '../../utils/validation'
 import { clampConcurrency, clampJobTimeout, clampTimeout, mapPool, parseStdin } from '../args'
-import { mapThrown } from '../errors'
+import { mapThrown, toolError } from '../errors'
 import type { McpRuntimeHost, SessionRef } from '../runtimeHost'
 
 export async function execCommand(
@@ -30,6 +30,10 @@ export async function execCommand(
     return host.error('INVALID_ARGUMENTS', `stdin exceeds ${MCP_MAX_STDIN_CHARS} characters`)
   }
   const background = input.background === true
+  const scheduledArgs = input as { startAfterMs?: unknown; startAt?: unknown }
+  if (scheduledArgs.startAfterMs !== undefined || scheduledArgs.startAt !== undefined) {
+    return host.error('INVALID_ARGUMENTS', 'startAfterMs and startAt are only available to the in-app AI chat; run the command now instead')
+  }
   const timeoutMs = background
     ? clampJobTimeout(input.jobTimeoutMs)
     : clampTimeout(input.timeoutMs)
@@ -81,13 +85,15 @@ export async function execCommand(
   return host.ok({ results })
 }
 
-async function startJob(
+/** Start a background exec; a `scheduledJobId` takes over the registered scheduled record. */
+export async function startJob(
   host: McpRuntimeHost,
   target: SessionRef,
   command: string,
   classification: { class: CommandClass },
   timeoutMs: number,
   stdin?: string,
+  scheduledJobId?: string,
 ) {
   host.assertGeneration(target.sessionId, target.generation)
   const started = await host.ssh.beginSessionExec(
@@ -105,14 +111,26 @@ async function startJob(
     void started.promise.catch(() => {})
     throw error
   }
-  const job = host.jobs.create({
-    sessionId: target.sessionId,
-    connectionId: target.connectionId,
-    connectionName: target.connectionName,
-    command,
-    class: classification.class,
-    cancel: started.cancel,
-  })
+  const job = scheduledJobId
+    ? host.jobs.start(scheduledJobId, {
+      sessionId: target.sessionId,
+      connectionId: target.connectionId,
+      connectionName: target.connectionName,
+      cancel: started.cancel,
+    })
+    : host.jobs.create({
+      sessionId: target.sessionId,
+      connectionId: target.connectionId,
+      connectionName: target.connectionName,
+      command,
+      class: classification.class,
+      cancel: started.cancel,
+    })
+  if (!job) {
+    try { started.cancel() } catch {}
+    void started.promise.catch(() => {})
+    throw toolError('JOB_NOT_FOUND', 'The scheduled job is no longer pending')
+  }
   void started.promise
     .then((raw) => {
       const capped = capExecOutput(raw.stdout, raw.stderr)

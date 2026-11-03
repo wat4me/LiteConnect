@@ -44,6 +44,13 @@ export const MCP_DEFAULT_JOB_TIMEOUT_MS = 30 * 60 * 1000
 export const MCP_MAX_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000
 export const MCP_MAX_JOBS = 64
 export const MCP_JOB_TTL_MS = 15 * 60 * 1000
+/** AI-scheduled exec: at least one minute ahead, at most one day; bounded pending count. */
+export const MCP_SCHEDULE_MIN_DELAY_MS = 60_000
+export const MCP_SCHEDULE_MAX_DELAY_MS = 24 * 60 * 60 * 1000
+export const MCP_MAX_SCHEDULED_JOBS = 20
+export const MCP_SCHEDULE_NOTE_MAX_CHARS = 200
+/** A due job whose host stayed unreachable this long is settled as expired instead of run. */
+export const MCP_SCHEDULE_GRACE_MS = 2 * 60 * 60 * 1000
 export const MCP_MAX_FANOUT = 32
 export const MCP_DEFAULT_FANOUT_CONCURRENCY = 4
 export const MCP_MAX_FANOUT_CONCURRENCY = 8

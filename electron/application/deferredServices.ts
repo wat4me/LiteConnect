@@ -1,5 +1,6 @@
 import type { AiExecutionService } from '../ai/execution/executionService'
 import type { AiScheduler } from '../ai/schedules/scheduler'
+import type { AiDeferredJobs } from '../ai/schedules/deferredJobs'
 import type { SshMcpRuntime } from '../mcp/runtime'
 import type { McpHttpGateway } from '../mcp/httpGateway'
 import type { CredentialStore } from '../store/credentialStore'
@@ -27,6 +28,7 @@ export class DeferredServices {
   private stoppingPromise?: Promise<void>
   private execution?: AiExecutionService
   private scheduler?: AiScheduler
+  private deferredJobs?: { service: AiDeferredJobs; dispose: () => void }
   private runtime?: SshMcpRuntime
   private gateway?: McpHttpGateway
   private docker?: { closeAll(): void }
@@ -73,10 +75,11 @@ export class DeferredServices {
 
   private async loadAi() {
     const [{ bindSshMcpRuntime }, { createMcpAuditLog }, { McpHttpGateway }, { registerMcpHandlers },
-      { registerAiHandlers }, { registerAiScheduleHandlers }, { createAiExecutionService }, { createAiScheduleServices }, { createAiKnowledgeService }] = await Promise.all([
+      { registerAiHandlers }, { registerAiScheduleHandlers }, { createAiExecutionService }, { createAiScheduleServices }, { createAiKnowledgeService },
+      { createAiDeferredJobs }] = await Promise.all([
       import('../mcp/bind'), import('../mcp/auditLog'), import('../mcp/httpGateway'), import('../ipc/registerMcpHandlers'),
       import('../ipc/registerAiHandlers'), import('../ipc/registerAiScheduleHandlers'), import('./aiExecution'), import('./aiSchedules'),
-      import('./aiKnowledge'),
+      import('./aiKnowledge'), import('./aiDeferredJobs'),
     ])
     if (this.stopping) return
     const { settings, ssh, credentials, monitor } = this.deps
@@ -95,6 +98,8 @@ export class DeferredServices {
     registerAiHandlers(settings, execution, this.deps.historyId, this.ipc)
     registerAiScheduleHandlers(scheduler, notifier, credentials, this.ipc)
     scheduler.start()
+    const deferredJobs = this.deferredJobs = createAiDeferredJobs(execution, runtime)
+    deferredJobs.service.start()
     try { await gateway.applyFromSettings() }
     catch (error) { if (!this.stopping) console.error('[Main MCP HTTP]', error) }
   }
@@ -115,6 +120,9 @@ export class DeferredServices {
     }
     stop(() => this.ipc.dispose())
     stop(() => this.scheduler?.dispose())
+    // Pending scheduled commands stay persisted; stopping first keeps the job store's
+    // shutdown cancellation from being recorded as a user cancellation.
+    stop(() => this.deferredJobs?.dispose())
     stop(() => this.execution?.dispose())
     stop(() => this.gateway?.dispose())
     stop(() => this.runtime?.dispose())
@@ -125,6 +133,7 @@ export class DeferredServices {
       await stopAutomaticX11()
     })
     stop(() => this.scheduler?.waitForIdle())
+    stop(() => this.deferredJobs?.service.waitForIdle())
     stop(() => this.execution?.waitForIdle())
     stop(() => this.ipc.waitForIdle())
     tasks.push(this.starting ?? Promise.resolve())

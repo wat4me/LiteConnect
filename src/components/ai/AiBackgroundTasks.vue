@@ -22,27 +22,36 @@ const { items: transfers, active: activeTransfers, progress: transferProgress } 
 onMounted(ensureTransferListeners)
 const { sessionJobs } = useAiBackgroundJobs(() => props.targets?.map(target => target.sessionId) || props.sessionId, () => props.jobIds)
 const runningCount = computed(() => sessionJobs.value.filter(job => job.status === 'running').length)
+const scheduledCount = computed(() => sessionJobs.value.filter(job => job.status === 'scheduled').length)
 const totalRunning = computed(() => runningCount.value + activeTransfers.value.length)
-const taskIcon = computed(() => sessionJobs.value.length ? 'background-tasks' : 'transfer')
+const taskIcon = computed(() => sessionJobs.value.length ? (!runningCount.value && scheduledCount.value ? 'scheduled-task' : 'background-tasks') : 'transfer')
 const heading = computed(() => transfers.value.length
   ? sessionJobs.value.length ? t('ai.taskCenterTitle') : t('ai.fileTransfersTitle')
-  : runningCount.value ? t('ai.backgroundTaskCount', { count: runningCount.value }) : t('ai.backgroundRecentTasks'))
-const now = useBackgroundJobClock(() => props.active && runningCount.value > 0)
+  : runningCount.value ? t('ai.backgroundTaskCount', { count: runningCount.value })
+    : scheduledCount.value ? t('ai.scheduledTaskCount', { count: scheduledCount.value }) : t('ai.backgroundRecentTasks'))
+const now = useBackgroundJobClock(() => props.active && (runningCount.value > 0 || scheduledCount.value > 0))
 const longestElapsed = computed(() => {
   const seconds = sessionJobs.value.filter(job => job.status === 'running').map(job => backgroundJobElapsedSeconds(job, now.value)).filter((value): value is number => value != null)
   return seconds.length ? formatBackgroundJobDuration(Math.max(...seconds)) : null
 })
 function durationLabel(job: SshMcpJobSummary) {
+  if (job.status === 'scheduled') {
+    if (job.awaitingConnection) return t('ai.backgroundAwaitingConnection')
+    const remaining = Math.max(0, Math.ceil(((job.dueAt ?? now.value) - now.value) / 1000))
+    return t('ai.backgroundDueIn', { time: formatBackgroundJobDuration(remaining) })
+  }
   return t(job.status === 'running' ? 'ai.backgroundElapsed' : 'ai.backgroundDuration', { time: formatBackgroundJobDuration(backgroundJobElapsedSeconds(job, now.value)) })
 }
 const displayedJobs = computed(() => [
   ...sessionJobs.value.filter(job => job.status === 'running'),
-  ...sessionJobs.value.filter(job => job.status !== 'running').slice(0, 5),
+  ...sessionJobs.value.filter(job => job.status === 'scheduled').sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0)),
+  ...sessionJobs.value.filter(job => job.status !== 'running' && job.status !== 'scheduled').slice(0, 5),
 ])
 const failedCount = computed(() => displayedJobs.value.filter(job => ['failed', 'timeout'].includes(backgroundJobState(job.status, job.exitCode, job.signal))).length
   + transfers.value.filter(([, item]) => item.status === 'partial' || item.status === 'error' && item.error !== t('sftp.transferCancelled')).length)
 const overview = computed(() => [
   sessionJobs.value.length ? runningCount.value ? t('ai.backgroundTaskCount', { count: runningCount.value }) : t('ai.backgroundRecentTasks') : '',
+  scheduledCount.value ? t('ai.scheduledTaskCount', { count: scheduledCount.value }) : '',
   transfers.value.length ? `${t('ai.fileTransfersTitle')} · ${t(activeTransfers.value.length ? 'ai.fileTransfersRunning' : 'ai.fileTransfersFinished', { count: activeTransfers.value.length || transfers.value.length })}${transferProgress.value == null ? '' : ` · ${transferProgress.value}%`}` : '',
   longestElapsed.value ? t(runningCount.value > 1 ? 'ai.backgroundLongestElapsed' : 'ai.backgroundElapsed', { time: longestElapsed.value }) : '',
   failedCount.value ? t('ai.backgroundAttention', { count: failedCount.value }) : '',
@@ -57,7 +66,7 @@ let generation = 0
 const requests = new Map<string, number>()
 
 async function stopJob(job: SshMcpJobSummary) {
-  if (!(props.jobIds ? props.jobIds.includes(job.jobId) : (props.targets?.map(target => target.sessionId) || [props.sessionId]).includes(job.sessionId)) || job.status !== 'running' || stopping.value[job.jobId]) return
+  if (!(props.jobIds ? props.jobIds.includes(job.jobId) : (props.targets?.map(target => target.sessionId) || [props.sessionId]).includes(job.sessionId)) || (job.status !== 'running' && job.status !== 'scheduled') || stopping.value[job.jobId]) return
   const currentGeneration = generation
   stopping.value[job.jobId] = true
   delete stopErrors.value[job.jobId]
@@ -117,26 +126,35 @@ watch(sessionJobs, (jobs, previous) => {
     if (opened.value.has(job.jobId) && (!old || old.status !== job.status || old.finishedAt !== job.finishedAt || old.exitCode !== job.exitCode)) void loadDetail(job)
   }
 })
+const pad = (value: number) => String(value).padStart(2, '0')
+function clockLabel(date: Date, showDate: boolean) {
+  return `${showDate ? `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` : ''}${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
 function timeRange(job: SshMcpJobSummary) {
+  const today = new Date().toDateString()
+  if (job.status === 'scheduled' && job.dueAt != null) {
+    const due = new Date(job.dueAt)
+    return t('ai.backgroundDueAt', { time: clockLabel(due, due.toDateString() !== today) })
+  }
   const start = new Date(job.startedAt)
   const end = job.finishedAt == null ? undefined : new Date(job.finishedAt)
-  const today = new Date().toDateString()
-  const showDate = start.toDateString() !== today || (end && start.toDateString() !== end.toDateString())
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const format = (date: Date) => `${showDate ? `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` : ''}${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  return end ? `${format(start)}–${format(end)}` : format(start)
+  const showDate = start.toDateString() !== today || Boolean(end && start.toDateString() !== end.toDateString())
+  return end ? `${clockLabel(start, showDate)}–${clockLabel(end, showDate)}` : clockLabel(start, showDate)
 }
 function fullTimeRange(job: SshMcpJobSummary) {
+  if (job.status === 'scheduled' && job.dueAt != null) {
+    return `${t('ai.backgroundCreatedAt')} ${new Date(job.startedAt).toLocaleString()} · ${t('ai.backgroundDueAtFull')} ${new Date(job.dueAt).toLocaleString()}`
+  }
   return `${t('ai.backgroundStartedAt')} ${new Date(job.startedAt).toLocaleString()}${job.finishedAt == null ? '' : ` · ${t('ai.backgroundFinishedAt')} ${new Date(job.finishedAt).toLocaleString()}`}`
 }
 </script>
 
 <template>
-  <div v-if="sessionJobs.length || transfers.length" v-show="active" ref="surface" class="ai-background-tasks" :style="{ visibility: fits ? undefined : 'hidden' }" :class="{ running: totalRunning > 0, attention: failedCount > 0, dragging, 'is-workspace': layout === 'workspace' }" :data-layout="layout" :data-edge="edge">
+  <div v-if="sessionJobs.length || transfers.length" v-show="active" ref="surface" class="ai-background-tasks" :style="{ visibility: fits ? undefined : 'hidden' }" :class="{ running: totalRunning > 0, scheduled: !totalRunning && scheduledCount > 0, attention: failedCount > 0, dragging, 'is-workspace': layout === 'workspace' }" :data-layout="layout" :data-edge="edge">
     <button ref="trigger" type="button" class="background-float-trigger" :class="{ 'is-morphed': rendered }" :style="triggerStyle" :title="`${overview}\n${t('ai.backgroundFloatHint')}`" :aria-label="overview" :aria-expanded="expanded" :aria-controls="expanded ? panelId : undefined" :aria-hidden="rendered || undefined" :tabindex="rendered ? -1 : 0" aria-haspopup="dialog"
       @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag" @click="toggle">
       <AppIcon :name="taskIcon" size="md" />
-      <span v-if="totalRunning" class="background-float-count" aria-hidden="true">{{ totalRunning > 99 ? '99+' : totalRunning }}</span>
+      <span v-if="totalRunning || scheduledCount" class="background-float-count" :class="{ scheduled: !totalRunning }" aria-hidden="true">{{ (totalRunning || scheduledCount) > 99 ? '99+' : (totalRunning || scheduledCount) }}</span>
       <span v-if="failedCount" class="background-float-attention" aria-hidden="true" />
     </button>
     <section v-if="rendered" :id="panelId" ref="panel" class="background-popover" :style="panelStyle" role="dialog" :aria-label="t('ai.taskCenterTitle')" :aria-hidden="!expanded || undefined" :inert="!expanded || undefined" tabindex="-1">
@@ -159,14 +177,15 @@ function fullTimeRange(job: SshMcpJobSummary) {
             <AppIcon name="chevron-right" size="xs" class="details-chevron" />
             <span class="background-job-main">
               <span v-if="targets" class="tool-run-name background-job-host" :title="jobTargets?.[job.jobId] || targets.find(target => target.sessionId === job.sessionId)?.name">{{ jobTargets?.[job.jobId] || targets.find(target => target.sessionId === job.sessionId)?.name }}</span>
-              <span class="background-job-kind" role="img" :title="t('ai.toolName.exec')" :aria-label="t('ai.toolName.exec')"><AppIcon name="terminal" size="sm" /></span>
+              <span class="background-job-kind" role="img" :title="t(job.status === 'scheduled' ? 'ai.toolScheduled' : 'ai.toolName.exec')" :aria-label="t(job.status === 'scheduled' ? 'ai.toolScheduled' : 'ai.toolName.exec')"><AppIcon :name="job.status === 'scheduled' ? 'scheduled-task' : 'terminal'" size="sm" /></span>
               <code class="tool-run-desc" :title="job.command">{{ job.command }}</code>
+              <span v-if="job.note" class="background-job-note" :title="job.note">{{ job.note }}</span>
             </span>
             <span class="tool-run-outcome">
               <span class="tool-run-state">{{ t(toolStateKeys[backgroundJobState(job.status, job.exitCode, job.signal)]) }}</span>
               <span class="background-job-elapsed" :title="fullTimeRange(job)">{{ durationLabel(job) }}</span>
             </span>
-            <button v-if="job.status === 'running'" type="button" class="ui-icon-btn ui-icon-btn-sm background-job-stop" :disabled="stopping[job.jobId]" :aria-busy="stopping[job.jobId] || undefined" :title="t(stopping[job.jobId] ? 'ai.backgroundStopping' : 'ai.backgroundStopHint')" :aria-label="stopping[job.jobId] ? t('ai.backgroundStopping') : t('ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)"><AppIcon :name="stopping[job.jobId] ? 'refresh' : 'stop'" size="sm" /></button>
+            <button v-if="job.status === 'running' || job.status === 'scheduled'" type="button" class="ui-icon-btn ui-icon-btn-sm background-job-stop" :disabled="stopping[job.jobId]" :aria-busy="stopping[job.jobId] || undefined" :title="t(stopping[job.jobId] ? 'ai.backgroundStopping' : job.status === 'scheduled' ? 'ai.backgroundCancelScheduleHint' : 'ai.backgroundStopHint')" :aria-label="stopping[job.jobId] ? t('ai.backgroundStopping') : t(job.status === 'scheduled' ? 'ai.backgroundCancelScheduleLabel' : 'ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)"><AppIcon :name="stopping[job.jobId] ? 'refresh' : job.status === 'scheduled' ? 'close' : 'stop'" size="sm" /></button>
           </summary>
           <div v-if="opened.has(job.jobId)" class="background-job-detail">
             <div class="tool-run-section-label">{{ t('ai.toolCommand') }}</div>
@@ -208,6 +227,9 @@ function fullTimeRange(job: SshMcpJobSummary) {
 .background-float-trigger.is-morphed { visibility: hidden; pointer-events: none; }
 .dragging .background-float-trigger { cursor: grabbing; }
 .running .background-float-trigger { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color)); background: var(--bg-primary); }
+.scheduled .background-float-trigger { border-style: dashed; }
+.background-float-count.scheduled { background: var(--text-secondary); }
+.background-job-note { display: block; width: 100%; color: var(--text-secondary); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attention:not(.running) .background-float-trigger { color: var(--danger); }
 .background-float-count { position: absolute; top: -4px; right: -4px; display: flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; border: 2px solid var(--bg-primary); background: var(--accent); color: #fff; font-size: 10px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .background-float-attention { position: absolute; bottom: 0; left: 0; width: 8px; height: 8px; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--danger); }

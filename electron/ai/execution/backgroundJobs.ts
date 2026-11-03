@@ -43,9 +43,18 @@ export class AiBackgroundJobs {
       if (!job || !(owner.sessionIds || [owner.sessionId]).includes(job.sessionId)) continue
       this.owners.set(id, { ...owner })
       // Very short commands can finish before the tool's acknowledgement.
-      if (job.status !== 'running') this.settled(job)
+      if (job.status !== 'running' && job.status !== 'scheduled') this.settled(job)
     }
   }
+
+  /** Re-home a scheduled job on the window that owns the session it finally runs on. */
+  rebind(jobId: string, owner: AiJobOwner): boolean {
+    if (this.suppressed.has(keyFor(owner)) || this.disposed.has(owner.ownerId)) return false
+    this.owners.set(jobId, { ...owner })
+    return true
+  }
+
+  unbind(jobId: string) { this.owners.delete(jobId) }
 
   settled(job: SshMcpJobResult) {
     const owner = this.owners.get(job.jobId)

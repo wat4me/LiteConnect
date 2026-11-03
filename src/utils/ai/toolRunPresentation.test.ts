@@ -23,6 +23,14 @@ describe('tool outcome presentation', () => {
     expect(toolRunPresentation(run({ name: 'exec' }), { kind: 'exit', code: 0 }).state).toBe('completed')
     expect(backgroundJobState('completed', 0)).toBe('completed')
   })
+  it('presents scheduled jobs and scheduled exec results as pending rather than started', () => {
+    expect(backgroundJobState('scheduled')).toBe('scheduled')
+    expect(toolStateKeys.scheduled).toBe('ai.toolScheduled')
+    const stored = serializeToolRunForHistory({ name: 'exec', args: '{}', isError: false,
+      content: JSON.stringify({ jobId: 'later', status: 'scheduled', dueAt: 1 }) })
+    const scheduled = run({ name: 'exec', ...stored })
+    expect(toolRunPresentation(scheduled, formatToolRunDisplay(scheduled).summary).state).toBe('scheduled')
+  })
 
   it('shows result counts and truncation while mapping exit codes to outcome only', () => {
     expect(toolRunPresentation(run({ name: 'grep' }), { kind: 'entries', count: 0 })).toEqual({

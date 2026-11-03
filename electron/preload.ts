@@ -147,9 +147,14 @@ contextBridge.exposeInMainWorld('LiteConnect', {
   },
   aiImportKnowledgeFile: () => ipcRenderer.invoke('ai:importKnowledgeFile'),
   aiKnowledge: (sessionId: string, input: import('../shared/aiKnowledge').KnowledgeRequest) => ipcRenderer.invoke('ai:knowledge', sessionId, input),
+  aiKnowledgeGroups: (input: import('../shared/aiKnowledgeGroups').KnowledgeGroupRequest) => ipcRenderer.invoke('ai:knowledgeGroups', input),
+  aiGroupKnowledge: (groupId: string, input: import('../shared/aiKnowledge').KnowledgeRequest) => ipcRenderer.invoke('ai:groupKnowledge', groupId, input),
+  aiExportGroupKnowledge: (groupId: string, documentId: string) => ipcRenderer.invoke('ai:exportGroupKnowledge', groupId, documentId),
   aiExportKnowledge: (sessionId: string, connectionId: string, documentId: string) => ipcRenderer.invoke('ai:exportKnowledge', sessionId, connectionId, documentId),
   aiUpdateConversation: (sessionId: string, threadId: string, patch: { customTitle?: string | null; pinned?: boolean }) => ipcRenderer.invoke('ai:updateConversation', sessionId, threadId, patch),
   setAiSessionStore: (sessionId: string, store: any) => ipcRenderer.invoke('ai:setSessionStore', sessionId, store),
+  aiSaveConversation: (sessionId: string, threadId: string, payload: import('../shared/types/ai').AiSaveConversationPayload) =>
+    ipcRenderer.invoke('ai:saveConversation', sessionId, threadId, payload),
   aiCreateConversation: (
     sessionId: string,
     payload: {

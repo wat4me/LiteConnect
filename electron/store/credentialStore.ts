@@ -15,11 +15,14 @@ import {
 import type { Connection, Group, SavedCredential } from '../../shared/types/connection'
 
 export type { Connection, Group, SavedCredential }
+type KnowledgeProfile = Pick<Connection, 'id' | 'name' | 'host' | 'port' | 'username'>
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export class CredentialStore {
   private connections: Connection[] = []
+  private knowledgeDirectory?: { source: Connection[]; length: number; profiles: Map<string, KnowledgeProfile> }
+  private knowledgeRevision = 0
   private groups: Group[] = []
   private savedCredentials: SavedCredential[] = []
   private initialized = false
@@ -272,6 +275,8 @@ export class CredentialStore {
   }
 
   private async saveConnections(): Promise<void> {
+    this.knowledgeDirectory = undefined
+    this.knowledgeRevision++
     getAppDatabase().replaceCollection(
       COLLECTIONS.sshConnections,
       this.connections,
@@ -330,6 +335,22 @@ export class CredentialStore {
         return (a.createdAt || 0) - (b.createdAt || 0)
       })
   }
+
+  /** Identity-only lookup: avoids cloning/sorting every connection during knowledge tool calls. */
+  private knowledgeProfiles(): Map<string, KnowledgeProfile> {
+    if (!this.knowledgeDirectory || this.knowledgeDirectory.source !== this.connections || this.knowledgeDirectory.length !== this.connections.length) {
+      this.knowledgeDirectory = { source: this.connections, length: this.connections.length, profiles: new Map(this.connections.map(profile => [profile.id,
+        { id: profile.id, name: profile.name, host: profile.host, port: profile.port, username: profile.username }])) }
+      this.knowledgeRevision++
+    }
+    return this.knowledgeDirectory.profiles
+  }
+  getKnowledgeProfiles(): KnowledgeProfile[] { return [...this.knowledgeProfiles().values()].map(profile => ({ ...profile })) }
+  getKnowledgeProfile(id: string): KnowledgeProfile | undefined {
+    const profile = this.knowledgeProfiles().get(id)
+    return profile ? { ...profile } : undefined
+  }
+  getKnowledgeProfileRevision(): number { this.knowledgeProfiles(); return this.knowledgeRevision }
 
   /** Toggle pin; returns updated connection (password stripped). */
   async setConnectionPinned(id: string, pinned: boolean): Promise<Connection> {

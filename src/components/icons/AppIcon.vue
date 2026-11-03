@@ -21,6 +21,7 @@ export type AppIconName =
   | 'split-bottom'
   | 'split-exit-v'
   | 'background-tasks'
+  | 'scheduled-task'
   | 'file'
   | 'file-cog'
   | 'file-code'
@@ -663,6 +664,12 @@ const iconStyle = computed(() => {
       <path d="M13 19h8" />
       <path d="m3 17 2 2 4-4" />
       <rect x="3" y="4" width="6" height="6" rx="1" />
+    </template>
+    <template v-else-if="name === 'scheduled-task'">
+      <!-- Lucide: timer; source and license: docs/ICONS.md -->
+      <line x1="10" x2="14" y1="2" y2="2" />
+      <line x1="12" x2="15" y1="14" y2="11" />
+      <circle cx="12" cy="14" r="8" />
     </template>
     <template v-else-if="name === 'file-cog'">
       <!-- Lucide: file-cog; source and license: docs/ICONS.md -->

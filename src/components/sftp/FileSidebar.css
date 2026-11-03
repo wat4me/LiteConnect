@@ -9,28 +9,11 @@
   user-select: none;
   position: relative;
   container-type: inline-size;
-  /* Density tokens for list/tree icons — rem scales with OS/app zoom */
-  --sftp-icon-size: 1.125rem;
-  --sftp-icon-slot: 1.375rem;
-  --sftp-row-min-height: 1.75rem;
+  /* List density follows the explicit SFTP font preference, not pane width. */
+  --sftp-icon-size: calc(var(--sftp-row-font) + 6px);
+  --sftp-icon-slot: calc(var(--sftp-row-font) + 10px);
+  --sftp-row-min-height: calc(var(--sftp-row-font) + 16px);
   --sftp-row-font: 12px;
-}
-
-/* Wider SFTP pane → slightly larger icons & row height (inherits into tree) */
-@container (min-width: 340px) {
-  .sidebar-content {
-    --sftp-icon-size: 1.25rem;
-    --sftp-icon-slot: 1.5rem;
-    --sftp-row-min-height: 1.875rem;
-  }
-}
-
-@container (min-width: 440px) {
-  .sidebar-content {
-    --sftp-icon-size: 1.375rem;
-    --sftp-icon-slot: 1.625rem;
-    --sftp-row-min-height: 2rem;
-  }
 }
 
 .transfer-action-badge {

@@ -14,12 +14,13 @@ import {
   pruneAllAiHistoryStores,
   previewAiHistoryPrune,
   readAiSessionStoreAndGc,
+  saveAiConversation,
   updateAiConversationMetadata,
   upsertAiHistoryRecord,
   writeAiHistoryRecords,
   writeAiSessionStore,
 } from '../ai/history/historyStore'
-import type { AiChatStreamOptions } from '../../shared/types/ai'
+import type { AiChatStreamOptions, AiSaveConversationPayload } from '../../shared/types/ai'
 import { runAiChatCompletion } from '../ai/execution/chatCompletion'
 import { isAiMarkdownFilePath } from '../../shared/aiFixedContext'
 import { showAiApprovalNotification } from './aiApprovalNotification'
@@ -27,6 +28,7 @@ import { listAiWorkspaceConversations } from '../ai/workspace/workspaceConversat
 import { AI_WORKSPACE_HISTORY_LIMIT } from '../../shared/aiWorkspaceConversations'
 import { normalizeAiHistoryLimits } from '../../shared/aiHistoryLimits'
 import { KNOWLEDGE_MAX_BYTES, formatKnowledgeExport, type KnowledgeRequest } from '../../shared/aiKnowledge'
+import type { KnowledgeGroupRequest } from '../../shared/aiKnowledgeGroups'
 
 export function registerAiHandlers(
   settingsStore: SettingsStore,
@@ -67,17 +69,23 @@ export function registerAiHandlers(
     return historyId
   }
 
+  scope.handle('ai:knowledgeGroups', async (_event, input: KnowledgeGroupRequest) => {
+    await ensureSettingsReady()
+    return execution.knowledgeGroups(input)
+  })
+
+  scope.handle('ai:groupKnowledge', async (_event, groupId: string, input: KnowledgeRequest) => {
+    await ensureSettingsReady()
+    return execution.groupKnowledge(groupId, input)
+  })
+
   scope.handle('ai:knowledge', async (event, sessionId: string, input: KnowledgeRequest) => {
     await ensureSettingsReady()
     historyIdForSession(sessionId, event.sender.id)
     return execution.knowledgeAccess(sessionId, event.sender.id).manage(input)
   })
 
-  scope.handle('ai:exportKnowledge', async (event, sessionId: string, connectionId: string, documentId: string) => {
-    await ensureSettingsReady()
-    historyIdForSession(sessionId, event.sender.id)
-    const result = await execution.knowledgeAccess(sessionId, event.sender.id).manage({ action: 'read', connectionId, documentId })
-    const document = result.document!
+  const exportKnowledge = async (event: import('electron').IpcMainInvokeEvent, document: NonNullable<import('../../shared/aiKnowledge').KnowledgeResponse['document']>) => {
     const name = document.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     const options = { defaultPath: /\.(md|markdown)$/i.test(name) ? name : `${name}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] }
     const owner = BrowserWindow.fromWebContents(event.sender)
@@ -86,6 +94,17 @@ export function registerAiHandlers(
     if (selected.canceled || !selected.filePath) return false
     await writeFile(selected.filePath, formatKnowledgeExport(document), 'utf8')
     return true
+  }
+  scope.handle('ai:exportGroupKnowledge', async (event, groupId: string, documentId: string) => {
+    await ensureSettingsReady()
+    const result = await execution.groupKnowledge(groupId, { action: 'read', documentId })
+    return exportKnowledge(event, result.document!)
+  })
+  scope.handle('ai:exportKnowledge', async (event, sessionId: string, connectionId: string, documentId: string) => {
+    await ensureSettingsReady()
+    historyIdForSession(sessionId, event.sender.id)
+    const result = await execution.knowledgeAccess(sessionId, event.sender.id).manage({ action: 'read', connectionId, documentId })
+    return exportKnowledge(event, result.document!)
   })
 
   scope.handle('ai:openWorkspaceScope', async (event, input) => {
@@ -150,6 +169,22 @@ export function registerAiHandlers(
     const limits = getHistoryLimits()
     await writeAiSessionStore(historyIdForSession(sessionId, event.sender?.id), store, limits)
     execution.selectConversation(event.sender.id, sessionId, store.activeThreadId)
+  })
+
+  scope.handle('ai:saveConversation', async (event, sessionId: string, threadId: string, payload: unknown) => {
+    if (!sessionId || typeof sessionId !== 'string') throw new Error('Invalid AI session id')
+    if (typeof threadId !== 'string' || !threadId || !payload || typeof payload !== 'object') {
+      throw new Error('Invalid AI conversation save')
+    }
+    await ensureSettingsReady()
+    const result = await saveAiConversation(
+      historyIdForSession(sessionId, event.sender?.id),
+      threadId,
+      payload as AiSaveConversationPayload,
+      getHistoryLimits(),
+    )
+    execution.selectConversation(event.sender.id, sessionId, result.activeThreadId)
+    return result
   })
 
   scope.handle('ai:suppressBackgroundReplies', async (event, sessionId: string, threadId: string) => {

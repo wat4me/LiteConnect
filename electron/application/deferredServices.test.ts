@@ -3,7 +3,7 @@ import { DeferredServices, type DeferredServiceDependencies } from './deferredSe
 
 const mocks = vi.hoisted(() => ({
   importGate: undefined as Promise<void> | undefined,
-  bind: vi.fn(), execution: vi.fn(), schedules: vi.fn(),
+  bind: vi.fn(), execution: vi.fn(), schedules: vi.fn(), deferred: vi.fn(),
   registerAi: vi.fn(), registerMcp: vi.fn(), registerSchedules: vi.fn(), registerDocker: vi.fn(),
   dockerClose: vi.fn(), x11: vi.fn(), x11Stop: vi.fn(), bash: vi.fn(async () => ({ ok: true })), audit: vi.fn(),
   removeHandler: vi.fn(), gateway: { applyFromSettings: vi.fn(), dispose: vi.fn(), stop: vi.fn(), forceClose: vi.fn() },
@@ -18,6 +18,7 @@ vi.mock('../ipc/registerAiScheduleHandlers', () => ({ registerAiScheduleHandlers
 vi.mock('./aiExecution', () => ({ createAiExecutionService: mocks.execution }))
 vi.mock('./aiKnowledge', () => ({ createAiKnowledgeService: () => ({}) }))
 vi.mock('./aiSchedules', () => ({ createAiScheduleServices: mocks.schedules }))
+vi.mock('./aiDeferredJobs', () => ({ createAiDeferredJobs: mocks.deferred }))
 vi.mock('../ssh/x11/x11Server', () => ({ configureX11ServerOptions: mocks.x11 }))
 vi.mock('../ssh/x11/automaticX11', () => ({ stopAutomaticX11: mocks.x11Stop }))
 vi.mock('../mcp/bashParser', () => ({ initBashAst: mocks.bash }))
@@ -41,9 +42,11 @@ function setup(migrate: () => Promise<void> = async () => {}) {
   mocks.bind.mockReturnValue(runtime)
   mocks.execution.mockReturnValue(execution)
   mocks.schedules.mockReturnValue({ scheduler, notifier: {} })
+  const deferredJobs = { service: { start: vi.fn(), waitForIdle: vi.fn(async () => {}) }, dispose: vi.fn() }
+  mocks.deferred.mockReturnValue(deferredJobs)
   const settings = { initMigrations: migrate, getX11AutoStartEnabled: () => false, getX11ServerPath: () => '' }
   const services = new DeferredServices({ settings, version: 'test', historyId: () => 'host', schedulesChanged: vi.fn() } as unknown as DeferredServiceDependencies)
-  return { services, runtime, execution, scheduler }
+  return { services, runtime, execution, scheduler, deferredJobs }
 }
 
 it('never constructs or registers delayed services when quitting during settings migration', async () => {
@@ -78,12 +81,13 @@ it('does not construct AI services from imports that resolve after shutdown star
 })
 
 it('owns construction, registration, cancellation and draining of each delayed service', async () => {
-  const { services, runtime, execution, scheduler } = setup()
+  const { services, runtime, execution, scheduler, deferredJobs } = setup()
   await services.start()
   expect(mocks.bind).toHaveBeenCalledOnce()
   expect(mocks.registerAi.mock.calls[0][1]).toBe(execution)
   expect(mocks.registerSchedules.mock.calls[0][0]).toBe(scheduler)
   expect(scheduler.start).toHaveBeenCalledOnce()
+  expect(deferredJobs.service.start).toHaveBeenCalledOnce()
   let finish!: () => void
   execution.waitForIdle.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
   let stopped = false
@@ -92,6 +96,7 @@ it('owns construction, registration, cancellation and draining of each delayed s
   void stopping.then(() => { stopped = true })
   expect(runtime.dispose).toHaveBeenCalledOnce()
   expect(scheduler.dispose).toHaveBeenCalledOnce()
+  expect(deferredJobs.dispose).toHaveBeenCalledOnce()
   expect(execution.dispose).toHaveBeenCalledOnce()
   expect(mocks.gateway.dispose).toHaveBeenCalledOnce()
   await Promise.resolve()
@@ -105,12 +110,13 @@ it('owns construction, registration, cancellation and draining of each delayed s
 })
 
 it('preserves reversible window-close cleanup without disposing AI or the scheduler', async () => {
-  const { services, execution, scheduler } = setup()
+  const { services, execution, scheduler, deferredJobs } = setup()
   await services.start()
   services.closeWindowSessions()
   expect(mocks.dockerClose).toHaveBeenCalledOnce()
   expect(mocks.gateway.stop).toHaveBeenCalledOnce()
   expect(execution.dispose).not.toHaveBeenCalled()
   expect(scheduler.dispose).not.toHaveBeenCalled()
+  expect(deferredJobs.dispose).not.toHaveBeenCalled()
   await services.stop()
 })

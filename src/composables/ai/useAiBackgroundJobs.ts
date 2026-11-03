@@ -36,6 +36,7 @@ export function useAiBackgroundJobs(sessionId: () => string | string[] | null | 
     return jobs.value.filter(job => ids.includes(job.sessionId))
   })
   const runningCount = computed(() => sessionJobs.value.filter(job => job.status === 'running').length)
+  const scheduledCount = computed(() => sessionJobs.value.filter(job => job.status === 'scheduled').length)
   const runningSessionIds = computed(() => new Set(jobs.value.filter(job => job.status === 'running').map(job => job.sessionId)))
-  return { sessionJobs, runningCount, runningSessionIds }
+  return { sessionJobs, runningCount, scheduledCount, runningSessionIds }
 }

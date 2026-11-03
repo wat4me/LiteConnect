@@ -18,8 +18,21 @@ export function createThreadId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Retention and pruning work on full threads and on index entries alike. */
+export type AiThreadLike<M> = {
+  id: string
+  pinned?: boolean
+  updatedAt: number
+  contextCheckpoint?: AiContextCheckpoint
+  messages: M[]
+}
+export type AiStoreLike<M> = { activeThreadId: string; threads: AiThreadLike<M>[] }
+
 /** Titles keep as much of the first user message as is worth storing. */
 export const AI_HISTORY_TITLE_MAX = 200
+
+/** Tool results keep one ceiling in the visible run and in the replayed transcript. */
+export const AI_TOOL_RUN_CONTENT_MAX = 20_000
 
 export function titleFromMessages(messages: AiHistoryRecord[]): string {
   const firstUser = messages.find((m) => m.role === 'user' && (m.content.trim() || m.images?.length))
@@ -52,11 +65,14 @@ export function createEmptyStore(): AiSessionStore {
  * Drop empty conversation shells that are not the active draft. The host-level
  * default retains reference files independently of empty drafts.
  */
-export function pruneEmptyThreads(store: AiSessionStore): void {
+export function pruneEmptyThreads<M>(
+  store: AiStoreLike<M>,
+  fresh: () => AiThreadLike<M> = createEmptyThread as unknown as () => AiThreadLike<M>,
+): void {
   if (!Array.isArray(store.threads) || store.threads.length === 0) {
-    const fresh = createEmptyThread()
-    store.threads = [fresh]
-    store.activeThreadId = fresh.id
+    const thread = fresh()
+    store.threads = [thread]
+    store.activeThreadId = thread.id
     return
   }
 
@@ -73,9 +89,9 @@ export function pruneEmptyThreads(store: AiSessionStore): void {
   }
 
   if (store.threads.length === 0) {
-    const fresh = createEmptyThread()
-    store.threads = [fresh]
-    store.activeThreadId = fresh.id
+    const thread = fresh()
+    store.threads = [thread]
+    store.activeThreadId = thread.id
     return
   }
 
@@ -86,16 +102,26 @@ export function pruneEmptyThreads(store: AiSessionStore): void {
   }
 }
 
-function normalizeSegments(raw: unknown): AiChatSegment[] | undefined {
+/**
+ * A stored segment may carry `length` instead of `text`: the next span of the
+ * record's own content or reasoning, so the body is never written twice.
+ */
+function normalizeSegments(raw: unknown, content: string, reasoning: string): AiChatSegment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined
   const out: AiChatSegment[] = []
+  const source = { content, reasoning }
+  const cursor = { content: 0, reasoning: 0 }
   for (const item of raw.slice(0, MAX_AI_TURN_SEGMENTS)) {
     if (!item || typeof item !== 'object') continue
     const seg = item as Record<string, unknown>
     if (seg.kind === 'reasoning' || seg.kind === 'content') {
-      if (typeof seg.text === 'string' && seg.text) {
-        out.push({ kind: seg.kind, text: seg.text.slice(0, 200000) })
+      let text = ''
+      if (typeof seg.text === 'string') text = seg.text.slice(0, 200000)
+      else if (typeof seg.length === 'number' && Number.isInteger(seg.length) && seg.length > 0) {
+        text = source[seg.kind].slice(cursor[seg.kind], cursor[seg.kind] + seg.length)
+        cursor[seg.kind] += seg.length
       }
+      if (text) out.push({ kind: seg.kind, text })
     } else if (seg.kind === 'tool' && typeof seg.runId === 'string' && seg.runId) {
       out.push({ kind: 'tool', runId: seg.runId.slice(0, 128) })
     }
@@ -134,7 +160,7 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
       id: typeof rec.id === 'string' && rec.id ? rec.id : `${Date.now()}-${out.length}`,
       name,
       args: typeof rec.args === 'string' ? rec.args.slice(0, name === AI_QUESTION_TOOL ? AI_QUESTION_ARGS_MAX : 4000) : '',
-      content: typeof rec.content === 'string' ? rec.content.slice(0, 20000) : '',
+      content: typeof rec.content === 'string' ? rec.content.slice(0, AI_TOOL_RUN_CONTENT_MAX) : '',
       isError: rec.isError === true,
       status,
       risk,
@@ -148,9 +174,54 @@ function normalizeToolRuns(raw: unknown): AiToolRun[] | undefined {
   return out.length ? out : undefined
 }
 
-function normalizeApiMessages(raw: unknown): AiChatMessage[] | undefined {
+/**
+ * Replayed tool results share the visible run's ceiling. Stored references are
+ * filled before validation: `contentRef: 'toolRun'` from the matching run, and
+ * assistant `contentSpan` / `reasoningSpan` from the record's own text in order.
+ */
+function expandApiMessages(raw: unknown[], toolRuns: AiToolRun[] | undefined, content: string, reasoning: string): unknown[] {
+  const cursor = { content: 0, reasoning: 0 }
+  return raw.map((item) => {
+    if (!item || typeof item !== 'object') return item
+    const message = item as Record<string, unknown>
+    if (message.role === 'tool') {
+      if (message.contentRef === 'toolRun') {
+        const id = typeof message.toolCallId === 'string'
+          ? message.toolCallId
+          : typeof message.tool_call_id === 'string' ? message.tool_call_id : ''
+        const { contentRef: _ref, ...rest } = message
+        return { ...rest, content: toolRuns?.find((run) => run.id === id)?.content ?? '' }
+      }
+      if (typeof message.content === 'string' && message.content.length > AI_TOOL_RUN_CONTENT_MAX) {
+        return { ...message, content: message.content.slice(0, AI_TOOL_RUN_CONTENT_MAX) }
+      }
+      return item
+    }
+    if (message.role === 'assistant' && (typeof message.contentSpan === 'number' || typeof message.reasoningSpan === 'number')) {
+      const { contentSpan, reasoningSpan, ...rest } = message
+      const next: Record<string, unknown> = rest
+      if (typeof contentSpan === 'number' && Number.isInteger(contentSpan) && contentSpan >= 0) {
+        next.content = content.slice(cursor.content, cursor.content + contentSpan)
+        cursor.content += contentSpan
+      }
+      if (typeof reasoningSpan === 'number' && Number.isInteger(reasoningSpan) && reasoningSpan >= 0) {
+        next.reasoningContent = reasoning.slice(cursor.reasoning, cursor.reasoning + reasoningSpan)
+        cursor.reasoning += reasoningSpan
+      }
+      return next
+    }
+    return item
+  })
+}
+
+function normalizeApiMessages(
+  raw: unknown,
+  toolRuns: AiToolRun[] | undefined,
+  content: string,
+  reasoning: string,
+): AiChatMessage[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined
-  const out = limitAiMessagesPreservingToolProtocol(raw)
+  const out = limitAiMessagesPreservingToolProtocol(expandApiMessages(raw, toolRuns, content, reasoning))
   return out.length ? out : undefined
 }
 
@@ -189,13 +260,17 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
   if (typeof record.content !== 'string') {
     throw new Error('Invalid AI history content')
   }
+  const content: string = record.content.slice(0, 200000)
+  const reasoningContent: string | undefined =
+    typeof record.reasoningContent === 'string' ? record.reasoningContent.slice(0, 200000) : undefined
+  const toolRuns = normalizeToolRuns(record.toolRuns)
   return {
     id: typeof record.id === 'string' && record.id ? record.id : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role: record.role,
-    content: record.content.slice(0, 200000),
+    content,
     backgroundNotice: typeof record.backgroundNotice === 'string' ? record.backgroundNotice.slice(0, 32000) : undefined,
     ...(record.role === 'user' && record.images?.length ? { images: normalizeAiImages(record.images, t) } : {}),
-    reasoningContent: typeof record.reasoningContent === 'string' ? record.reasoningContent.slice(0, 200000) : undefined,
+    reasoningContent,
     usage: normalizeAiUsage(record.usage),
     error: record.error === true,
     status:
@@ -212,13 +287,13 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
       typeof record.completedAt === 'number' && Number.isFinite(record.completedAt)
         ? record.completedAt
         : undefined,
-    toolRuns: normalizeToolRuns(record.toolRuns),
-    segments: normalizeSegments(record.segments),
-    apiMessages: normalizeApiMessages(record.apiMessages),
+    toolRuns,
+    segments: normalizeSegments(record.segments, content, reasoningContent || ''),
+    apiMessages: normalizeApiMessages(record.apiMessages, toolRuns, content, reasoningContent || ''),
   }
 }
 
-function limitThreadMessages(messages: AiHistoryRecord[], maxMessages: number): AiHistoryRecord[] {
+function limitThreadMessages<M extends { role: 'user' | 'assistant' }>(messages: M[], maxMessages: number): M[] {
   if (messages.length <= maxMessages) return messages
   const retained = messages.slice(-maxMessages)
   const firstUser = retained.findIndex((message) => message.role === 'user')
@@ -227,7 +302,7 @@ function limitThreadMessages(messages: AiHistoryRecord[], maxMessages: number): 
 
 export function normalizeContextCheckpoint(
   raw: unknown,
-  messages: readonly AiHistoryRecord[],
+  messages: ReadonlyArray<{ id: string }>,
 ): AiContextCheckpoint | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const item = raw as Record<string, unknown>
@@ -268,7 +343,7 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
         .filter((item: AiHistoryRecord | null): item is AiHistoryRecord => Boolean(item))
         .sort((a: AiHistoryRecord, b: AiHistoryRecord) => a.createdAt - b.createdAt)
     : []
-  const messages = limitThreadMessages(allMessages, limits.maxMessages)
+  const messages = limitThreadMessages<AiHistoryRecord>(allMessages, limits.maxMessages)
   const toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(raw.toolGroups), ...aiToolGroupsFromHistory(allMessages)])
   const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : messages[0]?.createdAt || Date.now()
   const updatedAt =
@@ -298,8 +373,8 @@ function normalizeThread(raw: any, limits: AiHistoryLimits): AiConversationThrea
   }
 }
 
-export function applyAiHistoryLimits(
-  store: AiSessionStore,
+export function applyAiHistoryLimits<M extends { id: string; role: 'user' | 'assistant' }>(
+  store: AiStoreLike<M>,
   rawLimits?: Partial<AiHistoryLimits>,
 ): void {
   const limits = normalizeAiHistoryLimits(rawLimits)
@@ -383,4 +458,59 @@ export function normalizeSessionStore(
 
 export function getActiveThread(store: AiSessionStore): AiConversationThread {
   return store.threads.find((t) => t.id === store.activeThreadId) || store.threads[0]
+}
+
+/**
+ * Storage form of a record. Segment text and the assistant transcript's text and
+ * reasoning become spans of the record's own content/reasoning, and a tool result
+ * identical to its run becomes a reference; `normalizeAiHistoryRecord` expands
+ * all of them, so readers never see this shape.
+ */
+export function compactAiHistoryRecordForStorage(record: AiHistoryRecord): unknown {
+  let stored: Record<string, unknown> = record as unknown as Record<string, unknown>
+  if (record.segments?.length) {
+    const joined = { content: '', reasoning: '' }
+    for (const segment of record.segments) if (segment.kind !== 'tool') joined[segment.kind] += segment.text
+    const spans = {
+      content: joined.content === record.content,
+      reasoning: joined.reasoning === (record.reasoningContent || ''),
+    }
+    if (spans.content || spans.reasoning) {
+      stored = { ...stored, segments: record.segments.map((segment) =>
+        segment.kind !== 'tool' && spans[segment.kind] ? { kind: segment.kind, length: segment.text.length } : segment) }
+    }
+  }
+  if (record.apiMessages?.length) {
+    const results = new Map((record.toolRuns || []).map((run) => [run.id, run.content]))
+    const assistant = record.apiMessages.filter((message) => message.role === 'assistant')
+    const contentSpans = record.content.length > 0 && assistant.map((message) => message.content).join('') === record.content
+    const reasoningSpans = assistant.some((message) => message.reasoningContent) &&
+      assistant.map((message) => message.reasoningContent || '').join('') === (record.reasoningContent || '')
+    let changed = false
+    const apiMessages = record.apiMessages.map((message) => {
+      if (message.role === 'tool') {
+        if (!message.toolCallId || results.get(message.toolCallId) !== message.content) return message
+        changed = true
+        return { role: 'tool', toolCallId: message.toolCallId, content: '', contentRef: 'toolRun' }
+      }
+      const spanContent = message.role === 'assistant' && contentSpans && message.content.length > 0
+      const spanReasoning = message.role === 'assistant' && reasoningSpans && Boolean(message.reasoningContent)
+      if (!spanContent && !spanReasoning) return message
+      changed = true
+      return {
+        ...message,
+        ...(spanContent ? { content: '', contentSpan: message.content.length } : {}),
+        ...(spanReasoning ? { reasoningContent: undefined, reasoningSpan: message.reasoningContent!.length } : {}),
+      }
+    })
+    if (changed) stored = { ...stored, apiMessages }
+  }
+  return stored
+}
+
+export function compactAiSessionStoreForStorage(store: AiSessionStore): unknown {
+  return {
+    ...store,
+    threads: store.threads.map((thread) => ({ ...thread, messages: thread.messages.map(compactAiHistoryRecordForStorage) })),
+  }
 }

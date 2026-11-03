@@ -49,6 +49,9 @@ import { useSecurityDialogs } from '@/composables/app/useSecurityDialogs'
 import { useAppNavigation } from '@/composables/app/useAppNavigation'
 import { useAppWindowRouting } from '@/composables/app/useAppWindowRouting'
 import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
+import { useWorkspaceLayout } from '@/composables/workspace/useWorkspaceLayout'
+import { useWorkspacePanelPolicy } from '@/composables/workspace/useWorkspacePanelPolicy'
+import { workspacePanelEdge, type WorkspacePanel } from '@shared/workspaceLayout'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
 import { useSnippetHotkeys } from '@/composables/snippets/useSnippetHotkeys'
@@ -152,7 +155,11 @@ const jumpPaletteVisible = ref(false)
 const shortcutsHelpVisible = ref(false)
 const terminalDropContainer = ref<HTMLElement | null>(null)
 
+const workspaceLayout = useWorkspaceLayout()
+const singleDockPanel = ref(false), syncInputOpen = ref(false)
+const canShowAlongside = (a: WorkspacePanel, b: WorkspacePanel) => !singleDockPanel.value && workspacePanelEdge(workspaceLayout.layout.value, a) !== workspacePanelEdge(workspaceLayout.layout.value, b)
 const sidebar = useSidebarState({
+  canShowAlongside,
   groups,
   activeGroupId,
   activeSessionId,
@@ -164,8 +171,6 @@ const sidebar = useSidebarState({
 const {
   sidebarVisible,
   aiSidebarVisible,
-  sidebarWidth,
-  monitorWidth,
   monitorVisible,
   monitorEnabled,
   sidebarSessionId,
@@ -177,8 +182,6 @@ const {
   toggleAiSidebar,
   setSidebarTarget,
   syncSidebarState,
-  startResize,
-  startResizeRight,
   handleAiSelection,
   handleAiSelectionConsumed,
   handleMonitorSettingsChange,
@@ -232,7 +235,6 @@ const {
 } = useSplitTerminal()
 
 const {
-  isCrossHostSplit,
   selectSplitPaneSession,
   createSplitPaneSession,
   closeSplitPaneSession,
@@ -241,8 +243,6 @@ const {
   activeSessionId,
   primarySessionId: splitPrimarySessionId,
   secondarySessionId,
-  sidebarVisible,
-  aiSidebarVisible,
   getGroupBySessionId,
   createSession,
   closeSession: async (sessionId) => {
@@ -259,14 +259,6 @@ const {
 
 watch(hasSplitGroup, (split, wasSplit) => {
   if (!split || wasSplit) return
-  if (isCrossHostSplit.value) {
-    ElMessage.info({
-      message: t('terminal.crossHostSplitSftpHidden'),
-      duration: 5000,
-      showClose: true,
-    })
-    return
-  }
   const boundSession = activeGroup.value?.sessions.find(
     (session) => session.id === sidebarSessionId.value,
   ) ?? activeGroup.value?.sessions.find(
@@ -419,7 +411,9 @@ const {
   toggleMonitorPanel,
   openBatchWithCommand,
   clearBatchInitialCommand,
-} = useWorkspacePanels(monitorVisible)
+} = useWorkspacePanels(monitorVisible, canShowAlongside)
+useWorkspacePanelPolicy(workspaceLayout.layout, { ai: aiSidebarVisible, files: sidebarVisible, monitor: monitorVisible,
+  batch: batchPanelVisible, snippets: snippetsPanelVisible, sync: syncInputOpen }, singleDockPanel)
 
 const {
   isDockerMode,
@@ -449,15 +443,15 @@ const {
 })
 
 function guardedToggleSidebar() {
-  if (isDockerMode.value || isCrossHostSplit.value) return
+  if (isDockerMode.value) return
   toggleSidebar()
 }
 function guardedToggleAiSidebar() {
-  if (isDockerMode.value || isSplit.value) return
+  if (isDockerMode.value) return
   toggleAiSidebar()
 }
 function guardedAiSelection(text: string, mode: 'send' | 'insert') {
-  if (isDockerMode.value || isSplit.value) return
+  if (isDockerMode.value) return
   handleAiSelection(text, mode)
 }
 
@@ -922,6 +916,7 @@ onBeforeUnmount(() => {
         <div v-show="isSshMode && isHomeActive" class="home-module">
           <ConnectionsView
             ref="connectionsViewRef"
+            :active="isSshMode && isHomeActive && !showSettingsPage"
             :initial-data="connectionsBootstrap"
             :initial-data-pending="bootstrapPending"
             :connecting-connection-ids="connectingConnectionIds"
@@ -944,6 +939,16 @@ onBeforeUnmount(() => {
         <SshWorkspace
           v-if="sshWorkspaceMounted"
           v-show="isSshMode && !isHomeActive"
+          :layout="workspaceLayout.layout.value"
+          :layout-ready="workspaceLayout.ready.value"
+          :layout-error="workspaceLayout.error.value"
+          :layout-saving="workspaceLayout.saving.value"
+          :sync-input-open="syncInputOpen"
+          @layout-change="workspaceLayout.update"
+          @layout-retry="workspaceLayout.retry"
+          @single-panel-mode="singleDockPanel = $event"
+          @toggle-sync="syncInputOpen = !syncInputOpen"
+          @close-sync="syncInputOpen = false"
           :active-group="activeGroup"
           :active-session="activeSession"
           :active-session-id="activeSessionId"
@@ -956,14 +961,10 @@ onBeforeUnmount(() => {
           :show-ai-approval="!aiSidebarVisible && !!activeSessionId && hasAiApprovalPending(activeSessionId)"
           :ai-sidebar-visible="aiSidebarVisible"
           :sidebar-visible="sidebarVisible"
-          :sftp-disabled="isCrossHostSplit"
-          :ai-disabled="isSplit"
-          :sidebar-width="sidebarWidth"
           :sidebar-session-id="sidebarSessionId"
           :ai-selection-request="aiSelectionRequest"
           :monitor-visible="monitorVisible"
           :monitor-enabled="monitorEnabled"
-          :monitor-width="monitorWidth"
           :batch-panel-visible="batchPanelVisible"
           :snippets-panel-visible="snippetsPanelVisible"
           :snippet-palette-visible="snippetPaletteVisible"
@@ -1002,8 +1003,6 @@ onBeforeUnmount(() => {
           @close-batch="batchPanelVisible = false"
           @close-snippets="snippetsPanelVisible = false"
           @ai-selection-consumed="handleAiSelectionConsumed"
-          @start-resize="startResize"
-          @start-resize-right="startResizeRight"
           @bind-file-sidebar="(el) => { fileSidebarRef.value = el }"
           @select-session="selectWorkspaceSession"
           @close-session="handleCloseSession"
