@@ -64,7 +64,9 @@ const { theme, customColors } = useTheme()
 const fancyCursorEnabled = ref(false)
 const fancyCursorStyle = ref<FancyCursorStyle>('ring')
 useFancyCursor(fancyCursorEnabled, fancyCursorStyle)
-const pwdTracker = useTerminalPwd()
+const pwdTracker = useTerminalPwd({
+  isDirectory: (sessionId, path) => window.LiteConnect.sftpExists(sessionId, path, true),
+})
 
 function onFancyCursorSettingsChange(e: Event) {
   const detail = (e as CustomEvent<{ enabled?: boolean; style?: string }>).detail

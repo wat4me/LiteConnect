@@ -7,7 +7,8 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiModel, AiProvider, AiSettings, AiToolPermissionMode } from '../../env.d.ts'
 import { currentDefaultSystemPrompt, isBuiltinAiSystemPrompt } from '@/utils/shared/constants'
 import { DEFAULT_AI_TOOL_PERMISSION, sanitizeAiToolPermission } from '@shared/aiToolPolicy'
-import { firstAiModelId, modelContextSource, parseAiModels } from '@shared/aiContext'
+import { firstAiModelId, formatTokenCount, modelContextSource, parseAiModels } from '@shared/aiContext'
+import { resolveAutoOutputReserveTokens } from '@shared/aiContextPressure'
 import type { AiDiscoveredModel } from '@shared/types/ai'
 import { normalizeAiToolRounds, MAX_AI_TOOL_ROUNDS } from '@shared/aiToolLimits'
 import {
@@ -308,6 +309,13 @@ function setModelWindowValue(model: AiModel, raw: string) {
   model.contextWindowTokens = Math.round(n)
 }
 
+/** What the app reserves for one reply when the per-model field is empty. */
+function modelOutputPlaceholder(model: AiModel): string {
+  // Same window precedence the runtime uses: manual, provider report, catalog, name, fallback.
+  const reserve = resolveAutoOutputReserveTokens({ model: model.id, contextWindowTokens: modelContextSource(model).tokens })
+  return `${formatTokenCount(reserve)} · ${t('ai.contextWindowAuto')}`
+}
+
 function setModelBudget(model: AiModel, key: 'maxOutputTokens' | 'compactionRetainTokens', raw: string) {
   const value = Number(raw)
   model[key] = raw.trim() && Number.isFinite(value) && value > 0 ? Math.min(4_000_000, Math.round(value)) : undefined
@@ -557,7 +565,7 @@ defineExpose({ applyExternal })
             <div class="model-advanced-fields">
           <label class="field-label">{{ t('ai.contextWindow') }}<input class="ui-input ui-input-sm" type="number" min="4096" max="4000000" step="1000" :value="modelWindowValue(model)" :placeholder="modelWindowPlaceholder(model)" :title="t('ai.contextWindowHint')" @input="setModelWindowValue(model, ($event.target as HTMLInputElement).value)" /></label>
           <p class="permission-hint context-source">{{ modelWindowSourceLabel(model) }}</p>
-          <label class="field-label">{{ t('ai.modelMaxOutputTokens') }}<input class="ui-input ui-input-sm" type="number" min="1" max="4000000" step="1000" :value="model.maxOutputTokens || ''" :placeholder="t('ai.contextWindowAuto')" @input="setModelBudget(model, 'maxOutputTokens', ($event.target as HTMLInputElement).value)" /></label>
+          <label class="field-label">{{ t('ai.modelMaxOutputTokens') }}<input class="ui-input ui-input-sm" type="number" min="1" max="4000000" step="1000" :value="model.maxOutputTokens || ''" :placeholder="modelOutputPlaceholder(model)" :title="t('ai.modelContextBudgetHint')" @input="setModelBudget(model, 'maxOutputTokens', ($event.target as HTMLInputElement).value)" /></label>
           <label class="field-label">{{ t('ai.modelRetainTokens') }}<input class="ui-input ui-input-sm" type="number" min="1" max="4000000" step="1000" :value="model.compactionRetainTokens || ''" :placeholder="t('ai.contextWindowAuto')" @input="setModelBudget(model, 'compactionRetainTokens', ($event.target as HTMLInputElement).value)" /></label>
           <p class="permission-hint">{{ t('ai.modelContextBudgetHint') }}</p>
         </div>

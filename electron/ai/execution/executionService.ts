@@ -183,16 +183,23 @@ export class AiExecutionService {
     return { jobId: job.id, dueAt: job.dueAt }
   }
 
-  /** A due job runs on whichever session is open; deliver its result to the window owning that session. */
+  /**
+   * A due job runs on whichever session is open; deliver its result to the window owning
+   * that session. Sessions without a registered window (LiteAI workspace transports) keep
+   * the binding made when the job was scheduled while that caller is still alive.
+   */
   bindDeferredJob(input: { jobId: string; sessionId: string; historyId: string; threadId: string }): boolean {
     if (this.disposed) return false
     const ownerId = this.ports.sessionOwner?.(input.sessionId)
     const destination = ownerId === undefined ? undefined : this.owners.get(ownerId)
-    if (ownerId === undefined || !destination || destination.owner.isAlive?.() === false) {
-      this.jobs.unbind(input.jobId)
-      return false
+    if (ownerId !== undefined && destination && destination.owner.isAlive?.() !== false) {
+      return this.jobs.rebind(input.jobId, { historyId: input.historyId, threadId: input.threadId, sessionId: input.sessionId, ownerId })
     }
-    return this.jobs.rebind(input.jobId, { historyId: input.historyId, threadId: input.threadId, sessionId: input.sessionId, ownerId })
+    const existing = this.jobs.ownerOf(input.jobId)
+    const caller = existing ? this.owners.get(existing.ownerId) : undefined
+    if (existing && caller && caller.owner.isAlive?.() !== false) return true
+    this.jobs.unbind(input.jobId)
+    return false
   }
 
   /** No window owned the session when a scheduled job settled: keep the result in the conversation for later. */
@@ -333,7 +340,7 @@ export class AiExecutionService {
               if (!this.disposed && this.owners.has(owner.id)) this.jobs.bind(this.jobOwner(request, workspaceTargets), ids)
             },
             onBackgroundJobCollected: id => this.jobs.collected(id, this.jobOwner(request, workspaceTargets)),
-            scheduleBackgroundJob: this.deferredJobs && owner.kind === 'interactive' && !request.foregroundOnly && !workspaceTargets
+            scheduleBackgroundJob: this.deferredJobs && owner.kind === 'interactive' && !request.foregroundOnly
               ? async input => this.scheduleDeferredJob(request, input) : undefined,
             pendingBackgroundResults: () => {
               const jobOwner = this.jobOwner(request, workspaceTargets)

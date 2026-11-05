@@ -19,7 +19,14 @@ export type AiContextPack = {
 }
 
 export const DEFAULT_CONTEXT_WINDOW_TOKENS = 300_000
-export const DEFAULT_OUTPUT_RESERVE_TOKENS = 4_000
+/**
+ * Automatic output reservation for one model request: the ceiling for catalog-derived
+ * limits and the fallback when the model is unknown. Reasoning models spend this budget
+ * on chain-of-thought first, so a small value truncates otherwise healthy replies.
+ */
+export const DEFAULT_OUTPUT_RESERVE_TOKENS = 32_000
+/** A provider that rejects the reserved output tokens is retried down to this floor. */
+export const MIN_OUTPUT_RESERVE_TOKENS = 512
 export const DEFAULT_MAX_MESSAGE_TOKENS = 8_000
 export const MIN_CONTEXT_WINDOW_TOKENS = 4_096
 export const MAX_CONTEXT_WINDOW_TOKENS = 4_000_000
@@ -314,6 +321,18 @@ export function isContextLengthError(message?: string | null): boolean {
     /range of input length/.test(m) ||
     /max context/.test(m)
   )
+}
+
+/**
+ * Provider rejected the requested max output tokens because the model's real cap is lower.
+ * Context-length errors are handled separately and are excluded here.
+ */
+export function isOutputLimitError(message?: string | null): boolean {
+  const m = (message || '').toLowerCase()
+  if (!m.trim()) return false
+  if (/context|prompt|input/.test(m)) return false
+  const namesOutputCap = /max[_\s-]?(completion[_\s-]?)?(output[_\s-]?)?(new[_\s-]?)?tokens?|max[_\s-]?output|output[_\s-]?tokens?/.test(m)
+  return namesOutputCap && /too large|too many|exceed|greater|maximum|less than|invalid|reduce|out of range|must be|unsupported|not support/.test(m)
 }
 
 export function sliceToTokens(text: string, maxTokens: number, fromEnd = false): string {

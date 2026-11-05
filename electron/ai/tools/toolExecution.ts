@@ -87,7 +87,6 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   const scheduleExec = async (): Promise<{ isError: boolean; content: string; structuredContent?: unknown }> => {
     const failure = (code: string, message: string) => ({ isError: true, content: `${code}: ${message}`, structuredContent: { code, message } })
     if (!opts.scheduleBackgroundJob) return failure('SCHEDULE_UNAVAILABLE', SCHEDULE_FAILURES.SCHEDULE_UNAVAILABLE)
-    if (workspaceTargets) return failure('SCHEDULE_UNAVAILABLE', 'Scheduling is only available for a single SSH session, not for a workspace.')
     const now = Date.now()
     let delay = boundArgs.startAfterMs
     if (delay !== undefined && boundArgs.startAt !== undefined) return failure('INVALID_ARGUMENTS', 'Pass either startAfterMs or startAt, not both.')

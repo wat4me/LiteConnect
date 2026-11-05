@@ -83,7 +83,9 @@ app.whenReady().then(async () => {
   const action = index => click(`.knowledge-actions button:nth-child(${index})`)
   const confirm = () => click('.app-dialog-actions button:last-child')
   const cancel = () => click('.app-dialog-actions button:first-child')
+  const knowledgeGroupsEnabled = /export const KNOWLEDGE_GROUPS_ENABLED = true\b/.test(fs.readFileSync(path.join(process.cwd(), 'shared', 'aiKnowledgeGroups.ts'), 'utf8'))
   async function checkLargeMembers() {
+    if (!knowledgeGroupsEnabled) return 0
     stage='checking 5000-server searchable virtual member list'
     await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
     await wait('!!window.__knowledge')
@@ -133,6 +135,10 @@ app.whenReady().then(async () => {
   await wait('document.querySelectorAll(".titlebar-mode-menu .titlebar-mode-item").length===3')
   await click('.titlebar-mode-menu .titlebar-mode-item:last-child')
   await wait('document.querySelectorAll(".workspace-host-checkbox").length===2')
+  if (!knowledgeGroupsEnabled) {
+    assert.equal(await run('document.querySelector(".workspace-knowledge-group")'), null, 'LiteAI server list hides knowledge group creation')
+    return 0
+  }
   await click('.workspace-host-checkbox'); await click('.workspace-card:nth-child(2) .workspace-host-checkbox')
   const openedBeforeGroup = await run('window.__uiRegression.workspaceOpens.length')
   await click('.workspace-knowledge-group'); await wait('document.querySelectorAll(".knowledge-group-members input:checked").length===2')
@@ -158,6 +164,15 @@ app.whenReady().then(async () => {
     return groupEntryLayouts
   }
   async function checkSystem() {
+    if (!knowledgeGroupsEnabled) {
+      await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+      await wait('!!window.__knowledge')
+      await click('.knowledge-trigger')
+      await wait('!!document.querySelector(".knowledge-panel")')
+      assert.equal(await run('document.querySelector(".knowledge-group-create")'), null, 'Knowledge group creation stays hidden')
+      assert.equal(await run('document.querySelector(".knowledge-group-guide")'), null, 'Knowledge group guide stays hidden')
+      return 0
+    }
     stage = 'checking composite business systems'
     await run(`window.__knowledgeBackend.invoke('system-reset')`)
     await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
@@ -410,6 +425,8 @@ app.whenReady().then(async () => {
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await changeMode('readonly'); await modeIs('readonly')
   assert.equal(await run('!!document.querySelector(".app-dialog")'),false,'Imported documents are managed by the same external switch')
+  let groupLayouts = 0
+  if (knowledgeGroupsEnabled) {
   stage = 'creating and maintaining shared knowledge groups'
   await run('window.__knowledge.scope("fixture")')
   await click('.knowledge-trigger'); await wait('!!document.querySelector(".knowledge-group-create")')
@@ -421,7 +438,6 @@ app.whenReady().then(async () => {
   assert.equal(await run(`document.querySelectorAll('.knowledge-group-members input:checked').length`),2)
   await edit('.knowledge-group-field input','订单服务 · 生产环境')
   await edit('.knowledge-group-field textarea','应用目录：/opt/orders\n日志目录：/var/log/orders\n发布前检查目标机器，单机例外按本机知识处理。')
-  let groupLayouts = 0
   for (const locale of ['zh-CN','en-US']) for (const theme of ['light','dark','eyecare']) for (const width of [380,1100]) {
     window.setSize(width,800); await run(`window.__knowledge.theme('${theme}','${locale}')`)
     await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
@@ -477,6 +493,7 @@ app.whenReady().then(async () => {
   await wait('!document.querySelector(".knowledge-group-dialog") && !document.querySelector(".knowledge-group-scope")')
   assert.equal(service.groups.manage({action:'overview'}).groups.length,0)
   assert.deepEqual((await service.access('fixture',1).manage({action:'read',connectionId:'a',documentId:'memory'})).document,original,'Deleting a group retains member knowledge')
+  }
   stage = 'checking knowledge counts in the actual sidebar composer'
   await window.loadURL(new URL('index.html', process.env.LITECONNECT_UI_TEST_URL).href)
   await wait('!!window.__uiRegression')
@@ -511,6 +528,7 @@ app.whenReady().then(async () => {
   await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await wait('document.activeElement?.classList.contains("knowledge-trigger")')
+  if (knowledgeGroupsEnabled) {
   stage = 'checking saved group document navigation in the real sidebar'
   const locatorGroup=service.groups.manage({action:'create',name:'Shared locator group',connectionIds:['a','b'],initialContent:'AI_GROUP_LINK: /opt/shared'}).group
   const locatorDoc=(await service.access('fixture',1).manage({action:'list',groupId:locatorGroup.id})).documents[0]
@@ -522,6 +540,7 @@ app.whenReady().then(async () => {
   await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
   await click('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   service.groups.manage({action:'delete',groupId:locatorGroup.id,expectedRevision:1})
+  }
   const groupEntryLayouts = await checkGroupEntry()
   const systemLayouts = await checkSystem()
   const largeMembers = await checkLargeMembers()

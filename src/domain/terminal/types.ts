@@ -5,6 +5,7 @@ export interface PwdState {
   pwd: string
   homePath: string
   previousPwd: string
+  shellReportsPwd?: boolean
 }
 
 /**
@@ -14,11 +15,12 @@ export interface PwdState {
 export type TerminalPwdTracker = {
   state: Record<string, PwdState>
   initSession(sessionId: string, homePath: string, initialPwd?: string): void
-  handleCd(sessionId: string, rawCommand: string): string | null
-  revertCd(sessionId: string): string | null
+  handleCd(sessionId: string, rawCommand: string): Promise<string | null>
+  waitForPendingCd(sessionId: string): Promise<void>
   getPwd(sessionId: string): string | null
   getHomePath(sessionId: string): string | null
   hasSession(sessionId: string): boolean
   removeSession(sessionId: string): void
   setPwd(sessionId: string, pwd: string): void
+  reportPwd(sessionId: string, pwd: string): void
 }

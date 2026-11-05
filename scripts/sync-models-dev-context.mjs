@@ -1,6 +1,6 @@
 /**
  * Refresh shared/modelsDevContext.json from https://models.dev/models.json
- * (provider-agnostic model metadata; we only keep limit.context).
+ * (provider-agnostic model metadata; we keep limit.context and limit.output).
  *
  * Usage: node scripts/sync-models-dev-context.mjs
  */
@@ -17,15 +17,15 @@ function normalizeId(id) {
   return String(id).trim().toLowerCase().replace(/_/g, '-')
 }
 
-function compact(src) {
+function collect(src, pick) {
   const full = new Map()
   const shortHits = new Map()
 
   for (const [rawId, rec] of Object.entries(src || {})) {
     const id = normalizeId(rec && rec.id ? rec.id : rawId)
-    const ctx = rec && rec.limit ? rec.limit.context : undefined
-    if (!id || typeof ctx !== 'number' || !Number.isFinite(ctx) || ctx <= 0) continue
-    const n = Math.round(ctx)
+    const value = pick(rec)
+    if (!id || typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
+    const n = Math.round(value)
     full.set(id, n)
     const slash = id.lastIndexOf('/')
     const short = slash >= 0 ? id.slice(slash + 1) : id
@@ -34,15 +34,16 @@ function compact(src) {
     shortHits.get(short).add(n)
   }
 
-  const context = {}
+  const map = {}
   for (const [id, n] of [...full.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    context[id] = n
+    map[id] = n
   }
+  // A short id is added only when every provider advertises the same value for it.
   for (const [short, set] of [...shortHits.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     if (set.size !== 1) continue
-    if (context[short] == null) context[short] = [...set][0]
+    if (map[short] == null) map[short] = [...set][0]
   }
-  return context
+  return map
 }
 
 async function fetchCatalog() {
@@ -59,11 +60,14 @@ async function fetchCatalog() {
 }
 
 const src = await fetchCatalog()
-const context = compact(src)
+const context = collect(src, rec => (rec && rec.limit ? rec.limit.context : undefined))
+// Entries that advertise no output limit stay out of the map.
+const output = collect(src, rec => (rec && rec.limit ? rec.limit.output : undefined))
 const payload = {
   source: SOURCE,
   fetchedAt: new Date().toISOString().slice(0, 10),
   context,
+  output,
 }
 fs.writeFileSync(OUT, `${JSON.stringify(payload, null, 2)}\n`)
-console.log(`wrote ${OUT} (${Object.keys(context).length} ids)`)
+console.log(`wrote ${OUT} (${Object.keys(context).length} context ids, ${Object.keys(output).length} output ids)`)

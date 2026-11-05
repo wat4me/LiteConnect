@@ -33,6 +33,7 @@ app.whenReady().then(async () => {
   await run('(() => {const el=document.querySelector(".db-window-advanced select");el.value="currentWindow";el.dispatchEvent(new Event("change",{bubbles:true}));})()')
   await click('.settings-footer .ui-btn-primary')
   await wait('window.__settings.saved().dbOpenMode==="currentWindow"')
+  fs.writeFileSync(path.join(artifacts, 'settings-advanced.png'), (await window.webContents.capturePage()).toPNG())
   stage = 'monitor setting saves and closes its panel'
   await run('document.querySelectorAll(".nav-list .nav-item")[5].click()')
   await wait('!!document.querySelector("[data-setting=\\"network.monitor\\"]")')
@@ -46,6 +47,7 @@ app.whenReady().then(async () => {
   await click('.settings-footer .ui-btn-primary')
   await wait('window.__settings.state().enabled')
   assert.equal(await run('document.querySelectorAll(".left-toolbar button").length'), 7)
+  fs.writeFileSync(path.join(artifacts, 'settings-tool-rail.png'), (await window.webContents.capturePage()).toPNG())
   stage = 'remote-window settings sync'
   await run('window.__settings.openMonitor();window.__settings.remote(false)')
   await wait('!window.__settings.state().enabled && !window.__settings.state().open')
@@ -78,6 +80,7 @@ app.whenReady().then(async () => {
     await wait(`innerWidth===${width}`)
     assert.ok(await run(`(() => {const panel=document.querySelector('.settings-page');return panel.getBoundingClientRect().right<=innerWidth+1 && document.querySelector('.settings-stage').scrollWidth<=document.querySelector('.settings-stage').clientWidth+1})()`), stage)
     layouts++
+    if (locale === 'zh-CN' && theme === 'light' && width === 760) fs.writeFileSync(path.join(artifacts, 'settings-narrow.png'), (await window.webContents.capturePage()).toPNG())
   }
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: 1200, height: 850, deviceScaleFactor: 1, mobile: false })
   await run(`window.__settings.theme('light','zh-CN')`)

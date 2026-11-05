@@ -73,6 +73,35 @@ app.whenReady().then(async () => {
   await wait('window.__dock?.snapshot().ready && !!document.querySelector(".xterm-screen")')
   await wait('window.__dock.calls.resizes.length>0')
   assert.equal(await run('window.__dockError || null'), null)
+  if (process.env.LITECONNECT_DOCK_CWD_ONLY === '1') {
+    stage = 'locating after successful and failed cd commands'
+    await click(tool('files'))
+    await wait('document.querySelector(".file-sidebar .path-display")?.textContent.trim()==="/home/ops"')
+    await click('.file-sidebar .navigation-actions button[aria-pressed="true"]')
+    await run('window.__dock.enableCwdInputEcho()')
+    const input = window.webContents.debugger
+    const submit = async (command, checkedPath) => {
+      await run('document.querySelector(".xterm-helper-textarea").focus()')
+      await input.sendCommand('Input.insertText', { text: command })
+      await input.sendCommand('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+      await input.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+      await wait(`window.__dock.calls.cwdChecks.includes(${JSON.stringify(checkedPath)})`)
+    }
+    const locate = '.file-sidebar .navigation-actions > button:first-child'
+    await submit('cd /home/v5-automation-servers', '/home/v5-automation-servers')
+    await click(locate)
+    await wait('document.querySelector(".file-sidebar .path-display")?.textContent.trim()==="/home/v5-automation-servers"')
+    await submit('cd ..', '/home')
+    await submit('cd tab', '/home/tab')
+    await submit('cd bcdd', '/home/bcdd')
+    const writes = await run('window.__dock.calls.writes.length')
+    await click(locate)
+    await wait('document.querySelector(".file-sidebar .path-display")?.textContent.trim()==="/home"')
+    assert.equal(await run('window.__dock.calls.writes.length'), writes, 'Locate must not write to the terminal')
+    assert.ok(await run('window.__dock.calls.fileLoads.every(path => !/\\/(tab|bcdd)(\\/|$)/.test(path))'), 'Invalid cwd candidates must not be listed')
+    console.log(JSON.stringify({ passed: true, flows: ['cd ..', 'consecutive failed cd commands', 'SFTP locate without terminal input'], artifacts }))
+    clearTimeout(timeout); window.destroy(); runtime.closeAppDatabase(); app.quit(); return
+  }
   const subscriptions = await run('window.__dock.calls.dataSubscriptions')
   if (!process.env.LITECONNECT_DOCK_MATRIX_ONLY) {
   stage = 'moving AI and preserving its composer'
@@ -112,8 +141,8 @@ app.whenReady().then(async () => {
   await click(tool('ai')); await wait('window.__dock.snapshot().panels.ai && !window.__dock.snapshot().panels.snippets')
   assert.ok(await run('window.__savedAiInput.checkVisibility() && window.__savedAiInput.value==="Keep this draft while moving"'))
   assert.ok(await run(`(() => {const right=document.querySelector('.dock-right');return !right.innerText.includes('批量执行') && !right.innerText.includes('命令片段') && !right.querySelector('.workspace-dock-tabs')})()`), 'Previously opened tools also stay hidden after switching back to AI')
-  stage = 'four-edge placement without remounting'
-  for (const edge of ['top', 'bottom', 'left', 'right']) {
+  stage = 'left and right placement without remounting'
+  for (const edge of ['left', 'right']) {
     await move('ai', edge)
     await wait(`!!document.querySelector('.dock-${edge} .ai-sidebar')`)
     assert.ok(await run('window.__savedAiInput.checkVisibility()'), 'The moved panel stays expanded even when another tool occupied its destination')
@@ -162,18 +191,16 @@ app.whenReady().then(async () => {
   assert.equal(await run('window.__dock.snapshot().panels.files'), true)
   await run('window.__dock.session("one")')
   await click(tool('ai')); await wait('window.__savedAiInput.checkVisibility()')
-  stage = 'stacked split with top and bottom docks'
-  await move('ai', 'top'); await move('files', 'bottom')
-  await run(`document.querySelector('.dock-top .workspace-dock-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`)
-  await wait('!window.__dock.snapshot().saving && window.__dock.snapshot().layout.sizes.top===600')
+  stage = 'stacked split with left and right docks'
   await run('window.__dock.split(true,"horizontal")')
-  await wait('document.querySelector(".terminal-container").getBoundingClientRect().height>=315')
-  assert.ok(await run(`[...document.querySelectorAll('.terminal-pane')].filter(el=>el.checkVisibility()).every(el=>el.getBoundingClientRect().height>=154)`), 'Top and bottom docks leave space for both stacked panes')
+  await wait(`[...document.querySelectorAll('.terminal-pane')].filter(el=>el.checkVisibility()).length === 2`)
+  const stackedHeights = await run(`[...document.querySelectorAll('.terminal-pane')].filter(el=>el.checkVisibility()).map(el=>el.getBoundingClientRect().height)`)
+  assert.equal(stackedHeights.length, 2)
+  assert.ok(stackedHeights.every(height => height >= 154), 'Side docks leave space for both stacked panes')
   assert.ok(await run('window.__savedAiInput.checkVisibility() && window.__savedFilePane.checkVisibility()'))
   await wait(`(() => {const panel=window.__savedAiInput.closest('.ai-sidebar'),target=panel.querySelector('.ssh-ai-target').getBoundingClientRect(),composer=panel.querySelector('.composer-area').getBoundingClientRect(),send=panel.querySelector('.send-btn').getBoundingClientRect();return target.height>0 && target.bottom<=composer.top+1 && send.bottom<=composer.bottom+1})()`)
   await screenshot('dock-stacked-tools.png')
   await run('window.__dock.split(false)')
-  await move('files', 'left'); await move('ai', 'right')
   assert.equal(await run('window.__dock.calls.dataSubscriptions'), subscriptions)
   stage = 'resizing and committing once'
   const before = await run('window.__dockBackend.invoke("count")')
@@ -194,15 +221,59 @@ app.whenReady().then(async () => {
   assert.ok(await run('window.__dock.snapshot().layout.sizes.right') > previousSize)
   const panelDestination = await run('window.__dock.snapshot().layout.tools.find(tool=>tool.id==="batch").panelEdge')
   await click(tool('batch'), 'right'); await wait('!!document.querySelector(".workspace-layout-menu")')
-  await run(`document.querySelectorAll('.workspace-layout-menu button')[4].click()`)
+  assert.deepEqual(await run(`[...document.querySelectorAll('[data-move-edge]')].map(button=>button.dataset.moveEdge)`), ['left', 'right'])
+  await run(`document.querySelector('.workspace-layout-menu button[role="menuitem"]:not([data-move-edge])').click()`)
   await wait('!window.__dock.snapshot().saving')
   assert.equal(await run('window.__dock.snapshot().layout.tools.find(tool=>tool.id==="batch").panelEdge'), panelDestination)
   stage = 'drag drop preview and ordering'
-  await run(`(() => {const source=document.querySelector('${tool('ai')}'),target=document.querySelector('.workspace-dock-canvas'),r=target.getBoundingClientRect(),dataTransfer=new DataTransfer();source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer}));target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer,clientX:r.left+r.width/2,clientY:r.bottom-12}));window.__dragData=dataTransfer})()`)
-  await wait('!!document.querySelector(".workspace-dock-targets .drop-bottom.selected")')
+  const startToolDrag = async id => {
+    await run(`(() => {
+      window.__dragData = new DataTransfer();
+      document.querySelector(${JSON.stringify(tool(id))}).dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: window.__dragData }));
+    })()`)
+    await wait('document.querySelectorAll(".dock-drop-strip").length === 2')
+  }
+  const dragAt = (type, selector, y = 0.5) => run(`(() => {
+    const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2, clientY = rect.top + rect.height * ${y};
+    document.elementFromPoint(clientX, clientY).dispatchEvent(new DragEvent(${JSON.stringify(type)}, {
+      bubbles: true, cancelable: true, dataTransfer: window.__dragData, clientX, clientY,
+    }));
+  })()`)
+  const strip = edge => `[data-tool-drop-edge="${edge}"]`
+  const saveCountBeforeCancel = await run('window.__dockBackend.invoke("count")')
+  await startToolDrag('ai')
+  for (const edge of ['left', 'right']) {
+    await dragAt('dragover', strip(edge))
+    await wait(`document.querySelector('.dock-drop-strip.selected')?.dataset.toolDropEdge === '${edge}'`)
+  }
+  for (const y of [0.03, 0.97]) {
+    await dragAt('dragover', strip('right'))
+    await dragAt('dragover', '.workspace-dock-center', y)
+    await wait('!document.querySelector(".dock-drop-strip.selected")')
+  }
+  await dragAt('dragover', strip('left'))
+  await wait(`!!document.querySelector('${strip('left')}.selected')`)
+  await dragAt('drop', '.workspace-dock-center')
+  await wait('!document.querySelector(".workspace-dock-targets")')
+  assert.equal(await run('window.__dockBackend.invoke("count")'), saveCountBeforeCancel, 'A center drop cancels even after hovering an edge')
+
+  await startToolDrag('snippets')
+  await dragAt('dragover', tool('monitor'), 0.25)
+  await wait(`document.querySelector('${tool('monitor')}')?.dataset.dropMarker === 'before'`)
+  await dragAt('drop', tool('monitor'), 0.25)
+  await wait('!window.__dock.snapshot().saving')
+  const leftTools = await run('window.__dock.snapshot().layout.tools.filter(tool => tool.edge === "left").map(tool => tool.id)')
+  assert.equal(leftTools[leftTools.indexOf('snippets') + 1], 'monitor', 'The icon is inserted at the marked position')
+
+  await startToolDrag('ai')
+  await dragAt('dragover', strip('left'))
+  await wait(`!!document.querySelector('${strip('left')}.selected')`)
+  await run('window.__dock.theme("light", "zh-CN")')
   await screenshot('dock-drag-preview.png')
-  await run(`document.querySelector('.workspace-dock-canvas').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:window.__dragData}))`)
-  await wait('window.__dock.snapshot().layout.tools.find(tool=>tool.id==="ai").edge==="bottom" && !window.__dock.snapshot().saving')
+  await run('window.__dock.theme("dark", "zh-CN")')
+  await dragAt('drop', strip('left'))
+  await wait('window.__dock.snapshot().layout.tools.find(tool=>tool.id==="ai").edge==="left" && !window.__dock.snapshot().saving')
   stage = 'layout lock and reset'
   await click('.dock-layout-button'); await click('[data-layout-lock]'); await wait('window.__dock.snapshot().layout.locked && !window.__dock.snapshot().saving')
   assert.equal(await run(`document.querySelector('${tool('ai')}').draggable`), false)
@@ -218,21 +289,31 @@ app.whenReady().then(async () => {
   const expected = await run('window.__dock.snapshot().layout')
   await new Promise(resolve => { window.webContents.once('did-finish-load', resolve); window.webContents.reload() }); await wait('window.__dock?.snapshot().ready')
   assert.deepEqual(await run('window.__dock.snapshot().layout'), expected)
-  stage = 'external window settings notification'
-  await run(`(() => {const layout=window.__dock.snapshot().layout;layout.tools.find(tool=>tool.id==='ai').edge='bottom';layout.tools.find(tool=>tool.id==='ai').panelEdge='bottom';return window.__dockBackend.invoke('external',layout)})()`)
-  await wait('window.__dock.snapshot().layout.tools.find(tool=>tool.id==="ai").edge==="bottom"')
+  stage = 'external window settings notification with legacy edges'
+  await run(`(() => {
+    const layout=window.__dock.snapshot().layout, ai=layout.tools.find(tool=>tool.id==='ai'), monitor=layout.tools.find(tool=>tool.id==='monitor');
+    ai.edge=ai.panelEdge='top'; monitor.edge=monitor.panelEdge='bottom'; layout.sizes.top=600; layout.sizes.bottom=480;
+    return window.__dockBackend.invoke('external',layout)
+  })()`)
+  await wait(`(() => {
+    const {tools,sizes}=window.__dock.snapshot().layout, ai=tools.find(tool=>tool.id==='ai'), monitor=tools.find(tool=>tool.id==='monitor');
+    return ai.edge==='left' && ai.panelEdge==='left' && monitor.edge==='right' && monitor.panelEdge==='right' && !('top' in sizes) && !('bottom' in sizes);
+  })()`)
+  await click(tool('monitor'))
+  await wait('document.querySelector(".dock-right .monitor-header")?.checkVisibility()')
+  await click(tool('monitor'))
+  await click(tool('sync'))
+  await wait('document.querySelector(".dock-left .sync-input-bar")?.checkVisibility()')
+  await click(tool('sync'))
   } else {
-    stage = 'compact composer and split target visibility'
-    await move('ai', 'top'); await move('files', 'bottom')
+    stage = 'side dock composer and split target visibility'
+    await move('ai', 'right')
     await click(tool('ai')); await click(tool('files'))
     await wait('!!document.querySelector(".ai-sidebar .send-btn") && !!document.querySelector(".file-sidebar")')
-    await run(`document.querySelector('.dock-top .workspace-dock-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`)
     await run('window.__dock.split(true,"horizontal")')
     await wait(`(() => {const panel=document.querySelector('.ai-sidebar'),target=panel.querySelector('.ssh-ai-target')?.getBoundingClientRect(),composer=panel.querySelector('.composer-area').getBoundingClientRect(),send=panel.querySelector('.send-btn').getBoundingClientRect();return target?.height>0 && target.bottom<=composer.top+1 && send.bottom<=composer.bottom+1})()`)
-    await screenshot('dock-compact-target.png')
+    await screenshot('dock-stacked-target.png')
     await run('window.__dock.split(false)'); await click(tool('files'))
-    await run(`(() => {const layout=window.__dock.snapshot().layout;layout.tools.find(tool=>tool.id==='ai').edge='bottom';layout.tools.find(tool=>tool.id==='ai').panelEdge='bottom';return window.__dockBackend.invoke('external',layout)})()`)
-    await wait('window.__dock.snapshot().layout.tools.find(tool=>tool.id==="ai").panelEdge==="bottom"')
   }
   stage = 'narrow windows and display variations'
   let layouts = 0
@@ -251,6 +332,6 @@ app.whenReady().then(async () => {
     layouts++
   }
   await click('.dock-layout-button'); await click('[data-layout-reset]'); await wait('window.__dock.snapshot().layout.tools.every(tool=>tool.edge==="left") && !window.__dock.snapshot().saving')
-  console.log(JSON.stringify({ passed: true, layouts, flows: process.env.LITECONNECT_DOCK_MATRIX_ONLY ? ['compact composer', 'layout variations', 'reset'] : ['four-edge move', 'composer/file path/xterm identity preserved', 'simultaneous regions', 'fixed SFTP font and density', 'terminal focus', 'session switch', 'same-host and cross-host splits with independent docks', 'explicit AI target and manual close preserved', 'split-aware dock allocation', 'pointer and keyboard resize', 'icon ordering', 'drag preview/drop', 'lock/reset', 'save failure retry', 'SQLite reload', 'cross-window notification'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, flows: process.env.LITECONNECT_DOCK_MATRIX_ONLY ? ['side dock composer', 'layout variations', 'reset'] : ['left/right move', 'composer/file path/xterm identity preserved', 'simultaneous regions', 'fixed SFTP font and density', 'terminal focus', 'session switch', 'same-host and cross-host splits with independent docks', 'explicit AI target and manual close preserved', 'split-aware dock allocation', 'pointer and keyboard resize', 'icon ordering', 'drag preview/drop', 'lock/reset', 'save failure retry', 'SQLite reload', 'cross-window notification and legacy edge migration'], artifacts }))
   clearTimeout(timeout); window.destroy(); runtime.closeAppDatabase(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); database?.close(); app.exit(1) })

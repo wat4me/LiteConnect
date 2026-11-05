@@ -96,7 +96,8 @@ const {
   loadDirectory,
   navigateTo,
   syncCwd,
-  syncCwdForce,
+  locateTerminalCwd,
+  queryTerminalCwd,
   toggleFollowTerminalPath,
   submitPathInput,
   togglePathInput,
@@ -406,12 +407,15 @@ async function handleNavigate(entry: FileEntry) {
   saveCurrentState()
 }
 
-async function handleSyncCwd() {
-  // Jump to live shell pwd, reload that directory listing, and scroll it into view.
+async function handleSyncCwd(locate = locateTerminalCwd) {
+  const target = props.sessionId
+  // Reload the chosen directory and scroll it into view.
   // Do not force-readdir the whole ancestor chain (that made the tree flash);
   // missing segments still re-fetch via followPath. Use 刷新 for a full chain reload.
   await runExclusive(async () => {
-    const ok = await syncCwdForce()
+    if (props.sessionId !== target) return
+    const ok = await locate()
+    if (props.sessionId !== target) return
     const path = currentPath.value
     if (path) {
       if (files.value.length) {
@@ -648,33 +652,13 @@ async function tryOpenFollowPath(logical: string): Promise<boolean> {
 async function syncFromTrackedPwd(trackedPwd: string): Promise<boolean> {
   if (!sftpReady.value || !followTerminalPath.value) return false
 
-  let logical = cleanRemotePath(trackedPwd)
+  const logical = cleanRemotePath(trackedPwd)
   terminalPath.value = logical
   if (logical === currentPath.value) return true
 
-  if (await tryOpenFollowPath(logical)) {
-    saveCurrentState()
-    return true
-  }
-
-  // Optimistic `cd` (e.g. `cd v` which the shell rejected) — walk back until SFTP opens.
-  let guard = 8
-  while (guard-- > 0) {
-    const prev = pwdTracker.revertCd(props.sessionId)
-    if (!prev) break
-    const next = cleanRemotePath(prev)
-    if (next === logical && next === '/') break
-    logical = next
-    terminalPath.value = logical
-    if (await tryOpenFollowPath(logical)) {
-      saveCurrentState()
-      return true
-    }
-    if (logical === '/') break
-  }
-
+  const opened = await tryOpenFollowPath(logical)
   saveCurrentState()
-  return false
+  return opened
 }
 
 async function handleTerminalCd(_command: string): Promise<void> {
@@ -790,6 +774,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
           :terminal-target="connectionName ? `${connectionName} / ${terminalLabel}` : terminalLabel"
           :locked="actionLocked"
           @sync-cwd="handleSyncCwd"
+          @query-cwd="handleSyncCwd(queryTerminalCwd)"
           @directory-sync="showDirectorySync = true"
           @refresh="handleRefresh"
           @collapse-tree="handleCollapseTree"

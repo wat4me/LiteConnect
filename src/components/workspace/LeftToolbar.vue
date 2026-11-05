@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   backgroundTaskCount?: number; scheduledTaskCount?: number; activeTransfers?: number; dockerActive?: boolean; dockerDisabled?: boolean
   sidePanelsDisabled?: boolean
   edge?: WorkspaceEdge; toolIds?: WorkspaceTool[]; rearrange?: boolean; locked?: boolean
+  dropMarker?: { id: WorkspaceTool; after: boolean }
 }>(), { edge: 'left', toolIds: () => [...WORKSPACE_TOOLS], rearrange: false, locked: false })
 const emit = defineEmits<{
   (e: 'toggle-ai'): void; (e: 'toggle-files'): void; (e: 'toggle-monitor'): void
@@ -32,7 +33,7 @@ const definitions = computed(() => ({
   docker: { icon: 'docker', active: props.dockerActive, disabled: props.dockerDisabled, label: t('toolbar.docker'), tooltip: props.dockerDisabled ? t('toolbar.dockerDisabled') : props.dockerActive ? t('toolbar.dockerActive') : t('toolbar.dockerShortcut') },
 } as const))
 const tools = computed(() => props.toolIds.filter(id => id !== 'monitor' || props.monitorEnabled !== false).map(id => ({ id, ...definitions.value[id] })))
-const tooltipPlacement = computed(() => ({ left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const)[props.edge])
+const tooltipPlacement = computed(() => props.edge === 'left' ? 'right' : 'left')
 function toggle(id: WorkspaceTool) {
   switch (id) {
     case 'ai': emit('toggle-ai'); break
@@ -51,11 +52,11 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
 </script>
 
 <template>
-  <div class="left-toolbar" :class="`toolbar-${edge}`" role="toolbar" :aria-label="t('toolbar.aria')" :aria-orientation="edge === 'top' || edge === 'bottom' ? 'horizontal' : 'vertical'" :data-dock-edge="edge" @contextmenu.self="menu(undefined, $event)">
+  <div class="left-toolbar" :class="`toolbar-${edge}`" role="toolbar" :aria-label="t('toolbar.aria')" aria-orientation="vertical" :data-dock-edge="edge" @contextmenu.self="menu(undefined, $event)">
     <template v-for="tool in tools" :key="tool.id">
       <div v-if="tool.id === 'docker' && tools.length > 1" class="toolbar-divider" role="separator" aria-hidden="true"></div>
       <el-tooltip :content="tool.tooltip" :placement="tooltipPlacement" :show-after="300">
-        <button class="toolbar-icon-btn" type="button" :class="{ active: tool.active }" :aria-label="tool.label" :aria-pressed="!!tool.active" :disabled="!!tool.disabled" :data-tool-id="tool.id"
+        <button class="toolbar-icon-btn" type="button" :class="{ active: tool.active }" :aria-label="tool.label" :aria-pressed="!!tool.active" :disabled="!!tool.disabled" :data-tool-id="tool.id" :data-drop-marker="dropMarker?.id === tool.id ? dropMarker.after ? 'after' : 'before' : undefined"
           :draggable="rearrange && !locked" @click="toggle(tool.id)" @contextmenu="menu(tool.id, $event)" @keydown.shift.f10.prevent="menu(tool.id, $event as unknown as MouseEvent)"
           @dragstart="emit('tool-drag', tool.id, $event)" @dragend="emit('tool-drag-end')">
           <AppIcon :name="tool.icon" size="lg" />
@@ -88,10 +89,6 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
 }
 
 .toolbar-right { border-right: 0; border-left: 1px solid var(--border-color); }
-.toolbar-top, .toolbar-bottom { flex-direction: row; width: 100%; min-width: 0; height: 40px; padding: 0 8px; border-right: 0; }
-.toolbar-top { border-bottom: 1px solid var(--border-color); }
-.toolbar-bottom { border-top: 1px solid var(--border-color); }
-.toolbar-top .toolbar-divider, .toolbar-bottom .toolbar-divider { width: 1px; height: 20px; margin: 0 4px; }
 .toolbar-icon-btn { flex-shrink: 0; }
 .left-toolbar .app-icon:not([data-size]) {
   font-size: var(--icon-lg);
@@ -134,6 +131,19 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
   color: var(--accent);
   background: var(--accent-bg);
 }
+
+.toolbar-icon-btn[data-drop-marker]::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  inset-inline: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.toolbar-icon-btn[data-drop-marker='before']::before { top: -3px; }
+.toolbar-icon-btn[data-drop-marker='after']::before { bottom: -3px; }
 
 .toolbar-icon-btn:disabled {
   opacity: 0.4;

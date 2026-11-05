@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
 import type { ChatItem } from '@/domain/ai/chat'
-import { reasoningDisclosureKey, toolDisclosureKey, useAiDisclosureState } from './useAiDisclosureState'
+import { processDisclosureKey, reasoningDisclosureKey, toolDisclosureKey, useAiDisclosureState } from './useAiDisclosureState'
 
 const scopes: ReturnType<typeof effectScope>[] = []
 afterEach(() => scopes.splice(0).forEach(scope => scope.stop()))
@@ -60,4 +60,19 @@ it('tracks recorded reasoning indices and does not allocate entries for unopened
   await nextTick()
   expect([...f.reasoningOpenState.keys()]).toEqual([reasoningDisclosureKey('reply', 1)])
   expect(f.toolOpenState.size).toBe(1)
+})
+
+it('keeps the process fold choice per message and drops it with the message or thread', async () => {
+  const f = fixture()
+  f.processOpenState.set(processDisclosureKey('reply'), true)
+  f.messages.value[0].toolRuns = []
+  await nextTick()
+  expect(f.processOpenState.size).toBe(1)
+  f.messages.value = []
+  await nextTick()
+  expect(f.processOpenState.size).toBe(0)
+  f.processOpenState.set(processDisclosureKey('reply'), false)
+  f.conversationKey.value = 'other'
+  await nextTick()
+  expect(f.processOpenState.size).toBe(0)
 })

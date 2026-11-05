@@ -56,6 +56,11 @@ export class AiBackgroundJobs {
 
   unbind(jobId: string) { this.owners.delete(jobId) }
 
+  ownerOf(jobId: string): AiJobOwner | undefined {
+    const owner = this.owners.get(jobId)
+    return owner ? { ...owner } : undefined
+  }
+
   settled(job: SshMcpJobResult) {
     const owner = this.owners.get(job.jobId)
     if (!owner) return

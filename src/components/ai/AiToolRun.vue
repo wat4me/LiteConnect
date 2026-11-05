@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AiToolRun } from '@shared/types/ai'
 import { extractJsonStringField } from '@shared/aiToolRunDisplay'
+import { readAiCommandResult } from '@shared/aiCommandResult'
 import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import { splitToolReason } from '@/utils/ai/toolReason'
@@ -20,8 +21,15 @@ const view = computed(() => toolView(props.run))
 const presentation = computed(() => toolRunPresentation(props.run, view.value.summary, props.streaming))
 const explanation = computed(() => splitToolReason(props.run.reason).explanation)
 const description = computed(() => (explanation.value || view.value.hint).replace(/\s+/g, ' ').trim())
-const invocationLabel = computed(() => t(extractJsonStringField(props.run.args || '', 'command') ? 'ai.toolCommand' : 'ai.toolParameters'))
+const commandPrefix = computed(() => (extractJsonStringField(props.run.args || '', 'command') ? '$ ' : ''))
 const stateLabel = computed(() => t(toolStateKeys[presentation.value.state]))
+/** A failed or timed-out command tells the operator its exit code; success stays quiet. */
+const exitLabel = computed(() => {
+  const state = presentation.value.state
+  if (state !== 'failed' && state !== 'timeout') return ''
+  const exitCode = readAiCommandResult(props.run.content)?.exitCode
+  return typeof exitCode === 'number' && exitCode !== 0 ? `exit ${exitCode}` : ''
+})
 const detail = computed(() => {
   const state = presentation.value
   return [state.detailKey ? t(state.detailKey, state.detailParams || {}) : '', state.truncated ? t('ai.toolOutputTruncated') : ''].filter(Boolean).join(' · ')
@@ -57,8 +65,9 @@ function onToggle(event: Event) {
             class="tool-run-desc"
             :title="description"
           >{{ description }}</span>
-          <span class="tool-run-outcome" :title="[stateLabel, detail].filter(Boolean).join(' · ')">
+          <span class="tool-run-outcome" :title="[stateLabel, exitLabel, detail].filter(Boolean).join(' · ')">
             <span class="tool-run-state">{{ stateLabel }}</span>
+            <span v-if="exitLabel" class="tool-run-exit">{{ exitLabel }}</span>
             <span v-if="detail" class="tool-run-detail">{{ detail }}</span>
           </span>
           <button v-if="run.name === 'knowledge_save' && run.status === 'done' && !run.isError" type="button" class="tool-run-knowledge" :title="t('ai.knowledge.view')" :aria-label="t('ai.knowledge.view')" @click.stop.prevent="emit('view-knowledge')">{{ t('ai.knowledge.view') }}</button>
@@ -66,15 +75,12 @@ function onToggle(event: Event) {
         <template v-if="isOpen">
         <div v-if="executionHistoryAvailable && run.name === 'exec'" class="tool-run-section"><button type="button" class="ui-btn ui-btn-xs tool-run-view-execution" @click="emit('view-execution')"><AppIcon name="terminal-history" size="xs" />{{ t('ai.execution.view') }}</button></div>
         <div v-if="explanation" class="tool-run-section tool-run-explanation-section">
-          <div class="tool-run-section-label">{{ t('ai.toolExplanationLabel') }}</div>
           <div class="tool-run-explanation">{{ explanation }}</div>
         </div>
         <div v-if="view.hint && run.status !== 'denied'" class="tool-run-section">
-          <div class="tool-run-section-label">{{ invocationLabel }}</div>
-          <pre class="tool-run-args">{{ view.hint }}</pre>
+          <pre class="tool-run-args">{{ commandPrefix }}{{ view.hint }}</pre>
         </div>
         <div v-if="run.diffPreview || (view.body && run.status !== 'denied' && run.status !== 'blocked' && run.status !== 'reclassify') || run.status === 'blocked' || run.status === 'reclassify'" class="tool-run-section">
-          <div class="tool-run-section-label">{{ t('ai.toolExecutionResult') }}</div>
           <div v-if="run.diffSummary" class="tool-run-result-summary">{{ run.diffSummary }}</div>
           <pre v-if="run.diffPreview" class="tool-run-out">{{ run.diffPreview }}</pre>
           <pre v-else-if="view.body && run.status !== 'denied' && run.status !== 'blocked' && run.status !== 'reclassify'" class="tool-run-out">{{ view.body }}</pre>
@@ -103,6 +109,7 @@ function onToggle(event: Event) {
   color: var(--danger);
 }
 .tool-run.error .tool-run-state { color: var(--danger); }
+.tool-run-exit { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 .tool-run.reclassify .tool-run-state { color: var(--warning); }
 .tool-run[data-state=completed] .tool-run-state { color: var(--success); }
 
@@ -241,7 +248,7 @@ function onToggle(event: Event) {
 
 .tool-ask-copy {
   margin: 2px 0 0 20px;
-  font-size: 11px;
+  font-size: var(--font-ui-sm);
   line-height: 1.45;
   color: var(--text-secondary);
   font-weight: 400;
@@ -283,15 +290,15 @@ function onToggle(event: Event) {
 
 .tool-run-explanation {
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--font-ui-sm);
   line-height: 1.45;
 }
 
 .tool-run-args,
 .tool-run-out {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: var(--font-ui-sm);
+  line-height: 1.5;
 }
 
 

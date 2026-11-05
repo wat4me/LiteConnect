@@ -1,6 +1,6 @@
 import type { AiResolvedConfig } from '../../../shared/types/ai'
 import { assertAiImageCapability } from '../../../shared/aiImages'
-import { isContextLengthError, resolveContextWindowTokens } from '../../../shared/aiContext'
+import { isContextLengthError, isOutputLimitError, MIN_OUTPUT_RESERVE_TOKENS, resolveContextWindowTokens } from '../../../shared/aiContext'
 import { t } from '../../i18n/index'
 import { readHttpErrorMessage } from '../providers/http'
 import { getAiProviderAdapter } from '../providers/registry'
@@ -22,8 +22,10 @@ export async function runAiChatCompletion(
     throw new Error(t('ai.apiKeyRequired'))
   }
 
+  // A provider may cap output lower than the model advertises; a retry lowers this value.
+  let outputCap = resolveAiContextBudget(settings).outputReserveTokens
   const postChat = (packed: ReturnType<typeof packRequestMessages>) => {
-    const request = provider.buildRequest(settings, packed, { maxTokens: resolveAiContextBudget(settings).outputReserveTokens })
+    const request = provider.buildRequest(settings, packed, { maxTokens: outputCap })
     return fetch(request.url, {
       method: 'POST',
       signal,
@@ -35,29 +37,45 @@ export async function runAiChatCompletion(
   let packed = packRequestMessages(settings, chatMessages, undefined, extraSystem, systemMaxTokens)
 
   let response = await postChat(packed)
-  if (!response.ok) {
-    const message = await readHttpErrorMessage(
+  let failure = ''
+  let shrunk = false
+  for (let attempt = 0; !response.ok && attempt < 8; attempt++) {
+    failure = await readHttpErrorMessage(
       response,
       t('ai.requestFailed', { status: response.status }),
     )
-    if (!isContextLengthError(message)) throw new Error(message)
-    packed = packRequestMessages(
-      settings,
-      chatMessages,
-      Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
-      extraSystem,
-      systemMaxTokens,
-    )
-
-    response = await postChat(packed)
-    if (!response.ok) {
-      throw new Error(await readHttpErrorMessage(response, message))
+    if (isContextLengthError(failure) && !shrunk) {
+      shrunk = true
+      packed = packRequestMessages(
+        settings,
+        chatMessages,
+        Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)),
+        extraSystem,
+        systemMaxTokens,
+      )
+      response = await postChat(packed)
+      continue
     }
+    if (isOutputLimitError(failure) && outputCap > MIN_OUTPUT_RESERVE_TOKENS) {
+      const reduced = Math.max(MIN_OUTPUT_RESERVE_TOKENS, Math.floor(outputCap / 2))
+      if (reduced < outputCap) {
+        outputCap = reduced
+        response = await postChat(packed)
+        continue
+      }
+    }
+    throw new Error(failure)
+  }
+  if (!response.ok) {
+    throw new Error(failure || t('ai.requestFailed', { status: response.status }))
   }
 
   const data = await response.json()
   const reply = provider.parseResponse(settings, data)
-  if (['length', 'max_tokens', 'content_filter'].includes(reply.finishReason || '')) {
+  if (['length', 'max_tokens'].includes(reply.finishReason || '')) {
+    throw new Error(t('ai.outputLimitReached'))
+  }
+  if (reply.finishReason === 'content_filter') {
     throw new Error(t('ai.responseIncomplete'))
   }
   const { content } = reply

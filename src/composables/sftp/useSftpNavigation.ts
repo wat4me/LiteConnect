@@ -4,10 +4,8 @@ import type { FileEntry } from '../../env.d.ts'
 import type { TerminalPwdTracker } from '@/domain/terminal/types'
 import {
   cleanRemotePath,
-  planLocateCwd,
   sameRemotePath,
   shouldReloadSftpListing,
-  uniqueCleanPaths,
 } from '@/utils/sftp/sftpCwdSync'
 import { setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
 
@@ -165,13 +163,6 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
           // fall through
         }
       }
-      if (!isFallback && pwdTracker) {
-        const prevPwd = pwdTracker.revertCd(sessionId())
-        if (prevPwd && cleanRemotePath(prevPwd) !== cleanPath) {
-          terminalPath.value = prevPwd
-          return await loadDirectory(prevPwd, true)
-        }
-      }
       if (!isFallback) {
         error.value = formatSftpError(err.message || err, cleanPath)
       }
@@ -213,25 +204,35 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
   }
 
   async function syncCwd(): Promise<boolean> {
-    if (pwdTracker) {
-      const fromTracker = pwdTracker.getPwd(sessionId())
-      if (fromTracker) terminalPath.value = cleanRemotePath(fromTracker)
-    }
-    return syncTrackedPath(false)
+    return syncTrackedPath('follow')
   }
 
-  /**
-   * Toolbar "locate": always query the live shell `pwd`.
-   * Clicking this means follow did not catch up; do not trust local cd tracking.
-   * Tracker / last known path is only a fallback if the probe fails.
-   */
-  async function syncCwdForce(): Promise<boolean> {
-    const plan = planLocateCwd({
-      terminalPath: terminalPath.value,
-      trackerPwd: pwdTracker?.getPwd(sessionId()) ?? null,
-    })
-    if (plan.tracked) terminalPath.value = plan.tracked
-    return syncTrackedPath(true)
+  async function locateTerminalCwd(): Promise<boolean> {
+    const target = sessionId()
+    await pwdTracker?.waitForPendingCd(target)
+    if (target !== sessionId()) return false
+    return syncTrackedPath('locate')
+  }
+
+  /** Only the explicitly labeled toolbar action may send a command to the shell. */
+  async function queryTerminalCwd(): Promise<boolean> {
+    const target = sessionId()
+    let pwd: string
+    try {
+      pwd = (await requestTerminalPwd(target)).trim()
+    } catch (err) {
+      if (target === sessionId()) {
+        const idleHint = t('sftp.queryTerminalIdle')
+        error.value = err instanceof Error && err.message === idleHint ? idleHint : t('sftp.cannotGetCwd')
+      }
+      return false
+    }
+    if (target !== sessionId()) return false
+    if (!pwd.startsWith('/')) {
+      error.value = t('sftp.cannotGetCwd')
+      return false
+    }
+    return openLogicalPath(pwd, 'locate')
   }
 
   async function tryRealpath(candidate: string): Promise<string | null> {
@@ -256,7 +257,6 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     const track = cleanRemotePath(logical)
     previousTerminalPath.value = terminalPath.value
     terminalPath.value = track
-    if (pwdTracker) pwdTracker.setPwd(sessionId(), track)
 
     const reload = shouldReloadSftpListing(mode, track, currentPath.value)
     if (!reload && sftpReady.value) return true
@@ -268,40 +268,19 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
       if (await loadDirectory(physical)) {
         // Listing may be the physical path; tracker stays logical for later `cd`.
         terminalPath.value = track
-        if (pwdTracker) pwdTracker.setPwd(sessionId(), track)
         return true
       }
     }
     return false
   }
 
-  async function syncTrackedPath(useLiveShellPwd: boolean): Promise<boolean> {
-    const tracked = terminalPath.value
-    let livePwd = ''
-
-    if (useLiveShellPwd) {
-      try {
-        livePwd = cleanRemotePath((await requestTerminalPwd(sessionId())).trim())
-      } catch {}
-    }
-
-    if (!tracked && !livePwd) {
+  async function syncTrackedPath(mode: 'locate' | 'follow'): Promise<boolean> {
+    const tracked = pwdTracker?.getPwd(sessionId()) || terminalPath.value
+    if (!tracked) {
       error.value = t('sftp.cannotGetCwd')
       return false
     }
-
-    const mode: 'locate' | 'follow' = useLiveShellPwd ? 'locate' : 'follow'
-    for (const logical of uniqueCleanPaths([livePwd, tracked])) {
-      if (await openLogicalPath(logical, mode)) return true
-    }
-
-    // Last resort on locate: SFTP session cwd. Do not treat it as shell pwd.
-    if (useLiveShellPwd) {
-      const sftpCwd = await tryRealpath('.')
-      if (sftpCwd && (await loadDirectory(sftpCwd))) return true
-      error.value = t('sftp.cannotGetCwd')
-    }
-    return false
+    return openLogicalPath(tracked, mode)
   }
 
   async function toggleFollowTerminalPath(): Promise<void> {
@@ -367,7 +346,8 @@ export function useSftpNavigation(sessionId: () => string, pwdTracker?: Terminal
     goUp,
     goToHome,
     syncCwd,
-    syncCwdForce,
+    locateTerminalCwd,
+    queryTerminalCwd,
     toggleFollowTerminalPath,
     submitPathInput,
     togglePathInput,

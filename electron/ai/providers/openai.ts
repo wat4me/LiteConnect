@@ -152,7 +152,8 @@ export const openaiProvider: AiProviderAdapter = {
       onDelta({ content, reasoning, usage: extractAiUsage(chunk?.usage), toolCalls: delta.tool_calls || choice?.message?.tool_calls })
     })
     if (!stopped && !finishReason) throw new Error(t('ai.streamIncomplete'))
-    if (finishReason === 'length' || finishReason === 'content_filter') throw new Error(t('ai.responseIncomplete'))
+    if (finishReason === 'length') throw new Error(t('ai.outputLimitReached'))
+    if (finishReason === 'content_filter') throw new Error(t('ai.responseIncomplete'))
     return message
   },
   modelsRequest(provider) {

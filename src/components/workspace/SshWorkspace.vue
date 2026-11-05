@@ -4,7 +4,7 @@ import SynchronizedInputBar from '@/components/terminal/SynchronizedInputBar.vue
 import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useI18n } from 'vue-i18n'
 import WorkspaceDock from '@/components/workspace/WorkspaceDock.vue'
-import { WORKSPACE_TOOLS, workspacePanelEdge, type SshWorkspaceLayout, type WorkspaceTool } from '@shared/workspaceLayout'
+import { WORKSPACE_TOOLS, type SshWorkspaceLayout, type WorkspaceTool } from '@shared/workspaceLayout'
 const synchronizedInput = createSynchronizedInput()
 provide(synchronizedInputKey, synchronizedInput)
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
@@ -263,9 +263,6 @@ const terminalWorkspaceRef = ref<{
   focusActiveTerminal: () => boolean
 } | null>(null)
 
-/** Bottom dock is default; side panel opens only when user requests details. */
-const monitorDetailsOpen = ref(false)
-
 /** Any live PTY on this host can drive collection; metrics are per connection. */
 const monitorExecSessionId = computed(() => {
   const group = props.activeGroup
@@ -302,12 +299,6 @@ function onSelectTerminal(sessionId: string) {
   emit('select-session', sessionId)
 }
 
-watch(
-  () => props.monitorVisible,
-  (visible) => {
-    if (!visible) monitorDetailsOpen.value = false
-  },
-)
 const availableTools = computed(() => WORKSPACE_TOOLS.filter(id => id !== 'monitor' || props.monitorEnabled !== false))
 const activeTools = computed(() => ({
   ai: !props.dockerMode && !!props.activeSession && props.aiSidebarVisible,
@@ -337,8 +328,6 @@ watch(() => Object.values(activeTools.value).some(Boolean), async (visible, wasV
     if (workspaceRoot.value?.checkVisibility() && !props.dockerMode && !Object.values(activeTools.value).some(Boolean)) terminalWorkspaceRef.value?.focusActiveTerminal()
   })
 })
-const monitorCompact = computed(() => ['top', 'bottom'].includes(workspacePanelEdge(props.layout, 'monitor')) && !monitorDetailsOpen.value)
-const compactPanels = computed(() => monitorCompact.value ? ['monitor', 'sync'] as const : ['sync'] as const)
 const opened = reactive({ batch: false, snippets: false })
 watch(() => props.batchPanelVisible, visible => { if (visible) opened.batch = true }, { immediate: true })
 watch(() => props.snippetsPanelVisible, visible => { if (visible) opened.snippets = true }, { immediate: true })
@@ -357,7 +346,7 @@ function toggleTool(id: WorkspaceTool) {
 
 <template>
   <div ref="workspaceRoot" class="workspace-content">
-    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :compact-panels="[...compactPanels]" :split-mode="isSplit ? splitMode : 'none'"
+    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :split-mode="isSplit ? splitMode : 'none'"
       @toggle="toggleTool" @change="emit('layout-change', $event)" @retry="emit('layout-retry')" @single-panel-mode="emit('single-panel-mode', $event)">
       <template #center>
         <div class="workspace-main">
@@ -477,9 +466,9 @@ function toggleTool(id: WorkspaceTool) {
         @close="emit('close-files')" />
       </template>
       <template #monitor>
-        <MonitorPanel v-if="activeTools.monitor && activeGroup" :key="activeGroup.connectionId" :layout="monitorCompact ? 'bottom' : 'side'" :details-open="monitorDetailsOpen"
+        <MonitorPanel v-if="activeTools.monitor && activeGroup" :key="activeGroup.connectionId"
           :session-id="monitorExecSessionId" :connection-id="activeGroup.connectionId" :connection-name="activeGroup.connectionName"
-          @close="emit('close-monitor')" @toggle-details="monitorDetailsOpen = true" @dock="monitorDetailsOpen = false" />
+          @close="emit('close-monitor')" />
       </template>
       <template #batch>
         <template v-if="opened.batch">

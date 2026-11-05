@@ -326,6 +326,22 @@
   pointer-events: auto;
 }
 
+/* 助手消息的用量摘要与操作按钮默认隐藏，悬停或键盘聚焦时显示 */
+.chat-row.assistant :deep(.message-actions),
+.chat-row.assistant :deep(.usage-trigger) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.chat-row.assistant:hover :deep(.message-actions),
+.chat-row.assistant:focus-within :deep(.message-actions),
+.chat-row.assistant:hover :deep(.usage-trigger),
+.chat-row.assistant:focus-within :deep(.usage-trigger) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 :deep(.msg-action-btn) {
   width: 22px;
   height: 22px;
@@ -812,3 +828,21 @@
 }
 .tool-policy-notice { color: var(--warning); }
 .tool-policy-notice strong { font-weight: 600; }
+
+/* Process block: the steps of one assistant turn, folded behind one line once the conclusion starts. */
+.process-block { width: 100%; min-width: 0; margin-top: 2px; }
+.process-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 2px 0;
+  border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: var(--font-caption); line-height: 1.4; text-align: left; cursor: pointer;
+}
+.process-toggle:hover .process-title { color: var(--text-primary); }
+.process-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.process-toggle .details-chevron { flex-shrink: 0; transition: transform 0.12s ease; }
+.process-block.open .process-toggle .details-chevron { transform: rotate(90deg); }
+.process-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-block.interrupted .process-title { color: var(--danger); }
+/* Steps hang off a thin rail so the conclusion below reads as the message. */
+.process-step { margin-left: 5px; padding-left: 9px; border-left: 1px solid var(--border-color); }
+.message-content.process-step { font-size: var(--font-ui-sm); color: var(--text-secondary); }
+.process-foot { margin-left: 5px; padding-left: 9px; border-left: 1px solid var(--border-color); }

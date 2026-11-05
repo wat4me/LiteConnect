@@ -28,10 +28,12 @@ app.whenReady().then(async () => {
   ].map(row => ({ status: 'done', isError: false, args: JSON.stringify({ command: 'inspect ImportZipWorkflowFile '.repeat(10) }), reason: '查看 ImportZipWorkflowFile 方法和配置文件 '.repeat(10), ...row }))
   await run(`window.__uiRegression.aiTools(${JSON.stringify(rows)})`)
   await wait(`document.querySelectorAll('.ai-fixture .tool-run').length===5`)
+  await run(`document.querySelector('.ai-fixture .process-toggle[aria-expanded="false"]')?.click()`)
+  await wait(`document.querySelector('.ai-fixture .process-block')?.classList.contains('open')`)
   let cases = 0
   for (const locale of ['zh-CN', 'en-US']) {
     await run(`import('/src/i18n/index.ts').then(module=>module.setAppLocale('${locale}'))`)
-    await wait(`document.querySelector('.ai-fixture .tool-run-state').textContent.trim()===${JSON.stringify(locale==='zh-CN' ? '执行成功' : 'Succeeded')}`)
+    await wait(`document.querySelector('.ai-fixture .tool-run-state').textContent.trim()===${JSON.stringify(locale==='zh-CN' ? '成功' : 'Done')}`)
     for (const theme of ['light', 'dark', 'eyecare']) {
       await run(`window.__uiRegression.setTheme('${theme}')`)
       for (const width of [280, 330, 440]) {

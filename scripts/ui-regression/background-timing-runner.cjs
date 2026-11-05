@@ -7,7 +7,7 @@ const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-background-
 app.setPath('userData', path.join(artifacts, 'profile'))
 let window
 let lastAction = 'loading'
-const timeout = setTimeout(() => { console.error('Background timing UI timed out', { artifacts, lastAction }); app.exit(1) }, 240_000)
+const timeout = setTimeout(() => { console.error('Background timing UI timed out', { artifacts, lastAction }); app.exit(1) }, 420_000)
 app.whenReady().then(async () => {
   window = new BrowserWindow({ show: false, width: 1200, height: 900, webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false } })
   const run = script => { lastAction = script.slice(0, 300); return window.webContents.executeJavaScript(script) }
@@ -46,7 +46,7 @@ app.whenReady().then(async () => {
       assert.ok(await run(`document.querySelector('.background-heading-elapsed').textContent.includes('${workspace ? '最长' : '已运行'}')`), 'Collapsed heading identifies the running duration')
       assert.ok(await run(`(() => {const task=document.querySelector('.background-popover'),r=task.getBoundingClientRect();return task.scrollWidth<=task.clientWidth+1&&[...task.querySelectorAll('.background-job-elapsed,.background-job-stop,.tool-run-state')].every(node=>{const b=node.getBoundingClientRect();return b.right<=r.right&&b.left>=r.left})})()`), `${theme}/${width}/${workspace}: status, duration and stop controls fit`)
       const rows = await run(`(() => {const row=document.querySelector('.background-job summary');return {main:row.querySelector('.background-job-main').getBoundingClientRect().top,state:row.querySelector('.tool-run-outcome').getBoundingClientRect().top}})()`)
-      assert.ok(rows.state > rows.main + 5, 'Floating task cards keep commands and actions on separate rows')
+      assert.ok(Math.abs(rows.state - rows.main) <= 5, 'Floating task cards keep the command and its outcome on one row')
       assert.ok(await run(`(() => {const pop=document.querySelector('.background-popover').getBoundingClientRect(),body=document.querySelector('${panel} .ai-body').getBoundingClientRect(),composer=document.querySelector('${panel} .composer-area').getBoundingClientRect();return pop.left>=body.left&&pop.right<=body.right&&pop.top>=body.top&&pop.bottom<=composer.top})()`), 'Popover stays inside the chat and above the input')
       assert.equal(await run(`document.querySelector('.background-task-body li:last-child .background-job-elapsed').textContent`), '用时 02:04', 'Completed duration uses finish minus start')
       const rect = await run(`(() => {const r=document.querySelector('${panel}').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.floor(r.width),height:Math.floor(r.height)}})()`)
@@ -55,7 +55,7 @@ app.whenReady().then(async () => {
   }
   await run('window.__uiRegression.setBackgroundLayout(false)')
   assert.ok(await run(`!document.querySelector('.background-float-trigger').checkVisibility({visibilityProperty:true})`), 'The circle merges into the open card')
-  await run(`document.querySelector('.background-heading-toggle').click()`)
+  await run(`document.querySelector('.background-heading-close').click()`)
   await wait(`!document.querySelector('.background-popover')`)
   assert.ok(await run(`document.querySelector('.background-float-trigger').checkVisibility({visibilityProperty:true})`), 'Closing the card restores the circle')
   const before = await run(`document.querySelector('.background-float-trigger').title`)
@@ -87,34 +87,87 @@ app.whenReady().then(async () => {
   await wait(`!document.querySelector('.background-popover')`)
   assert.ok(await run(`document.activeElement===document.querySelector('.background-float-trigger')`), 'Escape returns focus to the icon')
 
-  // Use real pointer input to verify capture, drag threshold, snapping and click suppression.
+  // Closing the panel leaves a full icon. Dragging onto an edge tucks it into a smaller semicircle.
+  // Synthetic PointerEvents are not a primary captured pointer, so the drag uses real input.
   window.webContents.debugger.attach('1.3')
   const mouse = (type, x, y, extra = {}) => window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type, x, y, ...extra })
   const geometry = () => run(`(() => {const a=document.querySelector('.ai-background-tasks').getBoundingClientRect(),b=document.querySelector('.background-float-trigger').getBoundingClientRect();return {left:a.left,top:a.top,right:a.right,bottom:a.bottom,x:b.x+b.width/2,y:b.y+b.height/2}})()`)
+  await openTasks()
+  await run(`document.querySelector('.background-heading-close').click()`)
+  await wait(`!document.querySelector('.background-popover') && !document.querySelector('.background-float-anchor').classList.contains('is-tucked')`)
+  assert.equal(await run(`document.querySelector('.background-float-tuck')`), null, 'The icon has no separate tuck button')
+  const dragIconTo = async (x, y) => {
+    const start = await geometry()
+    await mouse('mousePressed', start.x, start.y, { button: 'left', buttons: 1, clickCount: 1 })
+    await mouse('mouseMoved', x, y, { button: 'left', buttons: 1 })
+    await mouse('mouseReleased', x, y, { button: 'left', buttons: 0, clickCount: 1 })
+    await wait(`!document.querySelector('.background-float-anchor').getAnimations().length`)
+  }
+  const tuckToRightEdge = async () => {
+    // A release on the same spot is a click, not a drag, so pick a point along the edge that actually moves.
+    const edgePoint = await run(`(() => {
+      const a = document.querySelector('.ai-background-tasks').getBoundingClientRect()
+      const b = document.querySelector('.background-float-trigger').getBoundingClientRect()
+      const mid = (a.top + a.bottom) / 2
+      const y = Math.abs(b.y + b.height / 2 - mid) < 36 ? a.top + 48 : mid
+      return { x: a.right - 20, y }
+    })()`)
+    await dragIconTo(edgePoint.x, edgePoint.y)
+    await wait(`document.querySelector('.background-float-anchor').classList.contains('is-tucked')`)
+  }
+  await tuckToRightEdge()
+  assert.equal(JSON.parse(await run(`localStorage.getItem('liteconnect-ai-task-position-sidebar')`)).tucked, true, 'Tucking is persisted with the position')
+  fs.writeFileSync(path.join(artifacts, 'tucked.png'), (await window.webContents.capturePage()).toPNG())
+  const tuckedIcon = await run(`(() => {const r=document.querySelector('.background-float-trigger').getBoundingClientRect(),a=document.querySelector('.ai-background-tasks').getBoundingClientRect();const hit=(x,y)=>!!document.elementFromPoint(x,y)?.closest('.background-float-trigger');return {width:Math.round(r.width),outside:Math.round(r.right-a.right),inner:hit(r.left+4,r.top+r.height/2),outer:hit(r.right-4,r.top+r.height/2)}})()`)
+  assert.ok(tuckedIcon.width === 28 && Math.abs(tuckedIcon.outside - 14) <= 1 && tuckedIcon.inner && !tuckedIcon.outer, 'A tucked icon is smaller, with half clickable inside its area and the other half clipped')
+  await run(`document.querySelector('.background-float-trigger').click()`)
+  await wait(`!!document.querySelector('.background-popover') && !document.querySelector('.background-float-anchor').classList.contains('is-tucked')`)
+  assert.equal(JSON.parse(await run(`localStorage.getItem('liteconnect-ai-task-position-sidebar')`)).tucked, false, 'Bringing the icon back clears the tucked flag')
+  await wait(`!document.querySelector('.background-popover').getAnimations({subtree:true}).length`)
+  await run(`document.querySelector('.background-heading-close').click()`)
+  await wait(`!document.querySelector('.background-popover')`)
+  // A waiting schedule announces itself and a failure brings a tucked icon back without opening the card.
+  await tuckToRightEdge()
+  await run(`window.__uiRegression.setBackgroundJobs([{jobId:'sched-wait',sessionId:'image-fixture',command:'df -h',status:'scheduled',startedAt:1000,dueAt:Date.now()+60000,awaitingConnection:true}])`)
+  await wait(`!document.querySelector('.background-float-anchor').classList.contains('is-tucked')`)
+  await wait(`/等待连接|waiting for a connection/.test(document.body.textContent)`)
+  assert.equal(await run(`!!document.querySelector('.background-popover')`), false, 'Announcing a waiting schedule does not open the card')
+  await tuckToRightEdge()
+  await run(`window.__uiRegression.setBackgroundJobs([{jobId:'failed-job',sessionId:'image-fixture',command:'inspect',status:'failed',startedAt:1000,finishedAt:2000,exitCode:1}])`)
+  await wait(`!document.querySelector('.background-float-anchor').classList.contains('is-tucked')`)
+  assert.ok(await run(`!!document.querySelector('.background-float-attention')`), 'A failure brings the icon back and shows the attention dot')
+
+  // The same real pointer input checks capture, the drag threshold, snapping and click suppression.
   let area = await geometry()
   await mouse('mousePressed', area.x, area.y, { button: 'left', buttons: 1, clickCount: 1 })
   await mouse('mouseMoved', area.left + 20, area.top + 35, { button: 'left', buttons: 1 })
   await mouse('mouseReleased', area.left + 20, area.top + 35, { button: 'left', buttons: 0, clickCount: 1 })
-  await settle()
+  await wait(`!document.querySelector('.background-float-anchor').getAnimations().length`)
   assert.equal(await run(`!!document.querySelector('.background-popover')`), false, 'Dragging does not open the panel on release')
-  area = await geometry()
-  assert.ok(Math.abs(area.x - area.left - 20) < 1, 'Dragging toward the left snaps to that edge')
+  assert.equal(await run(`document.querySelector('.ai-background-tasks').dataset.edge`), 'left', 'Dragging onto the left edge tucks to that edge')
+  assert.ok(await run(`document.querySelector('.background-float-anchor').classList.contains('is-tucked')`), 'Releasing on an edge tucks the icon')
   const saved = await run(`localStorage.getItem('liteconnect-ai-task-position-sidebar')`)
   assert.equal(JSON.parse(saved).edge, 'left', 'The dragged position is persisted')
+  assert.equal(JSON.parse(saved).tucked, true, 'An edge release is stored as tucked')
   const dragTo = async (edge, target) => {
     const start = await geometry()
     const point = target(start)
     await mouse('mousePressed', start.x, start.y, { button: 'left', buttons: 1, clickCount: 1 })
     await mouse('mouseMoved', point.x, point.y, { button: 'left', buttons: 1 })
     await mouse('mouseReleased', point.x, point.y, { button: 'left', buttons: 0, clickCount: 1 })
-    await settle()
+    await wait(`!document.querySelector('.background-float-anchor').getAnimations().length`)
     assert.equal(await run(`document.querySelector('.ai-background-tasks').dataset.edge`), edge, `Dragging docks to the ${edge} edge`)
+    assert.ok(await run(`document.querySelector('.background-float-anchor').classList.contains('is-tucked')`), `Releasing on the ${edge} edge tucks the icon`)
     assert.equal(JSON.parse(await run(`localStorage.getItem('liteconnect-ai-task-position-sidebar')`)).edge, edge, `The ${edge} edge is persisted`)
     await openTasks()
     assert.ok(await run(`(() => {const p=document.querySelector('.background-popover').getBoundingClientRect(),a=document.querySelector('.ai-background-tasks').getBoundingClientRect();return p.left>=a.left&&p.right<=a.right&&p.top>=a.top&&p.bottom<=a.bottom})()`), `${edge}: expanded card stays inside the chat`)
-    await run(`document.querySelector('.background-heading-toggle').click()`)
+    await run(`document.querySelector('.background-heading-close').click()`)
     await wait(`!document.querySelector('.background-popover')`)
   }
+  await run(`document.querySelector('.background-float-trigger').click()`)
+  await wait(`!!document.querySelector('.background-popover') && !document.querySelector('.background-float-anchor').classList.contains('is-tucked')`)
+  await run(`document.querySelector('.background-heading-close').click()`)
+  await wait(`!document.querySelector('.background-popover')`)
   await dragTo('top', a => ({ x: (a.left+a.right)/2, y: a.top+20 }))
   await dragTo('right', a => ({ x: a.right-20, y: (a.top+a.bottom)/2 }))
   await dragTo('bottom', a => ({ x: (a.left+a.right)/2, y: a.bottom-20 }))
@@ -136,6 +189,16 @@ app.whenReady().then(async () => {
   area = await geometry()
   assert.ok(Math.abs(area.x-area.left-20)<1, 'Reopening restores the saved edge')
   assert.equal(await run(`!!document.querySelector('.background-popover')`), false, 'Reopening AI starts with the tasks collapsed')
+  const freePoint = await geometry()
+  const placed = { x: (freePoint.left + freePoint.right) / 2, y: (freePoint.top + freePoint.bottom) / 2 }
+  await mouse('mousePressed', freePoint.x, freePoint.y, { button: 'left', buttons: 1, clickCount: 1 })
+  await mouse('mouseMoved', placed.x, placed.y, { button: 'left', buttons: 1 })
+  await mouse('mouseReleased', placed.x, placed.y, { button: 'left', buttons: 0, clickCount: 1 })
+  await wait(`!document.querySelector('.background-float-anchor').getAnimations().length`)
+  const parked = await geometry()
+  assert.equal(await run(`document.querySelector('.background-float-anchor').classList.contains('is-tucked')`), false, 'A drop away from every edge stays free')
+  assert.ok(Math.abs(parked.x - placed.x) < 2 && Math.abs(parked.y - placed.y) < 2, 'A free drop keeps the icon where it was released')
+  assert.equal(JSON.parse(await run(`localStorage.getItem('liteconnect-ai-task-position-sidebar')`)).tucked, false, 'A free drop is not stored as tucked')
 
   // Freeze real browser animations at specific frames to inspect the morph.
   await run(`Object.assign(document.querySelector('${panel}').style,{width:'440px',height:'620px'})`)

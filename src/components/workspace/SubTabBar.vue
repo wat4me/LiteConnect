@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
@@ -46,6 +46,7 @@ const emit = defineEmits<{
 }>()
 
 const showSplitTip = ref(false)
+let tipTimer: ReturnType<typeof setTimeout> | undefined
 
 const displayTabs = computed(() => buildCombinedTabItems(
   props.sessions,
@@ -79,7 +80,12 @@ function maybeShowSplitTip() {
     return
   }
   showSplitTip.value = true
+  // 一次性的教学提示：看过就够了，不再长期占用标签栏下方的一行。
+  if (tipTimer) clearTimeout(tipTimer)
+  tipTimer = setTimeout(() => dismissSplitTip(), 12_000)
 }
+
+onBeforeUnmount(() => { if (tipTimer) clearTimeout(tipTimer) })
 
 onMounted(maybeShowSplitTip)
 watch(

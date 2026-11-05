@@ -222,9 +222,11 @@ export class SftpSession {
     })
   }
 
-  sftpExists(sessionId: string, remotePath: string): Promise<boolean> {
+  async sftpExists(sessionId: string, remotePath: string, directoryOnly = false): Promise<boolean> {
+    if (directoryOnly) await this.initSftp(sessionId)
     const session = this.getSession(sessionId)
     if (!session?.sftp) return Promise.reject(new Error(t('sftp.notInitialized')))
+    if (directoryOnly) return this.sftpStatIsDirectory(session.sftp, remotePath)
     return new Promise((resolve, reject) => {
       session.sftp!.lstat(remotePath, (err) => {
         if (!err) resolve(true)

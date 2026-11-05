@@ -86,3 +86,17 @@ it('accepts a local wall-clock startAt, converts it to a delay and explains unre
   expect(both?.run.content).toContain('INVALID_ARGUMENTS')
   expect(schedule).toHaveBeenCalledTimes(1)
 })
+
+it('schedules inside a LiteAI workspace on the session of the named connection', async () => {
+  const target = { connectionId: 'conn-1', sessionId: SESSION, name: 'Prod', host: '10.0.0.8', port: 22, username: 'ops' }
+  const runtimeCall = vi.fn(async () => ({ isError: false, content: '{}', structuredContent: {} }))
+  const { context, schedule } = setup({ workspaceTargets: [target], sshMcpRuntime: { call: runtimeCall, hasSession: () => true } } as unknown as Partial<AiToolExecutionContext>)
+  const result = await executeAiToolCall(call({ connectionId: 'conn-1' }), context)
+  expect(result?.run).toMatchObject({ status: 'done', isError: false, jobIds: ['job-scheduled'], target: 'Prod (ops@10.0.0.8:22)' })
+  expect(schedule).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SESSION, command: 'df -h' }))
+  expect(runtimeCall).not.toHaveBeenCalled()
+  const outside = await executeAiToolCall(call({ connectionId: 'other' }), context)
+  expect(outside?.run.status).toBe('blocked')
+  expect(outside?.run.content).toContain('SCOPE_DENIED')
+  expect(schedule).toHaveBeenCalledTimes(1)
+})

@@ -70,6 +70,10 @@ export function useSessionActions(deps: {
     const connectionId = group.connectionId
     try {
       if (typeof window.LiteConnect.sshReconnect === 'function') {
+        // The replacement shell starts with its own cwd and may not emit OSC 7.
+        const home = deps.pwdTracker.getHomePath(sessionId)
+        deps.pwdTracker.removeSession(sessionId)
+        if (home) deps.pwdTracker.initSession(sessionId, home)
         await window.LiteConnect.sshReconnect(sessionId, connectionId)
         const sess = group.sessions.find((s) => s.id === sessionId)
         if (sess) sess.pending = false
@@ -102,7 +106,7 @@ export function useSessionActions(deps: {
   }
 
   function onCdCommand(sessionId: string, command: string) {
-    deps.pwdTracker.handleCd(sessionId, command)
+    void deps.pwdTracker.handleCd(sessionId, command)
   }
 
   function onPwdOutput(sessionId: string, pwd: string) {

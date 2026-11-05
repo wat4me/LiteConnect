@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import { AI_WORKSPACE_MAX_HOSTS } from '@shared/aiWorkspace'
 import AiKnowledgeGroupDialog from '@/components/ai/AiKnowledgeGroupDialog.vue'
 import AiKnowledgeGroupEditor from '@/components/ai/AiKnowledgeGroupEditor.vue'
-import type { KnowledgeGroup } from '@shared/aiKnowledgeGroups'
+import { KNOWLEDGE_GROUPS_ENABLED, type KnowledgeGroup } from '@shared/aiKnowledgeGroups'
 import AiSidebar from '@/components/ai/AiSidebar.vue'
 import AiSettingsPanel from '@/components/ai/AiSettingsPanel.vue'
 import AiSchedulePanel from '@/components/ai/AiSchedulePanel.vue'
@@ -154,8 +154,8 @@ function openHostChat(connectionId: string) {
 </script>
 
 <template>
-  <AiKnowledgeGroupDialog v-if="showKnowledgeGroup && active" :initial-ids="browserSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
-  <AiKnowledgeGroupEditor v-if="knowledgeGroupId && active" :group-id="knowledgeGroupId" :active="active" @close="knowledgeGroupId = undefined" />
+  <AiKnowledgeGroupDialog v-if="KNOWLEDGE_GROUPS_ENABLED && showKnowledgeGroup && active" :initial-ids="browserSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
+  <AiKnowledgeGroupEditor v-if="KNOWLEDGE_GROUPS_ENABLED && knowledgeGroupId && active" :group-id="knowledgeGroupId" :active="active" @close="knowledgeGroupId = undefined" />
   <div ref="workspaceElement" class="ai-workspace" :class="{ 'is-schedule': showSchedules }">
     <AiSettingsPanel v-if="showModelSettings" ref="modelSettingsPanel" class="workspace-model-settings" :model-value="settings" layout="page" @saved="replaceSettings" @close="closeModelSettings" />
     <aside v-show="!showModelSettings" class="ai-workspace-rail" :class="{ collapsed: railCollapsed }">
@@ -413,7 +413,7 @@ function openHostChat(connectionId: string) {
             <span v-else class="workspace-selection-empty">{{ t('ai.workspace.selectionEmpty') }}</span>
           </div>
           <button v-if="connectingId" type="button" class="ui-btn ui-btn-sm" @click="cancelConnect">{{ t('common.cancel') }}</button>
-          <button type="button" class="ui-btn ui-btn-sm workspace-knowledge-group" :disabled="!browserSelection.length || selectionLocked" @click="showKnowledgeGroup = true">{{ t('ai.knowledge.group.create') }}</button>
+          <button v-if="KNOWLEDGE_GROUPS_ENABLED" type="button" class="ui-btn ui-btn-sm workspace-knowledge-group" :disabled="!browserSelection.length || selectionLocked" @click="showKnowledgeGroup = true">{{ t('ai.knowledge.group.create') }}</button>
           <button type="button" class="ui-btn ui-btn-primary ui-btn-sm workspace-start-scope" :disabled="!browserSelection.length || selectionLocked" @click="openScope({ connectionIds: browserSelection })"><AppIcon name="ai-chat" size="sm" />{{ scopeBusy ? t('ai.workspace.connecting') : t('ai.workspace.startCollaboration', { count: browserSelection.length }) }}</button>
         </footer>
       </div>

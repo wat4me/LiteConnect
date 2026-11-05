@@ -117,8 +117,8 @@ app.whenReady().then(async () => {
       for (const width of [1280, 960, 720]) {
         win.setContentSize(width, 900)
         await settle()
-        const state = await run('(()=>{const row=document.querySelector(".connection-row"),r=row.getBoundingClientRect();return {pageOverflow:document.documentElement.scrollWidth>innerWidth,overflow:row.scrollWidth>row.clientWidth+1,actions:[...row.querySelectorAll(".secondary-action")].filter(e=>getComputedStyle(e).display!=="none").map(e=>({opacity:getComputedStyle(e).opacity,events:getComputedStyle(e).pointerEvents,right:e.getBoundingClientRect().right})),hintVisible:!!document.querySelector(".list-keyboard-hint").getClientRects().length,rowRight:r.right,nameWidth:row.querySelector(".conn-name-text").getBoundingClientRect().width}})()')
-        assert.ok(!state.pageOverflow && !state.overflow && state.hintVisible && state.nameWidth > 10, JSON.stringify({ theme, width, compact, state }))
+        const state = await run('(()=>{const row=document.querySelector(".connection-row"),r=row.getBoundingClientRect();return {pageOverflow:document.documentElement.scrollWidth>innerWidth,overflow:row.scrollWidth>row.clientWidth+1,actions:[...row.querySelectorAll(".secondary-action")].filter(e=>getComputedStyle(e).display!=="none").map(e=>({opacity:getComputedStyle(e).opacity,events:getComputedStyle(e).pointerEvents,right:e.getBoundingClientRect().right})),hintGone:!document.querySelector(".list-keyboard-hint") && !!(document.querySelector(".search-input")?.title||"").length,rowRight:r.right,nameWidth:row.querySelector(".conn-name-text").getBoundingClientRect().width}})()')
+        assert.ok(!state.pageOverflow && !state.overflow && state.hintGone && state.nameWidth > 10, JSON.stringify({ theme, width, compact, state }))
         assert.equal(state.actions.length, compact ? 1 : 4, 'Each density keeps its existing always-visible actions')
         assert.ok(state.actions.every(e => e.opacity === '1' && e.events !== 'none' && e.right <= state.rowRight + 1))
         if (!compact && width === 1280) {
@@ -157,7 +157,15 @@ app.whenReady().then(async () => {
   await wait('!document.querySelector(".active-tag") && document.querySelector(".search-input").value===""')
   assert.equal(await run('document.querySelectorAll(".connection-row").length'), 6, 'Clear filters removes both the tag and the query without changing navigation scope')
   assert.equal(await run('window.__perfError || null'), null)
+  const knowledgeGroupsEnabled = /export const KNOWLEDGE_GROUPS_ENABLED = true\b/.test(fs.readFileSync(path.join(process.cwd(), 'shared', 'aiKnowledgeGroups.ts'), 'utf8'))
   await run(`window.LiteConnect.aiKnowledgeGroups = async () => ({ groups: [], targets: (await window.LiteConnect.getConnections()).map(server => ({ connectionId: server.id, name: server.name, host: server.host, port: server.port, username: server.username })) }); true`)
+  if (!knowledgeGroupsEnabled) {
+    assert.equal(await run('document.querySelector(".knowledge-select-toggle")'), null, 'Connection list hides knowledge group selection')
+    assert.equal(await run('document.querySelectorAll(".connection-knowledge-checkbox").length'), 0)
+    console.log(JSON.stringify({ passed: true, layoutCases, artifacts, knowledgeGroupsEnabled }))
+    clearTimeout(watchdog); win.destroy(); app.quit()
+    return
+  }
   await click('.knowledge-select-toggle')
   await wait('document.querySelectorAll(".connection-knowledge-checkbox").length===6')
   await click('.connection-knowledge-checkbox')

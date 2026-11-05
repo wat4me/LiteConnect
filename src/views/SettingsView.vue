@@ -598,12 +598,16 @@ defineExpose({ requestClose: handleClose })
   white-space: nowrap;
 }
 
+/* 只有当前分区显示说明，导航保持一行一个分区 */
 .nav-item-desc {
+  display: none;
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 0.9;
   line-height: 1.35;
 }
+
+.nav-item.active .nav-item-desc { display: block; }
 
 .nav-item.active .nav-item-desc {
   color: var(--accent);

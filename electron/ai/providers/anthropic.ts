@@ -129,7 +129,7 @@ async function readAnthropicStream(_settings: AiResolvedConfig, response: Respon
     }
   }, true)
   if (!started || !stopped || openBlocks.size) throw new Error(t('ai.streamIncomplete'))
-  if (finishReason === 'max_tokens') throw new Error(t('ai.responseIncomplete'))
+  if (finishReason === 'max_tokens') throw new Error(t('ai.outputLimitReached'))
   return parseAnthropicResponse({ content: [...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block) }).apiMessages[0]
 }
 

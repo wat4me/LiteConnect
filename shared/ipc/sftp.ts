@@ -48,7 +48,7 @@ export interface SftpApi {
   ) => void
   sftpCancelTransfer: (transferId: string) => void
   sftpExtractArchive: (sessionId: string, remotePath: string) => Promise<{ ok: boolean; output?: string }>
-  sftpExists: (sessionId: string, remotePath: string) => Promise<boolean>
+  sftpExists: (sessionId: string, remotePath: string, directoryOnly?: boolean) => Promise<boolean>
   sftpEditorSnapshot: (sessionId: string, remotePath: string) => Promise<import('../types/sftp').SftpEditorSnapshot>
   sftpEditorSave: (sessionId: string, remotePath: string, content: string, options: import('../types/sftp').SftpEditorSaveOptions) => Promise<import('../types/sftp').SftpEditorSaveResult>
   sftpDirectoryPreview: (sessionId: string, localPath: string, remotePath: string) => Promise<import('../types/sftp').SftpDirectoryPreview>

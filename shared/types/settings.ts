@@ -29,6 +29,8 @@ export interface WorkspaceTabsState {
 export type AppSettingsAll = {
   sshWorkspaceLayout: SshWorkspaceLayout
   theme: string
+  /** Interface density: html[data-ui-density] scales icons, controls and spacing. */
+  uiDensity?: 'compact' | 'standard' | 'comfortable'
   customColors: { fontColor: string; bgColor: string } | null
   downloadPath: string
   configuredDownloadPath: string

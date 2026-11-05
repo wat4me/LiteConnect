@@ -19,7 +19,8 @@ import type { Connection } from '../../shared/types/connection'
 
 const backend = (window as any).__dockBackend
 const callbacks = new Map<string, Set<(...args: any[]) => void>>()
-const calls = { resizes: [] as unknown[], writes: [] as unknown[], fileLoads: [] as string[], dataSubscriptions: 0, unknown: [] as string[] }
+const calls = { resizes: [] as unknown[], writes: [] as unknown[], fileLoads: [] as string[], cwdChecks: [] as string[], dataSubscriptions: 0, unknown: [] as string[] }
+let echoCwdInput = false
 function listen(name: string, fn: (...args: any[]) => void) {
   const set = callbacks.get(name) || new Set(); set.add(fn); callbacks.set(name, set)
   return () => set.delete(fn)
@@ -43,18 +44,27 @@ const api = {
   getTerminalFontSize: async () => 14, getTerminalFontFamily: async () => 'Consolas, monospace', getTerminalPalette: async () => 'auto', getTerminalScrollback: async () => 5000,
   getTerminalPasteConfirmEnabled: async () => true, getTerminalPasteConfirmMaxChars: async () => 500, getTerminalCommandSuggestEnabled: async () => false,
   getAutoReconnectEnabled: async () => false, getAutoReconnectMaxRetries: async () => 5, onRuntimeSettingsChanged: (fn: () => void) => listen('runtime', fn),
-  sshResize: (...args: unknown[]) => calls.resizes.push(args), sshWrite: (...args: unknown[]) => calls.writes.push(args), sshSetOutputPaused: () => {},
+  sshResize: (...args: unknown[]) => calls.resizes.push(args), sshSetOutputPaused: () => {},
+  sshWrite: (id: string, data: string) => {
+    calls.writes.push([id, data])
+    if (echoCwdInput) callbacks.get(`data:${id}`)?.forEach(fn => fn(data === '\r' ? '\r\nops@production:~$ ' : data))
+  },
   sshTakeStartupNotices: async () => [],
   onSshData: (id: string, fn: (text: string) => void) => { calls.dataSubscriptions++; queueMicrotask(() => fn('\x1b[32mops@production\x1b[0m:~$ echo "Workspace layout preview"\r\nWorkspace layout preview\r\nops@production:~$ ')); return listen(`data:${id}`, fn) },
   onSshClosed: (id: string, fn: () => void) => listen(`closed:${id}`, fn), onSshError: (id: string, fn: () => void) => listen(`error:${id}`, fn), onSshReconnected: (id: string, fn: () => void) => listen(`reconnected:${id}`, fn),
   sftpInit: async () => '/home/ops', sftpExecHome: async () => '/home/ops', sftpRealpath: async (_id: string, path: string) => path,
+  sftpExists: async (_id: string, path: string, directoryOnly?: boolean) => {
+    if (directoryOnly) calls.cwdChecks.push(path)
+    return !echoCwdInput || ['/home/ops', '/home', '/home/v5-automation-servers'].includes(path)
+  },
   sftpReaddir: async (_id: string, path: string) => { calls.fileLoads.push(path); return ['app', 'logs', 'config'].map(name => ({ name, path: `${path}/${name}`, isDirectory: true, isSymlink: false, size: 0, modifyTime: 1, permissions: 'drwxr-xr-x' })) },
   getRendererState: async (key: string) => rendererState.get(key), setRendererState: async (key: string, value: unknown) => { rendererState.set(key, value) },
   onSftpPathBookmarksChanged: (fn: () => void) => listen('bookmarks', fn),
   getDownloadConflictStrategy: async () => 'rename', getCommandSnippets: async () => [],
   setCommandSnippets: async () => {}, clipboardWriteText: async () => {},
   onTransferStart: (fn: () => void) => listen('transfer-start', fn), onTransferProgress: (fn: () => void) => listen('transfer-progress', fn), onTransferComplete: (fn: () => void) => listen('transfer-complete', fn), onTransferError: (fn: () => void) => listen('transfer-error', fn), onUploadConflict: (fn: () => void) => listen('upload-conflict', fn),
-  monitorStart: async () => {}, monitorStop: () => {}, onMonitorData: (_id: string, fn: () => void) => listen('monitor', fn),
+  getAppInfo: async () => ({ platform: 'win32-x64' }),
+  monitorStart: async () => {}, monitorStop: async () => {}, onMonitorData: (_id: string, fn: () => void) => listen('monitor', fn),
   monitorGetAlertRule: async () => ({ enabled: false, backgroundEnabled: false, cpuThreshold: 90, memoryThreshold: 90, maxNotificationsPer24h: 5 }),
 }
 ;(window as any).LiteConnect = new Proxy(api, { get(target, key) {
@@ -65,7 +75,8 @@ const preferences = useWorkspaceLayout(), narrow = ref(false)
 const panels = { ai: ref(false), files: ref(false), monitor: ref(false), batch: ref(false), snippets: ref(false), sync: ref(false) }
 useWorkspacePanelPolicy(preferences.layout, panels, narrow)
 const visible = computed(() => Object.fromEntries(Object.entries(panels).map(([id, value]) => [id, value.value])))
-const pwd = useTerminalPwd(); provide('pwdTracker', pwd)
+const pwd = useTerminalPwd({ isDirectory: (id, path) => api.sftpExists(id, path, true) })
+provide('pwdTracker', pwd)
 const theme = useTheme()
 provide('theme', theme.theme); provide('customColors', theme.customColors)
 const sessions: Session[] = ['one', 'two'].map((id, i) => ({ id, connectionId: 'production', connectionName: 'Production', tabNumber: i + 1 }))
@@ -100,6 +111,7 @@ onMounted(() => {
     async session(id: string) { selectSession(id); await nextTick() },
     async reset() { preferences.update({ ...preferences.layout.value, locked: false }); await nextTick() },
     tools: WORKSPACE_TOOLS,
+    enableCwdInputEcho() { echoCwdInput = true },
   }
 })
 </script>
@@ -116,6 +128,7 @@ onMounted(() => {
       @toggle-ai="toggle('ai')" @toggle-files="toggle('files')" @toggle-monitor="toggle('monitor')" @toggle-batch="toggle('batch')" @toggle-snippets="toggle('snippets')" @toggle-sync="toggle('sync')" @toggle-docker="toggle('docker')"
       @close-ai="panels.ai.value = false" @close-files="panels.files.value = false" @close-monitor="panels.monitor.value = false" @close-batch="panels.batch.value = false" @close-snippets="panels.snippets.value = false" @close-sync="panels.sync.value = false"
       @bind-file-sidebar="sidebar = $event" @select-session="selectSession"
+      @cd-command="pwd.handleCd" @pwd-output="pwd.setPwd"
       @toggle-horizontal="toggleHorizontal(current.id, secondarySessionId || group.sessions.find(session => session.id !== current.id)?.id)"
       @toggle-vertical="toggleVertical(current.id, secondarySessionId || group.sessions.find(session => session.id !== current.id)?.id)"
       @split-preview="setSplitPreview" @split-commit="commitSplit" @swap-split-panes="swapSplit" @close-split="closeSplit" @select-split="restoreSplit"

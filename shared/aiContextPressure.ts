@@ -1,15 +1,29 @@
 import { DEFAULT_OUTPUT_RESERVE_TOKENS, estimateTokens, messageTokens, resolveContextWindowTokens } from './aiContext'
+import { lookupModelsDevOutput } from './modelsDevContext'
 import type { AiChatMessage, AiContextPressure, AiResolvedConfig } from './types/ai'
 
 export const AI_COMPACTION_THRESHOLD_RATIO = 0.8
 export const AI_COMPACTION_RETAIN_RATIO = 0.2
+/** Small windows keep most of their capacity for input; the ratio also caps catalog limits. */
+export const AI_OUTPUT_RESERVE_WINDOW_RATIO = 0.2
 
 export type AiContextBudgetConfig = Partial<Pick<AiResolvedConfig, 'model' | 'contextWindowTokens' | 'maxOutputTokens' | 'compactionRetainTokens'>>
+
+/**
+ * Output reservation used when the per-model field is empty: the model's advertised
+ * output limit when the catalog knows it, otherwise the default. Never above the default
+ * or a share of the window, so a catalog limit cannot swallow the input budget.
+ */
+export function resolveAutoOutputReserveTokens(config: AiContextBudgetConfig): number {
+  const advertised = lookupModelsDevOutput(config.model) ?? DEFAULT_OUTPUT_RESERVE_TOKENS
+  const windowTokens = resolveContextWindowTokens(config.model, config.contextWindowTokens)
+  return Math.min(advertised, DEFAULT_OUTPUT_RESERVE_TOKENS, Math.floor(windowTokens * AI_OUTPUT_RESERVE_WINDOW_RATIO))
+}
 
 export function resolveAiContextBudget(config: AiContextBudgetConfig) {
   const windowTokens = resolveContextWindowTokens(config.model, config.contextWindowTokens)
   const outputReserveTokens = Math.min(windowTokens - 512,
-    positiveTokens(config.maxOutputTokens) ?? Math.min(DEFAULT_OUTPUT_RESERVE_TOKENS, Math.floor(windowTokens * 0.2)))
+    positiveTokens(config.maxOutputTokens) ?? resolveAutoOutputReserveTokens(config))
   const inputBudgetTokens = windowTokens - outputReserveTokens
   const headroomTokens = Math.min(Math.floor(inputBudgetTokens * 0.2), 8_192, Math.max(256, Math.floor(windowTokens * 0.05)))
   const thresholdTokens = Math.floor(Math.min(inputBudgetTokens * AI_COMPACTION_THRESHOLD_RATIO, inputBudgetTokens - headroomTokens))

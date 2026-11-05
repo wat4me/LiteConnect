@@ -2,6 +2,7 @@ import type { AppSettingsAllPatch } from '../../shared/types/settings'
 import { isAppLocale } from '../../shared/appLocale'
 import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
 import { normalizeConnectionSortMode } from '../../shared/connectionSort'
+import { normalizeUiDensity } from '../../shared/uiDensity'
 import { sanitizeDbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
@@ -26,6 +27,7 @@ export function applySettingsPatch(
 ): void {
   if (patch.sshWorkspaceLayout !== undefined) settings.sshWorkspaceLayout = normalizeWorkspaceLayout(patch.sshWorkspaceLayout)
   if (patch.theme !== undefined) settings.theme = patch.theme
+  if (patch.uiDensity !== undefined) settings.uiDensity = normalizeUiDensity(patch.uiDensity)
   if (patch.customColors !== undefined) settings.customColors = patch.customColors
   if (patch.downloadPath !== undefined) settings.downloadPath = patch.downloadPath
   if (patch.terminalFontSize !== undefined) {

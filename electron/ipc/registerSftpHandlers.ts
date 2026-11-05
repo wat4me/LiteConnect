@@ -55,10 +55,14 @@ export function registerSftpHandlers(sshManager: SSHManager): void {
     return { ok: true, output: out }
   })
 
-  handleSftp('sftp:exists', async (_event, sessionId: string, remotePath: string) => {
+  handleSftp('sftp:exists', async (_event, sessionId: string, remotePath: string, directoryOnly?: boolean) => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
+    if (directoryOnly === true) {
+      if (!isValidPath(remotePath)) throw new Error('Invalid path')
+      return sshManager.sftpExists(sessionId, remotePath, true)
+    }
     if (!isStrictPath(remotePath)) throw new Error('Invalid path')
-    return await sshManager.sftpExists(sessionId, remotePath)
+    return sshManager.sftpExists(sessionId, remotePath)
   })
 
   handleSftp('sftp:readFile', async (_event, sessionId: string, remotePath: string) => {

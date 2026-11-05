@@ -7,6 +7,8 @@ import { t } from '../../i18n/index'
 import { runAiChatCompletion } from './chatCompletion'
 import {
   isContextLengthError,
+  isOutputLimitError,
+  MIN_OUTPUT_RESERVE_TOKENS,
   resolveContextWindowTokens,
 } from '../../../shared/aiContext'
 import { looksLikeToolsUnsupported } from '../tools/sshToolChat'
@@ -149,8 +151,10 @@ export async function runAiChatStream(opts: {
   let packedMessages: AiChatMessage[]
   try { packedMessages = packMessages(contextMessages) } catch (error) { cleanupStream(); throw error }
 
+  // A provider may cap output lower than the model advertises; a retry lowers this value.
+  let outputCap = resolveAiContextBudget(settings).outputReserveTokens
   const requestStream = (includeUsage: boolean, msgs: AiChatMessage[], withTools: boolean) => {
-    const request = provider.buildRequest(settings, msgs, { stream: true, includeUsage, tools: withTools ? tools : undefined, maxTokens: resolveAiContextBudget(settings).outputReserveTokens })
+    const request = provider.buildRequest(settings, msgs, { stream: true, includeUsage, tools: withTools ? tools : undefined, maxTokens: outputCap })
     return fetch(request.url, {
       method: 'POST',
       headers: request.headers,
@@ -236,12 +240,16 @@ export async function runAiChatStream(opts: {
 
       streamAccepted = false
       let response = await openStream(apiMessages, toolsEnabled)
-      if (!response.ok) {
-        const message = await readHttpErrorMessage(response, `AI request failed (${response.status})`)
-        if (toolsEnabled && !receivedToolCall && looksLikeToolsUnsupported(message)) {
+      let failure = ''
+      // Every branch is guarded, so the loop only walks the recovery steps that apply.
+      for (let attempt = 0; !response.ok && attempt < 8; attempt++) {
+        failure = await readHttpErrorMessage(response, `AI request failed (${response.status})`)
+        if (toolsEnabled && !receivedToolCall && looksLikeToolsUnsupported(failure)) {
           toolsEnabled = false
           response = await openStream(apiMessages, false)
-        } else if (isContextLengthError(message) && !overflowRecovered) {
+          continue
+        }
+        if (isContextLengthError(failure) && !overflowRecovered) {
           overflowRecovered = true
           const before = reportPressure(apiMessages).usedTokens
           const recovered = await compactStep(apiMessages, true)
@@ -249,10 +257,20 @@ export async function runAiChatStream(opts: {
           apiMessages = packMessages(recovered, smaller ? undefined : Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)))
           reportPressure(apiMessages)
           response = await openStream(apiMessages, toolsEnabled)
+          continue
         }
-        if (!response.ok) {
-          throw new Error(await readHttpErrorMessage(response, message))
+        if (isOutputLimitError(failure) && outputCap > MIN_OUTPUT_RESERVE_TOKENS) {
+          const reduced = Math.max(MIN_OUTPUT_RESERVE_TOKENS, Math.floor(outputCap / 2))
+          if (reduced < outputCap) {
+            outputCap = reduced
+            response = await openStream(apiMessages, toolsEnabled)
+            continue
+          }
         }
+        break
+      }
+      if (!response.ok) {
+        throw new Error(await readHttpErrorMessage(response, failure))
       }
       streamAccepted = true
       const usageIndex = usageRequests.push(undefined) - 1

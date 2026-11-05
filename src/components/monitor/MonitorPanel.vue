@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, toRef, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, watch, computed, toRef, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSharedMonitor } from '@/composables/monitor/useMonitorData'
 import AppIcon from '@/components/icons/AppIcon.vue'
@@ -9,24 +9,12 @@ import { formatBytes } from '@shared/formatBytes'
 import { DEFAULT_MONITOR_ALERT_RULE, type MonitorAlertRule } from '../../../shared/monitorAlerts'
 import { TIP_MONITOR_KEY } from '@/utils/shared/featureTips'
 
-const props = withDefaults(
-  defineProps<{
-    sessionId: string
-    connectionId: string
-    connectionName: string
-    /** bottom: compact dock bar only; side: full details panel */
-    layout?: 'bottom' | 'side'
-    /** side panel open (for dock "详情" active state) */
-    detailsOpen?: boolean
-  }>(),
-  { layout: 'bottom', detailsOpen: false },
-)
-
-const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'toggle-details'): void
-  (e: 'dock'): void
+const props = defineProps<{
+  sessionId: string
+  connectionId: string
+  connectionName: string
 }>()
+const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { t } = useI18n()
 
@@ -86,13 +74,6 @@ async function saveAlertSettings() {
   }
 }
 
-const isBottom = computed(() => props.layout === 'bottom')
-
-/** Available width for metric chips (excludes action buttons). */
-const dockMetricsRef = ref<HTMLElement | null>(null)
-const dockMetricsWidth = ref(0)
-let dockResizeObserver: ResizeObserver | null = null
-
 const expandedSections = ref({
   system: true,
   cpu: true,
@@ -125,81 +106,10 @@ const swapPercent = computed(() => {
   return usagePercent(data.value.memory.swapUsed, data.value.memory.swapTotal)
 })
 
-/** Busiest mount for dock disk chip */
-const topDisk = computed(() => {
-  const disks = data.value?.disk || []
-  if (disks.length === 0) return null
-  let best = disks[0]
-  let bestPct = usagePercent(best.used, best.total)
-  for (let i = 1; i < disks.length; i++) {
-    const d = disks[i]
-    const p = usagePercent(d.used, d.total)
-    if (p > bestPct) {
-      best = d
-      bestPct = p
-    }
-  }
-  return { mount: best.mountPoint, percent: bestPct, used: best.used, total: best.total }
-})
-
-const load1 = computed(() => {
-  const v = data.value?.cpu.loadAvg?.[0]
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
-})
-
-const topProcess = computed(() => {
-  const list = data.value?.processes || []
-  if (list.length === 0) return null
-  return list[0]
-})
-
-/**
- * Progressive disclosure by available chip row width:
- * always CPU+MEM → disk → load → host → top process
- */
-const showDockDisk = computed(() => dockMetricsWidth.value >= 300)
-const showDockLoad = computed(() => dockMetricsWidth.value >= 420)
-const showDockHost = computed(() => dockMetricsWidth.value >= 540)
-const showDockProcess = computed(() => dockMetricsWidth.value >= 700)
-
-function bindDockObserver() {
-  unbindDockObserver()
-  const el = dockMetricsRef.value
-  if (!el || typeof ResizeObserver === 'undefined') return
-  dockResizeObserver = new ResizeObserver((entries) => {
-    const w = entries[0]?.contentRect?.width
-    if (typeof w === 'number') dockMetricsWidth.value = w
-  })
-  dockResizeObserver.observe(el)
-  dockMetricsWidth.value = el.clientWidth
-}
-
-function unbindDockObserver() {
-  dockResizeObserver?.disconnect()
-  dockResizeObserver = null
-}
-
-watch(isBottom, async (bottom) => {
-  if (bottom) {
-    await nextTick()
-    bindDockObserver()
-  } else {
-    unbindDockObserver()
-  }
-})
-
-onMounted(async () => {
+onMounted(() => {
   void window.LiteConnect.getAppInfo()
     .then((appInfo) => { isMacOs.value = appInfo.platform.startsWith('darwin-') })
     .catch(() => { /* The alert settings remain usable if app information is unavailable. */ })
-  if (isBottom.value) {
-    await nextTick()
-    bindDockObserver()
-  }
-})
-
-onBeforeUnmount(() => {
-  unbindDockObserver()
 })
 
 // Host change: clear expanded state only (data handled by shared collector)
@@ -218,295 +128,183 @@ watch(
 </script>
 
 <template>
-  <div class="monitor-panel" :class="{ 'is-bottom': isBottom, 'is-side': !isBottom }">
-    <!-- Bottom compact dock (never expands downward); metrics adapt to width -->
-    <div v-if="isBottom" class="monitor-dock-stack">
-      <FeatureTipBanner
-        :tip-key="TIP_MONITOR_KEY"
-        :title="t('monitor.tipTitle')"
-        :body="t('monitor.tipBody')"
-      />
-      <div class="monitor-dock-bar">
-      <div ref="dockMetricsRef" class="dock-metrics">
-        <template v-if="monitorError">
-          <span class="dock-error">{{ t('monitor.unavailable') }}</span>
-          <button type="button" class="ui-btn ui-btn-xs" :disabled="starting" @click="retryMonitor">{{ t('monitor.retry') }}</button>
-        </template>
-        <template v-else-if="!data">
-          <span class="dock-loading">{{ t('common.loading') }}</span>
-        </template>
-        <template v-else>
-          <div
-            v-if="showDockHost && data.hostname"
-            class="dock-chip dock-host"
-            :title="`${t('monitor.hostname')}: ${data.hostname}`"
-          >
-            <span class="dock-chip-text">{{ data.hostname }}</span>
-          </div>
-
-          <div class="dock-metric" :title="cpuPercent >= 0 ? `CPU ${cpuPercent}%` : 'CPU'">
-            <span class="dock-metric-label">CPU</span>
-            <div class="dock-bar">
-              <div
-                class="dock-bar-fill"
-                :style="{ width: `${Math.max(0, cpuPercent)}%`, backgroundColor: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }"
-              ></div>
-            </div>
-            <span class="dock-metric-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
-              {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
-            </span>
-          </div>
-
-          <div class="dock-metric" :title="`${t('monitor.memory')} ${memPercent}% · ${formatBytes(data.memory.used)} / ${formatBytes(data.memory.total)}`">
-            <span class="dock-metric-label">{{ t('monitor.memory') }}</span>
-            <div class="dock-bar">
-              <div class="dock-bar-fill" :style="{ width: `${memPercent}%`, backgroundColor: barColor(memPercent) }"></div>
-            </div>
-            <span class="dock-metric-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
-          </div>
-
-          <div
-            v-if="showDockDisk && topDisk"
-            class="dock-metric"
-            :title="`${t('monitor.disk')} ${topDisk.mount} · ${topDisk.percent}% · ${formatBytes(topDisk.used)} / ${formatBytes(topDisk.total)}`"
-          >
-            <span class="dock-metric-label">{{ t('monitor.disk') }}</span>
-            <div class="dock-bar">
-              <div class="dock-bar-fill" :style="{ width: `${topDisk.percent}%`, backgroundColor: barColor(topDisk.percent) }"></div>
-            </div>
-            <span class="dock-metric-value" :style="{ color: barColor(topDisk.percent) }">{{ topDisk.percent }}%</span>
-          </div>
-
-          <div
-            v-if="showDockLoad && load1 != null"
-            class="dock-chip"
-            :title="`${t('monitor.load')} ${data.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ')}`"
-          >
-            <span class="dock-metric-label">{{ t('monitor.load') }}</span>
-            <span class="dock-metric-value dock-load-value">{{ load1.toFixed(2) }}</span>
-          </div>
-
-          <div
-            v-if="showDockProcess && topProcess"
-            class="dock-chip dock-proc"
-            :title="`PID ${topProcess.pid} · CPU ${topProcess.cpu}% · ${topProcess.command}`"
-          >
-            <span class="dock-metric-label">{{ t('monitor.topProc') }}</span>
-            <span class="dock-chip-text">{{ topProcess.command }}</span>
-            <span class="dock-metric-value" :style="{ color: topProcess.cpu > 50 ? 'var(--danger)' : undefined }">
-              {{ topProcess.cpu }}%
-            </span>
-          </div>
-        </template>
-      </div>
-
-      <div class="dock-actions">
-        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :title="t('monitor.alertSettings')" @click="openAlertSettings">
-          {{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span>
-        </button>
-        <button
-          type="button"
-          class="ui-btn ui-btn-xs ui-btn-ghost dock-details-btn"
-          :class="{ active: detailsOpen }"
-          :title="detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails')"
-          @click="emit('toggle-details')"
-        >
-          {{ detailsOpen ? t('monitor.collapseDetails') : t('monitor.expandDetails') }}
-          <AppIcon :name="detailsOpen ? 'chevron-right' : 'chevron-left'" size="xs" />
-        </button>
+  <div class="monitor-panel">
+    <div class="monitor-header">
+      <span class="monitor-title">{{ t('monitor.title') }}</span>
+      <span class="monitor-name">{{ connectionName }}</span>
+      <div class="monitor-header-actions">
+        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="openAlertSettings">{{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span></button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
           <AppIcon name="close" size="sm" />
         </button>
       </div>
+    </div>
+
+    <FeatureTipBanner :tip-key="TIP_MONITOR_KEY" :title="t('monitor.tipTitle')" :body="t('monitor.tipBody')" />
+
+    <div v-if="monitorError" class="monitor-error">
+      <p class="monitor-error-title">{{ t('monitor.unavailable') }}</p>
+      <p class="monitor-error-text">{{ monitorError }}</p>
+      <button type="button" class="ui-btn ui-btn-sm" :disabled="starting" @click="retryMonitor">{{ t('monitor.retry') }}</button>
+    </div>
+
+    <div v-else-if="!data" class="monitor-loading" aria-busy="true" :aria-label="t('monitor.loadingAria')">
+      <div class="monitor-skeleton-block">
+        <div class="ui-skeleton monitor-skel-title"></div>
+        <div class="ui-skeleton monitor-skel-line" v-for="i in 4" :key="'sys-' + i"></div>
+      </div>
+      <div class="monitor-skeleton-block">
+        <div class="ui-skeleton monitor-skel-title"></div>
+        <div class="ui-skeleton monitor-skel-bar"></div>
+        <div class="ui-skeleton monitor-skel-line short"></div>
+      </div>
+      <div class="monitor-skeleton-block">
+        <div class="ui-skeleton monitor-skel-title"></div>
+        <div class="ui-skeleton monitor-skel-bar"></div>
+        <div class="ui-skeleton monitor-skel-line"></div>
       </div>
     </div>
 
-    <!-- Side full details -->
     <template v-else>
-      <div class="monitor-header">
-        <span class="monitor-title">{{ t('monitor.title') }}</span>
-        <span class="monitor-name">{{ connectionName }}</span>
-        <div class="monitor-header-actions">
-          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="openAlertSettings">{{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span></button>
-          <button
-            type="button"
-            class="ui-btn ui-btn-xs ui-btn-ghost"
-            :title="t('monitor.dockTitle')"
-            :aria-label="t('monitor.dockAria')"
-            @click="emit('dock')"
-          >
-            {{ t('monitor.dock') }}
-          </button>
-          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
-            <AppIcon name="close" size="sm" />
-          </button>
-        </div>
-      </div>
-
-      <div v-if="monitorError" class="monitor-error">
-        <p class="monitor-error-title">{{ t('monitor.unavailable') }}</p>
-        <p class="monitor-error-text">{{ monitorError }}</p>
-        <button type="button" class="ui-btn ui-btn-sm" :disabled="starting" @click="retryMonitor">{{ t('monitor.retry') }}</button>
-      </div>
-
-      <div v-else-if="!data" class="monitor-loading" aria-busy="true" :aria-label="t('monitor.loadingAria')">
-        <div class="monitor-skeleton-block">
-          <div class="ui-skeleton monitor-skel-title"></div>
-          <div class="ui-skeleton monitor-skel-line" v-for="i in 4" :key="'sys-' + i"></div>
-        </div>
-        <div class="monitor-skeleton-block">
-          <div class="ui-skeleton monitor-skel-title"></div>
-          <div class="ui-skeleton monitor-skel-bar"></div>
-          <div class="ui-skeleton monitor-skel-line short"></div>
-        </div>
-        <div class="monitor-skeleton-block">
-          <div class="ui-skeleton monitor-skel-title"></div>
-          <div class="ui-skeleton monitor-skel-bar"></div>
-          <div class="ui-skeleton monitor-skel-line"></div>
-        </div>
-      </div>
-
-      <template v-else>
-        <div class="monitor-section" v-if="expandedSections.system">
-          <div class="section-header" @click="toggleSection('system')">
-            <span class="section-title">{{ t('monitor.systemInfo') }}</span>
-            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-          </div>
-          <div class="section-body">
-            <div class="info-row">
-              <span class="info-label">{{ t('monitor.hostname') }}</span>
-              <span class="info-value" :class="{ 'info-empty': !data.hostname }">{{ data.hostname || '--' }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">{{ t('monitor.kernel') }}</span>
-              <span class="info-value info-mono" :class="{ 'info-empty': !data.kernel }">{{ data.kernel || '--' }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">{{ t('monitor.arch') }}</span>
-              <span class="info-value" :class="{ 'info-empty': !data.arch }">{{ data.arch || '--' }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">{{ t('monitor.uptime') }}</span>
-              <span class="info-value" :class="{ 'info-empty': !data.uptime }">{{ data.uptime || '--' }}</span>
-            </div>
-          </div>
-        </div>
-        <div v-else class="section-header collapsed" @click="toggleSection('system')">
+      <div class="monitor-section" v-if="expandedSections.system">
+        <div class="section-header" @click="toggleSection('system')">
           <span class="section-title">{{ t('monitor.systemInfo') }}</span>
-          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+          <AppIcon name="chevron-down" size="xs" class="section-toggle" />
         </div>
+        <div class="section-body">
+          <div class="info-row">
+            <span class="info-label">{{ t('monitor.hostname') }}</span>
+            <span class="info-value" :class="{ 'info-empty': !data.hostname }">{{ data.hostname || '--' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">{{ t('monitor.kernel') }}</span>
+            <span class="info-value info-mono" :class="{ 'info-empty': !data.kernel }">{{ data.kernel || '--' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">{{ t('monitor.arch') }}</span>
+            <span class="info-value" :class="{ 'info-empty': !data.arch }">{{ data.arch || '--' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">{{ t('monitor.uptime') }}</span>
+            <span class="info-value" :class="{ 'info-empty': !data.uptime }">{{ data.uptime || '--' }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="section-header collapsed" @click="toggleSection('system')">
+        <span class="section-title">{{ t('monitor.systemInfo') }}</span>
+        <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+      </div>
 
-        <div class="monitor-section" v-if="expandedSections.cpu">
-          <div class="section-header" @click="toggleSection('cpu')">
-            <span class="section-title">CPU</span>
-            <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
-              {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
-            </span>
-            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-          </div>
-          <div class="section-body">
-            <div class="progress-bar" v-if="cpuPercent >= 0">
-              <div class="progress-fill" :style="{ width: `${cpuPercent}%`, backgroundColor: barColor(cpuPercent) }"></div>
-            </div>
-            <div class="info-row" v-if="data.cpu.loadAvg[0] !== undefined">
-              <span class="info-label">{{ t('monitor.load') }}</span>
-              <span class="info-value info-mono">{{ data.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') }}</span>
-            </div>
-          </div>
-        </div>
-        <div v-else class="section-header collapsed" @click="toggleSection('cpu')">
+      <div class="monitor-section" v-if="expandedSections.cpu">
+        <div class="section-header" @click="toggleSection('cpu')">
           <span class="section-title">CPU</span>
           <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
             {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
           </span>
-          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+          <AppIcon name="chevron-down" size="xs" class="section-toggle" />
         </div>
+        <div class="section-body">
+          <div class="progress-bar" v-if="cpuPercent >= 0">
+            <div class="progress-fill" :style="{ width: `${cpuPercent}%`, backgroundColor: barColor(cpuPercent) }"></div>
+          </div>
+          <div class="info-row" v-if="data.cpu.loadAvg[0] !== undefined">
+            <span class="info-label">{{ t('monitor.load') }}</span>
+            <span class="info-value info-mono">{{ data.cpu.loadAvg.map((v) => v.toFixed(2)).join(' / ') }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="section-header collapsed" @click="toggleSection('cpu')">
+        <span class="section-title">CPU</span>
+        <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
+          {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
+        </span>
+        <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+      </div>
 
-        <div class="monitor-section" v-if="expandedSections.memory">
-          <div class="section-header" @click="toggleSection('memory')">
-            <span class="section-title">{{ t('monitor.memory') }}</span>
-            <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
-            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-          </div>
-          <div class="section-body">
-            <div class="bar-labels">
-              <span class="bar-label-used">{{ t('monitor.used', { size: formatBytes(data.memory.used) }) }}</span>
-              <span class="bar-label-cache">{{ t('monitor.cache', { size: formatBytes(data.memory.buffCache) }) }}</span>
-              <span class="bar-label-available">{{ t('monitor.available', { size: formatBytes(data.memory.available) }) }}</span>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: `${memPercent}%`, backgroundColor: barColor(memPercent) }"></div>
-            </div>
-            <template v-if="data.memory.swapTotal > 0">
-              <div class="bar-labels" style="margin-top: 6px">
-                <span class="info-label">Swap</span>
-                <span class="info-value info-mono">{{ formatBytes(data.memory.swapUsed) }} / {{ formatBytes(data.memory.swapTotal) }}</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: `${swapPercent}%`, backgroundColor: barColor(swapPercent) }"></div>
-              </div>
-            </template>
-          </div>
-        </div>
-        <div v-else class="section-header collapsed" @click="toggleSection('memory')">
+      <div class="monitor-section" v-if="expandedSections.memory">
+        <div class="section-header" @click="toggleSection('memory')">
           <span class="section-title">{{ t('monitor.memory') }}</span>
           <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
-          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+          <AppIcon name="chevron-down" size="xs" class="section-toggle" />
         </div>
-
-        <div class="monitor-section" v-if="expandedSections.disk">
-          <div class="section-header" @click="toggleSection('disk')">
-            <span class="section-title">{{ t('monitor.disk') }}</span>
-            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
+        <div class="section-body">
+          <div class="bar-labels">
+            <span class="bar-label-used">{{ t('monitor.used', { size: formatBytes(data.memory.used) }) }}</span>
+            <span class="bar-label-cache">{{ t('monitor.cache', { size: formatBytes(data.memory.buffCache) }) }}</span>
+            <span class="bar-label-available">{{ t('monitor.available', { size: formatBytes(data.memory.available) }) }}</span>
           </div>
-          <div class="section-body">
-            <div v-if="data.disk.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
-            <div v-for="(d, i) in data.disk" :key="i" class="disk-item">
-              <div class="disk-header">
-                <span class="disk-mount">{{ d.mountPoint }}</span>
-                <span class="disk-percent" :style="{ color: barColor(usagePercent(d.used, d.total)) }">{{ formatBytes(d.used) }} / {{ formatBytes(d.total) }}</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: `${usagePercent(d.used, d.total)}%`, backgroundColor: barColor(usagePercent(d.used, d.total)) }"></div>
-              </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: `${memPercent}%`, backgroundColor: barColor(memPercent) }"></div>
+          </div>
+          <template v-if="data.memory.swapTotal > 0">
+            <div class="bar-labels" style="margin-top: 6px">
+              <span class="info-label">Swap</span>
+              <span class="info-value info-mono">{{ formatBytes(data.memory.swapUsed) }} / {{ formatBytes(data.memory.swapTotal) }}</span>
             </div>
-          </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: `${swapPercent}%`, backgroundColor: barColor(swapPercent) }"></div>
+            </div>
+          </template>
         </div>
-        <div v-else class="section-header collapsed" @click="toggleSection('disk')">
+      </div>
+      <div v-else class="section-header collapsed" @click="toggleSection('memory')">
+        <span class="section-title">{{ t('monitor.memory') }}</span>
+        <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
+        <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+      </div>
+
+      <div class="monitor-section" v-if="expandedSections.disk">
+        <div class="section-header" @click="toggleSection('disk')">
           <span class="section-title">{{ t('monitor.disk') }}</span>
-          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+          <AppIcon name="chevron-down" size="xs" class="section-toggle" />
         </div>
-
-        <div class="monitor-section" v-if="expandedSections.processes">
-          <div class="section-header" @click="toggleSection('processes')">
-            <span class="section-title">{{ t('monitor.processes') }}</span>
-            <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-          </div>
-          <div class="section-body">
-            <div v-if="data.processes.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
-            <div v-else class="proc-table">
-              <div class="proc-header">
-                <span>PID</span>
-                <span>USER</span>
-                <span>CPU%</span>
-                <span>MEM%</span>
-                <span>COMMAND</span>
-              </div>
-              <div v-for="(p, i) in data.processes.slice(0, 5)" :key="i" class="proc-row">
-                <span class="proc-pid">{{ p.pid }}</span>
-                <span class="proc-user">{{ p.user }}</span>
-                <span class="proc-num" :style="{ color: p.cpu > 50 ? 'var(--danger)' : 'inherit' }">{{ p.cpu }}</span>
-                <span class="proc-num" :style="{ color: p.mem > 50 ? 'var(--danger)' : 'inherit' }">{{ p.mem }}</span>
-                <span class="proc-cmd" :title="p.command">{{ p.command }}</span>
-              </div>
+        <div class="section-body">
+          <div v-if="data.disk.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
+          <div v-for="(d, i) in data.disk" :key="i" class="disk-item">
+            <div class="disk-header">
+              <span class="disk-mount">{{ d.mountPoint }}</span>
+              <span class="disk-percent" :style="{ color: barColor(usagePercent(d.used, d.total)) }">{{ formatBytes(d.used) }} / {{ formatBytes(d.total) }}</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: `${usagePercent(d.used, d.total)}%`, backgroundColor: barColor(usagePercent(d.used, d.total)) }"></div>
             </div>
           </div>
         </div>
-        <div v-else class="section-header collapsed" @click="toggleSection('processes')">
+      </div>
+      <div v-else class="section-header collapsed" @click="toggleSection('disk')">
+        <span class="section-title">{{ t('monitor.disk') }}</span>
+        <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+      </div>
+
+      <div class="monitor-section" v-if="expandedSections.processes">
+        <div class="section-header" @click="toggleSection('processes')">
           <span class="section-title">{{ t('monitor.processes') }}</span>
-          <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+          <AppIcon name="chevron-down" size="xs" class="section-toggle" />
         </div>
-      </template>
+        <div class="section-body">
+          <div v-if="data.processes.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
+          <div v-else class="proc-table">
+            <div class="proc-header">
+              <span>PID</span>
+              <span>USER</span>
+              <span>CPU%</span>
+              <span>MEM%</span>
+              <span>COMMAND</span>
+            </div>
+            <div v-for="(p, i) in data.processes.slice(0, 5)" :key="i" class="proc-row">
+              <span class="proc-pid">{{ p.pid }}</span>
+              <span class="proc-user">{{ p.user }}</span>
+              <span class="proc-num" :style="{ color: p.cpu > 50 ? 'var(--danger)' : 'inherit' }">{{ p.cpu }}</span>
+              <span class="proc-num" :style="{ color: p.mem > 50 ? 'var(--danger)' : 'inherit' }">{{ p.mem }}</span>
+              <span class="proc-cmd" :title="p.command">{{ p.command }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="section-header collapsed" @click="toggleSection('processes')">
+        <span class="section-title">{{ t('monitor.processes') }}</span>
+        <AppIcon name="chevron-right" size="xs" class="section-toggle" />
+      </div>
     </template>
     <Teleport to="body">
       <div v-if="alertDialogOpen" class="monitor-alert-overlay" @click.self="alertDialogOpen = false">
@@ -569,146 +367,10 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.monitor-panel.is-side {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 10px;
-}
-
-.monitor-panel.is-bottom {
-  height: auto;
-  padding: 0;
-  overflow: hidden;
-  gap: 0;
-}
-
-.monitor-dock-stack {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.monitor-dock-stack :deep(.feature-tip) {
-  margin: 6px 10px 0;
-}
-
-.monitor-dock-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  min-height: 36px;
-  flex-shrink: 0;
-}
-
-.dock-metrics {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  overflow: hidden;
-}
-
-.dock-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.dock-metric {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex-shrink: 0;
-}
-
-.dock-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex-shrink: 1;
-  max-width: 180px;
-  padding: 2px 0;
-}
-
-.dock-host {
-  max-width: 120px;
-}
-
-.dock-proc {
-  max-width: 200px;
-}
-
-.dock-chip-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.dock-load-value {
-  min-width: 2.8em;
-}
-
-.dock-metric-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.dock-metric-value {
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 11px;
-  font-weight: 700;
-  min-width: 2.4em;
-  text-align: right;
-}
-
-.dock-bar {
-  width: 72px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bg-tertiary);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.dock-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.4s ease, background-color 0.4s ease;
-  min-width: 2px;
-}
-
-.dock-error {
-  font-size: 11px;
-  color: var(--danger);
-}
-
-.dock-loading {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.dock-details-btn {
-  gap: 4px;
-}
-
-.dock-details-btn.active {
-  color: var(--accent);
-  background: var(--accent-bg);
 }
 
 .monitor-header {

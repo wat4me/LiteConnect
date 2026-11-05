@@ -444,7 +444,7 @@ export function useSettingsDraft(): {
       draft.value = next
       resetAllRequested.value = true
       applyAppBackground({ imageUrl: '' })
-      ElMessage.success(t('settings.restoreFilled'))
+      ElMessage.success({ message: t('settings.restoreFilled'), grouping: true })
     } catch {
       // cancelled
     }
@@ -483,7 +483,7 @@ export function useSettingsDraft(): {
 
       saved.value = cloneDraft(d)
       draft.value = cloneDraft(d)
-      ElMessage.success(t('settings.saved'))
+      ElMessage.success({ message: t('settings.saved'), grouping: true })
     } catch (err: any) {
       ElMessage.error(err?.message || t('settings.saveFailed'))
     } finally {

@@ -4,9 +4,10 @@ import type { PwdState } from '@/domain/terminal/types'
 
 export type { PwdState, TerminalPwdTracker } from '@/domain/terminal/types'
 
-export function useTerminalPwd() {
+export function useTerminalPwd(deps: { isDirectory: (sessionId: string, path: string) => Promise<boolean> }) {
   const state = reactive<Record<string, PwdState>>({})
   const pendingCdCommands: Record<string, string[]> = {}
+  const checks = new Map<string, { tail: Promise<string | null> }>()
 
   function initSession(sessionId: string, homePath: string, initialPwd?: string) {
     const home = typeof homePath === 'string' ? homePath.trim() : ''
@@ -24,6 +25,7 @@ export function useTerminalPwd() {
       previousPwd: isAbsolutePosix(existing?.previousPwd || '')
         ? existing!.previousPwd
         : normalizePosixPath(pwd),
+      shellReportsPwd: existing?.shellReportsPwd,
     }
 
     const pending = pendingCdCommands[sessionId]
@@ -32,50 +34,51 @@ export function useTerminalPwd() {
       for (const command of pending) {
         const targets = extractCdTargets(command)
         if (targets.some((target) => target.startsWith('/') || target === '~' || target.startsWith('~'))) {
-          handleCd(sessionId, command)
+          void handleCd(sessionId, command)
         }
       }
     }
   }
 
-  function handleCd(sessionId: string, rawCommand: string): string | null {
+  async function handleCd(sessionId: string, rawCommand: string): Promise<string | null> {
+    if (state[sessionId]?.shellReportsPwd) return getPwd(sessionId)
     const targets = extractCdTargets(rawCommand)
     if (targets.length === 0) return null
 
-    const st = state[sessionId]
-    if (!st) {
-      const absoluteIndex = targets.findIndex(target => target.startsWith('/'))
-      if (absoluteIndex !== -1) {
-        const newPwd = normalizePosixPath(targets[absoluteIndex])
-        state[sessionId] = { pwd: newPwd, homePath: '/', previousPwd: newPwd }
-        for (const target of targets.slice(absoluteIndex + 1)) {
-          applyCdTarget(state[sessionId], target)
-        }
-        return state[sessionId].pwd
+    const queue = checks.get(sessionId) ?? { tail: Promise.resolve(null) }
+    checks.set(sessionId, queue)
+    // Resolve each relative path against the last accepted directory. A failed
+    // candidate must never become the base of the next command.
+    const task = queue.tail.then(async () => {
+      if (checks.get(sessionId) !== queue) return getPwd(sessionId)
+      if (!state[sessionId] && !targets.some(target => target.startsWith('/'))) {
+        pendingCdCommands[sessionId] = [...(pendingCdCommands[sessionId] || []), rawCommand]
+        return null
       }
-
-      pendingCdCommands[sessionId] = [...(pendingCdCommands[sessionId] || []), rawCommand]
-      return null
+      for (const target of targets) {
+        const path = resolveCdTarget(state[sessionId], target)
+        if (!path) continue
+        let exists = false
+        try {
+          exists = await deps.isDirectory(sessionId, path)
+        } catch {
+          // A closed or inaccessible SFTP channel cannot confirm this guess.
+        }
+        if (checks.get(sessionId) !== queue) return getPwd(sessionId)
+        if (exists) updatePwd(sessionId, path)
+      }
+      return getPwd(sessionId)
+    })
+    queue.tail = task
+    try {
+      return await task
+    } finally {
+      if (checks.get(sessionId) === queue && queue.tail === task) checks.delete(sessionId)
     }
-
-    for (const target of targets) {
-      applyCdTarget(st, target)
-    }
-    return st.pwd
   }
 
-  function revertCd(sessionId: string): string | null {
-    const st = state[sessionId]
-    if (!st) return null
-    if (st.pwd !== st.previousPwd) {
-      st.pwd = st.previousPwd
-      return st.pwd
-    }
-    const parent = parentPosixPath(st.pwd)
-    if (parent === st.pwd) return st.pwd
-    st.pwd = parent
-    st.previousPwd = parent
-    return st.pwd
+  async function waitForPendingCd(sessionId: string): Promise<void> {
+    await checks.get(sessionId)?.tail
   }
 
   function getPwd(sessionId: string): string | null {
@@ -91,59 +94,52 @@ export function useTerminalPwd() {
   }
 
   function removeSession(sessionId: string) {
+    checks.delete(sessionId)
     delete state[sessionId]
     delete pendingCdCommands[sessionId]
   }
 
-  function setPwd(sessionId: string, pwd: string): void {
-    const st = state[sessionId]
-    if (st) {
-      st.pwd = pwd
+  function updatePwd(sessionId: string, pwd: string) {
+    const current = state[sessionId]
+    if (current) {
+      current.previousPwd = current.pwd
+      current.pwd = pwd
+    } else {
+      state[sessionId] = { pwd, homePath: '', previousPwd: pwd }
     }
   }
 
-  return { state, initSession, handleCd, revertCd, getPwd, getHomePath, hasSession, removeSession, setPwd }
+  function setPwd(sessionId: string, pwd: string): void {
+    if (!isAbsolutePosix(pwd)) return
+    checks.delete(sessionId)
+    delete pendingCdCommands[sessionId]
+    if (state[sessionId]?.pwd !== pwd) updatePwd(sessionId, pwd)
+  }
+
+  function reportPwd(sessionId: string, pwd: string): void {
+    if (!isAbsolutePosix(pwd)) return
+    setPwd(sessionId, pwd)
+    state[sessionId].shellReportsPwd = true
+  }
+
+  return { state, initSession, handleCd, waitForPendingCd, getPwd, getHomePath, hasSession, removeSession, setPwd, reportPwd }
 }
 
 function isAbsolutePosix(path: string): boolean {
   return path.startsWith('/') && !/[\0\r\n]/.test(path)
 }
 
-function parentPosixPath(path: string): string {
-  if (!isAbsolutePosix(path) || path === '/') return '/'
-  const parts = path.split('/').filter(Boolean)
-  parts.pop()
-  return parts.length ? `/${parts.join('/')}` : '/'
-}
-
-function applyCdTarget(st: PwdState, arg: string): void {
-  if (!arg || arg === '~') {
-    if (!isAbsolutePosix(st.homePath)) return
-    st.previousPwd = st.pwd || st.homePath
-    st.pwd = st.homePath
+function resolveCdTarget(st: PwdState | undefined, arg: string): string | undefined {
+  if (arg.startsWith('/')) return normalizePosixPath(arg)
+  if (!st) return
+  if (!arg || arg === '~') return st.homePath || undefined
+  if (arg === '-') return st.previousPwd
+  if (arg.startsWith('~/')) {
+    if (st.homePath) return normalizePosixPath(`${st.homePath}/${arg.slice(2)}`)
     return
   }
-
-  if (arg === '-') {
-    const prev = st.previousPwd
-    st.previousPwd = st.pwd
-    st.pwd = prev
-    return
-  }
-
-  if (!arg.startsWith('/') && !arg.startsWith('~') && !isAbsolutePosix(st.pwd)) {
-    // Relative cd with no known base would invent `/v/...` from an empty tracker.
-    return
-  }
-
-  const newPwd = arg.startsWith('/')
-    ? normalizePosixPath(arg)
-    : arg.startsWith('~')
-      ? normalizePosixPath(st.homePath + '/' + arg.slice(1))
-      : normalizePosixPath(st.pwd + '/' + arg)
-
-  st.previousPwd = st.pwd
-  st.pwd = newPwd
+  // Other tilde forms are shell expansions (for example, ~otheruser).
+  if (!arg.startsWith('~')) return normalizePosixPath(`${st.pwd}/${arg}`)
 }
 
 function extractCdTargets(rawCommand: string): string[] {

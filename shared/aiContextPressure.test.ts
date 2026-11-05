@@ -30,6 +30,20 @@ describe('shared AI context pressure', () => {
     }
   })
 
+  it('derives the automatic output reservation from the catalog, the default and the window', () => {
+    // An unknown model falls back to the default ceiling, which a 300k window does not lower.
+    expect(resolveAiContextBudget({ contextWindowTokens: 300_000 }).outputReserveTokens).toBe(32_000)
+    expect(resolveAiContextBudget({ model: 'unknown-model', contextWindowTokens: 300_000 }).outputReserveTokens).toBe(32_000)
+    // A catalog output limit below the default is used as is.
+    expect(resolveAiContextBudget({ model: 'openai/gpt-4o', contextWindowTokens: 128_000 }).outputReserveTokens).toBe(16_384)
+    // A large advertised limit does not raise the reservation past the default.
+    expect(resolveAiContextBudget({ model: 'deepseek/deepseek-chat', contextWindowTokens: 1_000_000 }).outputReserveTokens).toBe(32_000)
+    // Small windows still keep most of their capacity for input.
+    expect(resolveAiContextBudget({ model: 'deepseek/deepseek-chat', contextWindowTokens: 32_000 }).outputReserveTokens).toBe(6_400)
+    // A manual value wins over both.
+    expect(resolveAiContextBudget({ model: 'openai/gpt-4o', contextWindowTokens: 128_000, maxOutputTokens: 40_000 }).outputReserveTokens).toBe(40_000)
+  })
+
   it('retains valid per-model budgets through settings normalization', () => {
     expect(parseAiModel({ id: 'm', maxOutputTokens: 8192, compactionRetainTokens: 12000 })).toMatchObject({ maxOutputTokens: 8192, compactionRetainTokens: 12000 })
     expect(parseAiModel({ id: 'm', maxOutputTokens: -1, compactionRetainTokens: Infinity })).toEqual({ id: 'm' })

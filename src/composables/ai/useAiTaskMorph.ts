@@ -20,7 +20,7 @@ export function useAiTaskMorph(options: {
     const previousRadius = previous ? getComputedStyle(previous).borderRadius : undefined
     const contentSelectors = '[data-task-content]'
     const previousOpacity = previous ? [...previous.querySelectorAll<HTMLElement>(contentSelectors)].map(node => getComputedStyle(node).opacity) : []
-    const previousIcon = previous?.querySelector<HTMLElement>('.background-heading-toggle .app-icon')
+    const previousIcon = previous?.querySelector<HTMLElement>('.background-heading-close .app-icon')
     const previousTransform = previousIcon ? getComputedStyle(previousIcon).transform : undefined
     cancel()
     if (!active || (!open && !rendered.value)) { rendered.value = false; return }
@@ -52,7 +52,7 @@ export function useAiTaskMorph(options: {
         { opacity: previousOpacity[index] || '0' }, { opacity: open ? 1 : 0 },
       ], { duration: open ? 140 : 60, delay: open && !startRect ? 80 : 0, fill: 'both', easing: 'ease-out' }))
     })
-    const icon = element.querySelector<HTMLElement>('.background-heading-toggle .app-icon')
+    const icon = element.querySelector<HTMLElement>('.background-heading-close .app-icon')
     if (icon) {
       // The header icon carries the circle's glyph into the expanded title.
       const iconRect = icon.getBoundingClientRect()

@@ -14,7 +14,9 @@ import { isLiveReasoningSegment, reasoningLiveSnippet } from '@/utils/ai/chatRea
 import { chatActivityDisplay } from '@/utils/ai/chatActivity'
 import { isLiveContentSegment } from '@/utils/ai/chatSegments'
 import { useAiChatViewport } from '@/composables/ai/useAiChatViewport'
-import { useAiDisclosureState, toolDisclosureKey, reasoningDisclosureKey } from '@/composables/ai/useAiDisclosureState'
+import { useAiDisclosureState, toolDisclosureKey, reasoningDisclosureKey, processDisclosureKey } from '@/composables/ai/useAiDisclosureState'
+import { chatProcessLayout, type ChatProcessLayout } from '@/utils/ai/chatProcess'
+import { formatBackgroundJobDuration } from '@/utils/ai/backgroundJobDuration'
 import AppIcon from '../icons/AppIcon.vue'
 import AiMessageFooter from './AiMessageFooter.vue'
 import AiImageStrip from './AiImageStrip.vue'
@@ -111,7 +113,7 @@ function displayItems(message: ChatItem): DisplayItem[] {
 const copiedKey = ref('')
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
-const { toolOpenState, reasoningOpenState } = useAiDisclosureState({
+const { toolOpenState, reasoningOpenState, processOpenState } = useAiDisclosureState({
   messages: () => props.messages, conversationKey: () => props.conversationKey,
 })
 
@@ -127,6 +129,59 @@ function isToolRunOpen(message: ChatItem, run: AiToolRun): boolean {
 function onToolRunToggle(message: ChatItem, run: AiToolRun, open: boolean) {
   if (open) toolOpenState.set(toolRunKey(message, run), true)
   else toolOpenState.delete(toolRunKey(message, run))
+}
+
+const processLayouts = new WeakMap<ChatItem, { signature: string; layout: ChatProcessLayout }>()
+
+/** The steps of one assistant turn, folded behind a summary once the conclusion starts. */
+function processLayout(message: ChatItem): ChatProcessLayout {
+  const signature = JSON.stringify([
+    message.segments?.length ?? -1, message.content.length > 0, message.streaming ?? false, message.status ?? '', message.error ?? false, message.completedAt ?? 0,
+    (message.toolRuns || []).map(run => [run.id, run.status ?? '', run.isError, run.content.length, run.risk ?? '']),
+  ])
+  const cached = processLayouts.get(message)
+  if (cached && cached.signature === signature) return cached.layout
+  const layout = chatProcessLayout({
+    items: displayItems(message), streaming: message.streaming, status: message.status, error: message.error,
+    createdAt: message.createdAt, completedAt: message.completedAt,
+  })
+  processLayouts.set(message, { signature, layout })
+  return layout
+}
+
+function isProcessOpen(message: ChatItem): boolean {
+  return processOpenState.get(processDisclosureKey(message.id)) ?? processLayout(message).live
+}
+
+/** An explicit choice sticks; matching the default again forgets it so later turns of the stream decide. */
+function toggleProcess(message: ChatItem) {
+  const key = processDisclosureKey(message.id)
+  const open = !isProcessOpen(message)
+  if (open === processLayout(message).live) processOpenState.delete(key)
+  else processOpenState.set(key, open)
+}
+
+function isProcessStep(message: ChatItem, segIndex: number): boolean {
+  const layout = processLayout(message)
+  return layout.hasProcess && layout.processIndexes.has(segIndex)
+}
+
+function processStepVisible(message: ChatItem, segIndex: number, item: DisplayItem): boolean {
+  if (!isProcessStep(message, segIndex)) return true
+  return isProcessOpen(message) || (item.run ? processLayout(message).pinnedRunIds.has(item.run.id) : false)
+}
+
+function processTitle(message: ChatItem): string {
+  const layout = processLayout(message)
+  const { stats } = layout
+  const parts = [layout.live
+    ? t('ai.process.live', { step: stats.steps })
+    : layout.interrupted ? t('ai.process.interrupted', { steps: stats.steps }) : t('ai.process.done', { steps: stats.steps })]
+  if (stats.changes) parts.push(t('ai.process.changes', { count: stats.changes }))
+  if (stats.failed) parts.push(t('ai.process.failed', { count: stats.failed }))
+  if (stats.blocked) parts.push(t('ai.process.blocked', { count: stats.blocked }))
+  if (!layout.live && stats.durationSeconds) parts.push(t('ai.process.duration', { time: formatBackgroundJobDuration(stats.durationSeconds) }))
+  return parts.join(' · ')
 }
 
 function isReasoningLive(message: ChatItem, segIndex: number): boolean {
@@ -373,11 +428,19 @@ async function copyText(text: string, key: string) {
         </div>
       </div>
       <template v-else>
+      <div v-if="processLayout(message).hasProcess" class="process-block" :class="{ live: processLayout(message).live, open: isProcessOpen(message), interrupted: processLayout(message).interrupted }">
+        <button type="button" class="process-toggle" :aria-expanded="isProcessOpen(message)" :title="t(isProcessOpen(message) ? 'ai.process.collapse' : 'ai.process.expand')" @click="toggleProcess(message)">
+          <AppIcon name="chevron-right" size="xs" class="details-chevron" />
+          <span class="process-title" :class="{ 'ai-think-shimmer': processLayout(message).live }">{{ processTitle(message) }}</span>
+          <span v-if="processLayout(message).live" class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+        </button>
+      </div>
       <template v-for="(item, segIndex) in displayItems(message)" :key="segIndex">
       <details
         v-if="item.seg.kind === 'reasoning'"
+        v-show="processStepVisible(message, segIndex, item)"
         class="reasoning-box"
-        :class="{ live: isReasoningLive(message, segIndex) }"
+        :class="{ live: isReasoningLive(message, segIndex), 'process-step': isProcessStep(message, segIndex) }"
         :open="isReasoningOpen(message, segIndex)"
         role="status"
         :aria-busy="isReasoningLive(message, segIndex) ? 'true' : undefined"
@@ -423,8 +486,8 @@ async function copyText(text: string, key: string) {
           </template>
         </div>
       </details>
-      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" execution-history-available @toggle="onToolRunToggle(message, item.run!, $event)" @view-execution="emit('view-execution', `${message.id}:${item.run!.id}`)" @view-knowledge="emit('view-knowledge', item.run!)" />
-      <div v-else-if="item.seg.kind === 'content'" class="message-content">
+      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" v-show="processStepVisible(message, segIndex, item)" :class="{ 'process-step': isProcessStep(message, segIndex) }" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" execution-history-available @toggle="onToolRunToggle(message, item.run!, $event)" @view-execution="emit('view-execution', `${message.id}:${item.run!.id}`)" @view-knowledge="emit('view-knowledge', item.run!)" />
+      <div v-else-if="item.seg.kind === 'content'" v-show="processStepVisible(message, segIndex, item)" class="message-content" :class="{ 'process-step': isProcessStep(message, segIndex) }">
         <AiWorkspaceResponse v-if="!isLiveContentSegment(message, segIndex) && message.role === 'assistant' && (workspaceTargets?.length || 0) > 1" :text="item.seg.text" :targets="workspaceTargets!" />
         <AiStreamingMarkdown
           v-else :content="item.seg.text" :streaming="isLiveContentSegment(message, segIndex)"
@@ -434,7 +497,7 @@ async function copyText(text: string, key: string) {
         />
       </div>
       </template>
-      <AiActivityStatus v-if="message.streaming" :activity="message.activity" :created-at="message.createdAt" />
+      <AiActivityStatus v-if="message.streaming" :class="{ 'process-foot': processLayout(message).live }" :activity="message.activity" :created-at="message.createdAt" />
       </template>
       <AiMessageFooter
         v-if="editingMessageId !== message.id && (message.role === 'user' || !message.streaming)"

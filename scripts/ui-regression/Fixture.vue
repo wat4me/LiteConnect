@@ -226,6 +226,34 @@ function finishSchedule(status: 'completed' | 'cancelled' | 'failed') {
   getAiSessionStore: async (id: string) => JSON.parse(JSON.stringify(historyFor(id))),
   setAiSessionStore: async (id: string, store: AiSessionStore) => { if (id.startsWith('workspace:')) scopeStores.set(id, store); else imageHistory = store },
   appendAiSessionHistory: async (_id: string, record: any, threadId: string) => { historyFor(_id).threads.find(thread => thread.id === threadId)!.messages.push(record) },
+  aiSaveConversation: async (_id: string, threadId: string, payload: any) => {
+    const history: any = historyFor(_id)
+    let thread: any = history.threads.find((item: any) => item.id === threadId)
+    if (!thread) {
+      const at = payload?.messages?.[0]?.createdAt || Date.now()
+      thread = { id: threadId, title: '', createdAt: at, updatedAt: at, contextFiles: payload?.contextFiles || [], messages: [] }
+      history.threads.push(thread)
+    }
+    thread.messages = JSON.parse(JSON.stringify(payload?.messages || []))
+    thread.updatedAt = Date.now()
+    if (payload?.toolGroups) thread.toolGroups = payload.toolGroups
+    if (payload?.compactionCount) thread.compactionCount = payload.compactionCount
+    if (payload?.invalidateContextCheckpoint) delete thread.contextCheckpoint
+    // Like main: selecting a conversation that no longer exists returns the summary without a thread.
+    const missingSelection = Boolean(payload?.selectThreadId) && !history.threads.some((item: any) => item.id === payload.selectThreadId)
+    if (payload?.selectThreadId && !missingSelection) history.activeThreadId = payload.selectThreadId
+    const selected = missingSelection ? undefined : history.threads.find((item: any) => item.id === history.activeThreadId)
+    return {
+      activeThreadId: history.activeThreadId,
+      defaultContextFiles: history.defaultContextFiles || [],
+      threads: history.threads.map((item: any) => ({
+        id: item.id, title: item.title || item.messages.find((message: any) => message.role === 'user')?.content?.slice(0, 40) || '',
+        ...(item.customTitle ? { customTitle: item.customTitle } : {}), ...(item.pinned ? { pinned: true } : {}),
+        createdAt: item.createdAt, updatedAt: item.updatedAt, messageCount: item.messages.length, active: item.id === history.activeThreadId,
+      })),
+      ...(selected ? { thread: JSON.parse(JSON.stringify(selected)) } : {}),
+    }
+  },
   aiCreateConversation: async (_id: string, payload: any) => {
     calls.aiCreates.push(_id)
     const history = historyFor(_id)

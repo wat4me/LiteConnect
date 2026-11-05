@@ -39,6 +39,8 @@ app.whenReady().then(async () => {
     command('background-command', { jobId: 'owned-job', status: 'running' }, { jobIds: ['owned-job'] }),
   ]
   await run(`window.__uiRegression.seedExecutionHistory(${JSON.stringify(runs)})`)
+  await run(`document.querySelector('.ai-image-composer-fixture .process-toggle[aria-expanded="false"]')?.click()`)
+  await wait(`document.querySelector('.ai-image-composer-fixture .process-block')?.classList.contains('open')`)
   await run(`document.querySelector('.ai-image-composer-fixture .tool-run summary').click()`)
   await wait('!!document.querySelector(".ai-image-composer-fixture .tool-run-view-execution")')
   await run(`(() => {const button=document.querySelector('.ai-image-composer-fixture .tool-run-view-execution');button.focus();button.click()})()`)

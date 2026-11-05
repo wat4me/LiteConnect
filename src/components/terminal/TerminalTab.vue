@@ -22,7 +22,9 @@ import { useTerminalReconnect } from '../../composables/terminal/useTerminalReco
 import { useTerminalSelectionMenu } from '../../composables/terminal/useTerminalSelectionMenu'
 import { useTerminalPasteConfirm } from '../../composables/terminal/useTerminalPasteConfirm'
 import { isContainerEnterCommand } from '@/utils/docker/containerEnterCommand'
-import { markSftpFollowPausedByContainer } from '../../composables/sftp/sftpFollowPause'
+import { clearSftpFollowPausedByContainer, isSftpFollowPausedByContainer, markSftpFollowPausedByContainer } from '../../composables/sftp/sftpFollowPause'
+import type { TerminalPwdTracker } from '@/domain/terminal/types'
+import { parseTerminalCwdReport } from '@/utils/terminal/terminalCwdReport'
 import TerminalCommandSuggest from './TerminalCommandSuggest.vue'
 import AppIcon from '../icons/AppIcon.vue'
 import { isNonRetryableSshError } from '@/utils/session/sshErrorRetry'
@@ -63,6 +65,12 @@ const { t } = useI18n()
 const terminalRef = ref<HTMLDivElement>()
 const theme = inject<import('vue').Ref<Theme>>('theme')!
 const customColors = inject<import('vue').Ref<CustomColors>>('customColors')!
+const pwdTracker = inject<TerminalPwdTracker>('pwdTracker')
+let reportedCwdHost = ''
+
+function emitHostCd(command: string) {
+  if (!isSftpFollowPausedByContainer(props.sessionId)) emit('cdCommand', props.sessionId, command)
+}
 
 const readOnly = ref(false)
 let readOnlyHintShown = false
@@ -142,7 +150,7 @@ const {
   extractCommandFromVisibleLine,
 } = useCommandBuffer({
   getTerminal,
-  onCdCommand: (cmd) => emit('cdCommand', props.sessionId, cmd),
+  onCdCommand: emitHostCd,
   onSubmitted: (cmd) => onCommandSubmitted(cmd),
 })
 
@@ -172,7 +180,11 @@ const reconnect = useTerminalReconnect({
   flushRenderBatch,
   performResize,
   scheduleTerminalRefresh,
-  emitReconnect: (sessionId) => emit('reconnect', sessionId),
+  emitReconnect: (sessionId) => {
+    reportedCwdHost = ''
+    clearSftpFollowPausedByContainer(sessionId)
+    emit('reconnect', sessionId)
+  },
 })
 const {
   disconnected,
@@ -311,7 +323,7 @@ const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompleti
   resetCommandBuffer,
   commandBuffer,
   commandBufferDirty,
-  emitCdCommand: (command) => emit('cdCommand', props.sessionId, command),
+  emitCdCommand: emitHostCd,
   getWriteQueueLength,
   enqueueWrite,
   write: (data) => window.LiteConnect.sshWrite(props.sessionId, data),
@@ -414,6 +426,12 @@ function onRequestTerminalPwd(event: Event) {
   const detail = (event as CustomEvent<TerminalPwdRequestDetail>).detail
   if (!detail || detail.sessionId !== props.sessionId) return
   detail.handled = true
+  const terminal = getTerminal()
+  if (!terminal || terminal.buffer.active.type !== 'normal' || readOnly.value || reconnect.disconnected.value
+    || isSftpFollowPausedByContainer(props.sessionId) || commandBuffer.value || commandBufferDirty.value || isPasting() || getWriteQueueLength()) {
+    detail.reject(new Error(t('sftp.queryTerminalIdle')))
+    return
+  }
   requestInteractivePwd().then(detail.resolve, detail.reject)
 }
 
@@ -493,6 +511,14 @@ onMounted(async () => {
 
   const terminal = createTerminal(props.connectionName)
   if (!terminal) return
+  terminal.parser.registerOscHandler(7, data => {
+    if (terminal.buffer.active.type !== 'normal' || isSftpFollowPausedByContainer(props.sessionId)) return true
+    const report = parseTerminalCwdReport(data)
+    if (!report || (reportedCwdHost && report.host && report.host !== reportedCwdHost)) return true
+    if (report.host) reportedCwdHost = report.host
+    pwdTracker?.reportPwd(props.sessionId, report.path)
+    return true
+  })
   // Capture native paste (e.g. Shift+Insert) before xterm's own handler so it
   // shares the editor/confirmation flow and cannot send a second copy.
   terminal.element?.addEventListener('paste', handlePasteEvent, true)

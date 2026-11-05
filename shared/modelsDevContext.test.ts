@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lookupModelsDevContext } from './modelsDevContext'
+import { lookupModelsDevContext, lookupModelsDevOutput } from './modelsDevContext'
 
 describe('lookupModelsDevContext', () => {
   it('matches full ids and short names', () => {
@@ -8,5 +8,15 @@ describe('lookupModelsDevContext', () => {
     expect(lookupModelsDevContext('deepseek/deepseek-chat')).toBe(1_000_000)
     expect(lookupModelsDevContext('unknown-model')).toBeUndefined()
     expect(lookupModelsDevContext('')).toBeUndefined()
+  })
+})
+
+describe('lookupModelsDevOutput', () => {
+  it('matches advertised per-reply output limits', () => {
+    expect(lookupModelsDevOutput('openai/gpt-4o')).toBe(16_384)
+    expect(lookupModelsDevOutput('gpt-4o')).toBe(16_384)
+    expect(lookupModelsDevOutput('deepseek/deepseek-chat')).toBe(384_000)
+    expect(lookupModelsDevOutput('unknown-model')).toBeUndefined()
+    expect(lookupModelsDevOutput('')).toBeUndefined()
   })
 })

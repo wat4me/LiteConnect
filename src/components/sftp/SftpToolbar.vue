@@ -15,6 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'sync-cwd'): void
+  (e: 'query-cwd'): void
   (e: 'refresh'): void
   (e: 'collapse-tree'): void
   (e: 'search'): void
@@ -30,11 +31,13 @@ const moreItems = computed(() => [
   { id: 'collapse-tree', label: t('sftp.collapseOtherDirectories'), title: t('sftp.collapseToCurrent'), icon: 'list-collapse' as const },
   { id: 'upload-folder', label: t('sftp.uploadFolderAction'), title: t('sftp.uploadFolder'), icon: 'folder-up' as const },
   { id: 'directory-sync', label: t('sftp.directorySync'), disabled: props.locked, icon: 'file-diff' as const },
+  { id: 'query-cwd', label: t('sftp.queryTerminalCwd'), title: t('sftp.queryTerminalIdle'), disabled: props.locked, icon: 'terminal' as const },
 ])
 function onMoreAction(id: string) {
   if (id === 'collapse-tree') emit('collapse-tree')
   else if (id === 'upload-folder') emit('upload-folder')
   else if (id === 'directory-sync') emit('directory-sync')
+  else if (id === 'query-cwd') emit('query-cwd')
 }
 </script>
 

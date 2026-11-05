@@ -115,8 +115,8 @@ describe('Anthropic Messages protocol', () => {
   it('does not hide in-stream API errors or execute tools from incomplete/truncated streams', async () => {
     await expect(readAiProviderStream(settings, new Response('data: {"type":"error","error":{"message":"Overloaded"}}\n\n'), () => {})).rejects.toThrow('Overloaded')
     await expect(readAiProviderStream(settings, stream([useTool()], 'tool_use', false), () => {})).rejects.toThrow(/未确认回复完整/)
-    await expect(readAiProviderStream(settings, stream([useTool()], 'max_tokens'), () => {})).rejects.toThrow(/输出限制/)
-    await expect(readAiProviderStream(settings, stream([{ type: 'text', text: 'partial' }], 'max_tokens'), () => {})).rejects.toThrow(/输出限制/)
+    await expect(readAiProviderStream(settings, stream([useTool()], 'max_tokens'), () => {})).rejects.toThrow(/输出上限/)
+    await expect(readAiProviderStream(settings, stream([{ type: 'text', text: 'partial' }], 'max_tokens'), () => {})).rejects.toThrow(/输出上限/)
     const call = vi.fn(async () => ({ content: '{}', structuredContent: { sessions: [] } }))
     const fetchMock = vi.fn().mockResolvedValue(stream([useTool()], 'tool_use', false))
     vi.stubGlobal('fetch', fetchMock)

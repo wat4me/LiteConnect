@@ -7,6 +7,7 @@ import {
   formatTokenCount,
   inferContextWindowTokens,
   isContextLengthError,
+  isOutputLimitError,
   lastBilledConversationUsage,
   packAiMessages,
   parseAiModels,
@@ -74,6 +75,23 @@ describe('isContextLengthError', () => {
     expect(isContextLengthError('This model maximum context length is 8192 tokens')).toBe(true)
     expect(isContextLengthError('prompt is too long')).toBe(true)
     expect(isContextLengthError('authentication failed')).toBe(false)
+  })
+})
+
+describe('isOutputLimitError', () => {
+  it('detects provider rejections of the requested output cap', () => {
+    expect(isOutputLimitError('max_tokens is too large: 32000. This model supports at most 16384 completion tokens')).toBe(true)
+    expect(isOutputLimitError('max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens for this model')).toBe(true)
+    expect(isOutputLimitError('Invalid parameter: max_output_tokens must be in range [1, 16384]')).toBe(true)
+    expect(isOutputLimitError('max_tokens must be less than or equal to 4096')).toBe(true)
+  })
+
+  it('leaves context, missing-cap and unrelated errors to their own handling', () => {
+    expect(isOutputLimitError('This model maximum context length is 8192 tokens')).toBe(false)
+    expect(isOutputLimitError('prompt is too long, reduce the length of the messages')).toBe(false)
+    expect(isOutputLimitError('rate limit exceeded')).toBe(false)
+    expect(isOutputLimitError('authentication failed')).toBe(false)
+    expect(isOutputLimitError('')).toBe(false)
   })
 })
 
@@ -207,6 +225,7 @@ describe('packAiMessages', () => {
         { role: 'user', content: 'next' },
       ],
       budgetTokens: 20_000,
+      reserveOutputTokens: 200,
       maxMessageTokens: 200,
     })
     const assistant = pack.messages.find((m) => m.role === 'assistant')

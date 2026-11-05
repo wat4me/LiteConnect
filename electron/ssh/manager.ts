@@ -499,8 +499,8 @@ export class SSHManager {
     return this.sftp.sftpRealpath(sessionId, remotePath)
   }
 
-  sftpExists(sessionId: string, remotePath: string): Promise<boolean> {
-    return this.sftp.sftpExists(sessionId, remotePath)
+  sftpExists(sessionId: string, remotePath: string, directoryOnly?: boolean): Promise<boolean> {
+    return this.sftp.sftpExists(sessionId, remotePath, directoryOnly)
   }
 
   sftpDownload(

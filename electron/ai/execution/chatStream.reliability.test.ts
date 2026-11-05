@@ -52,6 +52,28 @@ it('does not strip already executed tool results when a later request rejects to
   expect(fetcher).toHaveBeenCalledTimes(2)
 })
 
+it('halves the reserved output tokens when the provider rejects the cap, then keeps the lower cap', async () => {
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(Response.json({ error: { message: 'max_tokens is too large: 32000. This model supports at most 8192 completion tokens' } }, { status: 400 }))
+    .mockResolvedValueOnce(sse({ content: 'done' }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = await runAiChatStream({ settings, messages, requestId: 'output-cap-downgrade', emit: () => {} })
+  expect(result.content).toBe('done')
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).max_tokens).toBe(32_000)
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).max_tokens).toBe(16_000)
+})
+
+it('reports a context-length rejection instead of lowering the output cap', async () => {
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(Response.json({ error: { message: 'This model maximum context length is 8192 tokens' } }, { status: 400 }))
+    .mockResolvedValueOnce(sse({ content: 'done' }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = await runAiChatStream({ settings, messages, requestId: 'context-not-output', emit: () => {} })
+  expect(result.content).toBe('done')
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).max_tokens).toBe(32_000)
+})
+
 it('records an unexpected failure per server and still executes the other selected server', async () => {
   const targets = ['a', 'b'].map(id => ({ connectionId: id, sessionId: `session-${id}`, name: `server-${id}`, host: `${id}.test`, port: 22, username: 'tester' }))
   const fetcher = vi.fn().mockResolvedValueOnce(sse({ tool_calls: [tool(0, 'hostname', { connectionId: 'a' }), tool(1, 'hostname', { connectionId: 'b' })] }))
@@ -104,7 +126,7 @@ it.each(['eof', 'length', 'content_filter'])('never executes complete-looking to
   const fetcher = vi.fn().mockResolvedValueOnce(response)
   vi.stubGlobal('fetch', fetcher)
   const call = vi.fn(async () => metadata)
-  await expect(runAiChatStream({ settings, messages, sessionId, requestId: `truncated-${ending}`, sshMcpRuntime: runtime(call), emit: () => {} })).rejects.toThrow(/未确认回复完整|输出限制/)
+  await expect(runAiChatStream({ settings, messages, sessionId, requestId: `truncated-${ending}`, sshMcpRuntime: runtime(call), emit: () => {} })).rejects.toThrow(/未确认回复完整|输出上限|服务商拦截/)
   expect(call).toHaveBeenCalledTimes(1) // Only session metadata, no exec.
   expect(fetcher).toHaveBeenCalledOnce()
 })
@@ -146,7 +168,8 @@ it.each(['length', 'max_tokens', 'content_filter'])('rejects an incomplete nonst
     ? { content: [{ type: 'text', text: 'partial' }], stop_reason: finishReason }
     : { choices: [{ message: { content: 'partial' }, finish_reason: finishReason }] }
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json(body)))
-  await expect(runAiChatCompletion(settingsForProtocol, messages)).rejects.toThrow('输出限制')
+  // Output-limit truncation and a provider block report differently on purpose.
+  await expect(runAiChatCompletion(settingsForProtocol, messages)).rejects.toThrow(finishReason === 'content_filter' ? /服务商拦截/ : /输出上限/)
 })
 
 it('does not execute remote changes when the tool boundary cannot be saved', async () => {

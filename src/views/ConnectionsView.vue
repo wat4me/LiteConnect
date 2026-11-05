@@ -14,7 +14,7 @@ import { appConfirm } from '@/composables/app/useAppDialog'
 import { useConnectionList } from '@/composables/connections/useConnectionList'
 import { useBatchTest } from '@/composables/connections/useBatchTest'
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '@shared/connectionSort'
-import type { KnowledgeGroup } from '@shared/aiKnowledgeGroups'
+import { KNOWLEDGE_GROUPS_ENABLED, type KnowledgeGroup } from '@shared/aiKnowledgeGroups'
 
 const AiKnowledgeGroupDialog = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupDialog.vue'))
 const AiKnowledgeGroupEditor = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupEditor.vue'))
@@ -379,8 +379,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
         @clear-filters="clearFilters"
       >
       <template #filters>
-        <button type="button" class="ui-btn ui-btn-sm knowledge-select-toggle" :aria-pressed="selectingKnowledge" @click="selectingKnowledge = !selectingKnowledge; knowledgeSelection = []">{{ t(selectingKnowledge ? 'common.cancel' : 'ai.knowledge.group.select') }}</button>
-        <button v-if="selectingKnowledge" type="button" class="ui-btn ui-btn-sm knowledge-create-selected" :disabled="!knowledgeSelection.length" @click="showKnowledgeGroup = true">{{ t('ai.knowledge.group.create') }} ({{ knowledgeSelection.length }})</button>
+        <button v-if="KNOWLEDGE_GROUPS_ENABLED" type="button" class="ui-btn ui-btn-sm knowledge-select-toggle" :aria-pressed="selectingKnowledge" @click="selectingKnowledge = !selectingKnowledge; knowledgeSelection = []">{{ t(selectingKnowledge ? 'common.cancel' : 'ai.knowledge.group.select') }}</button>
+        <button v-if="KNOWLEDGE_GROUPS_ENABLED && selectingKnowledge" type="button" class="ui-btn ui-btn-sm knowledge-create-selected" :disabled="!knowledgeSelection.length" @click="showKnowledgeGroup = true">{{ t('ai.knowledge.group.create') }} ({{ knowledgeSelection.length }})</button>
       <div class="filter-bar">
         <div v-if="!smartView?.startsWith('tag:')" class="color-filter">
           <ToolbarDropdown
@@ -425,7 +425,6 @@ defineExpose({ loadData, editConnection: onEditConnection })
         </button>
       </p>
 
-      <p class="list-keyboard-hint">{{ t('connections.searchKeyboardHint') }}</p>
 
       <div
         ref="connectionsListRef"
@@ -540,8 +539,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
       </div>
     </div>
 
-    <AiKnowledgeGroupDialog v-if="showKnowledgeGroup && active" :initial-ids="knowledgeSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
-    <AiKnowledgeGroupEditor v-if="knowledgeGroupId && active" :group-id="knowledgeGroupId" :active="active" @close="knowledgeGroupId = undefined" />
+    <AiKnowledgeGroupDialog v-if="KNOWLEDGE_GROUPS_ENABLED && showKnowledgeGroup && active" :initial-ids="knowledgeSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
+    <AiKnowledgeGroupEditor v-if="KNOWLEDGE_GROUPS_ENABLED && knowledgeGroupId && active" :group-id="knowledgeGroupId" :active="active" @close="knowledgeGroupId = undefined" />
     <CredentialManagerModal v-if="showCredentialManager" v-model="showCredentialManager" />
 
     <ConnectionForm

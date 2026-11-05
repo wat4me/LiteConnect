@@ -44,6 +44,26 @@ describe('SftpSession remote exec status', () => {
     await expect(sftp.sftpExists('sess-1', '/missing')).resolves.toBe(false)
     await expect(sftp.sftpExists('sess-1', '/denied')).rejects.toThrow('permission denied')
   })
+  it('opens SFTP on demand and checks directory targets without reading a listing', async () => {
+    const channel = Object.assign(new EventEmitter(), {
+      stat: vi.fn()
+        .mockImplementationOnce((_path, callback) => callback(null, { isDirectory: () => true }))
+        .mockImplementationOnce((_path, callback) => callback(null, { isDirectory: () => false }))
+        .mockImplementationOnce((_path, callback) => callback(Object.assign(new Error('missing'), { code: 2 }))),
+      readdir: vi.fn(),
+    })
+    const session = createSessionWithSftp(channel)
+    session.sftp = undefined
+    const connectSftp = vi.fn(callback => callback(null, channel))
+    session.client = { sftp: connectSftp } as unknown as Session['client']
+    const sftp = new SftpSession(() => session)
+
+    await expect(sftp.sftpExists('sess-1', '/home/link', true)).resolves.toBe(true)
+    await expect(sftp.sftpExists('sess-1', '/home/file', true)).resolves.toBe(false)
+    await expect(sftp.sftpExists('sess-1', '/home/missing', true)).resolves.toBe(false)
+    expect(connectSftp).toHaveBeenCalledOnce()
+    expect(channel.readdir).not.toHaveBeenCalled()
+  })
   it('rejects a non-zero remote exit status with stderr', async () => {
     const session = createSessionForExec((stream) => {
       stream.stderr.emit('data', Buffer.from('permission denied'))
