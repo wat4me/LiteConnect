@@ -1132,7 +1132,7 @@ app.whenReady().then(async () => {
   await waitFor('document.querySelectorAll(".workspace-card").length === 2')
   assert.ok(await run(`(() => {const current=document.querySelector('.rail-current').getBoundingClientRect();const history=document.querySelector('.rail-history').getBoundingClientRect();return current.height<100 && history.top-current.bottom<30})()`), 'An empty current-chat section leaves room for history instead of reserving a fixed panel')
   assert.equal(await run('document.querySelector(".workspace-toolbar").textContent.includes("新建巡检")'), false, 'Server browsing keeps inspection creation in the inspection page')
-  assert.deepEqual(await run('Array.from(document.querySelectorAll(".workspace-view-switch button")).map(button=>[button.textContent.trim(),button.getAttribute("aria-pressed")])'), [['卡片','false'],['列表','true']], 'The compact list is the default and both modes have visible labels')
+  assert.deepEqual(await run('Array.from(document.querySelectorAll(".workspace-view-switch button")).map(button=>[button.textContent.trim(),button.getAttribute("aria-label"),button.getAttribute("aria-pressed")])'), [['','卡片','false'],['','列表','true']], 'The view icons have accessible names and the list is selected by default')
 
   assert.equal(await run('document.querySelectorAll(".workspace-card-status").length'), 2, 'Every server exposes its connection state before selection')
   await run(`document.querySelector('[data-filter=connected]').click()`)
@@ -1148,7 +1148,7 @@ app.whenReady().then(async () => {
     await run(`document.querySelector('.lite-ai-workspace-fixture').style.width='${width}px'`)
     const overflow = await run(`(() => {const panel=document.querySelector('.ai-workspace');const browser=document.querySelector('.workspace-browser');return [panel.scrollWidth-panel.clientWidth,browser.scrollWidth-browser.clientWidth]})()`)
     assert.ok(overflow.every(value => value <= 1), `Server list fits a ${width}px workspace: ${JSON.stringify(overflow)}`)
-    assert.ok(await run(`(() => {const browser=document.querySelector('.workspace-browser').getBoundingClientRect();const button=document.querySelector('.workspace-models-button');const rect=button.getBoundingClientRect();const range=document.createRange();range.selectNodeContents(button);const text=range.getBoundingClientRect();return button.textContent.includes('管理模型')&&rect.left>=browser.left&&rect.right<=browser.right+1&&text.right<=rect.right+1&&getComputedStyle(button).borderTopStyle==='solid'})()`), `The home model button and its label remain visible at ${width}px`)
+    assert.ok(await run(`(() => {const browser=document.querySelector('.workspace-browser').getBoundingClientRect();return [...document.querySelectorAll('.workspace-toolbar-actions .workspace-action-label')].every(label=>{const button=label.closest('button'),rect=button.getBoundingClientRect();return label.checkVisibility()===${width !== 520} && button.title===label.textContent.trim() && rect.left>=browser.left && rect.right<=browser.right+1})})()`), `Management actions stay accessible at ${width}px and collapse together`)
   }
   await run(`document.querySelector('.lite-ai-workspace-fixture').style.width='1050px'`)
 
@@ -1199,7 +1199,7 @@ app.whenReady().then(async () => {
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');return toolbar.contains(document.querySelector('.workspace-target')) && toolbar.getBoundingClientRect().height<100})()`), 'Conversation title and server controls share one compact toolbar')
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');const centers=['.workspace-back','.ai-title','.workspace-target','.ai-header-actions','.workspace-session-action'].map(selector=>{const r=toolbar.querySelector(selector).getBoundingClientRect();return r.top+r.height/2});return Math.max(...centers)-Math.min(...centers)<=1})()`), 'Title, server information and session actions align on one row in a wide window')
   assert.equal(await run(`document.querySelectorAll('.lite-ai-chat .ai-header-actions button').length`), 3, 'Workspace exposes execution history, clear, and the conversation menu')
-  assert.equal(await run(`document.querySelector('.lite-ai-chat .workspace-clear-chat').textContent.trim()`), '清空', 'The current conversation has a visible clear action')
+  assert.ok(await run(`(() => {const button=document.querySelector('.lite-ai-chat .workspace-clear-chat');return button.checkVisibility() && !!button.querySelector('svg') && !button.textContent.trim() && button.getAttribute('aria-label')==='清空当前对话'})()`), 'The clear icon stays visible with an explicit accessible name')
   assert.equal(await run(`document.querySelector('.workspace-session-action').textContent.trim()`), '关闭会话', 'Legacy and scoped chats use the same close action')
   await openConversationMenu()
   assert.deepEqual(await run(`Array.from(document.querySelectorAll('.ai-conversation-menu [data-action]')).map(button=>button.dataset.action)`), ['new-current','new-scope','history','settings','disconnect'])

@@ -97,6 +97,8 @@ export function registerStoreHandlers(
       fancyCursorEnabled: all.fancyCursorEnabled,
       fancyCursorStyle: all.fancyCursorStyle,
       appBackground: all.appBackground,
+      uiDensity: all.uiDensity,
+      uiFontSize: all.uiFontSize,
     }
   })
 

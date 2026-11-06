@@ -28,6 +28,7 @@ export function applySettingsPatch(
   if (patch.sshWorkspaceLayout !== undefined) settings.sshWorkspaceLayout = normalizeWorkspaceLayout(patch.sshWorkspaceLayout)
   if (patch.theme !== undefined) settings.theme = patch.theme
   if (patch.uiDensity !== undefined) settings.uiDensity = normalizeUiDensity(patch.uiDensity)
+  if (patch.uiFontSize !== undefined) settings.uiFontSize = normalizeUiDensity(patch.uiFontSize)
   if (patch.customColors !== undefined) settings.customColors = patch.customColors
   if (patch.downloadPath !== undefined) settings.downloadPath = patch.downloadPath
   if (patch.terminalFontSize !== undefined) {

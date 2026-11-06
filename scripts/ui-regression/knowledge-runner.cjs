@@ -312,9 +312,48 @@ app.whenReady().then(async () => {
   await changeMode('readonly'); await wait('!!document.querySelector(".app-dialog")')
   await run('window.__knowledge.scope("fixture-a")'); await confirm(); await wait('!document.querySelector(".app-dialog")')
   assert.equal((await service.access('fixture-b',1).manage({action:'overview'})).targets[0].mode,'off','Stale consent cannot change another server after a scope change')
+  stage = 'setting knowledge modes directly in the multi-server picker'
   await run('window.__knowledge.scope("fixture")'); await wait('!!document.querySelector(".knowledge-usage-summary")')
-  assert.equal(await run('document.querySelector(".knowledge-usage-summary").textContent.trim()'),'知识 1/2')
-  await pointerClick('.knowledge-usage-summary'); await wait('!!document.querySelector(".knowledge-panel h3")')
+  assert.equal(await run('document.querySelector(".knowledge-usage-summary").textContent.trim()'),'知识 已启用 1/2 台')
+  await pointerClick('.knowledge-usage-summary')
+  await wait('document.querySelector(".knowledge-mode-picker")?.checkVisibility()')
+  await run('new Promise(resolve=>setTimeout(resolve,250))')
+  assert.equal(await run('document.querySelector(".knowledge-mode-picker").contains(document.activeElement)'), false, 'Opening with a pointer does not focus a mode selector')
+  await pointerClick('.knowledge-usage-summary')
+  await wait('!document.querySelector(".knowledge-mode-picker")')
+  window.webContents.focus()
+  await run('document.querySelector(".knowledge-usage-summary").focus()')
+  await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'char', text: '\r', unmodifiedText: '\r', windowsVirtualKeyCode: 13 })
+  await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await wait('document.activeElement === document.querySelector(".knowledge-mode-row select")')
+  const pickerModes = () => run(`[...document.querySelectorAll('.knowledge-mode-row select')].map(field=>field.value)`)
+  const changePickerMode = (index, mode) => run(`(() => {const field=document.querySelectorAll('.knowledge-mode-row select')[${index}];field.value='${mode}';field.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+  assert.deepEqual(await pickerModes(), ['readwrite', 'off'])
+  assert.ok(await run(`[...document.querySelectorAll('.knowledge-mode-row')].every(row => {
+    const chevron = row.querySelector('.knowledge-mode-chevron');
+    if (!chevron?.checkVisibility()) return false;
+    const { x, y, width, height } = chevron.getBoundingClientRect();
+    return width > 0 && height > 0 && document.elementFromPoint(x + width / 2, y + height / 2) === row.querySelector('select');
+  })`), 'Every mode selector shows a chevron that lets clicks reach the native select')
+  assert.equal(await run('!!document.querySelector(".knowledge-panel")'), false)
+  await changePickerMode(1, 'readonly'); await wait('!!document.querySelector(".app-dialog")')
+  await pointerClick('.app-dialog-actions button:first-child')
+  await wait('document.querySelector(".knowledge-mode-row:last-child select")?.value === "off"')
+  assert.deepEqual(await pickerModes(), ['readwrite', 'off'], 'Cancelling first-use consent keeps the picker and the two independent modes')
+  await changePickerMode(0, 'off')
+  await wait('document.querySelector(".knowledge-usage-summary").textContent.trim() === "知识 已启用 0/2 台"')
+  assert.equal(await run('document.querySelector(".knowledge-trigger").textContent.trim()'), '1', 'Document count stays visible while all servers are off')
+  await changePickerMode(0, 'readwrite')
+  await wait('document.querySelector(".knowledge-usage-summary").textContent.trim() === "知识 已启用 1/2 台"')
+  assert.deepEqual(await pickerModes(), ['readwrite', 'off'])
+  await run('window.__knowledge.busy(true)')
+  await wait(`[...document.querySelectorAll('.knowledge-mode-row select')].every(field=>field.disabled)`)
+  await run('window.__knowledge.busy(false)')
+  await wait('!document.querySelector(".knowledge-mode-row select").disabled')
+  await run(`document.querySelector('.knowledge-mode-row select').focus(); document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)
+  await wait('!document.querySelector(".knowledge-mode-picker") && document.activeElement?.classList.contains("knowledge-usage-summary")')
+  await pointerClick('.knowledge-trigger'); await wait('!!document.querySelector(".knowledge-panel h3")')
   stage = 'editing source documents and linked memory'
   await wait(`!!document.querySelector('.knowledge-meta') && !document.querySelector('.knowledge-actions button').disabled`)
   await action(1); await wait('!!document.querySelector(".memory-add")'); await click('.memory-add')
@@ -506,16 +545,20 @@ app.whenReady().then(async () => {
   for (const locale of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark', 'eyecare']) for (const workspace of [false, true]) for (const [width, count] of [[300, 0], [300, 120], [440, 2], [440, 12]]) {
     stage = `checking composer ${locale}/${theme}/${workspace}/${width}/${count}`
     await run(`(async () => { (await import('/src/i18n/index.ts')).setAppLocale('${locale}'); await window.__uiRegression.setTheme('${theme}'); await window.__uiRegression.setContextLayout(${workspace}); document.querySelector('.ai-image-composer-fixture').style.width='${width}px'; window.__knowledgeTriggerSingle=${!workspace}; window.__knowledgeTriggerCount=${count}; await window.__uiRegression.switchImageSession('knowledge-trigger-${triggerLayouts}'); })()`)
-    await wait(`document.querySelector('.ai-sidebar .knowledge-trigger').textContent.trim() === '${count ? count > 99 ? '99+' : count : ''}'`)
+    const modeControl = workspace ? '.knowledge-usage-summary' : '.knowledge-mode-field select:not(:disabled)'
+    await wait(`document.querySelector('.ai-sidebar .knowledge-trigger').textContent.trim() === '${count ? count > 99 ? '99+' : count : ''}' && !!document.querySelector('.ai-sidebar ${modeControl}')`)
     await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
     assert.ok(await run(`(() => {
       const trigger=document.querySelector('.ai-sidebar .knowledge-trigger'), strip=trigger.closest('.composer-context-strip');
       const button=trigger.getBoundingClientRect(), icon=trigger.querySelector('svg').getBoundingClientRect(), badge=trigger.querySelector('.knowledge-count')?.getBoundingClientRect();
-      const usage=strip.querySelector('.knowledge-mode-field, .knowledge-usage-summary').getBoundingClientRect();
+      const usageControl=strip.querySelector('${modeControl}'), usage=usageControl.getBoundingClientRect();
+      const docStyle=getComputedStyle(trigger), modeStyle=getComputedStyle(usageControl);
       return !strip.querySelector('.composer-context-menu, .composer-context-chips, .composer-add-image, input[type=file]') && icon.left>=button.left && icon.right<=button.right && (!badge || badge.left>=icon.right && badge.right<=button.right-1)
         && usage.left>=button.right+3 && strip.scrollWidth<=strip.clientWidth+1
+        && Math.abs(usage.height-button.height)<=1 && Math.abs(usage.top-button.top)<=1
+        && docStyle.borderTopWidth===modeStyle.borderTopWidth && docStyle.borderTopLeftRadius===modeStyle.borderTopLeftRadius
         && (!${count} || trigger.title.includes('${count}') && trigger.getAttribute('aria-label').includes('${count}'));
-    })()`),`Knowledge count stays inside its button, aligned and separate from adjacent controls: ${theme}/${workspace}/${width}/${count}`)
+    })()`),`Knowledge controls align and share a border style: ${theme}/${workspace}/${width}/${count}`)
     triggerLayouts++
   }
   await run(`(async () => { (await import('/src/i18n/index.ts')).setAppLocale('zh-CN'); await window.__uiRegression.setTheme('light'); await window.__uiRegression.setContextLayout(false); document.querySelector('.ai-image-composer-fixture').style.width='380px'; window.__knowledgeTriggerSingle=true; window.__knowledgeTriggerCount=2; await window.__uiRegression.switchImageSession('knowledge-trigger-preview'); })()`)
@@ -528,6 +571,27 @@ app.whenReady().then(async () => {
   await wait('!!document.querySelector(".knowledge-panel .knowledge-mode-select:not(:disabled)")')
   await pointerClick('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
   await wait('document.activeElement?.classList.contains("knowledge-trigger")')
+  stage = 'previewing the mode picker in the LiteAI composer'
+  await run(`(async () => {
+    window.__knowledgeTriggerSingle=false;
+    await window.__uiRegression.setContextLayout(true);
+    await window.__uiRegression.switchImageSession('knowledge-mode-picker-preview');
+  })()`)
+  await wait('!!document.querySelector(".ai-sidebar .knowledge-usage-summary")')
+  await pointerClick('.ai-sidebar .knowledge-usage-summary')
+  await wait('document.querySelector(".knowledge-mode-picker")?.checkVisibility()')
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  await new Promise(resolve => setTimeout(resolve, 200))
+  const pickerBounds = await run(`(() => {
+    const composer = document.querySelector('.ai-sidebar .composer').getBoundingClientRect();
+    const popover = document.querySelector('.knowledge-mode-popover').getBoundingClientRect();
+    const x = Math.max(0, Math.floor(Math.min(composer.left, popover.left) - 12));
+    const y = Math.max(0, Math.floor(Math.min(composer.top, popover.top) - 12));
+    return { x, y, width: Math.min(innerWidth, Math.ceil(Math.max(composer.right, popover.right) + 12)) - x,
+      height: Math.min(innerHeight, Math.ceil(Math.max(composer.bottom, popover.bottom) + 12)) - y };
+  })()`)
+  fs.writeFileSync(path.join(artifacts, 'knowledge-mode-picker.png'), (await window.webContents.capturePage(pickerBounds)).toPNG())
+  await pointerClick('.knowledge-mode-heading button'); await wait('!document.querySelector(".knowledge-mode-picker")')
   if (knowledgeGroupsEnabled) {
   stage = 'checking saved group document navigation in the real sidebar'
   const locatorGroup=service.groups.manage({action:'create',name:'Shared locator group',connectionIds:['a','b'],initialContent:'AI_GROUP_LINK: /opt/shared'}).group

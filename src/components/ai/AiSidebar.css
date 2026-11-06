@@ -386,7 +386,7 @@
   padding: var(--ai-composer-input-padding, 0);
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--font-ui);
+  font-size: var(--font-ai-content);
   line-height: var(--ai-composer-input-line-height, 1.5);
   font-family: inherit;
 }
@@ -417,6 +417,8 @@
 }
 
 .composer {
+  --ai-composer-tool-size: var(--control-h-xs);
+  --ai-send-size: calc(38px * var(--ui-scale));
   flex-shrink: 0;
   margin: 0;
   padding: var(--ai-composer-padding, 8px 10px);
@@ -470,17 +472,17 @@
 .send-btn, .stop-btn { flex-shrink: 0; }
 .composer { gap: var(--space-2); }
 .composer-actions-right { width: 100%; gap: 6px; min-width: 0; }
-.composer-permission-selector { display: flex; height: 34px; align-items: center; margin-left: auto; flex-shrink: 0; }
-.model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: 34px; align-items: center; gap: var(--space-1); }
+.composer-permission-selector { display: flex; height: var(--control-h-sm); align-items: center; margin-left: auto; flex-shrink: 0; }
+.model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: var(--control-h-sm); align-items: center; gap: var(--space-1); }
 
 .ai-model-switcher:disabled { cursor: not-allowed; opacity: .5; }
-.send-btn, .stop-btn { width: 38px; height: 38px; min-width: 38px; padding: 0; font-size: var(--font-caption); margin-left: 0; }
+.send-btn, .stop-btn { width: var(--ai-send-size); height: var(--ai-send-size); min-width: var(--ai-send-size); padding: 0; font-size: var(--font-caption); margin-left: 0; }
 .composer-context-warning { font-size: var(--font-caption); color: var(--text-secondary); text-align: right; }
 .composer-context-warning.warn { color: var(--warning); }
 .composer-context-warning.danger { color: var(--danger); font-weight: 600; }
 .model-context-info { padding: 6px; font-size: var(--font-caption); color: var(--text-secondary); border-bottom: 1px solid var(--border-color); }
 @container ai-composer (max-width: 340px) {
-  .is-workspace .composer-actions-right { display: grid; grid-template-columns: minmax(0, 1fr) 38px; column-gap: var(--space-3); row-gap: 3px; }
+  .is-workspace .composer-actions-right { display: grid; grid-template-columns: minmax(0, 1fr) var(--ai-send-size); column-gap: var(--space-3); row-gap: 3px; }
   .is-workspace .model-switcher-wrap { grid-column: 1; max-width: none; }
   .is-workspace .composer-permission-selector { grid-column: 1; grid-row: 2; margin-left: 0; }
   .is-workspace .send-btn, .is-workspace .stop-btn { grid-column: 2; grid-row: 1 / 3; margin-left: 0; }
@@ -500,7 +502,7 @@
   --icon-btn-sm: calc(24px * var(--ui-scale));
 }
 .ai-sidebar:not(.is-workspace) .composer {
-  --ai-composer-tool-size: 24px;
+  --ai-composer-tool-size: calc(24px * var(--ui-scale));
   --icon-xs: calc(10px * var(--ui-scale));
   --icon-sm: calc(12px * var(--ui-scale));
   --icon-md: calc(14px * var(--ui-scale));
@@ -518,8 +520,6 @@
 .ai-sidebar:not(.is-workspace) .model-switcher-wrap { flex: 1; max-width: none; }
 .ai-sidebar:not(.is-workspace) .model-switcher-wrap,
 .ai-sidebar:not(.is-workspace) .composer-permission-selector { height: var(--control-h-sm); }
-.ai-sidebar:not(.is-workspace) .send-btn,
-.ai-sidebar:not(.is-workspace) .stop-btn { width: var(--ai-send-size); height: var(--ai-send-size); min-width: var(--ai-send-size); }
 
 /* LiteAI uses one desktop toolbar; the terminal's compact AI panel keeps its layout. */
 .is-workspace {
@@ -530,8 +530,8 @@
   flex-wrap: nowrap;
   flex-shrink: 0;
   gap: 10px;
-  min-height: 56px;
-  padding: 12px 20px;
+  min-height: calc(56px * var(--ui-scale));
+  padding: 8px 16px;
   border-bottom: 1px solid var(--workspace-line);
   background: var(--workspace-toolbar);
 }
@@ -554,12 +554,7 @@
   background: var(--bg-primary);
 }
 .is-workspace .ai-header-actions .ui-icon-btn:hover:not(:disabled) { background: var(--hover-bg); border-color: var(--border-color); }
-.workspace-clear-chat { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: var(--icon-btn-md); padding: 0 9px; border-radius: var(--workspace-radius); white-space: nowrap; }
-.workspace-clear-chat:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
-@container ai-sidebar (max-width: 480px) {
-  .workspace-clear-chat { width: var(--icon-btn-md); padding: 0; }
-  .workspace-clear-chat > span { display: none; }
-}
+.is-workspace .ai-header-actions .workspace-clear-chat:hover:not(:disabled) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .is-workspace .ai-header :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .is-workspace .ai-body {
   align-self: center;
@@ -587,9 +582,6 @@
 .is-workspace .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
   box-shadow: 0 0 0 3px var(--accent-bg), var(--workspace-shadow);
-}
-.is-workspace .composer-input {
-  font-size: var(--font-ui);
 }
 .is-workspace .send-btn,
 .is-workspace .stop-btn {

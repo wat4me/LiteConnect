@@ -24,6 +24,7 @@ import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globa
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
 import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
 import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
+import { normalizeUiDensity } from '../../shared/uiDensity'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -988,6 +989,8 @@ export class SettingsStore {
     return {
       sshWorkspaceLayout: normalizeWorkspaceLayout(this.settings.sshWorkspaceLayout),
       theme: this.getTheme(),
+      uiDensity: normalizeUiDensity(this.settings.uiDensity),
+      uiFontSize: normalizeUiDensity(this.settings.uiFontSize),
       customColors: this.getCustomColors(),
       downloadPath: this.getDownloadPath(),
       configuredDownloadPath: this.getConfiguredDownloadPath(),

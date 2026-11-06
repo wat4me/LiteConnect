@@ -567,8 +567,8 @@ onBeforeUnmount(() => {
 }
 
 .home-btn {
-  width: 28px;
-  height: 28px;
+  width: var(--icon-btn-sm);
+  height: var(--icon-btn-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -628,7 +628,7 @@ onBeforeUnmount(() => {
   height: 100%;
   cursor: pointer;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   transition: background 0.15s, color 0.15s;
   user-select: none;
@@ -803,7 +803,7 @@ onBeforeUnmount(() => {
 }
 
 .tab-add-btn {
-  width: 28px;
+  width: var(--icon-btn-sm);
   height: 100%;
   display: flex;
   align-items: center;

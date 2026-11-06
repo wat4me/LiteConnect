@@ -1,12 +1,16 @@
 :root {
   --sidebar-width: 280px;
-  --tab-height: 36px;
+  --tab-height: calc(36px * var(--ui-scale));
   --titlebar-height: 36px;
   /**
    * Icon system — vector SVGs (viewBox 24×24).
    * Sizes are semantic tokens; --ui-scale lets density / accessibility scale all icons.
    */
-  --ui-scale: 1;
+  --ui-scale: 0.92;
+  --ui-font-scale: 0.92;
+  /* Chat text uses its own sizes independently of interface density. */
+  --font-ai-content: 13px;
+  --font-ai-heading: 14px;
   /** Left icon rail + TabBar home zone share this so vertical borders line up */
   --left-toolbar-width: calc(40px * var(--ui-scale));
   --icon-xs: calc(12px * var(--ui-scale));
@@ -22,13 +26,20 @@
   --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
-/* Compact / comfortable density hooks (optional: set on <html data-ui-density>) */
 html[data-ui-density='compact'] {
-  --ui-scale: 0.92;
+  --ui-scale: 0.88;
 }
 
 html[data-ui-density='comfortable'] {
   --ui-scale: 1.08;
+}
+
+html[data-ui-font-size='compact'] {
+  --ui-font-scale: 0.88;
+}
+
+html[data-ui-font-size='comfortable'] {
+  --ui-font-scale: 1.08;
 }
 
 /* Prefer larger controls when OS requests it */
@@ -456,11 +467,11 @@ html:not([data-theme]),
   --control-h: calc(36px * var(--ui-scale));
   --control-h-sm: calc(32px * var(--ui-scale));
   --control-h-xs: calc(26px * var(--ui-scale));
-  --font-ui: calc(13px * var(--ui-scale));
-  --font-ui-sm: calc(12px * var(--ui-scale));
-  --font-caption: calc(11px * var(--ui-scale));
-  --font-section: calc(14px * var(--ui-scale));
-  --font-title: calc(20px * var(--ui-scale));
+  --font-ui: calc(13px * var(--ui-font-scale));
+  --font-ui-sm: calc(12px * var(--ui-font-scale));
+  --font-caption: calc(11px * var(--ui-font-scale));
+  --font-section: calc(14px * var(--ui-font-scale));
+  --font-title: calc(20px * var(--ui-font-scale));
   --line-ui: 1.4;
   --line-reading: 1.6;
   --space-1: 4px;

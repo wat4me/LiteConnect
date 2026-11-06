@@ -1,8 +1,13 @@
 export default {
   settingsAppearance: {
     title: 'Appearance',
-    intro: 'Adjust the interface theme, background image, and mouse cursor. Set terminal colors under Terminal.',
+    intro: 'Adjust the interface theme, sizing, background image, and mouse cursor. Set terminal colors under Terminal.',
     theme: 'Interface theme',
+    uiFontSize: 'Interface text size',
+    uiFontSizeHint: 'Applies to menus, tabs, and forms when you save.',
+    uiDensity: 'Icon and button size',
+    uiDensityHint: 'Resizes icons, buttons, and toolbars when you save.',
+    uiSize: { compact: 'Small', standard: 'Default', comfortable: 'Large' },
     bgColor: 'Background',
     fontColor: 'Font',
     bgImage: 'Background image',

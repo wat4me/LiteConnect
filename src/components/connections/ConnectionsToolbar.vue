@@ -63,7 +63,7 @@ defineExpose({ searchInputRef })
       <div class="toolbar-actions">
         <ToolbarDropdown
           class="toolbar-more" :label="t('connections.tools')" :aria-label="t('connections.tools')"
-          :items="actionItems" align="right" trigger-class="toolbar-more-button" menu-class="toolbar-menu" teleport
+          :items="actionItems" align="right" trigger-class="toolbar-more-button" menu-class="toolbar-menu" icon-only teleport
           @select="onAction"
         />
         <button class="ui-btn ui-btn-primary" type="button" data-onboarding="add-connection" @click="emit('add')">

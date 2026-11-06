@@ -4,7 +4,7 @@ import { validateAiRequestImages } from '../../../shared/aiImages'
 import { aiTokenCount, normalizeAiUsage } from '../../../shared/aiUsage'
 import { DEFAULT_OUTPUT_RESERVE_TOKENS } from '../../../shared/aiContext'
 import type { AiAnthropicContentBlock, AiChatMessage, AiResolvedConfig, AiUsage } from '../../../shared/types/ai'
-import { normalizeAiBaseUrl, readAiStream } from './http'
+import { AiProviderError, normalizeAiBaseUrl, readAiStream } from './http'
 import { parseProviderModels } from './modelMetadata'
 import type { AiProviderAdapter, AiProviderDelta } from './types'
 import { t } from '../../i18n'
@@ -72,7 +72,7 @@ export function extractAnthropicUsage(raw: any): AiUsage | undefined {
 }
 
 function parseAnthropicResponse(data: any) {
-  if (data?.type === 'error') throw new Error(data.error?.message || 'Claude request failed')
+  if (data?.type === 'error') throw new AiProviderError({ kind: 'provider', detail: data.error?.message || 'Claude request failed' })
   const blocks = normalizeAnthropicContent(data?.content) || []
   const content = blocks.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
   const reasoningContent = blocks.flatMap(block => block.type === 'thinking' ? [block.thinking] : []).join('') || undefined
@@ -91,7 +91,7 @@ async function readAnthropicStream(_settings: AiResolvedConfig, response: Respon
   let stopped = false
   let finishReason = ''
   await readAiStream(response, event => {
-    if (event?.type === 'error') throw new Error(event.error?.message || 'Claude stream failed')
+    if (event?.type === 'error') throw new AiProviderError({ kind: 'provider', detail: event.error?.message || 'Claude stream failed' })
     if (event?.type === 'message_start') {
       started = true
       usage = { ...event.message?.usage }
@@ -128,7 +128,7 @@ async function readAnthropicStream(_settings: AiResolvedConfig, response: Respon
       }
     }
   }, true)
-  if (!started || !stopped || openBlocks.size) throw new Error(t('ai.streamIncomplete'))
+  if (!started || !stopped || openBlocks.size) throw new AiProviderError({ kind: 'response', detail: t('ai.streamIncomplete') })
   if (finishReason === 'max_tokens') throw new Error(t('ai.outputLimitReached'))
   return parseAnthropicResponse({ content: [...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block) }).apiMessages[0]
 }

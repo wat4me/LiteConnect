@@ -27,7 +27,7 @@ export default {
       groupIntegrations: 'Integrations',
       groupHelp: 'Help',
       appearance: 'Appearance',
-      appearanceDesc: 'Theme, background, and cursor',
+      appearanceDesc: 'Theme, interface sizing, background, and cursor',
       app: 'App',
       appDesc: 'Language, window, shortcuts, and startup restore',
       terminal: 'Terminal',

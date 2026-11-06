@@ -2,7 +2,7 @@ import type { AiResolvedConfig } from '../../../shared/types/ai'
 import { assertAiImageCapability } from '../../../shared/aiImages'
 import { isContextLengthError, isOutputLimitError, MIN_OUTPUT_RESERVE_TOKENS, resolveContextWindowTokens } from '../../../shared/aiContext'
 import { t } from '../../i18n/index'
-import { readHttpErrorMessage } from '../providers/http'
+import { AiProviderError, fetchAiResponse, readAiResponseJson, readHttpErrorMessage } from '../providers/http'
 import { getAiProviderAdapter } from '../providers/registry'
 import { packRequestMessages } from './requestContext'
 import { resolveAiContextBudget } from '../../../shared/aiContextPressure'
@@ -26,7 +26,7 @@ export async function runAiChatCompletion(
   let outputCap = resolveAiContextBudget(settings).outputReserveTokens
   const postChat = (packed: ReturnType<typeof packRequestMessages>) => {
     const request = provider.buildRequest(settings, packed, { maxTokens: outputCap })
-    return fetch(request.url, {
+    return fetchAiResponse(request.url, {
       method: 'POST',
       signal,
       headers: request.headers,
@@ -64,13 +64,14 @@ export async function runAiChatCompletion(
         continue
       }
     }
-    throw new Error(failure)
+    throw new AiProviderError({ kind: 'http', status: response.status, detail: failure })
   }
   if (!response.ok) {
-    throw new Error(failure || t('ai.requestFailed', { status: response.status }))
+    const status = response.status
+    throw new AiProviderError({ kind: 'http', status, detail: failure || t('ai.requestFailed', { status }) })
   }
 
-  const data = await response.json()
+  const data = await readAiResponseJson(response)
   const reply = provider.parseResponse(settings, data)
   if (['length', 'max_tokens'].includes(reply.finishReason || '')) {
     throw new Error(t('ai.outputLimitReached'))

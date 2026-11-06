@@ -132,6 +132,13 @@ export interface AiToolRun {
   diffPreview?: string
 }
 
+export interface AiChatFailure {
+  kind: 'request' | 'response' | 'http' | 'provider' | 'other'
+  detail: string
+  code?: string
+  status?: number
+}
+
 export interface AiChatResult {
   contextCompacted?: boolean
   contextPressure?: AiContextPressure
@@ -140,6 +147,7 @@ export interface AiChatResult {
   /** Wall-clock time when this assistant turn finished. */
   completedAt?: number
   error?: boolean
+  failure?: AiChatFailure
   segments?: AiChatSegment[]
   reasoningContent?: string
   usage?: AiUsage
@@ -181,6 +189,7 @@ export interface AiHistoryRecord {
   reasoningContent?: string
   usage?: AiUsage
   error?: boolean
+  failure?: AiChatFailure
   /** Lifecycle state. Interrupted/running assistant turns are never replayed to the model. */
   status?: 'running' | 'completed' | 'aborted' | 'error'
   createdAt: number

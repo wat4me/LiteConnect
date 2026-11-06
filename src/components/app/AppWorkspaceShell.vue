@@ -38,7 +38,7 @@ const modules = [
 .app-shell { display: flex; flex: 1; min-width: 0; min-height: 0; position: relative; z-index: 1; overflow: hidden; border-top: 1px solid var(--border-color); background: transparent; }
 .app-module-rail { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 0 0 calc(48px * var(--ui-scale)); width: calc(48px * var(--ui-scale)); min-height: 0; box-sizing: border-box; padding: 8px 4px; border-right: 1px solid var(--border-color); background: var(--bg-secondary); -webkit-app-region: no-drag; }
 .app-module-button { display: flex; position: relative; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
-.app-module-button > span { font-size: calc(10px * var(--ui-scale)); line-height: 1.2; font-weight: 600; letter-spacing: .2px; }
+.app-module-button > span { font-size: max(10px, calc(10px * var(--ui-font-scale))); line-height: 1.2; font-weight: 600; letter-spacing: .2px; }
 .app-module-button:hover:not(:disabled):not(.active) { background: var(--hover-bg); color: var(--text-primary); }
 .app-module-button.active { color: var(--accent); background: var(--accent-bg); }
 .app-module-button.active::before { content: ''; position: absolute; left: -4px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }

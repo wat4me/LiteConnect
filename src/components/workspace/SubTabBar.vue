@@ -251,8 +251,8 @@ function onTabClick(sessionId: string) {
 }
 
 .sub-tab-bar {
-  height: 28px;
-  min-height: 28px;
+  height: var(--icon-btn-sm);
+  min-height: var(--icon-btn-sm);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -266,7 +266,7 @@ function onTabClick(sessionId: string) {
   justify-content: space-between;
   gap: 10px;
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -276,7 +276,7 @@ function onTabClick(sessionId: string) {
   border: none;
   background: transparent;
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-caption);
   cursor: pointer;
   flex-shrink: 0;
   padding: 2px 4px;
@@ -300,7 +300,7 @@ function onTabClick(sessionId: string) {
   height: 20px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   transition: all 0.15s;
   user-select: none;

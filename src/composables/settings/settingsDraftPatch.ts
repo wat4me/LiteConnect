@@ -7,6 +7,8 @@ import { clampQueryMaxRows, clampQueryTimeoutSec, sanitizeDefaultRunScopePref } 
 function writableSettings(d: SettingsDraft): AppSettingsAllPatch {
   return {
     theme: d.theme,
+    uiDensity: d.uiDensity,
+    uiFontSize: d.uiFontSize,
     customColors: { fontColor: d.fontColor, bgColor: d.bgColor },
     fancyCursorEnabled: d.fancyCursorEnabled,
     fancyCursorStyle: d.fancyCursorStyle,

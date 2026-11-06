@@ -1,4 +1,38 @@
 import { t } from '../../i18n'
+import type { AiChatFailure } from '../../../shared/types/ai'
+
+export class AiProviderError extends Error {
+  constructor(readonly failure: AiChatFailure) {
+    super(failure.detail)
+  }
+}
+
+function transportError(kind: 'request' | 'response', error: unknown): unknown {
+  if (!(error instanceof Error) || error.name === 'AbortError') return error
+  const cause = error.cause as { code?: unknown } | undefined
+  const code = cause?.code ?? (error as Error & { code?: unknown }).code
+  return new AiProviderError({
+    kind,
+    detail: error.message,
+    code: typeof code === 'string' && /^[A-Z][A-Z_0-9]{0,79}$/.test(code) ? code : undefined,
+  })
+}
+
+export async function fetchAiResponse(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (error) {
+    throw init.signal?.aborted ? error : transportError('request', error)
+  }
+}
+
+export async function readAiResponseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch (error) {
+    throw transportError('response', error)
+  }
+}
 
 export function normalizeAiBaseUrl(baseUrl: string): string {
   if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
@@ -22,14 +56,15 @@ export function normalizeAiBaseUrl(baseUrl: string): string {
 export async function readHttpErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const data = await response.json()
-    return data?.error?.message || data?.message || fallback
+    const detail = data?.error?.message || data?.message
+    return typeof detail === 'string' && detail.trim() ? detail : fallback
   } catch {
     return fallback
   }
 }
 
 export async function readAiStream(response: Response, onEvent: (event: any) => void, strictJson = false): Promise<boolean> {
-  if (!response.body) throw new Error(t('ai.noStreamBody'))
+  if (!response.body) throw new AiProviderError({ kind: 'response', detail: t('ai.noStreamBody') })
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -56,7 +91,7 @@ export async function readAiStream(response: Response, onEvent: (event: any) => 
 
   try {
     while (true) {
-      const { value, done } = await reader.read()
+      const { value, done } = await reader.read().catch(error => { throw transportError('response', error) })
       if (done) {
         buffer += decoder.decode()
         break

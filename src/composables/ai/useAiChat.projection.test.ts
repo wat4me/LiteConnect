@@ -1,10 +1,24 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { useAiChat } from './useAiChat'
 import type { AiChatResult, AiHistoryRecord } from '../../env.d'
+import { fromHistoryRecord } from '@/utils/ai/chatHistoryProjection'
 
 vi.mock('../../i18n', () => ({ t: (key: string) => key }))
 vi.mock('element-plus/es/components/message/index', () => ({ ElMessage: { warning: vi.fn() } }))
 afterEach(() => vi.unstubAllGlobals())
+
+it('separates the legacy fetch error from progress text after a tool run', () => {
+  const record: AiHistoryRecord = {
+    id: 'legacy', role: 'assistant', createdAt: 1, error: true,
+    content: 'Checking.\n\nfetch failed',
+    segments: [{ kind: 'content', text: 'Checking.' }, { kind: 'tool', runId: 'exec' }, { kind: 'content', text: '\n\nfetch failed' }],
+  }
+  expect(fromHistoryRecord(record)).toMatchObject({
+    content: 'Checking.', failure: { kind: 'request', detail: 'fetch failed' },
+    segments: [{ kind: 'content', text: 'Checking.' }, { kind: 'tool', runId: 'exec' }],
+  })
+  expect(record.segments).toHaveLength(3)
+})
 
 it('adds passive cancellation records without changing an active request or its approvals', () => {
   let receive: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void = () => {}

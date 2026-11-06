@@ -12,6 +12,7 @@ import {
 } from '@/composables/app/useAppBackground'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
+import { UI_DENSITIES } from '@shared/uiDensity'
 
 const props = defineProps<{
   draft: SettingsDraft
@@ -358,6 +359,23 @@ onBeforeUnmount(() => {
           </div>
         </template>
 
+        <div class="appearance-size-controls">
+          <div data-setting="appearance.uiFontSize">
+            <label for="appearance-ui-font-size" class="settings-label">{{ t('settingsAppearance.uiFontSize') }}</label>
+            <select id="appearance-ui-font-size" v-model="draft.uiFontSize" class="ui-select ui-input-sm" aria-describedby="appearance-ui-font-size-hint">
+              <option v-for="size in UI_DENSITIES" :key="size" :value="size">{{ t(`settingsAppearance.uiSize.${size}`) }}</option>
+            </select>
+            <p id="appearance-ui-font-size-hint" class="settings-hint">{{ t('settingsAppearance.uiFontSizeHint') }}</p>
+          </div>
+          <div data-setting="appearance.uiDensity">
+            <label for="appearance-ui-density" class="settings-label">{{ t('settingsAppearance.uiDensity') }}</label>
+            <select id="appearance-ui-density" v-model="draft.uiDensity" class="ui-select ui-input-sm" aria-describedby="appearance-ui-density-hint">
+              <option v-for="size in UI_DENSITIES" :key="size" :value="size">{{ t(`settingsAppearance.uiSize.${size}`) }}</option>
+            </select>
+            <p id="appearance-ui-density-hint" class="settings-hint">{{ t('settingsAppearance.uiDensityHint') }}</p>
+          </div>
+        </div>
+
         <div class="settings-label" style="margin-top: 18px" data-setting="appearance.bgImage">{{ t('settingsAppearance.bgImage') }}</div>
         <div class="bg-image-row">
           <button type="button" class="ui-btn" @click="pickBackgroundImage">
@@ -520,6 +538,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.appearance-size-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.appearance-size-controls .settings-label { display: block; }
+
 .theme-options {
   display: grid;
   grid-template-columns: 1fr 1fr;

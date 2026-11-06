@@ -55,6 +55,7 @@ export function toHistoryRecord(message: ChatItem): AiHistoryRecord {
   const usage = plainUsage(message.usage)
   if (usage) record.usage = usage
   if (message.error === true) record.error = true
+  if (message.failure) record.failure = { ...message.failure }
   if (message.status) record.status = message.status
   if (message.toolRuns?.length) record.toolRuns = plainToolRuns(message.toolRuns)
   const segments = plainSegments(message.segments)
@@ -65,20 +66,37 @@ export function toHistoryRecord(message: ChatItem): AiHistoryRecord {
 }
 
 export function fromHistoryRecord(record: AiHistoryRecord): ChatItem {
+  let { content, segments, failure } = record
+  if (record.role === 'assistant' && (record.error || record.status === 'error') && !failure) {
+    // Older versions appended the transport error to the reply text. Only split known suffixes.
+    const legacyTransportError = /(?:^|\r?\n\r?\n)(fetch failed|terminated)\s*$/i
+    const last = segments?.at(-1)
+    const match = (last?.kind === 'content' ? last.text : segments?.length ? '' : content).match(legacyTransportError)
+    if (match) {
+      failure = { kind: match[1].toLowerCase() === 'fetch failed' ? 'request' : 'response', detail: match[1] }
+      content = content.replace(legacyTransportError, '')
+      if (last?.kind === 'content' && segments) {
+        const text = last.text.slice(0, -match[0].length)
+        segments = segments.slice(0, -1)
+        if (text) segments.push({ kind: 'content', text })
+      }
+    }
+  }
   return {
     id: record.id,
     role: record.role,
-    content: record.content || (record.role === 'assistant' && record.status === 'aborted' ? t('ai.stopped') : ''),
+    content: content || (record.role === 'assistant' && record.status === 'aborted' ? t('ai.stopped') : ''),
     backgroundNotice: record.backgroundNotice,
     images: record.images,
     reasoningContent: record.reasoningContent,
     usage: record.usage,
     error: record.error,
+    failure,
     status: record.status,
     createdAt: record.createdAt,
     completedAt: record.completedAt,
     toolRuns: record.toolRuns,
-    segments: record.segments,
+    segments,
     apiMessages: record.apiMessages,
   }
 }

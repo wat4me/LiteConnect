@@ -2,6 +2,7 @@ import type { AiChatMessage, AiChatResult, AiChatStreamOptions, AiChatStreamPayl
 import { createAssistantCheckpoint } from './assistantCheckpoint'
 import { t } from '../../i18n/index'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
+import { AiProviderError } from '../providers/http'
 
 /** The main process owns the reply. Publishing is only a best-effort UI projection. */
 export async function runPersistedAiReply(opts: {
@@ -84,6 +85,7 @@ export async function runPersistedAiReply(opts: {
     record.usage = reply.usage || record.usage
     record.apiMessages = reply.apiMessages || record.apiMessages
     record.error = reply.error === true
+    record.failure = reply.failure
     record.status = aborted ? 'aborted' : record.error ? 'error' : 'completed'
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -91,9 +93,9 @@ export async function runPersistedAiReply(opts: {
     if (!aborted) {
       record.error = true
       record.status = 'error'
-      const suffix = `${record.content ? '\n\n' : ''}${message || t('ai.requestInterrupted')}`
-      record.content += suffix
-      append('content', suffix)
+      record.failure = err instanceof AiProviderError
+        ? { ...err.failure, detail: err.message || t('ai.requestInterrupted') }
+        : { kind: 'other', detail: message || t('ai.requestInterrupted') }
     } else if (!record.content) {
       record.status = 'aborted'
       record.content = t('ai.stopped')
@@ -134,6 +136,7 @@ export async function runPersistedAiReply(opts: {
     segments: record.segments,
     apiMessages: record.apiMessages,
     error: record.error,
+    failure: record.failure,
     aborted,
     contextCheckpoint,
   }

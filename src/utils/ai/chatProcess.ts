@@ -28,7 +28,7 @@ export interface ChatProcessLayout {
   hasProcess: boolean
   /** Still working and no conclusion has started: steps stay expanded. */
   live: boolean
-  /** Finished without a conclusion because the turn was stopped or failed. */
+  /** The turn failed or was stopped before its conclusion. */
   interrupted: boolean
   /** Index of the conclusion segment, or -1 while there is none. */
   conclusionIndex: number
@@ -73,8 +73,8 @@ export function chatProcessLayout(source: ChatProcessSource): ChatProcessLayout 
   }
   const hasProcess = stats.steps > 0
   const live = Boolean(source.streaming) && conclusionIndex === -1
-  const interrupted = hasProcess && !live && conclusionIndex === -1
-    && (source.status === 'aborted' || source.status === 'error' || Boolean(source.error))
+  const interrupted = hasProcess && !live
+    && (source.status === 'error' || Boolean(source.error) || (source.status === 'aborted' && conclusionIndex === -1))
   if (typeof source.createdAt === 'number' && typeof source.completedAt === 'number' && source.completedAt >= source.createdAt) {
     stats.durationSeconds = Math.round((source.completedAt - source.createdAt) / 1000)
   }

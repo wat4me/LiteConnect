@@ -55,9 +55,12 @@ import {
 } from '@shared/globalHotkey'
 import { DEFAULT_SFTP_FONT_SIZE, sanitizeSftpFontSize } from '@shared/sftpFontSize'
 import { DEFAULT_APP_LOCALE, sanitizeAppLocale, type AppLocale } from '@shared/appLocale'
+import { DEFAULT_UI_DENSITY, normalizeUiDensity, type UiDensity } from '@shared/uiDensity'
 
 export interface SettingsDraft {
   theme: Theme
+  uiDensity: UiDensity
+  uiFontSize: UiDensity
   bgColor: string
   fontColor: string
   /** Display path (always a concrete directory) */
@@ -125,6 +128,8 @@ export interface SettingsDraft {
 export function createEmptyDraft(): SettingsDraft {
   return {
     theme: 'dark',
+    uiDensity: DEFAULT_UI_DENSITY,
+    uiFontSize: DEFAULT_UI_DENSITY,
     bgColor: '#0d1117',
     fontColor: '#e6edf3',
     downloadPath: '',
@@ -181,6 +186,8 @@ export function cloneDraft(d: SettingsDraft): SettingsDraft {
 function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
   return (
     a.theme === b.theme
+    && a.uiDensity === b.uiDensity
+    && a.uiFontSize === b.uiFontSize
     && a.bgColor === b.bgColor
     && a.fontColor === b.fontColor
     && a.downloadPath === b.downloadPath
@@ -269,6 +276,8 @@ export function useSettingsDraft(): {
   function createSystemDefaultDraft(): SettingsDraft {
     return {
       theme: 'dark',
+      uiDensity: DEFAULT_UI_DENSITY,
+      uiFontSize: DEFAULT_UI_DENSITY,
       bgColor: '#0d1117',
       fontColor: '#e6edf3',
       downloadPath: systemDefaultDownloadPath.value,
@@ -322,6 +331,8 @@ export function useSettingsDraft(): {
       : DEFAULT_DB_PAGE_SIZE
     const next: SettingsDraft = {
       theme: (['dark', 'light', 'eyecare', 'custom'].includes(all.theme) ? all.theme : theme.value) as Theme,
+      uiDensity: normalizeUiDensity(all.uiDensity),
+      uiFontSize: normalizeUiDensity(all.uiFontSize),
       bgColor: all.customColors?.bgColor || customColors.value.bgColor,
       fontColor: all.customColors?.fontColor || customColors.value.fontColor,
       downloadPath: useSystem ? all.defaultDownloadPath : all.downloadPath,

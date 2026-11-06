@@ -33,6 +33,7 @@ app.whenReady().then(async () => {
   await wait(`!!document.querySelector('.titlebar-mode-menu')`)
   await run(`document.querySelector('.titlebar-mode-menu .titlebar-mode-item:last-child').click()`)
   await wait(`document.querySelectorAll('${root} .workspace-card').length===2`)
+  assert.deepEqual(await run(`[...document.querySelectorAll('${root} .workspace-view-switch button')].map(button=>[button.textContent.trim(),button.getAttribute('aria-label'),button.getAttribute('aria-pressed')])`), [['', '卡片', 'false'], ['', '列表', 'true']])
   assert.equal(await run(`document.querySelectorAll('${root} .workspace-disconnect-host').length`), 0, 'Disconnected hosts offer no disconnect action')
   const firstSession = await run(`window.LiteConnect.aiOpenWorkspaceConnection('one')`)
   await wait(`!!document.querySelector('${button('one')}')`)
@@ -60,6 +61,13 @@ app.whenReady().then(async () => {
         await run(`Object.assign(document.querySelector('${root}').style,{width:'${width}px',height:'760px'});document.querySelector('${root}').scrollIntoView({block:'center'})`)
         await frames()
         assert.ok(await run(`(() => {const pane=document.querySelector('${root} .workspace-host-scroll');return pane.scrollWidth<=pane.clientWidth+1 && [...pane.querySelectorAll('.workspace-disconnect-host')].every(node=>{const r=node.getBoundingClientRect(),card=node.closest('.workspace-card').getBoundingClientRect();return r.left>=card.left && r.right<=card.right+1 && r.top>=card.top && r.bottom<=card.bottom+1 && node.scrollWidth<=node.clientWidth+1 && document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.workspace-disconnect-host')===node})})()`), `${theme}/${view}/${width}: actions remain visible and clickable without hovering`)
+        assert.ok(await run(`[...document.querySelectorAll('${root} .workspace-action-label')].every(label=>label.checkVisibility()===${width !== 520} && label.closest('button').title===label.textContent.trim())`), `${theme}/${width}: management labels collapse together`)
+        assert.ok(await run(`(() => {
+          const controls = document.querySelector('${root} .workspace-toolbar-controls');
+          const search = controls.querySelector('.workspace-search-field').getBoundingClientRect();
+          const views = controls.querySelector('.workspace-view-switch').getBoundingClientRect();
+          return search.right <= views.left && views.top < search.bottom && views.bottom > search.top;
+        })()`), `${theme}/${width}: the view icons share the search row`)
         if (view === 'list' && width === 1150) assert.equal(await run(`document.querySelector('${root} .workspace-list-heading').children.length`), 4, 'Desktop lists have an explicit actions column')
         await screenshot(`disconnect-${theme}-${view}-${width}.png`)
         layoutCases++

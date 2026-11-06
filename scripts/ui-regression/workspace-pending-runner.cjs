@@ -29,6 +29,7 @@ app.whenReady().then(async () => {
   for (const id of ['one', 'two']) {
     await run(`document.querySelector('${root} .workspace-card[data-connection-id="${id}"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`)
     await wait(`!!document.querySelector('${root} .lite-ai-chat .composer-input')`)
+    assert.deepEqual(await run(`[...document.querySelectorAll('${root} :is(.workspace-clear-chat, .workspace-close-session)')].map(button=>[button.textContent.trim(), button.getAttribute('aria-label'), !!button.querySelector('svg')])`), [['', '清空当前对话', true], ['', '关闭会话', true]])
     const scopeId = await run('window.__uiRegression.workspaceScopes.at(-1).id')
     await run(`window.__uiRegression.seedWorkspacePending('${scopeId}','${id === 'one' ? 'question' : 'approval'}')`)
     await wait(`!!document.querySelector('${row(scopeId)} .rail-pending-badge')`)

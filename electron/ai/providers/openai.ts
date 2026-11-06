@@ -2,7 +2,7 @@ import { aiTokenCount, normalizeAiUsage } from '../../../shared/aiUsage'
 import { normalizeAiChatMessage, sanitizeAiToolProtocol } from '../../../shared/aiMessages'
 import { validateAiRequestImages } from '../../../shared/aiImages'
 import type { AiChatMessage, AiUsage } from '../../../shared/types/ai'
-import { normalizeAiBaseUrl, readAiStream } from './http'
+import { AiProviderError, normalizeAiBaseUrl, readAiStream } from './http'
 import { parseProviderModels } from './modelMetadata'
 import type { AiProviderAdapter } from './types'
 import { t } from '../../i18n'
@@ -129,6 +129,7 @@ export const openaiProvider: AiProviderAdapter = {
     }
   },
   parseResponse(_settings, data) {
+    if (data?.error) throw new AiProviderError({ kind: 'provider', detail: data.error.message || 'AI request failed' })
     const choice = data?.choices?.[0]
     return {
       content: normalizeAiContent(choice?.message?.content ?? choice?.text),
@@ -143,7 +144,7 @@ export const openaiProvider: AiProviderAdapter = {
     const stopped = await readAiStream(response, chunk => {
       const choice = chunk?.choices?.[0]
       const delta = choice?.delta || {}
-      if (chunk?.error) throw new Error(chunk.error.message || 'AI stream failed')
+      if (chunk?.error) throw new AiProviderError({ kind: 'provider', detail: chunk.error.message || 'AI stream failed' })
       if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason || finishReason
       const content = normalizeAiContent(delta.content ?? choice?.text)
       const reasoning = extractAiReasoningFromChoice(choice)
@@ -151,7 +152,7 @@ export const openaiProvider: AiProviderAdapter = {
       if (reasoning) message.reasoningContent = (message.reasoningContent || '') + reasoning
       onDelta({ content, reasoning, usage: extractAiUsage(chunk?.usage), toolCalls: delta.tool_calls || choice?.message?.tool_calls })
     })
-    if (!stopped && !finishReason) throw new Error(t('ai.streamIncomplete'))
+    if (!stopped && !finishReason) throw new AiProviderError({ kind: 'response', detail: t('ai.streamIncomplete') })
     if (finishReason === 'length') throw new Error(t('ai.outputLimitReached'))
     if (finishReason === 'content_filter') throw new Error(t('ai.responseIncomplete'))
     return message

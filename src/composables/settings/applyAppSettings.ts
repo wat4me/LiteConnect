@@ -1,6 +1,7 @@
 import type { AppSettingsAll, AppSettingsAllPatch } from '@shared/types/settings'
 import { useTheme, type Theme } from '@/composables/app/useTheme'
 import { applyAppBackground } from '@/composables/app/useAppBackground'
+import { applyUiSizes } from '@/composables/app/useUiDensity'
 import { dispatchDbSettingsChange } from '@/composables/database/useDbSettings'
 import { clampQueryMaxRows, clampQueryTimeoutSec, sanitizeDefaultRunScopePref } from '@/utils/database/queryTabOptions'
 
@@ -8,6 +9,7 @@ import { clampQueryMaxRows, clampQueryTimeoutSec, sanitizeDefaultRunScopePref } 
 export function applyAppSettings(all: AppSettingsAll, changed?: Array<keyof AppSettingsAllPatch>) {
   const affects = (...keys: Array<keyof AppSettingsAllPatch>) => !changed || keys.some(key => changed.includes(key))
   const send = (name: string, detail: unknown) => window.dispatchEvent(new CustomEvent(name, { detail }))
+  if (affects('uiDensity', 'uiFontSize')) applyUiSizes(all)
   if (affects('theme', 'customColors')) {
     const theme = useTheme()
     theme.setCustomColors(all.customColors || { fontColor: '#e6edf3', bgColor: '#0d1117' })

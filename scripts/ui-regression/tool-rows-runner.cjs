@@ -69,6 +69,29 @@ app.whenReady().then(async () => {
   assert.equal(await run('window.__toolChatRenders'), 0, 'Elapsed-time ticks update only the activity indicator')
   await run(`window.__uiRegression.aiTools(${JSON.stringify(rows.map(row=>({...row, reason:'updated operation'})))})`)
   await wait('window.__toolChatRenders>0')
+  await run(`(() => {
+    let view = document.querySelector('.ai-fixture .chat-shell').__vueParentComponent
+    while (view && view.type.__name !== 'AiChatView') view = view.parent
+    Object.assign(view.props.messages[0], {
+      streaming: false, status: 'error', error: true, content: 'Partial finding',
+      failure: { kind: 'request', detail: 'fetch failed', code: 'ECONNRESET' },
+    })
+  })()`)
+  await wait(`!!document.querySelector('.ai-fixture .chat-failure')`)
+  const failure = await run(`(() => {
+    const fixture = document.querySelector('.ai-fixture')
+    const content = fixture.querySelector('.message-content')
+    const notice = fixture.querySelector('.chat-failure')
+    const details = notice.querySelector('details')
+    const initiallyClosed = !details.open
+    details.querySelector('summary').click()
+    return { content: content.textContent.trim(), plain: getComputedStyle(content).backgroundColor === 'rgba(0, 0, 0, 0)',
+      title: notice.querySelector('.chat-failure-title').textContent.trim(),
+      code: details.querySelector('code').textContent, initiallyClosed, opened: details.open,
+      toolCount: fixture.querySelectorAll('.tool-run').length }
+  })()`)
+  assert.deepEqual(failure, { content: 'Partial finding', plain: true, title: 'No response received from the AI API',
+    code: 'ECONNRESET', initiallyClosed: true, opened: true, toolCount: rows.length })
   assert.equal(await run('window.__uiError || null'), null)
   console.log(JSON.stringify({ passed: true, cases, artifacts }))
   clearTimeout(timeout)

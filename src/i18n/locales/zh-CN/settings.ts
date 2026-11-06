@@ -27,7 +27,7 @@ export default {
       groupIntegrations: '集成',
       groupHelp: '帮助',
       appearance: '外观',
-      appearanceDesc: '主题、背景与光标',
+      appearanceDesc: '主题、界面大小、背景与光标',
       app: '应用',
       appDesc: '语言、窗口、快捷键与启动恢复',
       terminal: '终端',

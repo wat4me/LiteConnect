@@ -21,8 +21,8 @@ const emit = defineEmits<{
   (event: 'single-panel-mode', single: boolean): void
 }>()
 const { t } = useI18n()
-const root = ref<HTMLElement>(), menuElement = ref<HTMLElement>()
-const width = ref(1100), height = ref(800)
+const root = ref<HTMLElement>(), canvas = ref<HTMLElement>(), menuElement = ref<HTMLElement>()
+const width = ref(1100), height = ref(800), canvasWidth = ref(1060)
 const bodies = reactive<Partial<Record<WorkspaceEdge, HTMLElement>>>({})
 const mounted = ref(false)
 type ToolDropTarget = {
@@ -52,14 +52,13 @@ const controlEdge = computed(() => WORKSPACE_EDGES.find(edge => railTools(edge).
 const edgePanels = (edge: WorkspaceEdge) => props.layout.tools.filter(tool => isWorkspacePanel(tool.id) && tool.panelEdge === edge && props.available.includes(tool.id)).map(tool => tool.id as WorkspacePanel)
 const activeAt = (edge: WorkspaceEdge) => edgePanels(edge).find(id => props.active[id])
 const railStyle = computed(() => ({
-  gridTemplateColumns: `${railTools('left').length ? 40 : 0}px minmax(0,1fr) ${railTools('right').length ? 40 : 0}px`,
+  gridTemplateColumns: WORKSPACE_EDGES.map(edge => railTools(edge).length ? 'var(--left-toolbar-width, 40px)' : '0px').join(' minmax(0,1fr) '),
 }))
 function preferredSize(edge: WorkspaceEdge) { return resizeDraft.value?.edge === edge ? resizeDraft.value.size : props.layout.sizes[edge] }
 const areaSizes = computed(() => {
-  const railWidth = (Number(railTools('left').length > 0) + Number(railTools('right').length > 0)) * 40
   // Reserve room for side-by-side terminals without changing the saved widths.
   const terminalMinimum = props.splitMode === 'vertical' ? 486 : 320
-  const available = width.value - railWidth - (singlePanel.value ? 32 : terminalMinimum)
+  const available = canvasWidth.value - (singlePanel.value ? 32 : terminalMinimum)
   const requested = WORKSPACE_EDGES.map(edge => activeAt(edge) ? preferredSize(edge) : 0)
   const active = requested.filter(size => size > 0).length
   const minimums = requested.map(size => Math.min(size, Math.max(0, available) / Math.max(1, active), 240))
@@ -206,8 +205,17 @@ watch(singlePanel, value => emit('single-panel-mode', value), { immediate: true 
 watch(() => props.layout, () => { endDrag(); if (props.layout.locked) stopResize?.(false) })
 onMounted(() => {
   mounted.value = true
-  observer = new ResizeObserver(entries => { const box = entries[0]?.contentRect; if (box?.width && box.height) { width.value = box.width; height.value = box.height } })
+  observer = new ResizeObserver(entries => {
+    for (const { target, contentRect } of entries) {
+      if (target === canvas.value && contentRect.width) canvasWidth.value = contentRect.width
+      if (target === root.value && contentRect.width && contentRect.height) {
+        width.value = contentRect.width
+        height.value = contentRect.height
+      }
+    }
+  })
   if (root.value) observer.observe(root.value)
+  if (canvas.value) observer.observe(canvas.value)
   window.addEventListener('pointerdown', outside, true)
 })
 onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.removeEventListener('pointerdown', outside, true) })
@@ -220,7 +228,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
       @tool-menu="openMenu" @tool-drag="startDrag" @tool-drag-end="endDrag">
       <button v-if="edge === controlEdge" class="dock-layout-button ui-icon-btn ui-icon-btn-sm" type="button" :title="t('toolbar.layout.customize')" :aria-label="t('toolbar.layout.customize')" @click="openMenu(undefined, $event)"><AppIcon name="settings" size="sm" /></button>
     </LeftToolbar>
-    <div class="workspace-dock-canvas" :style="canvasStyle">
+    <div ref="canvas" class="workspace-dock-canvas" :style="canvasStyle">
       <div class="workspace-dock-center"><slot name="center" /></div>
       <div v-if="error" class="dock-layout-error" role="alert"><span>{{ t('toolbar.layout.saveError') }}</span><button class="ui-btn ui-btn-xs" type="button" @click="emit('retry')">{{ t('toolbar.layout.retry') }}</button></div>
       <div v-if="singlePanel && panelIds.some(id => active[id])" class="dock-backdrop" @click="panelIds.filter(id => active[id]).forEach(id => emit('toggle', id))"></div>

@@ -35,7 +35,7 @@ import type {
 } from '../../../shared/types/ai'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import type { McpTransferContext } from '../../mcp/ports'
-import { readHttpErrorMessage } from '../providers/http'
+import { AiProviderError, fetchAiResponse, readHttpErrorMessage } from '../providers/http'
 import { buildAiRequestEnvironment, packRequestMessages } from './requestContext'
 import { AI_QUESTION_TOOL } from '../../../shared/aiQuestions'
 import { AI_LOAD_TOOLS, aiToolGroupsFromHistory, normalizeAiToolGroups, type AiToolGroup } from '../../../shared/aiToolCatalog'
@@ -155,7 +155,7 @@ export async function runAiChatStream(opts: {
   let outputCap = resolveAiContextBudget(settings).outputReserveTokens
   const requestStream = (includeUsage: boolean, msgs: AiChatMessage[], withTools: boolean) => {
     const request = provider.buildRequest(settings, msgs, { stream: true, includeUsage, tools: withTools ? tools : undefined, maxTokens: outputCap })
-    return fetch(request.url, {
+    return fetchAiResponse(request.url, {
       method: 'POST',
       headers: request.headers,
       body: request.body,
@@ -270,7 +270,8 @@ export async function runAiChatStream(opts: {
         break
       }
       if (!response.ok) {
-        throw new Error(await readHttpErrorMessage(response, failure))
+        const status = response.status
+        throw new AiProviderError({ kind: 'http', status, detail: await readHttpErrorMessage(response, failure || `AI request failed (${status})`) })
       }
       streamAccepted = true
       const usageIndex = usageRequests.push(undefined) - 1

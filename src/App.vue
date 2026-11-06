@@ -6,6 +6,7 @@ import TabBar from '@/components/app/TabBar.vue'
 import AppTitlebar from '@/components/app/AppTitlebar.vue'
 import AppWorkspaceShell from '@/components/app/AppWorkspaceShell.vue'
 import { applyAppSettings } from '@/composables/settings/applyAppSettings'
+import { applyUiSizes } from '@/composables/app/useUiDensity'
 import AppDialogHost from '@/components/app/AppDialogHost.vue'
 import UploadConflictDialog from '@/components/sftp/UploadConflictDialog.vue'
 import { measureRendererModule, measureRendererLayout, recordRendererTiming } from '@/composables/app/rendererPerformance'
@@ -708,7 +709,11 @@ const {
 } = useAppWindowRouting({ appMode, enterDatabase, selectModule })
 
 onMounted(async () => {
-  unsubSettingsChanged = window.LiteConnect.onSettingsChanged?.(({ settings, changed }) => applyAppSettings(settings, changed)) || null
+  let receivedUiSizes = false
+  unsubSettingsChanged = window.LiteConnect.onSettingsChanged?.(({ settings, changed }) => {
+    if (changed.includes('uiDensity') || changed.includes('uiFontSize')) receivedUiSizes = true
+    applyAppSettings(settings, changed)
+  }) || null
   unsubRuntimeSettings = window.LiteConnect.onRuntimeSettingsChanged((settings) => {
     handleMonitorSettingsChange(new CustomEvent('monitor-settings-change', { detail: { enabled: settings.monitorEnabled } }))
   })
@@ -772,6 +777,7 @@ onMounted(async () => {
   window.addEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
   try {
     const bootstrap = await window.LiteConnect.getAppBootstrap()
+    if (!receivedUiSizes) applyUiSizes(bootstrap)
     hydrateConnectionData({
       connections: bootstrap.connections,
       recentConnections: bootstrap.recentConnections,

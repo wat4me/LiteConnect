@@ -50,4 +50,10 @@ describe('chat process layout', () => {
     expect(layout).toMatchObject({ hasProcess: true, live: false, interrupted: true, conclusionIndex: -1 })
     expect([...layout.pinnedRunIds]).toEqual(['b'])
   })
+
+  it('marks a failed turn with partial text as interrupted and keeps the text visible', () => {
+    const layout = chatProcessLayout({ items: [tool(run({ id: 'a' })), text('partial finding')], status: 'error' })
+    expect(layout).toMatchObject({ hasProcess: true, interrupted: true, conclusionIndex: 1 })
+    expect([...layout.processIndexes]).toEqual([0])
+  })
 })

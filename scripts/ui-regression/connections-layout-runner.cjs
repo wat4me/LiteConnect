@@ -101,6 +101,7 @@ app.whenReady().then(async () => {
   await run('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}))')
   await click('.group-block[data-group-id=servers] > .group-item')
   assert.equal(await run('document.querySelector(".sort-control").dataset.value'), 'manual')
+  assert.ok(await run(`(() => {const button=document.querySelector('.toolbar-more-button');return !!button.querySelector('svg') && !button.textContent.trim() && !!button.title})()`), 'The tools menu has a named icon trigger')
   await click('.toolbar-more-button')
   await wait('!!document.querySelector(".toolbar-menu")')
   assert.equal(await run('document.querySelectorAll(".toolbar-menu button").length'), 4)

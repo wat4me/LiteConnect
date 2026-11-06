@@ -110,6 +110,13 @@ app.whenReady().then(async () => {
   await run(`(() => {const input=document.querySelector('.ai-sidebar .composer textarea');input.value='Keep this draft while moving';input.dispatchEvent(new Event('input',{bubbles:true}));window.__savedAiInput=input;window.__savedTerminal=document.querySelector('.terminal-host .xterm-screen')})()`)
   await move('ai', 'right')
   await wait('!!document.querySelector(".dock-right .ai-sidebar")')
+  assert.ok(await run(`(() => {
+    const canvas = document.querySelector('.workspace-dock-canvas').getBoundingClientRect();
+    const left = document.querySelector('.workspace-tool-rail[data-dock-edge="left"]').getBoundingClientRect();
+    const right = document.querySelector('.workspace-tool-rail[data-dock-edge="right"]').getBoundingClientRect();
+    return left.width < 40 && right.width === left.width && Math.abs(canvas.left - left.right) <= 1 && Math.abs(canvas.right - right.left) <= 1;
+  })()`), 'Compact tool rails fit exactly beside the canvas')
+  assert.equal(await run('getComputedStyle(window.__savedAiInput).fontSize'), '13px', 'AI input keeps its content font at the compact UI scale')
   assert.ok(await run('document.querySelector(".ai-sidebar .composer textarea")===window.__savedAiInput'))
   assert.equal(await run('window.__savedAiInput.value'), 'Keep this draft while moving')
   stage = 'simultaneous file and AI panels'

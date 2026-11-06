@@ -394,12 +394,13 @@ const cellMenuPreview = computed(() => {
           </select>
           <button
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
             :disabled="tab.loading || tab.saving"
             :title="t('database.data.refreshTitle')"
+            :aria-label="t('database.data.refresh')"
             @click="emit('refresh')"
           >
-            {{ t('database.data.refresh') }}
+            <AppIcon name="refresh" size="sm" />
           </button>
         </div>
 
@@ -423,12 +424,13 @@ const cellMenuPreview = computed(() => {
         <div class="tool-group edit" :class="{ 'has-dirty': dirtyCount !== 0 }">
           <button
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
             :disabled="!tab.result || tab.saving || tab.pkColumns.length === 0"
             :title="t('database.data.addRowTitle')"
+            :aria-label="t('database.data.addRowTitle')"
             @click="emit('startInsert')"
           >
-            {{ t('database.data.addRow') }}
+            <AppIcon name="plus" size="sm" />
           </button>
           <button
             type="button"
@@ -770,6 +772,11 @@ const cellMenuPreview = computed(() => {
   justify-content: center;
   padding: 0 7px;
   line-height: 1;
+}
+
+.toolbar-row .ui-icon-btn {
+  width: var(--tb-h);
+  height: var(--tb-h);
 }
 
 .page-input {

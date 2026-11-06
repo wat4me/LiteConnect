@@ -184,6 +184,15 @@ function processTitle(message: ChatItem): string {
   return parts.join(' · ')
 }
 
+function failureTitle(message: ChatItem): string {
+  const failure = message.failure
+  if (failure?.kind === 'http' && failure.status) return t('ai.chatFailure.http', { status: failure.status })
+  if (failure?.kind === 'provider') return t('ai.chatFailure.provider')
+  if (failure?.kind === 'request') return t('ai.chatFailure.request')
+  if (failure?.kind === 'response') return t('ai.chatFailure.response')
+  return message.content || message.toolRuns?.length ? t('ai.chatFailure.interrupted') : t('ai.requestFailed')
+}
+
 function isReasoningLive(message: ChatItem, segIndex: number): boolean {
   return isLiveReasoningSegment(message, segIndex) && activityDisplay(message).phase === 'reasoning'
 }
@@ -395,7 +404,7 @@ async function copyText(text: string, key: string) {
         v-for="message in visibleMessages"
         :key="message.id"
         class="chat-row"
-        :class="[message.role, { error: message.error, streaming: message.streaming }]"
+        :class="[message.role, { streaming: message.streaming }]"
         :data-message-id="message.id"
         :data-role="message.role"
       >
@@ -428,7 +437,7 @@ async function copyText(text: string, key: string) {
         </div>
       </div>
       <template v-else>
-      <div v-if="processLayout(message).hasProcess" class="process-block" :class="{ live: processLayout(message).live, open: isProcessOpen(message), interrupted: processLayout(message).interrupted }">
+      <div v-if="processLayout(message).hasProcess" class="process-block" :class="{ live: processLayout(message).live, open: isProcessOpen(message), interrupted: message.status === 'aborted' && processLayout(message).interrupted }">
         <button type="button" class="process-toggle" :aria-expanded="isProcessOpen(message)" :title="t(isProcessOpen(message) ? 'ai.process.collapse' : 'ai.process.expand')" @click="toggleProcess(message)">
           <AppIcon name="chevron-right" size="xs" class="details-chevron" />
           <span class="process-title" :class="{ 'ai-think-shimmer': processLayout(message).live }">{{ processTitle(message) }}</span>
@@ -497,6 +506,15 @@ async function copyText(text: string, key: string) {
         />
       </div>
       </template>
+      <div v-if="!message.streaming && (message.error || message.status === 'error')" class="chat-failure" role="status">
+        <div class="chat-failure-title"><AppIcon name="alert-circle" size="xs" aria-hidden="true" />{{ failureTitle(message) }}</div>
+        <div v-if="message.toolRuns?.length" class="chat-failure-note">{{ t('ai.chatFailure.recordsKept') }}</div>
+        <details v-if="message.failure?.detail">
+          <summary><AppIcon name="chevron-right" size="xs" class="details-chevron" aria-hidden="true" />{{ t('ai.chatFailure.details') }}</summary>
+          <div class="chat-failure-detail">{{ message.failure.detail }}</div>
+          <div v-if="message.failure.code" class="chat-failure-detail"><code>{{ message.failure.code }}</code></div>
+        </details>
+      </div>
       <AiActivityStatus v-if="message.streaming" :class="{ 'process-foot': processLayout(message).live }" :activity="message.activity" :created-at="message.createdAt" />
       </template>
       <AiMessageFooter

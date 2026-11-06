@@ -111,7 +111,10 @@ describe('main-process stream persistence', () => {
     expect(records.at(-1)?.content).toBe(result.content)
     if (mode === 'failed') {
       expect(result.error).toBe(true)
-      expect(result.segments?.at(-1)).toMatchObject({ text: 'partial\n\nconnection lost' })
+      expect(result.content).toBe('partial')
+      expect(result.segments).toEqual([{ kind: 'content', text: 'partial' }])
+      expect(result.failure).toEqual({ kind: 'other', detail: 'connection lost' })
+      expect(records.at(-1)?.failure).toEqual(result.failure)
     } else {
       expect(result.aborted).toBe(true)
       expect(records.at(-1)?.status).toBe('aborted')

@@ -34,6 +34,44 @@ app.whenReady().then(async () => {
   await click('.settings-footer .ui-btn-primary')
   await wait('window.__settings.saved().dbOpenMode==="currentWindow"')
   fs.writeFileSync(path.join(artifacts, 'settings-advanced.png'), (await window.webContents.capturePage()).toPNG())
+  stage = 'independent interface text and icon sizes'
+  await click('.nav-list .nav-item')
+  await wait('!!document.querySelector("#appearance-ui-font-size")')
+  const uiSizes = () => run(`(() => {
+    const label = document.querySelector('label[for="appearance-ui-font-size"]');
+    const icon = document.querySelector('.left-toolbar .toolbar-icon-btn .app-icon');
+    return { font: parseFloat(getComputedStyle(label).fontSize), icon: icon.getBoundingClientRect().width };
+  })()`)
+  const chooseSize = (id, value) => run(`(() => {
+    const field = document.getElementById('${id}');
+    field.value = '${value}';
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`)
+  const defaultSizes = await uiSizes()
+  await chooseSize('appearance-ui-font-size', 'comfortable')
+  assert.deepEqual(await uiSizes(), defaultSizes, 'Draft sizes apply when saved')
+  await click('.settings-footer .ui-btn-primary')
+  await wait('document.documentElement.dataset.uiFontSize==="comfortable" && !document.querySelector(".settings-fields").disabled')
+  const largerText = await uiSizes()
+  assert.ok(largerText.font > defaultSizes.font)
+  assert.equal(largerText.icon, defaultSizes.icon)
+  assert.deepEqual(await run('window.__settings.patches().at(-1)'), { uiFontSize: 'comfortable' })
+  await chooseSize('appearance-ui-density', 'compact')
+  await click('.settings-footer .ui-btn-primary')
+  await wait('document.documentElement.dataset.uiDensity==="compact" && !document.querySelector(".settings-fields").disabled')
+  const smallerIcons = await uiSizes()
+  assert.ok(smallerIcons.icon < largerText.icon)
+  assert.equal(smallerIcons.font, largerText.font)
+  assert.deepEqual(await run('window.__settings.patches().at(-1)'), { uiDensity: 'compact' })
+  await run('window.__settings.theme("light","zh-CN")')
+  await run('document.querySelector(".appearance-size-controls").scrollIntoView({block:"center"})')
+  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+  await window.webContents.capturePage()
+  await new Promise(resolve => setTimeout(resolve, 250))
+  fs.writeFileSync(path.join(artifacts, 'appearance-sizes.png'), (await window.webContents.capturePage()).toPNG())
+  await run('window.__settings.remoteSnapshot({uiDensity:"standard",uiFontSize:"standard"},["uiDensity","uiFontSize"])')
+  await wait('document.querySelector("#appearance-ui-density").value==="standard" && document.querySelector("#appearance-ui-font-size").value==="standard"')
+  assert.deepEqual(await uiSizes(), defaultSizes, 'A remote window can restore both defaults')
   stage = 'monitor setting saves and closes its panel'
   await run('document.querySelectorAll(".nav-list .nav-item")[5].click()')
   await wait('!!document.querySelector("[data-setting=\\"network.monitor\\"]")')
@@ -86,6 +124,6 @@ app.whenReady().then(async () => {
   await run(`window.__settings.theme('light','zh-CN')`)
   fs.writeFileSync(path.join(artifacts, 'database-settings.png'), (await window.webContents.capturePage()).toPNG())
   assert.equal(await run('window.__settingsError || null'), null)
-  console.log(JSON.stringify({ passed: true, layouts, flows: ['failed read/retry/leave', 'advanced search/reveal/save', 'monitor hide/show and panel close', 'remote-window setting notification', 'dirty draft rebase', 'partial save preserves external changes', 'save-in-progress close guard'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, flows: ['failed read/retry/leave', 'advanced search/reveal/save', 'independent UI sizes and remote defaults', 'monitor hide/show and panel close', 'remote-window setting notification', 'dirty draft rebase', 'partial save preserves external changes', 'save-in-progress close guard'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); app.exit(1) })

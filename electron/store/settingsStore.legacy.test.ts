@@ -25,3 +25,12 @@ it('keeps the previous in-memory settings when SQLite commit fails', async () =>
   await store.applyMany({ theme: 'dark' })
   expect(store.getTheme()).toBe('dark')
 })
+
+it('defaults both UI sizes and persists each selection independently', async () => {
+  const store = new SettingsStore()
+  await store.init()
+  expect(store.getAll()).toMatchObject({ uiDensity: 'standard', uiFontSize: 'standard' })
+  await expect(store.applyMany({ uiFontSize: 'comfortable' })).resolves.toMatchObject({ uiDensity: 'standard', uiFontSize: 'comfortable' })
+  await expect(store.applyMany({ uiDensity: 'compact' })).resolves.toMatchObject({ uiDensity: 'compact', uiFontSize: 'comfortable' })
+  expect(mocks.save).toHaveBeenLastCalledWith('settings', expect.objectContaining({ uiDensity: 'compact', uiFontSize: 'comfortable' }))
+})

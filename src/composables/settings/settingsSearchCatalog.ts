@@ -24,6 +24,20 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     keywords: ['配色', '暗色', '亮色', '护眼', '自定义'],
   },
   {
+    id: 'appearance.uiFontSize',
+    tab: 'appearance',
+    titleKey: 'settingsAppearance.uiFontSize',
+    hintKey: 'settingsAppearance.uiFontSizeHint',
+    keywords: ['字体', '文字', 'font size'],
+  },
+  {
+    id: 'appearance.uiDensity',
+    tab: 'appearance',
+    titleKey: 'settingsAppearance.uiDensity',
+    hintKey: 'settingsAppearance.uiDensityHint',
+    keywords: ['密度', '紧凑', 'icon size'],
+  },
+  {
     id: 'appearance.bgImage',
     tab: 'appearance',
     titleKey: 'settingsAppearance.bgImage',

@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElPopover } from 'element-plus/es/components/popover/index'
+import 'element-plus/es/components/popover/style/css'
 import { appConfirm } from '@/composables/app/useAppDialog'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 import { knowledgeAlwaysIncluded, knowledgeMode, KNOWLEDGE_MODES, KNOWLEDGE_MAX_BYTES, KNOWLEDGE_MEMORY_MAX_CHARS, KNOWLEDGE_MEMORY_MAX_ENTRIES, type KnowledgeMode, type KnowledgeMemoryEntry, type KnowledgeDocument, type KnowledgeDocumentInfo, type KnowledgeOverview, type KnowledgeRequest, type KnowledgeResponse } from '@shared/aiKnowledge'
 import { SYSTEM_DOCUMENT_ID, emptyKnowledgeSystem, validateKnowledgeSystem, formatKnowledgeSystem, type KnowledgeSystem } from '@shared/aiKnowledgeSystem'
 import AiKnowledgeSystemGraph from './AiKnowledgeSystemGraph.vue'
@@ -26,6 +29,10 @@ const systemDraft = ref<KnowledgeSystem>()
 const alwaysInclude = ref(false)
 const memoryEntryMode = ref(false)
 const panel = ref<HTMLElement>(), trigger = ref<HTMLButtonElement>()
+const modePickerOpen = ref(false)
+const modePickerId = useId()
+const modePickerTrigger = ref<HTMLButtonElement>(), modePickerPanel = ref<HTMLElement>()
+let focusModePickerOnOpen = false
 let generation = 0
 let previousFocus: HTMLElement | null = null
 const groupDialog = ref(false), editingGroupId = ref<string>()
@@ -45,6 +52,29 @@ function modeHelp(server?: KnowledgeOverview['targets'][number]) {
 }
 const usageHint = computed(() => modeHelp(singleTarget.value))
 const targetUsageHint = computed(() => modeHelp(target.value))
+function closeModePicker(restoreFocus = false) {
+  modePickerOpen.value = false
+  if (restoreFocus) modePickerTrigger.value?.focus({ preventScroll: true })
+}
+function toggleModePicker(event: MouseEvent) {
+  if (modePickerOpen.value) {
+    closeModePicker()
+    return
+  }
+  // Keyboard activation produces a click without a pointer click count.
+  focusModePickerOnOpen = event.detail === 0
+  modePickerOpen.value = true
+}
+function focusModePicker() {
+  if (!modePickerOpen.value || !focusModePickerOnOpen) return
+  const field = modePickerPanel.value?.querySelector<HTMLSelectElement>('select:not(:disabled)')
+  ;(field ?? modePickerPanel.value)?.focus({ preventScroll: true })
+}
+useOutsideDismiss(
+  () => modePickerOpen.value && !pending.value,
+  () => closeModePicker(modePickerPanel.value?.contains(globalThis.document.activeElement) === true),
+  () => [modePickerTrigger.value, modePickerPanel.value],
+)
 const isSystem = computed(() => document.value?.id === SYSTEM_DOCUMENT_ID || (!document.value && !!systemDraft.value))
 const systemMembers = computed(() => target.value?.systemMembers || [])
 const systemError = computed(() => {
@@ -119,6 +149,7 @@ async function loadServer(id: string) {
 async function changeServer(event: Event) { const select = event.target as HTMLSelectElement; await loadServer(select.value); select.value = connectionId.value }
 async function show(server?: string, id?: string, createEmpty = false) {
   if (pending.value) return
+  closeModePicker()
   const groupLink = !!server?.startsWith('knowledge-group:')
   const requested = !KNOWLEDGE_GROUPS_ENABLED && groupLink ? undefined : server
   const documentId = !KNOWLEDGE_GROUPS_ENABLED && groupLink ? undefined : id
@@ -165,6 +196,10 @@ async function changeMode(event: Event, server = target.value) {
   const select = event.target as HTMLSelectElement
   await setMode(select.value as KnowledgeMode, server)
   select.value = knowledgeMode(scopes.value.find(item => item.connectionId === server?.connectionId))
+  if (modePickerOpen.value && modePickerPanel.value?.contains(select)) {
+    await nextTick()
+    if (modePickerOpen.value && globalThis.document.activeElement === globalThis.document.body) select.focus({ preventScroll: true })
+  }
 }
 async function create(importFile = false) {
   if (pending.value || !target.value || !await mayLeave()) return
@@ -286,10 +321,10 @@ function trapFocus(event: KeyboardEvent) {
   if (event.shiftKey && (globalThis.document.activeElement === first || !panel.value?.contains(globalThis.document.activeElement))) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && globalThis.document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
-watch(() => [props.sessionId, props.groupId], () => { generation++; pending.value = false; open.value = false; groupDialog.value = false; editing.value = false; document.value = undefined; documents.value = []; connectionId.value = ''; overview.value = { storagePath: '', targets: [] }; void overviewRefresh() }, { immediate: true })
-watch(() => props.active, active => { generation++; pending.value = false; open.value = false; groupDialog.value = false; if (active) void overviewRefresh() })
+watch(() => [props.sessionId, props.groupId], () => { generation++; pending.value = false; open.value = false; closeModePicker(); groupDialog.value = false; editing.value = false; document.value = undefined; documents.value = []; connectionId.value = ''; overview.value = { storagePath: '', targets: [] }; void overviewRefresh() }, { immediate: true })
+watch(() => props.active, active => { generation++; pending.value = false; open.value = false; closeModePicker(); groupDialog.value = false; if (active) void overviewRefresh() })
 watch(() => props.busy, busy => { if (!busy && !pending.value) { void overviewRefresh(); if (open.value) void request({ action: 'list' }).catch(report) } })
-onDeactivated(() => { generation++; pending.value = false; open.value = false; groupDialog.value = false })
+onDeactivated(() => { generation++; pending.value = false; open.value = false; closeModePicker(); groupDialog.value = false })
 onActivated(() => { void overviewRefresh() })
 onBeforeUnmount(() => { generation++ })
 defineExpose({ show })
@@ -300,12 +335,49 @@ defineExpose({ show })
   <span v-if="!groupId" class="knowledge-controls">
     <button ref="trigger" type="button" class="knowledge-trigger" :title="triggerLabel" :aria-label="triggerLabel" aria-haspopup="dialog" :aria-expanded="open" @click="show()"><AppIcon name="file-text" size="sm" /><span v-if="count" class="knowledge-count" aria-hidden="true">{{ count > 99 ? '99+' : count }}</span></button>
     <label v-if="singleTarget || !overview.targets.length" class="knowledge-mode-field" :title="usageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="knowledgeMode(singleTarget)" :title="usageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="usageHint" :disabled="!singleTarget || !active || pending || busy" @change="changeMode($event, singleTarget)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
-    <button v-else type="button" class="knowledge-usage-summary" :title="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" :aria-label="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">{{ visibleGroups.length ? t('ai.knowledge.group.summary', { servers: enabledCount, groups: visibleGroups.filter(group => group.enabled).length }) : t('ai.knowledge.usageEnabled', { enabled: enabledCount, total: overview.targets.length }) }}<AppIcon name="chevron-down" size="xs" /></button>
+    <button v-else-if="visibleGroups.length" type="button" class="knowledge-usage-summary" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">
+      {{ t('ai.knowledge.group.summary', { servers: enabledCount, groups: visibleGroups.filter(group => group.enabled).length }) }}<AppIcon name="chevron-down" size="xs" />
+    </button>
+    <ElPopover v-else :visible="modePickerOpen" role="group" placement="top-start" :width="300" :offset="6" :show-arrow="false" :persistent="false" :trigger-keys="[]"
+      popper-class="knowledge-mode-popover" :popper-style="{ maxWidth: 'calc(100vw - 24px)' }" @after-enter="focusModePicker">
+      <template #reference>
+        <span class="knowledge-usage-anchor">
+          <button ref="modePickerTrigger" type="button" class="knowledge-usage-summary"
+            :title="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })"
+            :aria-label="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })"
+            aria-haspopup="dialog" :aria-expanded="modePickerOpen" :aria-controls="modePickerOpen ? modePickerId : undefined"
+            :disabled="!active || pending" @click="toggleModePicker">
+            {{ t('ai.knowledge.usageEnabled', { enabled: enabledCount, total: overview.targets.length }) }}
+            <AppIcon :name="modePickerOpen ? 'chevron-up' : 'chevron-down'" size="xs" />
+          </button>
+        </span>
+      </template>
+      <section :id="modePickerId" ref="modePickerPanel" class="knowledge-mode-picker" role="dialog" :aria-labelledby="`${modePickerId}-title`" tabindex="-1">
+        <div class="knowledge-mode-heading">
+          <strong :id="`${modePickerId}-title`">{{ t('ai.knowledge.modePickerTitle') }}</strong>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost ui-icon-btn-close" :aria-label="t('common.close')" @click="closeModePicker(true)"><AppIcon name="close" size="xs" /></button>
+        </div>
+        <p v-if="busy" class="knowledge-mode-busy">{{ t('ai.knowledge.waitUntilIdle') }}</p>
+        <label v-for="server in overview.targets" :key="server.connectionId" class="knowledge-mode-row">
+          <span class="knowledge-mode-server">
+            <strong :title="server.name">{{ server.name }}</strong>
+            <small :title="`${server.username}@${server.host}:${server.port}`">{{ server.username }}@{{ server.host }}:{{ server.port }}</small>
+          </span>
+          <span class="knowledge-mode-choice">
+            <select class="ui-select ui-input-sm knowledge-mode-select" :value="knowledgeMode(server)" :title="modeHelp(server)"
+              :aria-label="t('ai.knowledge.serverModeLabel', { name: server.name })" :disabled="!active || pending || busy" @change="changeMode($event, server)">
+              <option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option>
+            </select>
+            <AppIcon name="chevron-down" size="xs" class="knowledge-mode-chevron" />
+          </span>
+        </label>
+      </section>
+    </ElPopover>
   </span>
   <Teleport to="body">
     <div v-if="open && active" class="knowledge-layer" @click.self="close" @keydown.esc.stop.prevent="close">
       <section ref="panel" class="knowledge-panel" role="dialog" aria-modal="true" :aria-label="t('ai.knowledge.title')" @keydown.tab="trapFocus">
-        <header><strong>{{ t(groupId ? 'ai.knowledge.group.shared' : 'ai.knowledge.title') }}</strong><span class="knowledge-local">{{ t('ai.knowledge.local') }}</span><button type="button" class="ui-icon-btn" :aria-label="t('common.close')" @click="close"><AppIcon name="close" size="sm" /></button></header>
+        <header><strong>{{ t(groupId ? 'ai.knowledge.group.shared' : 'ai.knowledge.title') }}</strong><span class="knowledge-local">{{ t('ai.knowledge.local') }}</span><button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-close" :aria-label="t('common.close')" @click="close"><AppIcon name="close" size="sm" /></button></header>
         <div class="knowledge-toolbar">
           <select :value="connectionId" :disabled="pending" :aria-label="t('ai.knowledge.server')" @change="changeServer"><template v-if="visibleGroups.length"><optgroup :label="t('ai.knowledge.group.shared')"><option v-for="group in visibleGroups" :key="group.connectionId" :value="group.connectionId">{{ t('ai.knowledge.group.scope', { name: group.name, count: group.memberCount }) }}</option></optgroup><optgroup :label="t('ai.knowledge.group.individual')"><option v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></optgroup></template><option v-else v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></select>
           <label class="knowledge-mode-field" :title="targetUsageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="targetMode" :title="targetUsageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="targetUsageHint" :disabled="!target || pending || busy" @change="changeMode($event)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
@@ -367,17 +439,30 @@ defineExpose({ show })
 .knowledge-group-guide { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; background: var(--accent-bg); border-radius: 6px; }
 .knowledge-group-scope { padding: 8px; border-left: 3px solid var(--accent); background: var(--bg-secondary); }
 .knowledge-controls { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; min-width: 0; }
-.knowledge-mode-field, .knowledge-usage-summary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-width: 0; height: var(--ai-composer-tool-size, 26px); padding: 0 3px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-caption); white-space: nowrap; }
-.knowledge-usage-summary { cursor: pointer; }
-.knowledge-usage-summary:hover:not(:disabled) { background: var(--hover-bg); color: var(--text-primary); }
-.knowledge-mode-select:focus-visible, .knowledge-usage-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.knowledge-mode-select:disabled, .knowledge-usage-summary:disabled { opacity: .5; cursor: not-allowed; }
+.knowledge-mode-field { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; min-width: 0; height: var(--ai-composer-tool-size, 26px); padding: 0 3px; color: var(--text-secondary); font-size: var(--font-caption); white-space: nowrap; }
+.knowledge-usage-anchor { display: inline-flex; flex: 0 0 auto; }
+.knowledge-mode-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .knowledge-mode-field .knowledge-mode-select { flex: 0 0 auto; width: auto; min-width: 0; max-width: 120px; height: 100%; padding: 0 3px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .knowledge-toolbar .knowledge-mode-field { height: var(--control-h-sm); }
-.knowledge-trigger { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); box-sizing: border-box; padding: 0 5px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: var(--font-caption); line-height: 1; white-space: nowrap; cursor: pointer; }
+.knowledge-trigger, .knowledge-usage-summary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); box-sizing: border-box; padding: 0 5px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: var(--font-caption); line-height: 1; white-space: nowrap; cursor: pointer; }
+:is(.knowledge-trigger, .knowledge-usage-summary):is(:hover, [aria-expanded="true"]):not(:disabled) { background: var(--hover-bg); color: var(--text-primary); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color)); }
+:is(.knowledge-trigger, .knowledge-usage-summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.knowledge-mode-select:disabled, .knowledge-usage-summary:disabled { opacity: .5; cursor: not-allowed; }
 .knowledge-count { flex-shrink: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
-.knowledge-trigger:hover { color: var(--accent); border-color: var(--accent); }
-.knowledge-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.knowledge-mode-picker { color: var(--text-primary); font-size: var(--font-ui-sm); }
+.knowledge-mode-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 6px 4px; }
+.knowledge-mode-heading strong, .knowledge-mode-server strong { font-weight: 600; }
+.knowledge-mode-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 4px; border-top: 1px solid var(--border-color); }
+.knowledge-mode-server { display: grid; gap: 2px; min-width: 0; }
+.knowledge-mode-server > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-mode-server small, .knowledge-mode-busy { font-size: var(--font-caption); color: var(--text-secondary); }
+.knowledge-mode-busy { margin: 0 4px 8px; }
+.knowledge-mode-choice { position: relative; display: inline-flex; align-items: center; }
+.knowledge-mode-row .knowledge-mode-select { width: auto; min-width: 76px; height: var(--control-h-sm); padding-inline: 8px 28px; background-image: none; }
+.knowledge-mode-chevron { position: absolute; inset-inline-end: 8px; color: var(--text-secondary); pointer-events: none; }
+.knowledge-mode-select:disabled + .knowledge-mode-chevron { opacity: .5; }
+.knowledge-mode-row .knowledge-mode-select:focus-visible { box-shadow: none; }
+:global(.knowledge-mode-popover.el-popover.el-popper) { padding: 8px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-menu); max-height: min(360px, calc(100vh - 24px)); overflow-y: auto; box-sizing: border-box; }
 /* Electron titlebar drag regions intercept native clicks even above higher-z-index overlays. */
 .knowledge-layer { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(titlebar-area-height, var(--titlebar-height, 36px))); box-sizing: border-box; background: #0005; -webkit-app-region: no-drag; }
 .knowledge-panel { display: flex; flex-direction: column; width: min(1000px, 100%); height: min(760px, 100%); max-height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 12px 48px #0004; -webkit-app-region: no-drag; }

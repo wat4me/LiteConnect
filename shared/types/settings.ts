@@ -3,6 +3,7 @@ import type { ConnectionSortMode } from '../connectionSort'
 import type { DbOpenMode } from '../dbOpenMode'
 import type { AppLocale } from '../appLocale'
 import type { SshWorkspaceLayout } from '../workspaceLayout'
+import type { UiDensity } from '../uiDensity'
 
 export type AppBackgroundFit = 'cover' | 'contain' | 'fill'
 
@@ -29,8 +30,10 @@ export interface WorkspaceTabsState {
 export type AppSettingsAll = {
   sshWorkspaceLayout: SshWorkspaceLayout
   theme: string
-  /** Interface density: html[data-ui-density] scales icons, controls and spacing. */
-  uiDensity?: 'compact' | 'standard' | 'comfortable'
+  /** Size of interface icons, buttons and toolbars. */
+  uiDensity?: UiDensity
+  /** Size of interface labels and menu text. */
+  uiFontSize?: UiDensity
   customColors: { fontColor: string; bgColor: string } | null
   downloadPath: string
   configuredDownloadPath: string
@@ -113,4 +116,6 @@ export interface AppBootstrapData {
   fancyCursorEnabled: boolean
   fancyCursorStyle: string
   appBackground: AppBackgroundState
+  uiDensity?: UiDensity
+  uiFontSize?: UiDensity
 }

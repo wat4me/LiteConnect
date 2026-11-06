@@ -306,6 +306,7 @@ export function useAiChat() {
           segments: plainSegments(reply.segments) || ensureToolSegments(current.segments, finalToolRuns),
           apiMessages: finalApiMessages,
           error: reply.error === true,
+          failure: reply.failure,
           status: aborted ? 'aborted' : reply.error === true ? 'error' : 'completed',
         })
       } finally {
@@ -315,15 +316,11 @@ export function useAiChat() {
       }
     } catch (err: any) {
       // Transport/storage failures are shown locally; main owns all assistant writes.
-      const current = getAssistantMessage()
-      const detail = sanitizeAiErrorMessage(err?.message || t('ai.requestFailed'))
-      const suffix = `${current.content ? '\n\n' : ''}${detail}`
-      if (!current.segments) current.segments = []
-      appendTextSegment(current.segments, 'content', suffix)
+      const detail = sanitizeAiErrorMessage(err?.message || '') || t('ai.requestFailed')
       updateAssistantMessage({
-        content: current.content + suffix,
         completedAt: Date.now(),
         error: true,
+        failure: { kind: 'other', detail },
         status: 'error',
       })
     } finally {

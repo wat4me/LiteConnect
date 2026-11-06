@@ -365,7 +365,7 @@
   max-width: 100%;
   word-break: break-word;
   color: var(--text-primary);
-  font-size: var(--font-ui);
+  font-size: var(--font-ai-content);
   line-height: 1.6;
 }
 
@@ -374,7 +374,7 @@
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
   border-radius: 16px 16px 6px 16px;
   padding: 10px 14px;
-  font-size: var(--font-ui);
+  font-size: var(--font-ai-content);
   line-height: 1.55;
 }
 
@@ -398,7 +398,7 @@
   background: transparent;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: var(--font-ui);
+  font-size: var(--font-ai-content);
   line-height: 1.55;
   padding: 2px 4px;
   overflow-y: auto;
@@ -450,14 +450,28 @@
   line-height: 1.7;
 }
 
-.chat-row.error .message-content {
+.chat-failure {
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   border-radius: var(--radius-lg);
   padding: 10px 12px;
-  color: var(--danger);
   font-size: var(--font-ui-sm);
   line-height: 1.5;
 }
+
+.chat-failure-title,
+.chat-failure summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-failure-title { color: var(--danger); font-weight: 600; }
+.chat-failure-note, .chat-failure summary { color: var(--text-secondary); }
+.chat-failure summary { cursor: pointer; list-style: none; }
+.chat-failure summary::-webkit-details-marker { display: none; }
+.chat-failure details { margin-top: 4px; }
+.chat-failure details[open] .details-chevron { transform: rotate(90deg); }
+.chat-failure-detail { margin: 4px 0 0 17px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .thinking-dots {
   display: inline-flex;
@@ -523,14 +537,14 @@
 .markdown-block :deep(h5),
 .markdown-block :deep(h6) {
   margin: 8px 0 4px;
-  font-size: var(--font-ui);
+  font-size: var(--font-ai-content);
   line-height: 1.35;
 }
 
 .markdown-block :deep(h1),
 .markdown-block :deep(h2) {
   margin: 10px 0 6px;
-  font-size: var(--font-section);
+  font-size: var(--font-ai-heading);
   line-height: 1.35;
 }
 

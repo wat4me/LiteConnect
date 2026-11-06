@@ -128,10 +128,14 @@ it('preserves the explicitly confirmed full reset even when another page changed
   await state.loadSettings()
   stored.x11AutoStartEnabled = false
   stored.terminalFontSize = 18
+  stored.uiDensity = 'comfortable'
+  stored.uiFontSize = 'compact'
   await state.restoreSystemDefaults()
   await state.handleSave()
   expect(stored.x11AutoStartEnabled).toBe(true)
   expect(stored.terminalFontSize).toBe(14)
+  expect(stored.uiDensity).toBe('standard')
+  expect(stored.uiFontSize).toBe('standard')
   expect(save.mock.calls[0][0].appBackground.clear).toBe(true)
 })
 

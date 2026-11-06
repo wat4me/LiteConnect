@@ -316,7 +316,7 @@ watch(
 }
 
 .titlebar-brand-lite {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--text-primary);
@@ -341,7 +341,7 @@ watch(
 }
 
 .titlebar-brand-mod-text {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -380,13 +380,13 @@ watch(
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 28px;
+  height: var(--icon-btn-sm);
   padding: 0 8px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 500;
   cursor: pointer;
   text-align: left;
@@ -404,7 +404,7 @@ watch(
 .titlebar-mode-check {
   width: 12px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--success);
   text-align: center;
 }
@@ -413,8 +413,8 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--icon-btn-sm);
+  height: var(--icon-btn-sm);
   margin: 0;
   padding: 0;
   border: none;
@@ -477,8 +477,8 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--icon-btn-sm);
+  height: var(--icon-btn-sm);
   border: none;
   border-radius: 6px;
   background: transparent;

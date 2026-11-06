@@ -1,8 +1,13 @@
 export default {
   settingsAppearance: {
     title: '外观',
-    intro: '调整界面主题、背景图和鼠标光标样式。终端配色请在「终端」中设置。',
+    intro: '调整界面主题、大小、背景图和鼠标光标样式。终端配色请在「终端」中设置。',
     theme: '界面主题',
+    uiFontSize: '界面字号',
+    uiFontSizeHint: '调整菜单、标签和表单等界面文字，保存后生效。',
+    uiDensity: '图标与按钮大小',
+    uiDensityHint: '调整图标、按钮和工具栏占位，保存后生效。',
+    uiSize: { compact: '小', standard: '默认', comfortable: '大' },
     bgColor: '背景',
     fontColor: '字体',
     bgImage: '背景图片',

@@ -7,6 +7,7 @@ import { workspaceToolSystemAddendum } from '../../../shared/aiWorkspacePrompt'
 import { t } from '../../i18n'
 import type { AiHistoryRecord, AiResolvedConfig } from '../../../shared/types/ai'
 import type { SshMcpRuntime } from '../../mcp/runtime'
+import { compactAiHistoryRecordForStorage, normalizeAiHistoryRecord } from '../history/historyModel'
 
 const sessionId = 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7'
 const settings: AiResolvedConfig = { baseUrl: 'https://example.test/v1', apiKey: 'test', model: 'test', systemPrompt: '', temperature: 0, maxToolRounds: 3, toolPermission: 'auto' }
@@ -19,9 +20,13 @@ const interruptedBody = () => new Response(new ReadableStream({ start(controller
 
 afterEach(() => vi.unstubAllGlobals())
 
-it('retains a completed modification when the next model response fails, without a blind completion fallback', async () => {
+it.each([
+  { failure: { kind: 'request', detail: 'fetch failed', code: 'ECONNRESET' }, next: () => Promise.reject(new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } })) },
+  { failure: { kind: 'response', detail: 'stream interrupted' }, next: async () => interruptedBody() },
+  { failure: { kind: 'http', detail: 'Bad gateway', status: 502 }, next: async () => Response.json({ error: { message: 'Bad gateway' } }, { status: 502 }) },
+])('retains a completed modification after a $failure.kind failure without repeating the command', async ({ failure, next: nextRequest }) => {
   const fetcher = vi.fn().mockResolvedValueOnce(sse({ tool_calls: [tool(0, 'mkdir /tmp/application', { risk: 'write' })] }))
-    .mockResolvedValueOnce(interruptedBody())
+    .mockImplementationOnce(nextRequest)
     .mockResolvedValueOnce(Response.json({ choices: [{ message: { content: 'unverified success' } }] }))
   vi.stubGlobal('fetch', fetcher)
   const call = vi.fn(async (name: string) => name === 'list_sessions' ? metadata : { isError: false, content: '{"exitCode":0}' })
@@ -32,6 +37,8 @@ it('retains a completed modification when the next model response fails, without
     run: (emit, checkpoint) => runAiChatStream({ settings, messages, sessionId, requestId: 'keep-modification', sshMcpRuntime: runtime(call), emit, checkpoint }),
   })
   expect(result.error).toBe(true)
+  expect(result.failure).toMatchObject(failure)
+  expect(normalizeAiHistoryRecord(compactAiHistoryRecordForStorage(records.at(-1)!)).failure).toMatchObject(failure)
   expect(result.toolRuns?.[0]).toMatchObject({ status: 'done', isError: false })
   expect(fetcher).toHaveBeenCalledTimes(2)
   expect(call.mock.calls.filter(([name]) => name === 'exec')).toHaveLength(1)
@@ -184,7 +191,7 @@ it('does not execute remote changes when the tool boundary cannot be saved', asy
       run: (emit, checkpoint) => runAiChatStream({ settings, messages, sessionId, requestId: 'failed-boundary', sshMcpRuntime: runtime(call), emit, checkpoint }),
     })
     expect(result.error).toBe(true)
-    expect(result.content).toContain('history disk full')
+    expect(result.failure).toEqual({ kind: 'other', detail: 'history disk full' })
     expect(result.toolRuns?.[0]).toMatchObject({ isError: true, status: 'done', content: expect.stringContaining('TOOL_RESULT_UNKNOWN') })
     expect(call).toHaveBeenCalledTimes(1)
     expect(fetcher).toHaveBeenCalledOnce()

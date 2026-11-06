@@ -10,7 +10,7 @@ import { MAX_AI_TOOL_CALLS_PER_TURN, MAX_AI_TURN_SEGMENTS } from '../../../share
 import { normalizeAiUsage } from '../../../shared/aiUsage'
 import { normalizeAiHistoryLimits, type AiHistoryLimits } from '../../../shared/aiHistoryLimits'
 import type {
-  AiChatMessage, AiChatSegment, AiConversationContextFile, AiConversationThread,
+  AiChatFailure, AiChatMessage, AiChatSegment, AiConversationContextFile, AiConversationThread,
   AiContextCheckpoint, AiHistoryRecord, AiSessionStore, AiToolRun,
 } from '../../../shared/types/ai'
 
@@ -250,6 +250,18 @@ export function normalizeAiContextFiles(value: unknown): AiConversationContextFi
   return files
 }
 
+function normalizeChatFailure(raw: unknown): AiChatFailure | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const { kind, detail, code, status } = raw as Record<string, unknown>
+  if (typeof detail !== 'string' || !detail.trim()) return undefined
+  return {
+    kind: kind === 'request' || kind === 'response' || kind === 'http' || kind === 'provider' ? kind : 'other',
+    detail: detail.slice(0, 4000),
+    code: typeof code === 'string' && /^[A-Z][A-Z_0-9]{0,79}$/.test(code) ? code : undefined,
+    status: typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined,
+  }
+}
+
 export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
   if (!record || typeof record !== 'object') {
     throw new Error('Invalid AI history record')
@@ -273,6 +285,7 @@ export function normalizeAiHistoryRecord(record: any): AiHistoryRecord {
     reasoningContent,
     usage: normalizeAiUsage(record.usage),
     error: record.error === true,
+    failure: record.role === 'assistant' && (record.error === true || record.status === 'error') ? normalizeChatFailure(record.failure) : undefined,
     status:
       record.status === 'running' ||
       record.status === 'completed' ||
