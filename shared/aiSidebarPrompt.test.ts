@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { estimateTokens, packAiMessages } from './aiContext'
 import { workspaceToolsForChat } from './aiWorkspacePrompt'
+import { withAiToolPermissionPrompt } from './aiToolPolicy'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
 import {
   estimateSidebarAiRequest,
@@ -32,7 +33,7 @@ describe('estimateSidebarAiRequest', () => {
       messages,
     })
     const withAddendum = packAiMessages({
-      systemPrompt: ['sys', sshToolSystemAddendum({ sessionId: 'sid', cwd: '/var/www' })]
+      systemPrompt: ['sys', withAiToolPermissionPrompt(sshToolSystemAddendum({ sessionId: 'sid', cwd: '/var/www' }), 'auto')]
         .filter((s) => s.trim())
         .join('\n\n'),
       messages,
@@ -42,6 +43,7 @@ describe('estimateSidebarAiRequest', () => {
       messages,
       sessionId: 'sid',
       cwd: '/var/www',
+      toolPermission: 'auto',
     })
     expect(estimate.promptTokens).toBe(withAddendum.promptTokens)
     expect(estimate.promptTokens).toBeGreaterThan(withoutTools.promptTokens)

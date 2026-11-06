@@ -19,7 +19,9 @@ const { monitorEnabled, monitorVisible, handleMonitorSettingsChange } = useSideb
 })
 const listeners = new Set<(value: AppRuntimeSettings) => void>()
 const settingsListeners = new Set<(change: AppSettingsChange) => void>()
-let failRead = new URLSearchParams(location.search).has('failSettings')
+const params = new URLSearchParams(location.search)
+let failRead = params.has('failSettings')
+const initialSettings = params.has('bootstrapSettings') ? { ...saved, terminalFontSize: 17 } as unknown as AppSettingsAll : undefined
 const patches: object[] = []
 const settingsRef = ref<InstanceType<typeof SettingsView> | null>(null)
 const closes = ref(0)
@@ -30,7 +32,11 @@ function notify(value: AppRuntimeSettings) {
   for (const listener of listeners) listener(value)
 }
 ;(window as any).LiteConnect = {
-  getAllSettings: async () => { if (failRead) { failRead = false; throw new Error('Test: settings storage unavailable') }; return structuredClone(saved) },
+  getAllSettings: async () => {
+    if (initialSettings) return new Promise(() => {})
+    if (failRead) { failRead = false; throw new Error('Test: settings storage unavailable') }
+    return structuredClone(saved)
+  },
   onSettingsChanged: (listener: (change: AppSettingsChange) => void) => { settingsListeners.add(listener); return () => settingsListeners.delete(listener) },
   setManySettings: async (patch: object) => { patches.push(structuredClone(patch)); await saveGate; Object.assign(saved, patch); notify(saved as AppRuntimeSettings); return structuredClone(saved) },
   onRuntimeSettingsChanged: (listener: (value: AppRuntimeSettings) => void) => { listeners.add(listener); return () => listeners.delete(listener) },
@@ -66,7 +72,7 @@ onMounted(() => {
   <div class="settings-harness">
     <LeftToolbar :ai-active="false" :files-active="false" :monitor-active="monitorVisible" :monitor-enabled="monitorEnabled"
       :batch-active="false" :snippets-active="false" :show-ai-unread="false" @toggle-monitor="monitorVisible = !monitorVisible" />
-    <SettingsView ref="settingsRef" initial-tab="database" @close="closes++" />
+    <SettingsView ref="settingsRef" initial-tab="database" :initial-settings="initialSettings" @close="closes++" />
   </div>
 </template>
 

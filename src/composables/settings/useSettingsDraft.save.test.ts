@@ -22,7 +22,7 @@ import { buildSettingsDraftPatch } from './settingsDraftPatch'
 let stored: AppSettingsAll
 const save = vi.fn(), recent = vi.fn()
 let changeListener: (change: AppSettingsChange) => void
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.mount.length = 0; mocks.unmount.length = 0
@@ -185,5 +185,43 @@ it('uses a newer committed snapshot received while the initial read was in fligh
   changeListener({ settings: structuredClone(stored), changed: ['terminalFontSize'] })
   finish(original)
   await vi.waitFor(() => expect(state.loading.value).toBe(false))
+  expect(state.draft.value.terminalFontSize).toBe(18)
+})
+
+it('opens with the saved settings while refresh is pending and preserves edits when it returns', async () => {
+  let finish!: (value: AppSettingsAll) => void
+  window.LiteConnect.getAllSettings = () => new Promise(resolve => { finish = resolve })
+  const initial = { ...structuredClone(stored), terminalFontSize: 17 }
+  const onSnapshot = vi.fn()
+  const state = useSettingsDraft({ initialSettings: () => initial, onSnapshot })
+  const refresh = state.loadSettings()
+  expect(state.loading.value).toBe(false)
+  expect(state.draft.value.terminalFontSize).toBe(17)
+  state.draft.value.terminalFontSize = 19
+  const latest = { ...structuredClone(stored), terminalFontSize: 18, theme: 'light' }
+  finish(latest)
+  await refresh
+  expect(state.draft.value).toMatchObject({ terminalFontSize: 19, theme: 'light' })
+  expect(state.saved.value.terminalFontSize).toBe(18)
+  expect(onSnapshot).toHaveBeenCalledExactlyOnceWith(latest)
+})
+
+it('makes a stalled first read retryable and ignores its late result', async () => {
+  vi.useFakeTimers()
+  let finish!: (value: AppSettingsAll) => void
+  const original = structuredClone(stored)
+  window.LiteConnect.getAllSettings = vi.fn()
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    .mockResolvedValueOnce({ ...original, terminalFontSize: 18 })
+  const state = useSettingsDraft()
+  const first = state.loadSettings()
+  await vi.advanceTimersByTimeAsync(8000)
+  await first
+  expect(state.loading.value).toBe(false)
+  expect(state.loadError.value).toBe('settings.loadTimedOut')
+  await state.loadSettings()
+  expect(state.loadError.value).toBe('')
+  finish(original)
+  await Promise.resolve()
   expect(state.draft.value.terminalFontSize).toBe(18)
 })

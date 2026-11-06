@@ -62,16 +62,23 @@ it('tracks recorded reasoning indices and does not allocate entries for unopened
   expect(f.toolOpenState.size).toBe(1)
 })
 
-it('keeps the process fold choice per message and drops it with the message or thread', async () => {
+it('keeps independent process choices and drops them with their anchor tool or thread', async () => {
   const f = fixture()
-  f.processOpenState.set(processDisclosureKey('reply'), true)
+  const first = processDisclosureKey('reply', 'exec')
+  const second = processDisclosureKey('reply', 'next')
+  f.processOpenState.set(first, true)
+  f.messages.value[0].toolRuns!.push({ id: 'next', name: 'exec', args: '{}', content: '', isError: false })
+  await nextTick()
+  expect([...f.processOpenState.keys()]).toEqual([first])
+  f.processOpenState.set(second, true)
+  f.messages.value[0].toolRuns!.shift()
+  await nextTick()
+  expect([...f.processOpenState.keys()]).toEqual([second])
   f.messages.value[0].toolRuns = []
   await nextTick()
-  expect(f.processOpenState.size).toBe(1)
-  f.messages.value = []
-  await nextTick()
   expect(f.processOpenState.size).toBe(0)
-  f.processOpenState.set(processDisclosureKey('reply'), false)
+  f.messages.value = []
+  f.processOpenState.set(first, true)
   f.conversationKey.value = 'other'
   await nextTick()
   expect(f.processOpenState.size).toBe(0)

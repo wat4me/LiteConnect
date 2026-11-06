@@ -4,6 +4,7 @@ export default {
     subtitle: '配置界面、功能、连接与应用行为',
     loading: '正在加载设置…',
     loadFailed: '设置读取失败，尚未加载实际配置',
+    loadTimedOut: '读取设置超时，请重试。',
     retryLoad: '重新读取',
     dirtyHint: '有未保存的更改 · 仅设置页预览会跟随修改',
     cleanHint: '修改后点「保存」才会生效并写入磁盘',

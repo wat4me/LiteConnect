@@ -347,6 +347,7 @@ const contextDroppedCount = computed(() => {
     messages: conv,
     toolContext: toolContext.value,
     toolGroups: toolGroups.value,
+    toolPermission: settings.value.toolPermission,
     sessionId: props.sessionId,
     cwd: sftpListedCwdState()[props.sessionId],
     model: settings.value.activeModel || displayModelName.value,
@@ -365,7 +366,7 @@ const contextPressure = computed(() => {
     ...contextModelConfig.value, model: displayModelName.value, contextWindowTokens: activeContextWindowTokens.value,
     systemPrompt: settings.value.systemPrompt, messages: projected,
     toolContext: toolContext.value, sessionId: props.sessionId, cwd: sftpListedCwdState()[props.sessionId],
-    toolGroups: toolGroups.value,
+    toolGroups: toolGroups.value, toolPermission: settings.value.toolPermission,
   }).pressure
 })
 const contextUsedTokens = computed(() => contextPressure.value.usedTokens)
@@ -647,7 +648,7 @@ async function runCodeToTerminal(code: string) {
               @compact="handleCompactContext"
             />
           </div>
-          <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
+          <div class="composer-permission-selector"><AiComposerSelector icon="shield" :title="t('ai.permissionTitle')" :label="permissionLabel" :value="settings.toolPermission || 'ask'" :options="permissionOptions" :active="active" :disabled="loading || savingComposer" @change="savePermission($event)" /></div>
           <button
             v-if="loading"
             type="button"

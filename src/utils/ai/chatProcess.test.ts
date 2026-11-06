@@ -10,50 +10,64 @@ const text = (value: string): ChatProcessItem => ({ seg: { kind: 'content', text
 const think = (value: string): ChatProcessItem => ({ seg: { kind: 'reasoning', text: value } })
 
 describe('chat process layout', () => {
-  it('keeps the steps open while the turn is working and folds them once the conclusion starts', () => {
+  it('tracks live progress separately from the conclusion', () => {
     const live = chatProcessLayout({ items: [think('plan'), tool(run({ id: 'a' })), tool(run({ id: 'b', content: '', status: 'running' }))], streaming: true })
-    expect(live).toMatchObject({ hasProcess: true, live: true, conclusionIndex: -1 })
-    expect([...live.processIndexes]).toEqual([0, 1, 2])
+    expect(live.get(0)).toMatchObject({ start: 0, firstRunId: 'a', live: true })
+    expect([...live.keys()]).toEqual([0, 1, 2])
     const folded = chatProcessLayout({ items: [think('plan'), tool(run({ id: 'a' })), tool(run({ id: 'b' })), text('Disk is fine.')], streaming: true })
-    expect(folded).toMatchObject({ hasProcess: true, live: false, conclusionIndex: 3 })
-    expect([...folded.processIndexes]).toEqual([0, 1, 2])
-    expect(folded.stats.steps).toBe(2)
+    expect(folded.get(0)).toMatchObject({ live: false, stats: { steps: 2 } })
+    expect([...folded.keys()]).toEqual([0, 1, 2])
   })
 
-  it('treats text between tool calls as part of the process', () => {
+  it('keeps interim text between independent tool summaries', () => {
+    const items = [tool(run({ id: 'a' })), text('Disk is fine.'), think('check memory'), tool(run({ id: 'b', content: '', status: 'running' }))]
     const layout = chatProcessLayout({
-      items: [tool(run({ id: 'a' })), text('Let me check one more thing.'), tool(run({ id: 'b', content: '', status: 'running' }))], streaming: true,
+      items, streaming: true,
     })
-    expect(layout.live).toBe(true)
-    expect([...layout.processIndexes]).toEqual([0, 1, 2])
+    expect(layout.get(0)).toMatchObject({ start: 0, firstRunId: 'a', live: false, stats: { steps: 1 } })
+    expect(layout.has(1)).toBe(false)
+    expect(layout.get(2)).toMatchObject({ start: 2, firstRunId: 'b', live: true, stats: { steps: 1 } })
+    expect(layout.get(3)).toBe(layout.get(2))
+    const completed = chatProcessLayout({ items: [...items, text('Memory is fine.')] })
+    expect(completed.get(2)).toMatchObject({ firstRunId: 'b', live: false, stats: { steps: 1 } })
+    expect(completed.has(4)).toBe(false)
   })
 
-  it('pins failures, blocked calls and performed changes so they stay visible when folded', () => {
+  it('keeps tools together across blank text chunks', () => {
+    const layout = chatProcessLayout({ items: [tool(run({ id: 'a' })), text('\n\n'), tool(run({ id: 'b' }))] })
+    expect(layout.get(0)).toMatchObject({ firstRunId: 'a', stats: { steps: 2 } })
+    expect(layout.get(2)).toBe(layout.get(0))
+  })
+
+  it('summarizes completed work and keeps only steps awaiting user input visible', () => {
     const layout = chatProcessLayout({ items: [
       tool(run({ id: 'read' })),
       tool(run({ id: 'failed', content: '{"exitCode":2,"stderr":"missing"}' })),
       tool(run({ id: 'blocked', status: 'blocked', isError: true, content: 'blocked by policy' })),
       tool(run({ id: 'change', risk: 'write', args: '{"command":"systemctl restart nginx"}' })),
       tool(run({ id: 'denied-change', risk: 'write', status: 'denied', isError: true, content: 'denied' })),
+      tool(run({ id: 'approval', status: 'ask', content: '' })),
+      tool(run({ id: 'question', name: 'ask_user', status: 'question', content: '' })),
       text('Restarted nginx.'),
-    ], status: 'completed', createdAt: 1_000, completedAt: 63_000 })
-    expect([...layout.pinnedRunIds]).toEqual(['failed', 'blocked', 'change', 'denied-change'])
-    expect(layout.stats).toEqual({ steps: 5, changes: 1, failed: 1, blocked: 2, durationSeconds: 62 })
+    ], status: 'completed' }).get(0)!
+    expect([...layout.pinnedRunIds]).toEqual(['approval', 'question'])
+    expect(layout.stats).toEqual({ steps: 7, changes: 1, failed: 1, blocked: 2 })
   })
 
   it('does not wrap turns that only think before answering', () => {
-    expect(chatProcessLayout({ items: [think('hmm'), text('answer')] }).hasProcess).toBe(false)
+    expect(chatProcessLayout({ items: [think('hmm'), text('answer')] }).size).toBe(0)
   })
 
   it('marks a stopped turn without a conclusion as interrupted and no longer live', () => {
-    const layout = chatProcessLayout({ items: [tool(run({ id: 'a' })), tool(run({ id: 'b', status: 'aborted', content: '' }))], status: 'aborted' })
-    expect(layout).toMatchObject({ hasProcess: true, live: false, interrupted: true, conclusionIndex: -1 })
-    expect([...layout.pinnedRunIds]).toEqual(['b'])
+    const layout = chatProcessLayout({ items: [tool(run({ id: 'a' })), tool(run({ id: 'b', status: 'aborted', content: '' }))], status: 'aborted' }).get(0)!
+    expect(layout).toMatchObject({ live: false, interrupted: true })
+    expect(layout.pinnedRunIds.size).toBe(0)
   })
 
-  it('marks a failed turn with partial text as interrupted and keeps the text visible', () => {
-    const layout = chatProcessLayout({ items: [tool(run({ id: 'a' })), text('partial finding')], status: 'error' })
-    expect(layout).toMatchObject({ hasProcess: true, interrupted: true, conclusionIndex: 1 })
-    expect([...layout.processIndexes]).toEqual([0])
+  it('marks only the trailing group as interrupted after a partial finding', () => {
+    const layout = chatProcessLayout({ items: [tool(run({ id: 'a' })), text('partial finding'), tool(run({ id: 'b' }))], status: 'error' })
+    expect(layout.get(0)?.interrupted).toBe(false)
+    expect(layout.has(1)).toBe(false)
+    expect(layout.get(2)?.interrupted).toBe(true)
   })
 })

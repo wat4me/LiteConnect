@@ -9,16 +9,31 @@ afterEach(() => { scopes.splice(0).forEach(scope => scope.stop()); vi.unstubAllG
 
 function fixture(refreshSettings: () => Promise<unknown> = async () => {}) {
   const active = ref(true)
+  const loading = ref(false)
   const settings = ref<AiSettings>({ providers: [], activeProviderId: null, activeModel: '', systemPrompt: '' })
   const applyExternal = vi.fn()
   const scope = effectScope(); scopes.push(scope)
   const api = scope.run(() => useAiSidebarModelMenu({
-    settings, loading: () => false, saving: () => false, active: () => active.value,
+    settings, loading: () => loading.value, saving: () => false, active: () => active.value,
     refreshSettings, replaceSettings: next => { settings.value = next }, applyExternal,
     closeHistory: () => {}, t: key => key,
   }))!
-  return { api, applyExternal, scope, active }
+  return { api, applyExternal, scope, active, loading, settings }
 }
+
+it('opens cached settings while the current reply and a settings refresh are still running', async () => {
+  let finish!: () => void
+  const f = fixture(() => new Promise<void>(resolve => { finish = resolve }))
+  f.settings.value.providers = [{ id: 'fixture', name: 'Fixture', baseUrl: 'https://example.test/v1', apiKey: '', models: [{ id: 'model' }] }]
+  f.loading.value = true
+  const opening = f.api.openSettingsPanel()
+  expect(f.api.showSettings.value).toBe(true)
+  expect(f.applyExternal).not.toHaveBeenCalled()
+  finish()
+  await opening
+  expect(f.applyExternal).toHaveBeenCalledWith(f.settings.value)
+  expect(f.loading.value).toBe(true)
+})
 
 it('does not reopen settings when a delayed refresh finishes after close', async () => {
   let finish!: () => void

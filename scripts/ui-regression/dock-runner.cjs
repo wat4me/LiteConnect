@@ -73,6 +73,36 @@ app.whenReady().then(async () => {
   await wait('window.__dock?.snapshot().ready && !!document.querySelector(".xterm-screen")')
   await wait('window.__dock.calls.resizes.length>0')
   assert.equal(await run('window.__dockError || null'), null)
+  if (process.env.LITECONNECT_DOCK_AI_PERMISSION_ONLY === '1') {
+    stage = 'changing the idle SSH chat mode while another chat is running'
+    const visiblePanel = '.ai-sidebar:not([style*="display: none"])'
+    const permission = `${visiblePanel} .composer-selector`
+    await click(tool('ai'))
+    await wait(`!!document.querySelector('${visiblePanel} .ai-model-switcher')`)
+    await run(`(() => { const input = document.querySelector('${visiblePanel} .composer-input'); input.value = 'Check disk'; input.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+    await wait(`document.querySelector('${visiblePanel} .send-btn')?.disabled === false`)
+    await click(`${visiblePanel} .send-btn`)
+    await wait(`!!document.querySelector('${visiblePanel} .stop-btn')`)
+    await run('window.__dock.session("three")')
+    await wait(`!!document.querySelector('${visiblePanel} .send-btn')`)
+    assert.equal(await run(`document.querySelector('${permission}').disabled`), false)
+    await click(permission)
+    await wait('!!document.querySelector(".composer-selector-menu")')
+    await run(`document.querySelector('.ai-sidebar[style*="display: none"] .chat-list').dispatchEvent(new Event('scroll'))`)
+    assert.equal(await run('!!document.querySelector(".composer-selector-menu")'), true, 'Scrolling another chat must not dismiss the permission menu')
+    await click('.composer-selector-menu [role="menuitemradio"]:last-child')
+    await wait(`document.querySelector('${permission}').textContent.includes('只读')`)
+    await click(permission)
+    await wait('!!document.querySelector(".composer-selector-menu")')
+    await run('window.__dock.session("one")')
+    await wait(`!!document.querySelector('${visiblePanel} .stop-btn')`)
+    assert.equal(await run('!!document.querySelector(".composer-selector-menu")'), false, 'The menu closes when its chat is hidden')
+    await run('window.__dock.finishAiReply()')
+    await wait(`!!document.querySelector('${visiblePanel} .send-btn')`)
+    assert.equal(await run('window.__dockError || null'), null)
+    console.log(JSON.stringify({ passed: true, flow: stage, artifacts }))
+    clearTimeout(timeout); window.destroy(); runtime.closeAppDatabase(); app.quit(); return
+  }
   if (process.env.LITECONNECT_DOCK_CWD_ONLY === '1') {
     stage = 'locating after successful and failed cd commands'
     await click(tool('files'))

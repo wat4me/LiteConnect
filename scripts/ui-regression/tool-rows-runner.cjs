@@ -20,7 +20,7 @@ app.whenReady().then(async () => {
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   await wait('!!window.__uiRegression')
   const rows = [
-    { id: 'exec', name: 'exec', content: JSON.stringify({ exitCode: 0, stdout: 'partial output', truncated: true }) },
+    { id: 'exec', name: 'exec', risk: 'write', content: JSON.stringify({ exitCode: 0, stdout: 'partial output', truncated: true }) },
     { id: 'glob', name: 'glob', content: JSON.stringify({ files: ['/opt/app/ImportZipWorkflowFile.java', '/opt/app/config.xml'] }) },
     { id: 'grep', name: 'grep', content: JSON.stringify({ matchCount: 0, content: '' }) },
     { id: 'target', name: 'exec', target: 'production-server-'.repeat(10), content: JSON.stringify({ exitCode: 2, stderr: 'missing file' }) },
@@ -28,6 +28,8 @@ app.whenReady().then(async () => {
   ].map(row => ({ status: 'done', isError: false, args: JSON.stringify({ command: 'inspect ImportZipWorkflowFile '.repeat(10) }), reason: '查看 ImportZipWorkflowFile 方法和配置文件 '.repeat(10), ...row }))
   await run(`window.__uiRegression.aiTools(${JSON.stringify(rows)})`)
   await wait(`document.querySelectorAll('.ai-fixture .tool-run').length===5`)
+  assert.ok(await run(`document.querySelector('.ai-fixture .process-block.live .process-toggle[aria-expanded="false"]') && [...document.querySelectorAll('.ai-fixture .tool-run')].every(row=>!row.checkVisibility())`), 'Live tool details begin collapsed, including changes and failures')
+  assert.ok(await run(`['修改 1 处', '1 步失败'].every(text=>document.querySelector('.ai-fixture .process-title').textContent.includes(text))`), 'Counts remain visible in the collapsed summary')
   await run(`document.querySelector('.ai-fixture .process-toggle[aria-expanded="false"]')?.click()`)
   await wait(`document.querySelector('.ai-fixture .process-block')?.classList.contains('open')`)
   let cases = 0
@@ -61,6 +63,7 @@ app.whenReady().then(async () => {
     let view=root.__vueParentComponent;
     while(view && view.type.__name!=='AiChatView') view=view.parent;
     if(!view) throw new Error('Chat view not found');
+    window.__toolChatView=view;
     window.__toolChatRenders=0;
     (view.bu || (view.bu=[])).push(()=>window.__toolChatRenders++);
   })()`)
@@ -69,10 +72,9 @@ app.whenReady().then(async () => {
   assert.equal(await run('window.__toolChatRenders'), 0, 'Elapsed-time ticks update only the activity indicator')
   await run(`window.__uiRegression.aiTools(${JSON.stringify(rows.map(row=>({...row, reason:'updated operation'})))})`)
   await wait('window.__toolChatRenders>0')
+  await run(`document.querySelector('.ai-fixture .process-toggle[aria-expanded="true"]').click()`)
   await run(`(() => {
-    let view = document.querySelector('.ai-fixture .chat-shell').__vueParentComponent
-    while (view && view.type.__name !== 'AiChatView') view = view.parent
-    Object.assign(view.props.messages[0], {
+    Object.assign(window.__toolChatView.props.messages[0], {
       streaming: false, status: 'error', error: true, content: 'Partial finding',
       failure: { kind: 'request', detail: 'fetch failed', code: 'ECONNRESET' },
     })
@@ -88,10 +90,42 @@ app.whenReady().then(async () => {
     return { content: content.textContent.trim(), plain: getComputedStyle(content).backgroundColor === 'rgba(0, 0, 0, 0)',
       title: notice.querySelector('.chat-failure-title').textContent.trim(),
       code: details.querySelector('code').textContent, initiallyClosed, opened: details.open,
-      toolCount: fixture.querySelectorAll('.tool-run').length }
+      visibleTools: [...fixture.querySelectorAll('.tool-run')].filter(row=>row.checkVisibility()).length }
   })()`)
   assert.deepEqual(failure, { content: 'Partial finding', plain: true, title: 'No response received from the AI API',
-    code: 'ECONNRESET', initiallyClosed: true, opened: true, toolCount: rows.length })
+    code: 'ECONNRESET', initiallyClosed: true, opened: true, visibleTools: 0 })
+
+  const processToggles = '.ai-fixture .process-toggle'
+  const contentBlocks = '.ai-fixture .chat-row.assistant .message-content'
+  const firstFinding = 'Disk usage is normal.'
+  const finalFinding = 'Memory is also normal.'
+  await run(`window.__uiRegression.aiTools(${JSON.stringify([rows[0]])})`)
+  await run(`(() => {
+    const turn = window.__toolChatView.props.messages[0]
+    turn.content = ${JSON.stringify(firstFinding)}
+    turn.segments = [{ kind: 'tool', runId: 'exec' }, { kind: 'content', text: turn.content }]
+  })()`)
+  await wait(`document.querySelector('${contentBlocks}')?.textContent.trim() === ${JSON.stringify(firstFinding)}`)
+  await run(`window.__firstFinding = document.querySelector('${contentBlocks}'); document.querySelector('${processToggles}').click()`)
+  await run(`(() => {
+    const turn = window.__toolChatView.props.messages[0]
+    turn.toolRuns.push(${JSON.stringify(rows[1])})
+    turn.segments.push({ kind: 'tool', runId: 'glob' })
+  })()`)
+  await wait(`document.querySelectorAll('${processToggles}').length === 2`)
+  assert.ok(await run(`window.__firstFinding === document.querySelector('${contentBlocks}') && window.__firstFinding.checkVisibility()`), 'A later tool call leaves the streamed finding visible in place')
+  assert.deepEqual(await run(`[...document.querySelectorAll('${processToggles}')].map(node=>node.getAttribute('aria-expanded'))`), ['true', 'false'], 'New groups start closed without closing an earlier group')
+  await run(`(() => {
+    const turn = window.__toolChatView.props.messages[0]
+    const text = ${JSON.stringify(finalFinding)}
+    turn.content += '\\n\\n' + text
+    turn.segments.push({ kind: 'content', text })
+    turn.streaming = false
+    turn.completedAt = turn.createdAt + 8_000
+  })()`)
+  await wait(`document.querySelectorAll('${contentBlocks}').length === 2`)
+  assert.deepEqual(await run(`[...document.querySelectorAll('.ai-fixture .chat-row.assistant :is(.process-block,.message-content)')].map(node=>node.classList.contains('process-block') ? 'tool summary' : node.textContent.trim())`), ['tool summary', firstFinding, 'tool summary', finalFinding])
+  assert.ok(await run(`!document.querySelector('.ai-fixture .chat-row.assistant').textContent.includes('00:08')`), 'Chat replies do not display the elapsed time')
   assert.equal(await run('window.__uiError || null'), null)
   console.log(JSON.stringify({ passed: true, cases, artifacts }))
   clearTimeout(timeout)

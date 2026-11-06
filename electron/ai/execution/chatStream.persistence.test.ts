@@ -4,6 +4,8 @@ import { abortAiChatStream, createAiStreamControl, resolveToolApproval } from '.
 import { runPersistedAiReply } from './streamPersistence'
 import type { SshMcpRuntime } from '../../mcp/runtime'
 import type { AiHistoryRecord, AiResolvedConfig, AiChatStreamPayload } from '../../../shared/types/ai'
+import type { AiToolPermissionMode } from '../../../shared/aiToolPolicy'
+import { t } from '../../i18n'
 
 const settings: AiResolvedConfig = { baseUrl: 'https://example.test/v1', apiKey: 'test', model: 'test', systemPrompt: '', temperature: 0 }
 afterEach(() => vi.unstubAllGlobals())
@@ -108,21 +110,25 @@ it.each([true, false])('honors declared write approval (%s) and retains the expl
   expect(closeApprovalNotification).toHaveBeenCalledOnce()
 })
 
-it('uses the current auto permission in an existing conversation', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sse({ tool_calls: [{
+it('uses the current permission for commands and tells the model when it changes between rounds', async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(sse({ tool_calls: [{
     index: 0, id: 'write-after-switch', function: { name: 'exec', arguments: JSON.stringify({
       command: 'mkdir /tmp/permission-switch', risk: 'read', explanation: '创建测试目录。',
     }) },
-  }] })).mockResolvedValueOnce(sse({ content: 'complete' })))
+  }] })).mockResolvedValueOnce(sse({ content: 'complete' }))
+  vi.stubGlobal('fetch', fetcher)
   const events: string[] = []
-  const call = vi.fn(async (name: string) => name === 'list_sessions'
-    ? { isError: false, content: '{}', structuredContent: { sessions: [] } }
-    : { isError: false, content: 'created' })
+  let permission: AiToolPermissionMode = 'auto'
+  const call = vi.fn(async (name: string) => {
+    if (name === 'list_sessions') return { isError: false, content: '{}', structuredContent: { sessions: [] } }
+    permission = 'readonly'
+    return { isError: false, content: 'created' }
+  })
   const result = await runAiChatStream({
     emit: payload => { if (payload.type === 'tool') events.push(payload.value.phase) },
     requestId: 'permission-switch',
     settings: { ...settings, toolPermission: 'ask' },
-    getToolPermission: () => 'auto',
+    getToolPermission: () => permission,
     messages: [{ role: 'user', content: 'continue the earlier conversation' }],
     sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7',
     sshMcpRuntime: { call } as unknown as SshMcpRuntime,
@@ -130,6 +136,11 @@ it('uses the current auto permission in an existing conversation', async () => {
   expect(events).not.toContain('ask')
   expect(result.toolRuns?.[0]).toMatchObject({ status: 'done', risk: 'write' })
   expect(call).toHaveBeenCalledTimes(2)
+  const prompts = fetcher.mock.calls.map(([, init]) => JSON.parse(init.body).messages[0].content)
+  expect(prompts).toHaveLength(2)
+  expect(prompts[0]).toContain(t('sharedText.promptToolPermission_auto'))
+  expect(prompts[1]).toContain(t('sharedText.promptToolPermission_readonly'))
+  expect(prompts[1]).not.toContain(t('sharedText.promptToolPermission_auto'))
 })
 
 it('does not execute a tool when the required explanation is missing', async () => {

@@ -98,6 +98,7 @@ app.whenReady().then(async () => {
 
   await run('window.__uiRegression.aiDisclosure()')
   await wait(`!!document.querySelector('.ai-fixture .reasoning-box') && !!document.querySelector('.ai-fixture .tool-run')`)
+  await run(`document.querySelector('.ai-fixture .process-toggle').click()`)
   await run(`document.querySelector('.ai-fixture .reasoning-box summary').click();document.querySelector('.ai-fixture .tool-run summary').click()`)
   await wait(`!!document.querySelector('.ai-fixture .reasoning-content') && !!document.querySelector('.ai-fixture .tool-run-section')`)
   await run('window.__uiRegression.aiDisclosure(false)')
@@ -105,6 +106,7 @@ app.whenReady().then(async () => {
   await run('window.__uiRegression.aiDisclosure()')
   await wait(`!!document.querySelector('.ai-fixture .tool-run')`)
   assert.ok(await run(`!document.querySelector('.ai-fixture .reasoning-content') && !document.querySelector('.ai-fixture .tool-run-section')`), 'Removed message parts do not resurrect obsolete expansion choices')
+  await run(`document.querySelector('.ai-fixture .process-toggle[aria-expanded=false]')?.click()`)
   await run(`document.querySelector('.ai-fixture .reasoning-box summary').click();document.querySelector('.ai-fixture .tool-run summary').click()`)
   await wait(`!!document.querySelector('.ai-fixture .tool-run-section')`)
   await run(`window.__uiRegression.setAiConversationKey('different-thread')`)

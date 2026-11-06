@@ -127,10 +127,13 @@ export function useAiSidebarModelMenu(deps: {
   function closeSettingsPanel() { settingsRequest++; showSettings.value = false }
 
   async function openSettingsPanel() {
-    if (disposed) return
+    if (disposed || !deps.active()) return
     const request = ++settingsRequest
     deps.closeHistory()
     showModelSwitcher.value = false
+    // An active reply already has a model configuration. Show the cached
+    // settings while the refresh is pending so navigation stays responsive.
+    if (deps.loading() && deps.settings.value.providers.length) showSettings.value = true
     try { await deps.refreshSettings() } catch (error: any) {
       if (!disposed) ElMessage.warning(error?.message || deps.t('ai.loadSettingsFailed'))
     }

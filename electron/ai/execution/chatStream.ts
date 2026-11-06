@@ -14,6 +14,7 @@ import {
 import { looksLikeToolsUnsupported } from '../tools/sshToolChat'
 import {
   sanitizeAiToolPermission,
+  withAiToolPermissionPrompt,
   type AiToolPermissionMode,
 } from '../../../shared/aiToolPolicy'
 import { appendFinalAssistantTurn, validateAiMessages } from '../../../shared/aiMessages'
@@ -105,7 +106,8 @@ export async function runAiChatStream(opts: {
   const allowQuestions = opts.allowQuestions !== false && !opts.foregroundOnly
   let toolGroups = normalizeAiToolGroups([...normalizeAiToolGroups(opts.toolGroups), ...aiToolGroupsFromHistory(opts.contextHistory?.records || [])])
   const environment = await buildAiRequestEnvironment({ sessionId, cwd, workspaceTargets, sshMcpRuntime, allowQuestions, toolGroups, knowledge: opts.knowledge })
-  const { boundSessionId, useTools, extraSystem } = environment
+  const { boundSessionId, useTools } = environment
+  const requestSystem = () => useTools ? withAiToolPermissionPrompt(environment.extraSystem, currentToolPermission(), t) : environment.extraSystem
   let tools = environment.tools
   const loadTools = (groups: AiToolGroup[]) => {
     toolGroups = normalizeAiToolGroups([...toolGroups, ...groups])
@@ -133,7 +135,7 @@ export async function runAiChatStream(opts: {
         continuation: opts.contextHistory.continuation,
         checkpoint: opts.contextHistory.checkpoint,
         settings,
-        extraSystem,
+        extraSystem: requestSystem(),
         tools,
         signal: abortController.signal,
         emit: send,
@@ -147,7 +149,7 @@ export async function runAiChatStream(opts: {
       throw error
     }
   }
-  const packMessages = (incoming: AiChatMessage[], budgetTokens?: number) => packRequestMessages(settings, incoming, budgetTokens, extraSystem, undefined, aiToolSchemaTokens(tools))
+  const packMessages = (incoming: AiChatMessage[], budgetTokens?: number) => packRequestMessages(settings, incoming, budgetTokens, requestSystem(), undefined, aiToolSchemaTokens(tools))
   let packedMessages: AiChatMessage[]
   try { packedMessages = packMessages(contextMessages) } catch (error) { cleanupStream(); throw error }
 
@@ -188,12 +190,12 @@ export async function runAiChatStream(opts: {
     const generatedMessages: AiChatMessage[] = []
     let contextPressure: AiContextPressure | undefined
     const reportPressure = (messages: AiChatMessage[]) => {
-      contextPressure = measureAiContextPressure({ ...settings, extraSystem, toolSchemaTokens: aiToolSchemaTokens(toolsEnabled ? tools : undefined), messages })
+      contextPressure = measureAiContextPressure({ ...settings, extraSystem: requestSystem(), toolSchemaTokens: aiToolSchemaTokens(toolsEnabled ? tools : undefined), messages })
       send({ type: 'context-pressure', value: contextPressure })
       return contextPressure
     }
     const compactStep = (messages: AiChatMessage[], force = false) => compactAiLiveMessages({
-      settings, extraSystem, tools: toolsEnabled ? tools : undefined, messages, force,
+      settings, extraSystem: requestSystem(), tools: toolsEnabled ? tools : undefined, messages, force,
       signal: abortController.signal, emit: send, onUsage: usage => { usageRequests.push(usage); reportUsage() },
     })
 
@@ -253,7 +255,7 @@ export async function runAiChatStream(opts: {
           overflowRecovered = true
           const before = reportPressure(apiMessages).usedTokens
           const recovered = await compactStep(apiMessages, true)
-          const smaller = measureAiContextPressure({ ...settings, extraSystem, toolSchemaTokens: aiToolSchemaTokens(toolsEnabled ? tools : undefined), messages: recovered }).usedTokens < before
+          const smaller = measureAiContextPressure({ ...settings, extraSystem: requestSystem(), toolSchemaTokens: aiToolSchemaTokens(toolsEnabled ? tools : undefined), messages: recovered }).usedTokens < before
           apiMessages = packMessages(recovered, smaller ? undefined : Math.max(4_096, Math.floor(resolveContextWindowTokens(settings.model, settings.contextWindowTokens) / 2)))
           reportPressure(apiMessages)
           response = await openStream(apiMessages, toolsEnabled)
@@ -427,7 +429,7 @@ export async function runAiChatStream(opts: {
     }
     if (!receivedText && !receivedToolCall && streamAccepted && provider.allowsCompletionFallback) {
       const reply = await runAiChatCompletion(
-        settings, [...contextMessages, ...receivedBackgroundMessages], abortController.signal, extraSystem,
+        settings, [...contextMessages, ...receivedBackgroundMessages], abortController.signal, requestSystem(),
       )
       if (reply.reasoningContent) send({ type: 'reasoning', value: reply.reasoningContent })
       send({ type: 'content', value: reply.content })

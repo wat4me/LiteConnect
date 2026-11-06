@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ConnectionsView from './views/ConnectionsView.vue'
 import TabBar from '@/components/app/TabBar.vue'
@@ -23,6 +23,7 @@ const OnboardingTips = defineAsyncComponent(() => import('@/components/app/Onboa
 const GlobalJumpPalette = defineAsyncComponent(() => import('@/components/app/GlobalJumpPalette.vue'))
 const ShortcutsHelpOverlay = defineAsyncComponent(() => import('@/components/app/ShortcutsHelpOverlay.vue'))
 import type { AppBootstrapData } from './env.d'
+import type { AppSettingsAll } from '@shared/types/settings'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { useTheme } from '@/composables/app/useTheme'
 import {
@@ -153,6 +154,7 @@ const {
 } = session
 
 const connectionsBootstrap = ref<Pick<AppBootstrapData, 'connections' | 'groups'> | null>(null)
+const appSettingsSnapshot = shallowRef<AppSettingsAll>()
 const bootstrapPending = ref(true)
 const jumpPaletteVisible = ref(false)
 const shortcutsHelpVisible = ref(false)
@@ -711,6 +713,7 @@ const {
 onMounted(async () => {
   let receivedUiSizes = false
   unsubSettingsChanged = window.LiteConnect.onSettingsChanged?.(({ settings, changed }) => {
+    appSettingsSnapshot.value = settings
     if (changed.includes('uiDensity') || changed.includes('uiFontSize')) receivedUiSizes = true
     applyAppSettings(settings, changed)
   }) || null
@@ -777,6 +780,7 @@ onMounted(async () => {
   window.addEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
   try {
     const bootstrap = await window.LiteConnect.getAppBootstrap()
+    appSettingsSnapshot.value ??= bootstrap.settings
     if (!receivedUiSizes) applyUiSizes(bootstrap)
     hydrateConnectionData({
       connections: bootstrap.connections,
@@ -917,6 +921,8 @@ onBeforeUnmount(() => {
         v-if="showSettingsPage"
         ref="settingsViewRef"
         :initial-tab="settingsInitialTab"
+        :initial-settings="appSettingsSnapshot"
+        @settings-snapshot="appSettingsSnapshot = $event"
         @close="closeSettingsPage"
       />
 

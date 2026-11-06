@@ -4,7 +4,7 @@ import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{
-  title: string; label: string; icon: 'shield'; disabled?: boolean
+  title: string; label: string; icon: 'shield'; disabled?: boolean; active: boolean
   value: string; options: Array<{ value: string; label: string; description: string }>
 }>()
 const emit = defineEmits<{ change: [value: string] }>()
@@ -25,7 +25,7 @@ async function position() {
 watch(open, async value => {
   if (value) { await position(); panel.value?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus() }
 })
-watch(() => props.disabled, value => { if (value) close() })
+watch([() => props.disabled, () => props.active], ([disabled, active]) => { if (disabled || !active) close() })
 useOutsideDismiss(open, dismiss, () => [anchor.value, panel.value])
 function keydown(event: KeyboardEvent) {
   if (event.key === 'Escape') { event.preventDefault(); dismiss(); return }
@@ -38,7 +38,9 @@ function keydown(event: KeyboardEvent) {
   if (event.key === 'Tab') close()
 }
 function choose(value: string) { emit('change', value); dismiss() }
-function onScroll(event: Event) { if (!panel.value?.contains(event.target as Node)) close() }
+function onScroll({ target }: Event) {
+  if (open.value && (target === window || (target instanceof Node && anchor.value && target.contains(anchor.value)))) close()
+}
 window.addEventListener('resize', close)
 window.addEventListener('scroll', onScroll, true)
 onDeactivated(close)

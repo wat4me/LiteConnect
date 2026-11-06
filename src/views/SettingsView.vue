@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import type { SettingsTabId } from '@/domain/settings/types'
+import type { AppSettingsAll } from '@shared/types/settings'
 import AppIcon from '../components/icons/AppIcon.vue'
 import { useSettingsDraft } from '@/composables/settings/useSettingsDraft'
 import { SETTINGS_SEARCH_CATALOG } from '@/composables/settings/settingsSearchCatalog'
@@ -22,10 +23,12 @@ import SettingsAbout from '../components/settings/SettingsAbout.vue'
 const props = defineProps<{
   /** Open a specific tab (e.g. deep-link from X11 install prompt). */
   initialTab?: SettingsTabId
+  initialSettings?: AppSettingsAll
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'settings-snapshot', settings: AppSettingsAll): void
 }>()
 
 const { t } = useI18n()
@@ -47,7 +50,7 @@ const {
   loadSettings,
   restoreSystemDefaults,
   cloneDraft,
-} = useSettingsDraft()
+} = useSettingsDraft({ initialSettings: () => props.initialSettings, onSnapshot: settings => emit('settings-snapshot', settings) })
 
 const activeTab = ref<SettingsTab>(props.initialTab || 'appearance')
 

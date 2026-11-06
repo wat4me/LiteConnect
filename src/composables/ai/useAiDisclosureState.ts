@@ -3,7 +3,7 @@ import type { ChatItem } from '@/domain/ai/chat'
 
 export const toolDisclosureKey = (messageId: string, runId: string) => JSON.stringify([messageId, 'tool', runId])
 export const reasoningDisclosureKey = (messageId: string, index: number) => JSON.stringify([messageId, 'reasoning', index])
-export const processDisclosureKey = (messageId: string) => JSON.stringify([messageId, 'process'])
+export const processDisclosureKey = (messageId: string, firstRunId: string) => JSON.stringify([messageId, 'process', firstRunId])
 
 function reasoningIndices(message: ChatItem): number[] {
   return message.segments?.length
@@ -30,8 +30,10 @@ export function useAiDisclosureState(deps: { messages: () => ChatItem[]; convers
     const reasoning = new Set<string>()
     const processes = new Set<string>()
     for (const message of deps.messages()) {
-      processes.add(processDisclosureKey(message.id))
-      for (const run of message.toolRuns || []) tools.add(toolDisclosureKey(message.id, run.id))
+      for (const run of message.toolRuns || []) {
+        tools.add(toolDisclosureKey(message.id, run.id))
+        processes.add(processDisclosureKey(message.id, run.id))
+      }
       for (const index of reasoningIndices(message)) reasoning.add(reasoningDisclosureKey(message.id, index))
     }
     for (const key of toolOpenState.keys()) if (!tools.has(key)) toolOpenState.delete(key)

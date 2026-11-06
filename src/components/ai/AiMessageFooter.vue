@@ -8,7 +8,7 @@ import AppIcon from '../icons/AppIcon.vue'
 const props = defineProps<{
   message: ChatItem
   loading: boolean
-  lastAssistantId: string
+  latestReply: boolean
   lastUserMessageId: string
   copiedKey: string
 }>()
@@ -54,7 +54,7 @@ function messageTimeIso(): string {
     <span v-if="message.role === 'assistant' && message.status === 'aborted'" class="interrupted-line">
       {{ t('ai.requestInterrupted') }}
     </span>
-    <div v-if="!loading && !message.streaming" class="message-actions">
+    <div v-if="!message.streaming && (!loading || message.role === 'assistant')" class="message-actions">
       <template v-if="message.role === 'user'">
         <button
           v-if="message.id === lastUserMessageId"
@@ -69,14 +69,14 @@ function messageTimeIso(): string {
       </template>
       <template v-else>
         <button
-          v-if="message.id === lastAssistantId && (message.error || message.status === 'aborted')"
+          v-if="latestReply && (message.error || message.status === 'aborted')"
           type="button"
           class="msg-action-btn"
           :title="t('ai.retry')"
           @click="emit('retry')"
         ><AppIcon name="refresh" size="xs" /></button>
         <button
-          v-else-if="message.id === lastAssistantId && message.content"
+          v-else-if="latestReply && message.content"
           type="button"
           class="msg-action-btn"
           :title="t('ai.regenerate')"
@@ -92,7 +92,7 @@ function messageTimeIso(): string {
           <AppIcon v-if="copiedKey === `${message.id}-message`" name="check" size="xs" />
           <AppIcon v-else name="copy" size="xs" />
         </button>
-        <button type="button" class="msg-action-btn" :title="t('ai.deleteMessage')" @click="emit('delete')">
+        <button type="button" class="msg-action-btn" :title="t('ai.deleteMessage')" :disabled="loading" @click="emit('delete')">
           <AppIcon name="delete" size="xs" />
         </button>
       </template>

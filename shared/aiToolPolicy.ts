@@ -31,6 +31,10 @@ export function sanitizeAiToolPermission(raw: unknown): AiToolPermissionMode {
   return isAiToolPermissionMode(raw) ? raw : DEFAULT_AI_TOOL_PERMISSION
 }
 
+export function withAiToolPermissionPrompt(system: string, mode: AiToolPermissionMode | undefined, translate: SharedTranslate = sharedT): string {
+  return `${translate(`sharedText.promptToolPermission_${sanitizeAiToolPermission(mode)}`)}\n\n${system}`
+}
+
 export function isAiDeclaredRisk(value: unknown): value is AiDeclaredRisk {
   return typeof value === 'string' && (AI_DECLARED_RISKS as readonly string[]).includes(value)
 }

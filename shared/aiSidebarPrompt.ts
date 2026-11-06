@@ -3,6 +3,8 @@ import {
   AI_DECLARED_RISKS,
   AI_TOOL_EXPLANATION_DESCRIPTION,
   AI_TOOL_EXPLANATION_MAX_CHARS,
+  withAiToolPermissionPrompt,
+  type AiToolPermissionMode,
 } from './aiToolPolicy'
 import { packAiMessages, type AiContextPack } from './aiContext'
 import { sshMcpToolsAsOpenAiFunctions } from './mcp/tools'
@@ -160,15 +162,17 @@ export function estimateSidebarAiRequest(opts: AiContextBudgetConfig & {
   model?: string
   contextWindowTokens?: number
   toolGroups?: readonly AiToolGroup[]
+  toolPermission?: AiToolPermissionMode
   translate?: SharedTranslate
 }): SidebarAiRequestEstimate {
   const bound = Boolean(opts.sessionId)
-  const extraSystem = opts.toolContext?.system ?? (bound
+  const environmentSystem = opts.toolContext?.system ?? (bound
     ? sshToolSystemAddendum({
         sessionId: opts.sessionId || '',
         cwd: opts.cwd,
       }, opts.translate)
     : '')
+  const extraSystem = bound || opts.toolContext ? withAiToolPermissionPrompt(environmentSystem, opts.toolPermission, opts.translate) : environmentSystem
   const toolSchemaTokens = opts.toolContext?.schemaTokens ?? (bound ? sidebarToolSchemaTokens(opts.toolGroups) : 0)
   const pressure = measureAiContextPressure({ ...opts, extraSystem, toolSchemaTokens })
   const pack = packAiMessages({

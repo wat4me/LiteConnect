@@ -1,4 +1,4 @@
-import { computed, onMounted, onBeforeUnmount, ref, type Ref, type ComputedRef } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch, type Ref, type ComputedRef } from 'vue'
 import type { AppSettingsAll } from '@shared/types/settings'
 import { buildSettingsDraftPatch } from './settingsDraftPatch'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -239,7 +239,12 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
   )
 }
 
-export function useSettingsDraft(): {
+const SETTINGS_READ_TIMEOUT_MS = 8000
+
+export function useSettingsDraft(options: {
+  initialSettings?: () => AppSettingsAll | undefined
+  onSnapshot?: (settings: AppSettingsAll) => void
+} = {}): {
   draft: Ref<SettingsDraft>
   saved: Ref<SettingsDraft>
   loading: Ref<boolean>
@@ -260,7 +265,7 @@ export function useSettingsDraft(): {
   const loadError = ref('')
   let loaded = false
   let loadInFlight = false
-  let pendingSettings: AppSettingsAll | undefined
+  let snapshotRevision = 0
   const saving = ref(false)
   const resetAllRequested = ref(false)
   const recentDownloadPaths = ref<string[]>([])
@@ -394,27 +399,45 @@ export function useSettingsDraft(): {
     return next
   }
 
+  function acceptSettings(all: AppSettingsAll) {
+    const incoming = fromPersistedSettings(all)
+    if (!resetAllRequested.value) {
+      draft.value = loaded ? rebaseSettingsDraft(draft.value, saved.value, incoming) : cloneDraft(incoming)
+      if (draft.value.useSystemDownloadPath) draft.value.downloadPath = all.defaultDownloadPath
+    }
+    saved.value = cloneDraft(incoming)
+    recentDownloadPaths.value = all.recentDownloadPaths || []
+    systemDefaultDownloadPath.value = all.defaultDownloadPath
+    loaded = true
+    loadError.value = ''
+    loading.value = false
+  }
+
+  if (options.initialSettings) watch(options.initialSettings, all => {
+    if (all && !loaded) acceptSettings(all)
+  }, { immediate: true })
+
   async function loadSettings() {
     if (saving.value || loadInFlight) return
     loadInFlight = true
-    pendingSettings = undefined
-    loading.value = true
+    loading.value = !loaded
     loadError.value = ''
-    loaded = false
+    const revision = snapshotRevision
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const fetched = await window.LiteConnect.getAllSettings()
-      const all = pendingSettings || fetched
-      pendingSettings = undefined
-      systemDefaultDownloadPath.value = all.defaultDownloadPath
-      const next = fromPersistedSettings(all)
-      resetAllRequested.value = false
-      draft.value = cloneDraft(next)
-      saved.value = cloneDraft(next)
-      recentDownloadPaths.value = all.recentDownloadPaths || []
-      loaded = true
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(t('settings.loadTimedOut'))), SETTINGS_READ_TIMEOUT_MS)
+      })
+      const all = await Promise.race([window.LiteConnect.getAllSettings(), timeout])
+      if (revision !== snapshotRevision) return
+      acceptSettings(all)
+      options.onSnapshot?.(all)
     } catch (error) {
-      loadError.value = error instanceof Error && error.message ? error.message : t('settings.loadFailed')
+      if (!loaded && revision === snapshotRevision) {
+        loadError.value = error instanceof Error && error.message ? error.message : t('settings.loadFailed')
+      }
     } finally {
+      clearTimeout(timer)
       loading.value = false
       loadInFlight = false
     }
@@ -423,20 +446,15 @@ export function useSettingsDraft(): {
   let unsubscribeSettings: (() => void) | undefined
   onMounted(() => {
     unsubscribeSettings = window.LiteConnect.onSettingsChanged?.(({ settings }) => {
-      if (loading.value) { pendingSettings = settings; return }
-      if (!loaded || loadError.value) return
-      const incoming = fromPersistedSettings(settings)
-      if (!resetAllRequested.value) {
-        draft.value = rebaseSettingsDraft(draft.value, saved.value, incoming)
-        if (draft.value.useSystemDownloadPath) draft.value.downloadPath = settings.defaultDownloadPath
-      }
-      saved.value = cloneDraft(incoming)
-      recentDownloadPaths.value = settings.recentDownloadPaths || []
-      systemDefaultDownloadPath.value = settings.defaultDownloadPath
+      snapshotRevision++
+      acceptSettings(settings)
     })
     void loadSettings()
   })
-  onBeforeUnmount(() => unsubscribeSettings?.())
+  onBeforeUnmount(() => {
+    snapshotRevision++
+    unsubscribeSettings?.()
+  })
 
   /** 将草稿恢复为应用出厂默认（需再点保存才写入） */
   async function restoreSystemDefaults() {
@@ -469,6 +487,7 @@ export function useSettingsDraft(): {
     }
 
     saving.value = true
+    snapshotRevision++
     try {
       const submitted = cloneDraft(draft.value)
       const patch = buildSettingsDraftPatch(submitted, saved.value, { resetAll: resetAllRequested.value })
@@ -478,6 +497,7 @@ export function useSettingsDraft(): {
         return
       }
       const savedAll = await window.LiteConnect.setManySettings(patch)
+      options.onSnapshot?.(savedAll)
       resetAllRequested.value = false
       const d = fromPersistedSettings(savedAll)
       applyAppSettings(savedAll)

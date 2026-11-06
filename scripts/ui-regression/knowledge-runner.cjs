@@ -598,6 +598,7 @@ app.whenReady().then(async () => {
   const locatorDoc=(await service.access('fixture',1).manage({action:'list',groupId:locatorGroup.id})).documents[0]
   await run(`(async()=>{const {useAiChat}=await import('/src/composables/ai/useAiChat.ts');useAiChat().getSessionState('knowledge-trigger-preview').messages.push({id:'group-result-link',role:'assistant',content:'',createdAt:Date.now(),status:'completed',toolRuns:[{id:'group-result',name:'knowledge_save',args:'{}',status:'done',isError:false,content:JSON.stringify({groupId:'${locatorGroup.id}',documentId:'${locatorDoc.id}',saved:true})}]})})()`)
   await wait('!!document.querySelector(".ai-sidebar .tool-run-knowledge")')
+  await click('.ai-sidebar .process-toggle')
   await click('.ai-sidebar .tool-run-knowledge')
   await wait(`document.querySelector('.knowledge-toolbar > select')?.value==='knowledge-group:${locatorGroup.id}'`)
   await wait(`document.querySelector('.knowledge-panel main').textContent.includes('AI_GROUP_LINK')`)

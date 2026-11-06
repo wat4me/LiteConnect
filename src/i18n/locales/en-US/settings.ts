@@ -4,6 +4,7 @@ export default {
     subtitle: 'Configure the interface, features, connections, and app behavior',
     loading: 'Loading settings…',
     loadFailed: 'Settings could not be loaded. The actual configuration is not available yet.',
+    loadTimedOut: 'Reading settings timed out. Try again.',
     retryLoad: 'Retry loading',
     dirtyHint: 'Unsaved changes · only the settings preview follows edits',
     cleanHint: 'Changes take effect and are written to disk only after you choose Save',

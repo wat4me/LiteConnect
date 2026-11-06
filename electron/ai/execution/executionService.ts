@@ -21,6 +21,7 @@ import type { AiKnowledgeAccess, KnowledgeRequest, KnowledgeResponse } from '../
 import type { KnowledgeGroupRequest, KnowledgeGroupResponse } from '../../../shared/aiKnowledgeGroups'
 import type { AiScheduledExecInput } from '../tools/toolExecutionContext'
 import type { AiDeferredJobInput } from '../schedules/deferredJobs'
+import { withAiToolPermissionPrompt } from '../../../shared/aiToolPolicy'
 
 /** The deferred-job service, attached after construction because it also calls back into execution. */
 export interface AiDeferredJobScheduler {
@@ -293,14 +294,15 @@ export class AiExecutionService {
         const environment = await buildAiRequestEnvironment({
           sessionId: target.sessionId, cwd: target.cwd, workspaceTargets, toolGroups: thread.toolGroups, sshMcpRuntime: this.ports.runtime, knowledge,
         })
+        const extraSystem = environment.useTools ? withAiToolPermissionPrompt(environment.extraSystem, settings.toolPermission, t) : environment.extraSystem
         const usage: (AiUsage | undefined)[] = []
         const prepared = await maybeCompactAiContext({
           force: true, settings, records: thread.messages, checkpoint: thread.contextCheckpoint,
-          compactionCount: thread.compactionCount, ...environment,
+          compactionCount: thread.compactionCount, ...environment, extraSystem,
           signal: control.controller.signal, emit: publisher.publish, onUsage: value => { usage.push(value) },
           saveCheckpoint: next => this.saveCheckpoint(historyId, target.threadId, next, this.ports.settings.limits()),
         })
-        const contextPressure = measureAiContextPressure({ ...settings, extraSystem: environment.extraSystem, toolSchemaTokens: aiToolSchemaTokens(environment.tools), messages: prepared.messages })
+        const contextPressure = measureAiContextPressure({ ...settings, extraSystem, toolSchemaTokens: aiToolSchemaTokens(environment.tools), messages: prepared.messages })
         publisher.publish({ type: 'context-pressure', value: contextPressure })
         return { content: '', contextCompacted: prepared.compacted === true, contextCheckpoint: prepared.checkpoint, contextPressure, usage: aggregateAiUsage(usage) }
       }

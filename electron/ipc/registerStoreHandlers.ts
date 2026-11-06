@@ -87,6 +87,7 @@ export function registerStoreHandlers(
     const all = settingsStore.getAll()
     return {
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
+      settings: all,
       connections: credentialStore.getConnections(),
       groups: credentialStore.getGroups(),
       recentConnections,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { AI_WORKSPACE_MAX_HOSTS } from '@shared/aiWorkspace'
@@ -120,6 +120,9 @@ const {
   openSchedules,
   backToHosts
 } = useAiWorkspace({ active: () => props.active })
+
+const disconnectedScopeTargets = computed(() => scopeTargets.value?.filter(target => !target.sessionId) ?? [])
+const disconnectedScopeNames = computed(() => disconnectedScopeTargets.value.map(target => target.name).join(t('ai.workspace.scopeHostSeparator')))
 
 defineExpose({
   hasConversation,
@@ -246,7 +249,7 @@ function openHostChat(connectionId: string) {
 
     <main v-show="!showSchedules && !showModelSettings" class="ai-workspace-main">
       <div v-if="!browsing" class="workspace-chat">
-        <p v-if="activeScope && !scopeReady" class="workspace-error inset" role="alert">{{ t('ai.workspace.scopeDisconnected') }}</p>
+        <p v-if="disconnectedScopeTargets.length" class="workspace-error inset" role="alert">{{ t('ai.workspace.scopeDisconnected', { hosts: disconnectedScopeNames }) }}</p>
         <p v-if="error && sessionId" class="workspace-error inset" role="alert">{{ error }}</p>
         <div v-if="sessionId" class="lite-ai-chat">
           <AiSidebar
@@ -269,15 +272,20 @@ function openHostChat(connectionId: string) {
             <template #workspace-toolbar>
               <header v-if="activeScope" class="workspace-target workspace-scope-target">
                 <details class="workspace-scope-details">
-                  <summary :title="t('ai.workspace.serverDetails')" :aria-label="t('ai.workspace.scopeDetailsTitle')">
-                    <span>{{ t('ai.workspace.scopeCount', { count: activeScope.connectionIds.length }) }}</span>
-                    <span class="workspace-scope-ratio" :class="{ ready: scopeReady }">{{ t('ai.workspace.scopeConnectionRatio', { connected: scopeTargets?.filter(target => target.sessionId).length || 0, count: activeScope.connectionIds.length }) }}</span>
-                    <span class="workspace-scope-names"><span v-for="target in scopeTargets?.slice(0, 3)" :key="target.connectionId" class="workspace-scope-chip" :title="target.name">{{ target.name }}</span><span v-if="activeScope.connectionIds.length > 3">+{{ activeScope.connectionIds.length - 3 }}</span></span>
-                    <AppIcon name="chevron-down" size="xs" />
+                  <summary :title="t('ai.workspace.serverDetails')">
+                    <span class="workspace-scope-ratio" :class="{ ready: scopeReady }">{{ t('ai.workspace.scopeConnectionRatio', { connected: activeScope.connectionIds.length - disconnectedScopeTargets.length, count: activeScope.connectionIds.length }) }}</span>
+                    <AppIcon name="chevron-down" size="xs" class="workspace-scope-chevron" aria-hidden="true" />
                   </summary>
                   <div class="workspace-scope-popover">
                     <div class="workspace-scope-heading"><strong>{{ t('ai.workspace.scopeDetailsTitle') }}</strong><p>{{ t('ai.workspace.scopeDetailsHint') }}</p></div>
-                    <ul><li v-for="target in scopeTargets" :key="target.connectionId"><span class="connection-dot" :class="{ connected: !!target.sessionId }" /><strong>{{ target.name }}</strong><span>{{ target.username }}@{{ target.host }}:{{ target.port }}</span></li></ul>
+                    <ul>
+                      <li v-for="target in scopeTargets" :key="target.connectionId">
+                        <span class="connection-dot" :class="{ connected: !!target.sessionId }" aria-hidden="true" />
+                        <strong>{{ target.name }}</strong>
+                        <span v-if="target.host" class="workspace-scope-address">{{ target.username }}@{{ target.host }}:{{ target.port }}</span>
+                        <span class="workspace-scope-status">{{ t(target.sessionId ? 'ai.workspace.connected' : 'ai.workspace.disconnected') }}</span>
+                      </li>
+                    </ul>
                   </div>
                 </details>
                 <button v-if="!scopeReady" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm workspace-retry" :disabled="scopeBusy" :title="t('ai.workspace.retryConnect')" :aria-label="t('ai.workspace.retryConnect')" @click="openScope({ id: activeScope.id })"><AppIcon name="refresh" size="sm" /></button>

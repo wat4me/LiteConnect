@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { aiToolSchemaTokens, measureAiContextPressure, resolveAiContextBudget } from './aiContextPressure'
 import { estimateSidebarAiRequest, sshToolsForChat, sshToolSystemAddendum } from './aiSidebarPrompt'
 import { parseAiModel } from './aiContext'
+import { withAiToolPermissionPrompt } from './aiToolPolicy'
 
 describe('shared AI context pressure', () => {
   it('prices the same SSH context and tool schema in the sidebar and runtime', () => {
@@ -9,7 +10,7 @@ describe('shared AI context pressure', () => {
     const config = { model: 'test', contextWindowTokens: 32000, maxOutputTokens: 6000, compactionRetainTokens: 4000 }
     const sidebar = estimateSidebarAiRequest({ ...config, systemPrompt: 'sys', sessionId: 'session', cwd: '/srv', messages })
     const runtime = measureAiContextPressure({ ...config, systemPrompt: 'sys', messages,
-      extraSystem: sshToolSystemAddendum({ sessionId: 'session', cwd: '/srv' }),
+      extraSystem: withAiToolPermissionPrompt(sshToolSystemAddendum({ sessionId: 'session', cwd: '/srv' }), 'ask'),
       toolSchemaTokens: aiToolSchemaTokens(sshToolsForChat()),
     })
     expect(sidebar.pressure).toEqual(runtime)

@@ -106,6 +106,7 @@ export type AppSettingsAllPatch = Partial<
 
 export interface AppBootstrapData {
   encryptionAvailable: boolean
+  settings: AppSettingsAll
   connections: Connection[]
   groups: Group[]
   recentConnections: Connection[]

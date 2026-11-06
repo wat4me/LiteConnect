@@ -13,7 +13,7 @@ import { useTheme } from '../../src/composables/app/useTheme'
 import { setAppLocale } from '../../src/i18n'
 import { WORKSPACE_TOOLS, type WorkspacePanel, type WorkspaceTool } from '../../shared/workspaceLayout'
 import type { AppSettingsChange } from '../../shared/types/settings'
-import type { AiSessionStore, AiSettings } from '../../shared/types/ai'
+import type { AiChatResult, AiSessionStore, AiSettings } from '../../shared/types/ai'
 import type { ConnectionGroup, Session } from '../../src/domain/session/types'
 import type { Connection } from '../../shared/types/connection'
 
@@ -28,15 +28,19 @@ function listen(name: string, fn: (...args: any[]) => void) {
 const stores = new Map<string, AiSessionStore>()
 const rendererState = new Map<string, unknown>()
 const settings: AiSettings = { providers: [{ id: 'fixture', name: 'Fixture', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'fixture-model' }] }], activeProviderId: 'fixture', activeModel: 'fixture-model', systemPrompt: '' }
+let finishAiReply: ((reply: AiChatResult) => void) | undefined
 const api = {
   getAllSettings: () => backend.invoke('get'), setManySettings: (patch: unknown) => backend.invoke('set', patch),
   onSettingsChanged: (fn: (change: AppSettingsChange) => void) => backend.settings(fn),
-  getAiSettings: async () => settings, getAiSessionStore: async (id: string) => stores.get(id) || { version: 1, activeThreadId: 'initial', defaultContextFiles: [], threads: [{ id: 'initial', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] },
+  getAiSettings: async () => structuredClone(settings), getAiSessionStore: async (id: string) => stores.get(id) || { version: 1, activeThreadId: 'initial', defaultContextFiles: [], threads: [{ id: 'initial', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] },
   aiCreateConversation: async (id: string) => {
     const store: AiSessionStore = { version: 1, activeThreadId: `draft-${stores.size}`, defaultContextFiles: [], threads: [{ id: `draft-${stores.size}`, title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
     stores.set(id, store); return store
   },
   setAiSessionStore: async (id: string, store: AiSessionStore) => { stores.set(id, store) },
+  setAiSettings: async (next: AiSettings) => { Object.assign(settings, next) },
+  appendAiSessionHistory: async () => {},
+  aiChatStream: () => new Promise<AiChatResult>(resolve => { finishAiReply = resolve }),
   aiKnowledge: async () => ({ storagePath: '/fixture/knowledge.sqlite', targets: [], groups: [] }),
   aiListExecutions: async () => [], listAiModels: async () => [],
   mcpListJobs: async () => [], onMcpJobsChanged: (fn: () => void) => listen('jobs', fn),
@@ -112,6 +116,7 @@ onMounted(() => {
     async reset() { preferences.update({ ...preferences.layout.value, locked: false }); await nextTick() },
     tools: WORKSPACE_TOOLS,
     enableCwdInputEcho() { echoCwdInput = true },
+    finishAiReply() { finishAiReply?.({ content: 'Done' }); finishAiReply = undefined },
   }
 })
 </script>

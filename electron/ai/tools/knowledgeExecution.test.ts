@@ -8,6 +8,7 @@ import { runAiChatStream } from '../execution/chatStream'
 import { AiKnowledgeService } from '../knowledge/knowledgeService'
 import type { AiResolvedConfig } from '../../../shared/types/ai'
 import type { SshMcpRuntime } from '../../mcp/runtime'
+import { t } from '../../i18n'
 
 vi.mock('electron', () => ({ app: { getPath: () => 'C:/fixture' } }))
 afterEach(() => vi.unstubAllGlobals())
@@ -130,6 +131,9 @@ it('completes a conversation through tool loading, knowledge reads, approved sav
   const readonlyBodies = fetcher.mock.calls.slice(firstReadonlyRequest).map(([, init]) => JSON.parse(init.body))
   expect(readonlyBodies.every(body => !body.tools.some((tool: { function: { name: string } }) => tool.function.name === 'knowledge_save'))).toBe(true)
   expect(readonlyBodies[1].tools.some((tool: { function: { name: string } }) => tool.function.name === 'upload_file')).toBe(true)
+  expect(readonlyBodies.every(body => body.messages[0].content.includes(t('sharedText.promptToolPermission_auto')))).toBe(true)
+  expect(readonlyBodies[0].messages[0].content).toContain('"mode":"readonly"')
+  expect(readonlyBodies[0].messages[0].content).toContain('The mode field describes only local knowledge.')
   expect(readonlyBodies[0].messages[0].content).toContain('This is a test environment.')
   expect(readonly.toolRuns).toEqual([
     expect.objectContaining({ name: 'load_tools', isError: false }),

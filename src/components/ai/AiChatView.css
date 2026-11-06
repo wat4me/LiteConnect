@@ -326,18 +326,14 @@
   pointer-events: auto;
 }
 
-/* 助手消息的用量摘要与操作按钮默认隐藏，悬停或键盘聚焦时显示 */
-.chat-row.assistant :deep(.message-actions),
-.chat-row.assistant :deep(.usage-trigger) {
+/* 历史回复的页脚信息在悬停或键盘聚焦时显示。 */
+.chat-row.assistant :deep(:is(.message-actions, .usage-trigger)) {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease;
 }
 
-.chat-row.assistant:hover :deep(.message-actions),
-.chat-row.assistant:focus-within :deep(.message-actions),
-.chat-row.assistant:hover :deep(.usage-trigger),
-.chat-row.assistant:focus-within :deep(.usage-trigger) {
+.chat-row.assistant:is(.latest-reply, :hover, :focus-within) :deep(:is(.message-actions, .usage-trigger)) {
   opacity: 1;
   pointer-events: auto;
 }
@@ -355,10 +351,12 @@
   cursor: pointer;
 }
 
-:deep(.msg-action-btn:hover) {
+:deep(.msg-action-btn:hover:not(:disabled)) {
   background: var(--hover-bg);
   color: var(--text-primary);
 }
+
+:deep(.msg-action-btn:disabled) { opacity: 0.5; cursor: not-allowed; }
 
 .message-content {
   position: relative;
@@ -809,13 +807,7 @@
   color: var(--text-secondary);
 }
 
-.chat-row:hover :deep(.message-time),
-.chat-row:focus-within :deep(.message-time) {
-  opacity: 0.72;
-  visibility: visible;
-}
-
-.chat-row.assistant :deep(.message-time) {
+.chat-row:is(.latest-reply, :hover, :focus-within) :deep(.message-time) {
   opacity: 0.72;
   visibility: visible;
 }
@@ -843,7 +835,7 @@
 .tool-policy-notice { color: var(--warning); }
 .tool-policy-notice strong { font-weight: 600; }
 
-/* Process block: the steps of one assistant turn, folded behind one line once the conclusion starts. */
+/* Adjacent tool steps share one summary between blocks of reply text. */
 .process-block { width: 100%; min-width: 0; margin-top: 2px; }
 .process-toggle {
   display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 2px 0;
@@ -856,7 +848,4 @@
 .process-block.open .process-toggle .details-chevron { transform: rotate(90deg); }
 .process-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .process-block.interrupted .process-title { color: var(--danger); }
-/* Steps hang off a thin rail so the conclusion below reads as the message. */
 .process-step { margin-left: 5px; padding-left: 9px; border-left: 1px solid var(--border-color); }
-.message-content.process-step { font-size: var(--font-ui-sm); color: var(--text-secondary); }
-.process-foot { margin-left: 5px; padding-left: 9px; border-left: 1px solid var(--border-color); }

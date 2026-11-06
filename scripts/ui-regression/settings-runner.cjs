@@ -16,6 +16,14 @@ app.whenReady().then(async () => {
   }
   const click = selector => run(`document.querySelector(${JSON.stringify(selector)}).click()`)
   const input = (selector, value) => run(`(() => {const el=document.querySelector(${JSON.stringify(selector)});el.focus();el.value=${JSON.stringify(value)};el.dispatchEvent(new Event('input',{bubbles:true}));})()`)
+  stage = 'settings open with a snapshot while the refresh does not respond'
+  await window.loadURL(process.env.LITECONNECT_UI_TEST_URL + '?bootstrapSettings=1')
+  await wait('!!document.querySelector(".db-window-advanced")')
+  assert.equal(await run('!!document.querySelector(".settings-loading")'), false)
+  await run('document.querySelectorAll(".nav-list .nav-item")[2].click()')
+  await wait('document.querySelector(".font-size-value")?.textContent === "17px"')
+  assert.equal(await run('window.__settings.tryClose()'), 1)
+  stage = 'settings failure and retry'
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL + '?failSettings=1')
   await wait('!!window.__settings && !!document.querySelector(".settings-load-error")')
   assert.equal(await run('!!document.querySelector(".settings-fields")'), false, 'A failed read never presents default draft controls as loaded settings')
@@ -124,6 +132,6 @@ app.whenReady().then(async () => {
   await run(`window.__settings.theme('light','zh-CN')`)
   fs.writeFileSync(path.join(artifacts, 'database-settings.png'), (await window.webContents.capturePage()).toPNG())
   assert.equal(await run('window.__settingsError || null'), null)
-  console.log(JSON.stringify({ passed: true, layouts, flows: ['failed read/retry/leave', 'advanced search/reveal/save', 'independent UI sizes and remote defaults', 'monitor hide/show and panel close', 'remote-window setting notification', 'dirty draft rebase', 'partial save preserves external changes', 'save-in-progress close guard'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, flows: ['settings snapshot during stalled refresh', 'failed read/retry/leave', 'advanced search/reveal/save', 'independent UI sizes and remote defaults', 'monitor hide/show and panel close', 'remote-window setting notification', 'dirty draft rebase', 'partial save preserves external changes', 'save-in-progress close guard'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); app.exit(1) })
