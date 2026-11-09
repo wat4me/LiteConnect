@@ -32,6 +32,8 @@ app.whenReady().then(async () => {
   const edit = (mode, value) => run(`(() => { const el=document.querySelector('[data-field="${mode}"]');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event('input',{bubbles:true}));window.__savedFields ||= {};window.__savedFields['${mode}']=el; })()`)
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   await wait('!!window.__navigation')
+  const titlebarLabel = () => run('document.querySelector(".titlebar-brand").textContent.trim()')
+  assert.equal(await titlebarLabel(), 'SSH')
   assert.equal(await run('document.querySelectorAll("[data-field=database], [data-field=ai]").length'), 0, 'DB/AI stay lazy until first entry')
   await edit('ssh', 'tail -f /srv/app/current.log')
   await run('document.querySelector(".navigation-scroll").scrollTop=80')
@@ -56,6 +58,7 @@ app.whenReady().then(async () => {
   }
   stage = 'checking titlebar DB entry'
   await menuDatabase(); await wait('window.__navigation.snapshot().mode==="database"')
+  assert.equal(await titlebarLabel(), 'DB')
   assert.equal(await run('document.querySelector("[data-field=database]").value'), 'SELECT * FROM audit_log;')
   await menuMode('ssh'); await menuMode('ssh')
   assert.equal(await run('window.__navigation.snapshot().homeSelections'), 0, 'Titlebar SSH reselect also keeps the active terminal')
@@ -80,6 +83,7 @@ app.whenReady().then(async () => {
   await run('document.querySelector(".jump-item:nth-child(4)").click()')
   await wait('window.__navigation.actions().length===1')
   await run('window.__navigation.settings(true)'); await menuMode('ai'); await wait('window.__navigation.snapshot().mode==="ai" && !window.__navigation.snapshot().settings')
+  assert.equal(await titlebarLabel(), 'AI')
   assert.ok(await run(`(() => { const button=document.querySelector('[data-module=ai]');const marker=getComputedStyle(button,'::before');return getComputedStyle(button).color===marker.backgroundColor })()`), 'Active module keeps its accent color while hovered')
   let layouts = 0
   for (const locale of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark', 'eyecare']) for (const width of [700, 1200]) for (const scale of [1, 1.25]) {

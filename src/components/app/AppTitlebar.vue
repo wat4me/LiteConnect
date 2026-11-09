@@ -30,9 +30,6 @@ const resourcePopupRef = ref<HTMLElement | null>(null)
 const resourceStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
 
 const moduleKey = computed(() => props.appMode === 'ai' ? 'AI' : props.appMode === 'database' ? 'DB' : 'SSH')
-const brandAria = computed(() =>
-  props.appMode === 'ai' ? t('app.brandAiAria') : props.appMode === 'database' ? t('app.brandDbAria') : t('app.brandSshAria'),
-)
 
 async function positionModeMenu() {
   await nextTick()
@@ -135,14 +132,13 @@ watch(
     <div class="titlebar-safe">
       <div class="titlebar-left">
         <div class="titlebar-brand">
-          <span class="titlebar-brand-lite">Lite</span>
           <button
             ref="brandButtonRef"
             type="button"
             class="titlebar-brand-module"
             data-onboarding="app-mode"
             :class="{ open: menuOpen }"
-            :aria-label="brandAria"
+            :aria-label="t('app.switchModuleAria', { module: moduleKey })"
             :aria-expanded="menuOpen"
             aria-haspopup="menu"
             @click="toggleMenu"
@@ -305,7 +301,7 @@ watch(
 .titlebar-brand {
   position: relative;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   height: 28px;
   padding: 0 2px 0 4px;
   margin: 0;
@@ -313,14 +309,6 @@ watch(
   flex-shrink: 0;
   -webkit-app-region: no-drag;
   line-height: 1;
-}
-
-.titlebar-brand-lite {
-  font-size: var(--font-ui);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--text-primary);
-  line-height: 28px;
 }
 
 .titlebar-brand-module {
