@@ -421,7 +421,7 @@
   --ai-send-size: calc(38px * var(--ui-scale));
   flex-shrink: 0;
   margin: 0;
-  padding: var(--ai-composer-padding, 8px 10px);
+  padding: var(--ai-composer-padding, 6px 8px);
   border: 1px solid var(--ai-composer-border, var(--border-color));
   border-radius: var(--ai-composer-radius, 14px);
   background: var(--ai-composer-background, var(--bg-secondary));

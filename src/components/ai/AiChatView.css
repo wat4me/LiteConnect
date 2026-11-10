@@ -11,14 +11,14 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 18px 24px;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .chat-list.has-timeline {
-  padding-left: 26px;
+  padding-left: 18px;
 }
 
 .chat-list.follows-latest {
@@ -773,7 +773,7 @@
 .tool-runs {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 100%;
 }
 
@@ -901,4 +901,4 @@
 .process-block.open .process-toggle .details-chevron { transform: rotate(90deg); }
 .process-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .process-block.interrupted .process-title { color: var(--danger); }
-.process-step { margin-left: 5px; padding-left: 9px; border-left: 1px solid var(--border-color); }
+.process-step { margin-left: 0; padding-left: 4px; }

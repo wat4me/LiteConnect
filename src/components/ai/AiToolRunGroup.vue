@@ -34,7 +34,7 @@ const counts = computed(() => {
 </template>
 
 <style scoped>
-.ai-tool-group { margin-top: 12px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+.ai-tool-group { margin-top: 8px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
 .ai-tool-group > summary { cursor: pointer; padding: 6px 0; }
 .ai-tool-group > summary span { display: inline-block; margin-left: 10px; }
 .ai-tool-group [data-state=failed] { color: var(--danger); }
