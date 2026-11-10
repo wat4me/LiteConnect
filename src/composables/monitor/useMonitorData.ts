@@ -4,6 +4,7 @@ import { t } from '@/i18n'
 
 type Entry = {
   data: Ref<MonitorData | null>
+  updatedAt: Ref<number>
   error: Ref<string>
   starting: Ref<boolean>
   refCount: number
@@ -20,6 +21,7 @@ function getEntry(connectionId: string): Entry {
   if (!entry) {
     entry = {
       data: ref(null),
+      updatedAt: ref(0),
       error: ref(''),
       starting: ref(false),
       refCount: 0,
@@ -63,6 +65,7 @@ async function startEntry(connectionId: string, sessionId: string) {
       if (entries.get(connectionId) !== entry || entry.refCount === 0) return
       entry.unsub = window.LiteConnect.onMonitorData(connectionId, (d: MonitorData) => {
         entry.data.value = d
+        entry.updatedAt.value = Date.now()
         entry.error.value = ''
       })
       entry.started = true
@@ -104,6 +107,7 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
   let bindVersion = 0
 
   const data = ref<MonitorData | null>(null)
+  const updatedAt = ref<number | null>(null)
   const error = ref('')
   const starting = ref(false)
 
@@ -114,11 +118,15 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
     stopWatchEntry = null
     const entry = getEntry(id)
     data.value = entry.data.value
+    updatedAt.value = entry.updatedAt.value || null
     error.value = entry.error.value
     starting.value = entry.starting.value
 
     const stop1 = watch(entry.data, (v) => {
       data.value = v
+    })
+    const stopFreshness = watch(entry.updatedAt, (v) => {
+      updatedAt.value = v || null
     })
     const stop2 = watch(entry.error, (v) => {
       error.value = v
@@ -128,6 +136,7 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
     })
     stopWatchEntry = () => {
       stop1()
+      stopFreshness()
       stop2()
       stop3()
     }
@@ -152,6 +161,7 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
     if (!nextConnectionId || !nextSessionId) {
       releaseEntry()
       data.value = null
+      updatedAt.value = null
       error.value = ''
       starting.value = false
       return
@@ -186,8 +196,10 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
     if (!id || !sid) return
     const entry = getEntry(id)
     entry.data.value = null
+    entry.updatedAt.value = 0
     entry.started = false
     data.value = null
+    updatedAt.value = null
     void startEntry(id, sid)
   }
 
@@ -204,5 +216,5 @@ export function useSharedMonitor(connectionId: Ref<string>, sessionId: Ref<strin
     releaseEntry()
   })
 
-  return { data, error, starting, retry }
+  return { data, updatedAt, error, starting, retry }
 }

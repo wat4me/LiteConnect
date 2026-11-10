@@ -9,6 +9,27 @@ vi.mock('../../store/appDatabase', () => ({
 }))
 
 import { MonitorAlertStore } from './monitorAlertStore'
+import { DEFAULT_MONITOR_ALERT_RULE, isValidMonitorAlertRule, normalizeMonitorAlertRule } from '../../../shared/monitorAlerts'
+
+describe('isValidMonitorAlertRule', () => {
+  it('accepts defaults and custom thresholds inside the shared bounds', () => {
+    expect(isValidMonitorAlertRule(DEFAULT_MONITOR_ALERT_RULE)).toBe(true)
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, cpuThreshold: 50, memoryThreshold: 99, maxNotificationsPer24h: 10 })).toBe(true)
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, cpuThreshold: 60 })).toBe(true)
+  })
+
+  it('rejects out-of-range, fractional and invalid notification limits', () => {
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, cpuThreshold: 49 })).toBe(false)
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, memoryThreshold: 100 })).toBe(false)
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, cpuThreshold: 60.5 })).toBe(false)
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, maxNotificationsPer24h: 0 })).toBe(false)
+    expect(isValidMonitorAlertRule({ ...DEFAULT_MONITOR_ALERT_RULE, maxNotificationsPer24h: 11 })).toBe(false)
+  })
+
+  it('uses the same bounds as normalizeMonitorAlertRule', () => {
+    expect(isValidMonitorAlertRule(normalizeMonitorAlertRule({ cpuThreshold: 120, memoryThreshold: 1, maxNotificationsPer24h: 999 }))).toBe(true)
+  })
+})
 
 describe('MonitorAlertStore', () => {
   beforeEach(() => values.clear())

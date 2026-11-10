@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
+import MonitorAlertDialog from './MonitorAlertDialog.vue'
 import type { Connection } from '../../env.d'
 import { DEFAULT_MONITOR_ALERT_RULE, type BackgroundMonitorStatus, type MonitorAlertRule } from '../../../shared/monitorAlerts'
 
@@ -10,11 +11,12 @@ const connections = ref<Connection[]>([])
 const rules = ref<Record<string, MonitorAlertRule>>({})
 const statuses = ref<Record<string, BackgroundMonitorStatus>>({})
 const editing = ref<Connection | null>(null)
-const draft = ref<MonitorAlertRule>({ ...DEFAULT_MONITOR_ALERT_RULE })
 const saving = ref(false)
 const loading = ref(true)
-const isMacOs = ref(false)
 let poll: ReturnType<typeof setInterval> | null = null
+
+const editingRule = computed<MonitorAlertRule>(() =>
+  editing.value ? (rules.value[editing.value.id] || DEFAULT_MONITOR_ALERT_RULE) : DEFAULT_MONITOR_ALERT_RULE)
 
 async function refreshStatuses() {
   const entries = await Promise.all(connections.value.map(async (connection) => {
@@ -58,26 +60,14 @@ function statusText(status: BackgroundMonitorStatus | undefined): string {
 
 function openEditor(connection: Connection) {
   editing.value = connection
-  draft.value = { ...(rules.value[connection.id] || DEFAULT_MONITOR_ALERT_RULE) }
 }
 
-async function save() {
+async function save(rule: MonitorAlertRule) {
   const connection = editing.value
   if (!connection || saving.value) return
-  const rule = draft.value
-  if (![rule.cpuThreshold, rule.memoryThreshold, rule.maxNotificationsPer24h].every(Number.isInteger)
-    || rule.cpuThreshold < 50 || rule.cpuThreshold > 99
-    || rule.memoryThreshold < 50 || rule.memoryThreshold > 99
-    || rule.maxNotificationsPer24h < 1 || rule.maxNotificationsPer24h > 10) {
-    ElMessage.warning(t('monitor.alertInvalid'))
-    return
-  }
   saving.value = true
   try {
-    rules.value[connection.id] = await window.LiteConnect.monitorSetAlertRule(connection.id, {
-      ...rule,
-      backgroundEnabled: rule.enabled && rule.backgroundEnabled,
-    })
+    rules.value[connection.id] = await window.LiteConnect.monitorSetAlertRule(connection.id, rule)
     editing.value = null
     await refreshStatuses()
     ElMessage.success(t('monitor.alertSaved'))
@@ -99,7 +89,6 @@ async function retry(connectionId: string) {
 
 onMounted(() => {
   void load()
-  void window.LiteConnect.getAppInfo().then(info => { isMacOs.value = info.platform.startsWith('darwin-') }).catch(() => {})
   poll = setInterval(() => { void refreshStatuses() }, 5000)
   window.addEventListener('focus', load)
 })
@@ -133,26 +122,14 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <Teleport to="body">
-      <div v-if="editing" class="background-monitor-overlay" @click.self="editing = null">
-        <form class="background-monitor-dialog" role="dialog" aria-modal="true" :aria-label="t('monitor.alertSettings')" @submit.prevent="save">
-          <h2>{{ t('monitor.alertSettings') }} · {{ editing.name }}</h2>
-          <label class="background-monitor-check"><input v-model="draft.enabled" type="checkbox" />{{ t('monitor.alertEnabled') }}</label>
-          <label class="background-monitor-check"><input v-model="draft.backgroundEnabled" type="checkbox" :disabled="!draft.enabled" />{{ t('monitor.backgroundOption') }}</label>
-          <p class="background-monitor-help">{{ t('monitor.backgroundOptionHint') }}</p>
-          <div class="background-monitor-fields">
-            <label>{{ t('monitor.alertCpuThreshold') }}<span><input v-model.number="draft.cpuThreshold" type="number" min="50" max="99" step="1" />%</span></label>
-            <label>{{ t('monitor.alertMemoryThreshold') }}<span><input v-model.number="draft.memoryThreshold" type="number" min="50" max="99" step="1" />%</span></label>
-            <label class="background-monitor-count">{{ t('monitor.alertMaxCount') }}<span><input v-model.number="draft.maxNotificationsPer24h" type="number" min="1" max="10" step="1" />{{ t('monitor.alertCountUnit') }}</span></label>
-          </div>
-          <p v-if="isMacOs" class="background-monitor-macos">{{ t('monitor.alertMacOsNote') }}</p>
-          <div class="background-monitor-actions">
-            <button type="button" class="ui-btn ui-btn-ghost" @click="editing = null">{{ t('common.cancel') }}</button>
-            <button type="submit" class="ui-btn ui-btn-primary" :disabled="saving">{{ t('monitor.alertSave') }}</button>
-          </div>
-        </form>
-      </div>
-    </Teleport>
+    <MonitorAlertDialog
+      :open="!!editing"
+      :connection-name="editing?.name || ''"
+      :rule="editingRule"
+      :saving="saving"
+      @save="save"
+      @close="editing = null"
+    />
   </div>
 </template>
 
@@ -170,24 +147,8 @@ onBeforeUnmount(() => {
 .background-monitor-state.retrying, .background-monitor-state.needs-attention, .background-monitor-state.unavailable { color: var(--warning); }
 .background-monitor-state small { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .background-monitor-buttons { display: flex; gap: 6px; flex-shrink: 0; }
-.background-monitor-overlay { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / 48%); }
-.background-monitor-dialog { box-sizing: border-box; width: min(460px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; padding: 24px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 16px 48px rgb(0 0 0 / 28%); }
-.background-monitor-dialog h2 { margin: 0 0 18px; font-size: 17px; }
-.background-monitor-check { display: flex; align-items: center; gap: 9px; margin: 12px 0; }
-.background-monitor-check input { width: 16px; height: 16px; margin: 0; }
-.background-monitor-help { margin: -4px 0 16px 25px; color: var(--text-secondary); line-height: 1.5; }
-.background-monitor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.background-monitor-fields label { display: flex; flex-direction: column; gap: 7px; }
-.background-monitor-fields label span { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
-.background-monitor-fields input { box-sizing: border-box; min-width: 0; width: 100%; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font: inherit; }
-.background-monitor-fields .background-monitor-count { grid-column: 1 / -1; }
-.background-monitor-count input { max-width: 92px; }
-.background-monitor-macos { margin-top: 18px; padding: 10px 12px; border-left: 3px solid var(--warning); background: var(--bg-secondary); line-height: 1.5; }
-.background-monitor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
 @media (max-width: 560px) {
   .background-monitor-row { flex-wrap: wrap; }
   .background-monitor-identity { flex-basis: 45%; }
-  .background-monitor-fields { grid-template-columns: 1fr; }
-  .background-monitor-fields .background-monitor-count { grid-column: auto; }
 }
 </style>

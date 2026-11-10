@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, watch, computed, toRef, onMounted } from 'vue'
+import { ref, watch, computed, toRef, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSharedMonitor } from '@/composables/monitor/useMonitorData'
 import AppIcon from '@/components/icons/AppIcon.vue'
+import MonitorAlertDialog from './MonitorAlertDialog.vue'
 import FeatureTipBanner from '@/components/app/FeatureTipBanner.vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { formatBytes } from '@shared/formatBytes'
@@ -20,12 +21,10 @@ const { t } = useI18n()
 
 const sessionIdRef = toRef(props, 'sessionId')
 const connectionIdRef = toRef(props, 'connectionId')
-const { data, error: monitorError, starting, retry: retryMonitor } = useSharedMonitor(connectionIdRef, sessionIdRef)
+const { data, updatedAt: monitorUpdatedAt, error: monitorError, starting, retry: retryMonitor } = useSharedMonitor(connectionIdRef, sessionIdRef)
 const alertRule = ref<MonitorAlertRule>({ ...DEFAULT_MONITOR_ALERT_RULE })
-const alertDraft = ref<MonitorAlertRule>({ ...DEFAULT_MONITOR_ALERT_RULE })
 const alertDialogOpen = ref(false)
 const alertSaving = ref(false)
-const isMacOs = ref(false)
 
 watch(() => props.connectionId, async (connectionId) => {
   alertDialogOpen.value = false
@@ -43,26 +42,14 @@ async function openAlertSettings() {
     if (props.connectionId !== connectionId) return
     alertRule.value = current
   } catch { /* Use the last loaded rule if the refresh fails. */ }
-  alertDraft.value = { ...alertRule.value }
   alertDialogOpen.value = true
 }
 
-async function saveAlertSettings() {
-  const rule = alertDraft.value
-  if (![rule.cpuThreshold, rule.memoryThreshold, rule.maxNotificationsPer24h].every(Number.isInteger)
-    || rule.cpuThreshold < 50 || rule.cpuThreshold > 99
-    || rule.memoryThreshold < 50 || rule.memoryThreshold > 99
-    || rule.maxNotificationsPer24h < 1 || rule.maxNotificationsPer24h > 10) {
-    ElMessage.warning(t('monitor.alertInvalid'))
-    return
-  }
+async function saveAlertSettings(rule: MonitorAlertRule) {
   const connectionId = props.connectionId
   alertSaving.value = true
   try {
-    const saved = await window.LiteConnect.monitorSetAlertRule(connectionId, {
-      ...rule,
-      backgroundEnabled: rule.enabled && rule.backgroundEnabled,
-    })
+    const saved = await window.LiteConnect.monitorSetAlertRule(connectionId, rule)
     if (props.connectionId !== connectionId) return
     alertRule.value = saved
     alertDialogOpen.value = false
@@ -74,26 +61,85 @@ async function saveAlertSettings() {
   }
 }
 
-const expandedSections = ref({
+const alertButtonHint = computed(() => [
+  t('monitor.alertSettings'),
+  alertRule.value.enabled ? t('monitor.alertStatusOn') : '',
+  t('monitor.thresholdHint', { cpu: alertRule.value.cpuThreshold, memory: alertRule.value.memoryThreshold }),
+].filter(Boolean).join(' · '))
+
+const MONITOR_SECTIONS_KEY = 'LiteConnect.monitor.sections.v1'
+const DEFAULT_SECTIONS = {
   system: true,
   cpu: true,
   memory: true,
   disk: false,
   processes: false,
-})
+}
+
+function loadSections() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MONITOR_SECTIONS_KEY) || 'null') as Record<string, unknown> | null
+    if (raw && typeof raw === 'object') {
+      return Object.fromEntries(Object.keys(DEFAULT_SECTIONS).map(key => [key, raw[key] === true])) as typeof DEFAULT_SECTIONS
+    }
+  } catch { /* Ignore unavailable storage and use defaults. */ }
+  return { ...DEFAULT_SECTIONS }
+}
+
+const expandedSections = ref(loadSections())
+watch(expandedSections, value => {
+  try { localStorage.setItem(MONITOR_SECTIONS_KEY, JSON.stringify(value)) } catch { /* Ignore quota / private mode. */ }
+}, { deep: true })
 
 function toggleSection(key: keyof typeof expandedSections.value) {
   expandedSections.value[key] = !expandedSections.value[key]
 }
 
-const WARN_THRESHOLD = 70
-const DANGER_THRESHOLD = 90
+const now = ref(Date.now())
+let freshnessClock: ReturnType<typeof setInterval> | undefined
+onMounted(() => { freshnessClock = setInterval(() => { now.value = Date.now() }, 1000) })
+onBeforeUnmount(() => { if (freshnessClock) clearInterval(freshnessClock) })
 
-function barColor(percent: number): string {
-  if (percent >= DANGER_THRESHOLD) return 'var(--danger)'
-  if (percent >= WARN_THRESHOLD) return 'var(--warning)'
+const freshnessSeconds = computed(() => monitorUpdatedAt.value ? Math.max(0, Math.floor((now.value - monitorUpdatedAt.value) / 1000)) : null)
+const freshnessText = computed(() => {
+  const seconds = freshnessSeconds.value
+  if (seconds === null) return ''
+  return seconds < 1 ? t('monitor.updatedJustNow') : t('monitor.updatedAgo', { seconds })
+})
+const isStale = computed(() => (freshnessSeconds.value ?? 0) > 30)
+
+const HEALTH_WARN_AT = 70
+const HEALTH_DANGER_AT = 90
+const ALERT_LEAD_PERCENT = 20
+
+/** Fixed reference marks for disk / swap, which never trigger notifications. */
+function healthColor(percent: number): string {
+  if (percent >= HEALTH_DANGER_AT) return 'var(--danger)'
+  if (percent >= HEALTH_WARN_AT) return 'var(--warning)'
   return 'var(--success)'
 }
+
+/** CPU / memory bars follow the per-host alert rule, so red means "will notify". */
+function alertColor(percent: number, threshold: number): string {
+  if (percent >= threshold) return 'var(--danger)'
+  if (percent >= threshold - ALERT_LEAD_PERCENT) return 'var(--warning)'
+  return 'var(--success)'
+}
+
+function processColor(percent: number): string {
+  if (percent >= HEALTH_DANGER_AT) return 'var(--danger)'
+  if (percent >= HEALTH_WARN_AT) return 'var(--warning)'
+  return 'inherit'
+}
+
+const cpuBarStyle = computed(() => ({
+  '--bar-warn': `${Math.max(0, alertRule.value.cpuThreshold - ALERT_LEAD_PERCENT)}%`,
+  '--bar-danger': `${alertRule.value.cpuThreshold}%`,
+}))
+const memoryBarStyle = computed(() => ({
+  '--bar-warn': `${Math.max(0, alertRule.value.memoryThreshold - ALERT_LEAD_PERCENT)}%`,
+  '--bar-danger': `${alertRule.value.memoryThreshold}%`,
+}))
 
 function usagePercent(used: number, total: number): number {
   return total > 0 ? Math.round((used / total) * 100) : 0
@@ -113,37 +159,27 @@ const diskMaxPercent = computed(() => {
   return Math.max(...data.value.disk.map((d) => usagePercent(d.used, d.total)))
 })
 
-onMounted(() => {
-  void window.LiteConnect.getAppInfo()
-    .then((appInfo) => { isMacOs.value = appInfo.platform.startsWith('darwin-') })
-    .catch(() => { /* The alert settings remain usable if app information is unavailable. */ })
-})
-
-// Host change: clear expanded state only (data handled by shared collector)
-watch(
-  () => props.connectionId,
-  () => {
-    expandedSections.value = {
-      system: true,
-      cpu: true,
-      memory: true,
-      disk: false,
-      processes: false,
-    }
-  },
-)
+// Expanded sections are persisted across hosts and sessions; the shared collector handles data.
 </script>
 
 <template>
   <div class="monitor-panel">
     <div class="monitor-header">
       <span class="monitor-title">{{ t('monitor.title') }}</span>
-      <span class="monitor-name">{{ connectionName }}</span>
+      <span class="monitor-name" :title="connectionName">{{ connectionName }}</span>
+      <span v-if="freshnessText" class="monitor-freshness" :class="{ stale: isStale }" :title="t('monitor.freshnessHint')">{{ freshnessText }}</span>
       <div class="monitor-header-actions">
-        <span class="threshold-dots" :title="t('monitor.thresholdHint')" :aria-label="t('monitor.thresholdHint')">
-          <i class="legend-dot ok"></i><i class="legend-dot warning"></i><i class="legend-dot danger"></i>
-        </span>
-        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="openAlertSettings">{{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span></button>
+        <button
+          type="button"
+          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm monitor-alert-btn"
+          :class="{ 'is-on': alertRule.enabled }"
+          :title="alertButtonHint"
+          :aria-label="alertButtonHint"
+          :aria-pressed="alertRule.enabled"
+          @click="openAlertSettings"
+        >
+          <AppIcon name="bell" size="sm" />
+        </button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
           <AppIcon name="close" size="sm" />
         </button>
@@ -177,10 +213,10 @@ watch(
 
     <template v-else>
       <div class="monitor-section" v-if="expandedSections.system">
-        <div class="section-header" @click="toggleSection('system')">
+        <button type="button" class="section-header" :aria-expanded="true" @click="toggleSection('system')">
           <span class="section-title">{{ t('monitor.systemInfo') }}</span>
           <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-        </div>
+        </button>
         <div class="section-body">
           <div class="info-row">
             <span class="info-label">{{ t('monitor.hostname') }}</span>
@@ -200,22 +236,22 @@ watch(
           </div>
         </div>
       </div>
-      <div v-else class="section-header collapsed" @click="toggleSection('system')">
+      <button v-else type="button" class="section-header collapsed" :aria-expanded="false" @click="toggleSection('system')">
         <span class="section-title">{{ t('monitor.systemInfo') }}</span>
         <AppIcon name="chevron-right" size="xs" class="section-toggle" />
-      </div>
+      </button>
 
       <div class="monitor-section" v-if="expandedSections.cpu">
-        <div class="section-header" @click="toggleSection('cpu')">
+        <button type="button" class="section-header" :aria-expanded="true" @click="toggleSection('cpu')">
           <span class="section-title">CPU</span>
-          <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
+          <span class="section-value" :style="{ color: cpuPercent >= 0 ? alertColor(cpuPercent, alertRule.cpuThreshold) : 'var(--text-secondary)' }">
             {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
           </span>
           <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-        </div>
+        </button>
         <div class="section-body">
-          <div class="progress-bar" v-if="cpuPercent >= 0">
-            <div class="progress-fill" :style="{ width: `${cpuPercent}%`, backgroundColor: barColor(cpuPercent) }"></div>
+          <div class="progress-bar" :style="cpuBarStyle" v-if="cpuPercent >= 0">
+            <div class="progress-fill" :style="{ width: `${cpuPercent}%`, backgroundColor: alertColor(cpuPercent, alertRule.cpuThreshold) }"></div>
           </div>
           <div class="info-row" v-if="data.cpu.loadAvg[0] !== undefined">
             <span class="info-label">{{ t('monitor.load') }}</span>
@@ -223,28 +259,28 @@ watch(
           </div>
         </div>
       </div>
-      <div v-else class="section-header collapsed" @click="toggleSection('cpu')">
+      <button v-else type="button" class="section-header collapsed" :aria-expanded="false" @click="toggleSection('cpu')">
         <span class="section-title">CPU</span>
-        <span class="section-value" :style="{ color: cpuPercent >= 0 ? barColor(cpuPercent) : 'var(--text-secondary)' }">
+        <span class="section-value" :style="{ color: cpuPercent >= 0 ? alertColor(cpuPercent, alertRule.cpuThreshold) : 'var(--text-secondary)' }">
           {{ cpuPercent >= 0 ? `${cpuPercent}%` : '--' }}
         </span>
         <AppIcon name="chevron-right" size="xs" class="section-toggle" />
-      </div>
+      </button>
 
       <div class="monitor-section" v-if="expandedSections.memory">
-        <div class="section-header" @click="toggleSection('memory')">
+        <button type="button" class="section-header" :aria-expanded="true" @click="toggleSection('memory')">
           <span class="section-title">{{ t('monitor.memory') }}</span>
-          <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
+          <span class="section-value" :style="{ color: alertColor(memPercent, alertRule.memoryThreshold) }">{{ memPercent }}%</span>
           <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-        </div>
+        </button>
         <div class="section-body">
           <div class="bar-labels">
             <span class="bar-label-used">{{ t('monitor.used', { size: formatBytes(data.memory.used) }) }}</span>
             <span class="bar-label-cache">{{ t('monitor.cache', { size: formatBytes(data.memory.buffCache) }) }}</span>
             <span class="bar-label-available">{{ t('monitor.available', { size: formatBytes(data.memory.available) }) }}</span>
           </div>
-          <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: `${memPercent}%`, backgroundColor: barColor(memPercent) }"></div>
+          <div class="progress-bar" :style="memoryBarStyle">
+            <div class="progress-fill" :style="{ width: `${memPercent}%`, backgroundColor: alertColor(memPercent, alertRule.memoryThreshold) }"></div>
           </div>
           <template v-if="data.memory.swapTotal > 0">
             <div class="bar-labels" style="margin-top: 6px">
@@ -252,47 +288,47 @@ watch(
               <span class="info-value info-mono">{{ formatBytes(data.memory.swapUsed) }} / {{ formatBytes(data.memory.swapTotal) }}</span>
             </div>
             <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: `${swapPercent}%`, backgroundColor: barColor(swapPercent) }"></div>
+              <div class="progress-fill" :style="{ width: `${swapPercent}%`, backgroundColor: healthColor(swapPercent) }"></div>
             </div>
           </template>
         </div>
       </div>
-      <div v-else class="section-header collapsed" @click="toggleSection('memory')">
+      <button v-else type="button" class="section-header collapsed" :aria-expanded="false" @click="toggleSection('memory')">
         <span class="section-title">{{ t('monitor.memory') }}</span>
-        <span class="section-value" :style="{ color: barColor(memPercent) }">{{ memPercent }}%</span>
+        <span class="section-value" :style="{ color: alertColor(memPercent, alertRule.memoryThreshold) }">{{ memPercent }}%</span>
         <AppIcon name="chevron-right" size="xs" class="section-toggle" />
-      </div>
+      </button>
 
       <div class="monitor-section" v-if="expandedSections.disk">
-        <div class="section-header" @click="toggleSection('disk')">
+        <button type="button" class="section-header" :aria-expanded="true" @click="toggleSection('disk')">
           <span class="section-title">{{ t('monitor.disk') }}</span>
-          <span class="section-value" :style="{ color: diskMaxPercent >= 0 ? barColor(diskMaxPercent) : 'var(--text-secondary)' }">{{ diskMaxPercent >= 0 ? diskMaxPercent + '%' : '--' }}</span>
+          <span class="section-value" :style="{ color: diskMaxPercent >= 0 ? healthColor(diskMaxPercent) : 'var(--text-secondary)' }">{{ diskMaxPercent >= 0 ? diskMaxPercent + '%' : '--' }}</span>
           <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-        </div>
+        </button>
         <div class="section-body">
           <div v-if="data.disk.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
           <div v-for="(d, i) in data.disk" :key="i" class="disk-item">
             <div class="disk-header">
               <span class="disk-mount">{{ d.mountPoint }}</span>
-              <span class="disk-percent" :style="{ color: barColor(usagePercent(d.used, d.total)) }">{{ formatBytes(d.used) }} / {{ formatBytes(d.total) }}</span>
+              <span class="disk-percent" :style="{ color: healthColor(usagePercent(d.used, d.total)) }">{{ usagePercent(d.used, d.total) }}% · {{ formatBytes(d.used) }} / {{ formatBytes(d.total) }}</span>
             </div>
             <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: `${usagePercent(d.used, d.total)}%`, backgroundColor: barColor(usagePercent(d.used, d.total)) }"></div>
+              <div class="progress-fill" :style="{ width: `${usagePercent(d.used, d.total)}%`, backgroundColor: healthColor(usagePercent(d.used, d.total)) }"></div>
             </div>
           </div>
         </div>
       </div>
-      <div v-else class="section-header collapsed" @click="toggleSection('disk')">
+      <button v-else type="button" class="section-header collapsed" :aria-expanded="false" @click="toggleSection('disk')">
         <span class="section-title">{{ t('monitor.disk') }}</span>
-        <span class="section-value" :style="{ color: diskMaxPercent >= 0 ? barColor(diskMaxPercent) : 'var(--text-secondary)' }">{{ diskMaxPercent >= 0 ? diskMaxPercent + '%' : '--' }}</span>
+        <span class="section-value" :style="{ color: diskMaxPercent >= 0 ? healthColor(diskMaxPercent) : 'var(--text-secondary)' }">{{ diskMaxPercent >= 0 ? diskMaxPercent + '%' : '--' }}</span>
         <AppIcon name="chevron-right" size="xs" class="section-toggle" />
-      </div>
+      </button>
 
       <div class="monitor-section" v-if="expandedSections.processes">
-        <div class="section-header" @click="toggleSection('processes')">
+        <button type="button" class="section-header" :aria-expanded="true" @click="toggleSection('processes')">
           <span class="section-title">{{ t('monitor.processes') }}</span>
           <AppIcon name="chevron-down" size="xs" class="section-toggle" />
-        </div>
+        </button>
         <div class="section-body">
           <div v-if="data.processes.length === 0" class="info-row">{{ t('monitor.noData') }}</div>
           <div v-else class="proc-table">
@@ -306,70 +342,26 @@ watch(
             <div v-for="(p, i) in data.processes.slice(0, 5)" :key="i" class="proc-row">
               <span class="proc-pid">{{ p.pid }}</span>
               <span class="proc-user">{{ p.user }}</span>
-              <span class="proc-num" :style="{ color: p.cpu > 50 ? 'var(--danger)' : 'inherit' }">{{ p.cpu }}</span>
-              <span class="proc-num" :style="{ color: p.mem > 50 ? 'var(--danger)' : 'inherit' }">{{ p.mem }}</span>
+              <span class="proc-num" :style="{ color: processColor(p.cpu) }">{{ p.cpu }}</span>
+              <span class="proc-num" :style="{ color: processColor(p.mem) }">{{ p.mem }}</span>
               <span class="proc-cmd" :title="p.command">{{ p.command }}</span>
             </div>
           </div>
         </div>
       </div>
-      <div v-else class="section-header collapsed" @click="toggleSection('processes')">
+      <button v-else type="button" class="section-header collapsed" :aria-expanded="false" @click="toggleSection('processes')">
         <span class="section-title">{{ t('monitor.processes') }}</span>
         <AppIcon name="chevron-right" size="xs" class="section-toggle" />
-      </div>
+      </button>
     </template>
-    <Teleport to="body">
-      <div v-if="alertDialogOpen" class="monitor-alert-overlay" @click.self="alertDialogOpen = false">
-        <form class="monitor-alert-dialog" role="dialog" aria-modal="true" :aria-label="t('monitor.alertSettings')" @submit.prevent="saveAlertSettings">
-          <div class="monitor-alert-header">
-            <div class="monitor-alert-heading">
-              <h2>{{ t('monitor.alertSettings') }}</h2>
-              <span :title="connectionName">{{ connectionName }}</span>
-            </div>
-            <button type="button" class="monitor-alert-close" :aria-label="t('common.close')" @click.stop="alertDialogOpen = false"><AppIcon name="close" size="sm" /></button>
-          </div>
-
-          <label class="monitor-alert-toggle">
-            <span>{{ t('monitor.alertEnabled') }}</span>
-            <input v-model="alertDraft.enabled" type="checkbox" />
-          </label>
-          <label class="monitor-alert-toggle monitor-alert-background-toggle">
-            <span>{{ t('monitor.backgroundOption') }}</span>
-            <input v-model="alertDraft.backgroundEnabled" type="checkbox" :disabled="!alertDraft.enabled" />
-          </label>
-          <p class="monitor-alert-background-hint">{{ t('monitor.backgroundOptionHint') }}</p>
-
-          <div class="monitor-alert-fields">
-            <label class="monitor-alert-field">
-              <span>{{ t('monitor.alertCpuThreshold') }}</span>
-              <span class="monitor-alert-input-wrap"><input v-model.number="alertDraft.cpuThreshold" type="number" min="50" max="99" step="1" /><span>%</span></span>
-            </label>
-            <label class="monitor-alert-field">
-              <span>{{ t('monitor.alertMemoryThreshold') }}</span>
-              <span class="monitor-alert-input-wrap"><input v-model.number="alertDraft.memoryThreshold" type="number" min="50" max="99" step="1" /><span>%</span></span>
-            </label>
-            <label class="monitor-alert-field monitor-alert-count">
-              <span>{{ t('monitor.alertMaxCount') }}</span>
-              <span class="monitor-alert-input-wrap"><input v-model.number="alertDraft.maxNotificationsPer24h" type="number" min="1" max="10" step="1" /><span>{{ t('monitor.alertCountUnit') }}</span></span>
-            </label>
-          </div>
-
-          <div class="monitor-alert-explainer">
-            <div class="monitor-alert-explainer-title">{{ t('monitor.alertHowItWorks') }}</div>
-            <ul>
-              <li>{{ t('monitor.alertTriggerHint') }}</li>
-              <li>{{ t('monitor.alertRepeatHint') }}</li>
-              <li>{{ t('monitor.alertLifetimeHint') }}</li>
-            </ul>
-          </div>
-          <p v-if="isMacOs" class="monitor-alert-macos-note">{{ t('monitor.alertMacOsNote') }}</p>
-          <div class="monitor-alert-actions">
-            <button type="button" class="ui-btn ui-btn-ghost" @click="alertDialogOpen = false">{{ t('common.cancel') }}</button>
-            <button type="submit" class="ui-btn ui-btn-primary" :disabled="alertSaving">{{ t('monitor.alertSave') }}</button>
-          </div>
-        </form>
-      </div>
-    </Teleport>
+    <MonitorAlertDialog
+      :open="alertDialogOpen"
+      :connection-name="connectionName"
+      :rule="alertRule"
+      :saving="alertSaving"
+      @save="saveAlertSettings"
+      @close="alertDialogOpen = false"
+    />
   </div>
 </template>
 
@@ -387,11 +379,19 @@ watch(
   padding: 10px;
 }
 
-.threshold-dots { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; cursor: help; }
-.legend-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-.legend-dot.ok { background: var(--success); }
-.legend-dot.warning { background: var(--warning); }
-.legend-dot.danger { background: var(--danger); }
+.monitor-alert-btn { position: relative; color: var(--text-secondary); }
+.monitor-alert-btn.is-on { color: var(--success); }
+.monitor-alert-btn.is-on::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 1px var(--bg-secondary);
+}
 
 .monitor-header {
   display: flex;
@@ -418,6 +418,16 @@ watch(
   min-width: 0;
   flex: 1;
 }
+
+.monitor-freshness {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.monitor-freshness.stale { color: var(--warning); }
 
 .monitor-header-actions {
   display: flex;
@@ -458,10 +468,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  padding: 2px 8px;
 }
 
 .monitor-skel-title {
@@ -488,9 +495,16 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
-  border-radius: 4px;
   transition: background 0.15s;
   user-select: none;
 }
@@ -499,8 +513,9 @@ watch(
   background: var(--bg-tertiary);
 }
 
-.section-header.collapsed {
-  padding: 4px 8px;
+.section-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .section-title {
@@ -573,15 +588,15 @@ watch(
   margin: 2px 0;
 }
 
-/* Ticks explain why a bar turns amber (70%) or red (90%). */
+/* Ticks follow the per-host alert thresholds for CPU/memory; disk/swap keep 70/90 reference marks. */
 .progress-bar::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(to right, transparent calc(70% - 1px), var(--progress-tick) calc(70% - 1px), var(--progress-tick) 70%, transparent 70%),
-    linear-gradient(to right, transparent calc(90% - 1px), var(--progress-tick) calc(90% - 1px), var(--progress-tick) 90%, transparent 90%);
+    linear-gradient(to right, transparent calc(var(--bar-warn, 70%) - 1px), var(--progress-tick) calc(var(--bar-warn, 70%) - 1px), var(--progress-tick) var(--bar-warn, 70%), transparent var(--bar-warn, 70%)),
+    linear-gradient(to right, transparent calc(var(--bar-danger, 90%) - 1px), var(--progress-tick) calc(var(--bar-danger, 90%) - 1px), var(--progress-tick) var(--bar-danger, 90%), transparent var(--bar-danger, 90%));
 }
 
 .progress-fill {
@@ -629,12 +644,18 @@ watch(
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .disk-percent {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   font-size: 11px;
   font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .proc-table {
@@ -673,94 +694,5 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.monitor-alert-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(0 0 0 / 48%);
-}
-
-.monitor-alert-dialog {
-  box-sizing: border-box;
-  width: min(460px, 100%);
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
-  padding: 24px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
-}
-
-.monitor-alert-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-.monitor-alert-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.monitor-alert-heading h2 { margin: 0; font-size: 17px; line-height: 1.4; }
-.monitor-alert-heading > span { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
-.monitor-alert-close { position: relative; z-index: 1; display: grid; flex: 0 0 32px; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.monitor-alert-close:hover { color: var(--text-primary); }
-.monitor-alert-close :deep(.app-icon) { pointer-events: none; }
-.monitor-alert-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  font-weight: 600;
-  cursor: pointer;
-}
-.monitor-alert-toggle input { width: 16px; height: 16px; margin: 0; cursor: pointer; }
-.monitor-alert-background-toggle { margin-top: 10px; font-weight: 500; }
-.monitor-alert-background-hint { margin: 6px 0 0; color: var(--text-secondary); line-height: 1.5; }
-.monitor-alert-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
-.monitor-alert-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.monitor-alert-field > span:first-child { font-weight: 500; }
-.monitor-alert-count { grid-column: 1 / -1; }
-.monitor-alert-input-wrap { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
-.monitor-alert-input-wrap input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font: inherit;
-}
-.monitor-alert-count .monitor-alert-input-wrap input { width: 92px; }
-.monitor-alert-input-wrap input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.monitor-alert-explainer {
-  margin-top: 20px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.monitor-alert-explainer-title { margin-bottom: 6px; color: var(--text-primary); font-weight: 600; }
-.monitor-alert-explainer ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
-.monitor-alert-dialog .monitor-alert-macos-note {
-  margin: 14px 0 0;
-  padding: 10px 12px;
-  border-left: 3px solid var(--warning);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--warning) 8%, var(--bg-primary));
-  color: var(--text-primary);
-  line-height: 1.5;
-}
-.monitor-alert-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-@media (max-width: 480px) {
-  .monitor-alert-dialog { padding: 18px; }
-  .monitor-alert-fields { grid-template-columns: 1fr; }
-  .monitor-alert-count { grid-column: auto; }
 }
 </style>
