@@ -112,7 +112,7 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   transition: background 0.15s, color 0.15s, opacity 0.15s;
   position: relative;
 }

@@ -591,7 +591,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 4px 0 8px;
+  padding: 4px 4px 8px;
   background: var(--bg-secondary);
 }
 
@@ -601,6 +601,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   gap: 4px;
   min-height: var(--sftp-row-min-height, 1.75rem);
   padding-right: 8px;
+  border-radius: var(--radius-sm);
   font-size: var(--sftp-row-font, 0.75rem);
   color: var(--text-primary);
   cursor: pointer;
@@ -617,7 +618,7 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 
 .sftp-explorer.external-drag .sftp-dir-tree {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .tree-row.drop-target {
@@ -625,7 +626,6 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   box-shadow:
     inset 3px 0 0 var(--accent),
     inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 4px;
 }
 
 .tree-row.drop-target .tree-name {

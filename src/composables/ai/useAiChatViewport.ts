@@ -29,11 +29,13 @@ export function useAiChatViewport(deps: {
   const listRef = ref<HTMLElement | null>(null)
   /** When on, stream updates pin the viewport to the latest output (default). */
   const followLatest = ref(true)
+  const hasNewReply = ref(false)
   let savedScrollTop = 0
   let isProgrammaticScroll = false
   let scrollRaf = 0
   let timelineRaf = 0
   const NEAR_BOTTOM_PX = 48
+  const RESUME_BOTTOM_PX = 4
 
   const turns = computed(() => chatTurnStarts(deps.messages()))
   const firstVisibleId = ref<string | null>(null)
@@ -57,12 +59,30 @@ export function useAiChatViewport(deps: {
   const hasNewerMessages = computed(() => windowEnd.value < turns.value.length)
   watch(followLatest, latest => {
     if (latest) {
+      hasNewReply.value = false
       firstVisibleId.value = null
       endVisibleId.value = null
     } else if (firstVisibleId.value === null) {
       firstVisibleId.value = turns.value[windowStart.value]?.id || null
     }
   }, { flush: 'sync' })
+
+  watch(followLatest, latest => {
+    if (!latest || !visible || disposed) return
+    // Pagination can shrink the list on return. Pin after that DOM update, before paint.
+    scrollToBottom()
+    updateActiveTurn()
+  }, { flush: 'post' })
+
+  // Track only the reply at the tail. Reading history shouldn't scan tool output or move the viewport.
+  watch(() => {
+    const last = deps.messages().at(-1)
+    return last?.role === 'assistant' ? [last.id, last.content.length] as const : undefined
+  }, (reply, previous) => {
+    if (followLatest.value || !reply?.[1]) return
+    if (reply[0] !== previous?.[0] || reply[1] > previous[1]) hasNewReply.value = true
+  })
+
   // Thread switches reuse the same messages array; do not key pagination by its identity.
   watch([() => deps.conversationKey?.() ?? deps.messages()[0]?.id, () => deps.messages().length === 0], () => {
     windowGeneration++
@@ -162,12 +182,8 @@ export function useAiChatViewport(deps: {
   function scrollToBottom() {
     const el = listRef.value
     if (!el) return
-    isProgrammaticScroll = true
     el.scrollTop = el.scrollHeight
-    savedScrollTop = el.scrollTop
-    scheduleFrame(() => {
-      isProgrammaticScroll = false
-    })
+    captureScroll()
   }
 
   function scheduleScrollToBottom() {
@@ -235,28 +251,23 @@ export function useAiChatViewport(deps: {
   }
 
   function onListScroll() {
-    if (isProgrammaticScroll) {
-      captureScroll()
-      scheduleActiveTurn()
-      return
-    }
-    captureScroll()
     const el = listRef.value
     if (!el) return
-    // Manual scroll away from tail pauses follow; return to bottom re-enables.
-    if (followLatest.value && !isNearBottom(el)) {
-      followLatest.value = false
-    } else if (!followLatest.value && !hasNewerMessages.value && isNearBottom(el)) {
-      followLatest.value = true
+    const previousTop = savedScrollTop
+    captureScroll()
+    if (!isProgrammaticScroll) {
+      // Streamed layout changes can increase the bottom gap without an upward scroll.
+      if (followLatest.value && savedScrollTop < previousTop && !isNearBottom(el)) {
+        followLatest.value = false
+      } else if (!followLatest.value && !hasNewerMessages.value && isNearBottom(el, RESUME_BOTTOM_PX)) {
+        followLatest.value = true
+      }
     }
     scheduleActiveTurn()
   }
 
   function toggleFollowLatest() {
     followLatest.value = !followLatest.value
-    if (followLatest.value) {
-      void nextTick(() => scheduleScrollToBottom())
-    }
   }
 
   /** Cheap signature so streaming token updates trigger follow-scroll. */
@@ -319,7 +330,7 @@ export function useAiChatViewport(deps: {
     jumpScrollTimer = null
   }
   onScopeDispose(() => { disposed = true; windowGeneration++; cancelFrames() })
-  return { listRef, followLatest, visibleMessages, hiddenTurnCount, hasEarlierMessages, loadingEarlier, loadEarlierMessages,
+  return { listRef, followLatest, hasNewReply, visibleMessages, hiddenTurnCount, hasEarlierMessages, loadingEarlier, loadEarlierMessages,
     timelineRef, showTimeline, activeTurnId,
     timelineExpanded, visibleTimelineTurns, setTimelineHovered, onTimelineFocus,
     onTimelineBlur, jumpToTurn, onListScroll, toggleFollowLatest, handleViewportInsetChange }

@@ -77,6 +77,8 @@ export default {
     splitResizeHint: 'Drag to resize the split. Double-click to reset.',
     openLinkFailed: 'Could not open the link',
     tabLabel: 'Terminal {n}',
+    renameTab: 'Rename terminal',
+    renameTabHint: 'Leave blank to use the default name.',
     dragSplitTitle: 'Drag a sub-tab onto the terminal area to split',
     dragHostSplitTitle: 'Drag onto another SSH tab to split immediately, or onto a terminal edge to choose a direction',
     splitNeedsSecondTerminal: 'This SSH session has only one terminal. For a cross-host split, drag a host tab at the top.',

@@ -108,6 +108,7 @@ function onMoreAction(id: string) {
   align-items: center;
   gap: 2px;
   min-height: 28px;
+  position: relative;
 }
 
 .navigation-actions-spacer {
@@ -142,8 +143,19 @@ function onMoreAction(id: string) {
   .sftp-binding { display: none; }
 }
 
+.navigation-actions .sftp-toolbar-more {
+  position: static;
+}
+
 .sftp-toolbar-more :deep(.sftp-toolbar-menu) {
   width: 240px;
+  min-width: min(170px, 100%);
+  max-width: 100%;
+  border-radius: var(--radius-lg);
+}
+
+.sftp-toolbar-more :deep(.sftp-toolbar-menu .ui-menu-item) {
+  border-radius: var(--radius-sm);
 }
 
 .transfer-action {

@@ -106,7 +106,7 @@ app.whenReady().then(async () => {
   if (process.env.LITECONNECT_DOCK_CWD_ONLY === '1') {
     stage = 'locating after successful and failed cd commands'
     await click(tool('files'))
-    await wait('document.querySelector(".file-sidebar .path-display")?.textContent.trim()==="/home/ops"')
+    await wait('document.querySelector(".file-sidebar .path-display")?.title==="/home/ops"')
     await click('.file-sidebar .navigation-actions button[aria-pressed="true"]')
     await run('window.__dock.enableCwdInputEcho()')
     const input = window.webContents.debugger
@@ -120,13 +120,13 @@ app.whenReady().then(async () => {
     const locate = '.file-sidebar .navigation-actions > button:first-child'
     await submit('cd /home/v5-automation-servers', '/home/v5-automation-servers')
     await click(locate)
-    await wait('document.querySelector(".file-sidebar .path-display")?.textContent.trim()==="/home/v5-automation-servers"')
+    await wait('document.querySelector(".file-sidebar .path-display")?.title==="/home/v5-automation-servers"')
     await submit('cd ..', '/home')
     await submit('cd tab', '/home/tab')
     await submit('cd bcdd', '/home/bcdd')
     const writes = await run('window.__dock.calls.writes.length')
     await click(locate)
-    await wait('document.querySelector(".file-sidebar .path-display")?.textContent.trim()==="/home"')
+    await wait('document.querySelector(".file-sidebar .path-display")?.title==="/home"')
     assert.equal(await run('window.__dock.calls.writes.length'), writes, 'Locate must not write to the terminal')
     assert.ok(await run('window.__dock.calls.fileLoads.every(path => !/\\/(tab|bcdd)(\\/|$)/.test(path))'), 'Invalid cwd candidates must not be listed')
     console.log(JSON.stringify({ passed: true, flows: ['cd ..', 'consecutive failed cd commands', 'SFTP locate without terminal input'], artifacts }))
@@ -152,19 +152,57 @@ app.whenReady().then(async () => {
   stage = 'simultaneous file and AI panels'
   await click(tool('files')); await wait('!!document.querySelector(".dock-left .file-sidebar")')
   await wait('window.__dock.calls.fileLoads.length>0')
-  await click('.file-sidebar .path-display')
-  await wait('!!document.querySelector(".file-sidebar .path-input")')
-  await run(`(() => {const input=document.querySelector('.file-sidebar .path-input');input.value='/srv/app';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
-  await click('.file-sidebar .path-action-btn.confirm')
-  await wait('document.querySelector(".file-sidebar").textContent.includes("/srv/app")')
+  const editPath = async path => {
+    await click('.file-sidebar .path-action-btn')
+    await wait('!!document.querySelector(".file-sidebar .path-input")')
+    await run(`(() => {const input=document.querySelector('.file-sidebar .path-input');input.value=${JSON.stringify(path)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+    await click('.file-sidebar .path-action-btn.confirm')
+    await wait(`document.querySelector('.file-sidebar .path-display')?.title===${JSON.stringify(path)}`)
+  }
+  await editPath('/srv/app')
   assert.deepEqual(await run('({ai:window.__dock.snapshot().panels.ai,files:window.__dock.snapshot().panels.files})'), { ai: true, files: true })
   assert.ok(await run(`(() => {const right=document.querySelector('.dock-right');return !right.innerText.includes('批量执行') && !right.innerText.includes('命令片段') && !right.querySelector('[role=tablist]')})()`), 'Opening AI does not advertise unopened batch/snippet tools')
   assert.ok(await run(`['left','right'].every(edge=>{const region=document.querySelector('.dock-'+edge),body=region.querySelector('.workspace-dock-body');return Math.abs(body.getBoundingClientRect().top-region.getBoundingClientRect().top)<=2})`), 'Original panel content starts directly at its dock boundary')
   await run('window.__savedFilePane=document.querySelector(".file-sidebar")')
   await screenshot('dock-files-ai.png')
+  stage = 'terminal labels and direct path breadcrumbs'
+  const renameTerminal = async (tab, label) => {
+    await click(tab, 'right')
+    await wait('!!document.querySelector(".terminal-tab-menu")')
+    await click('.terminal-tab-menu .ui-menu-item')
+    await wait('!!document.querySelector(".app-dialog .ui-input")')
+    await run(`(() => {const input=document.querySelector('.app-dialog .ui-input');input.value=${JSON.stringify(label)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+    await click('.app-dialog-actions .ui-btn-primary')
+  }
+  await renameTerminal('.sub-tab.active .sub-tab-label', '查看日志')
+  await wait('document.querySelector(".sub-tab.active .sub-tab-label")?.textContent==="查看日志"')
+  assert.equal(await run('document.querySelector(".dock-left .sftp-binding span")?.textContent'), '查看日志')
+  await click('.dock-left .path-crumb[title="/srv"]')
+  await wait('document.querySelector(".dock-left .path-display")?.title==="/srv"')
+  await editPath('/srv/app')
   stage = 'fixed SFTP font and density across panel widths'
   const fileDensity = await run(`(() => {const row=document.querySelector('.file-sidebar .tree-row');return {font:getComputedStyle(row).fontSize,row:row.getBoundingClientRect().height,icon:row.querySelector('.tree-icon').getBoundingClientRect().width}})()`)
   const originalLeft = await run('window.__dock.snapshot().layout.sizes.left')
+  await run(`document.querySelector('.dock-left .workspace-dock-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true}))`)
+  await wait('!window.__dock.snapshot().saving && window.__dock.snapshot().layout.sizes.left===240')
+  const more = '.dock-left .sftp-toolbar-more .dropdown-trigger'
+  await click(more)
+  await wait('!!document.querySelector(".dock-left .sftp-toolbar-menu")')
+  assert.ok(await run(`(() => {
+    const panel = document.querySelector('.dock-left').getBoundingClientRect();
+    const menu = document.querySelector('.dock-left .sftp-toolbar-menu').getBoundingClientRect();
+    return menu.left >= panel.left && menu.right <= panel.right;
+  })()`), 'The SFTP menu fits at the minimum dock width')
+  await click(more)
+  stage = 'collapsed SFTP breadcrumbs'
+  const parent = '/srv/服务日志和归档目录/生产环境应用服务'
+  await editPath(`${parent}/logs`)
+  await wait('!!document.querySelector(".dock-left .path-overflow .dropdown-trigger")')
+  await click('.dock-left .path-overflow .dropdown-trigger')
+  await wait('!!document.querySelector(".dock-left .path-ancestor-menu")')
+  await click(`.dock-left .path-ancestor-menu [data-value="${parent}"]`)
+  await wait(`document.querySelector('.dock-left .path-display')?.title===${JSON.stringify(parent)}`)
+  await editPath('/srv/app')
   await run(`document.querySelector('.dock-left .workspace-dock-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`)
   await wait('!window.__dock.snapshot().saving && window.__dock.snapshot().layout.sizes.left===720')
   assert.deepEqual(await run(`(() => {const row=document.querySelector('.file-sidebar .tree-row');return {font:getComputedStyle(row).fontSize,row:row.getBoundingClientRect().height,icon:row.querySelector('.tree-icon').getBoundingClientRect().width}})()`), fileDensity, 'SFTP font, rows and icons stay the same when the panel gets wider')
@@ -194,7 +232,7 @@ app.whenReady().then(async () => {
   await click(tool('ai')); await wait('window.__savedAiInput.checkVisibility()')
   await click(tool('files')); await wait('window.__dock.snapshot().panels.files')
   assert.ok(await run('document.querySelector(".file-sidebar")===window.__savedFilePane'))
-  assert.ok(await run('window.__savedFilePane.textContent.includes("/srv/app")'))
+  assert.equal(await run('window.__savedFilePane.querySelector(".path-display")?.title'), '/srv/app')
   await run('window.__dock.session("two")')
   await wait('document.querySelectorAll(".ai-sidebar").length===2')
   await run('window.__dock.session("one")')
@@ -204,6 +242,9 @@ app.whenReady().then(async () => {
   const savedSizes = await run('window.__dock.snapshot().layout.sizes')
   await click('.terminal-layout-actions button:last-child')
   await wait('window.__dock.snapshot().split && window.__dock.snapshot().splitMode==="vertical"')
+  assert.equal(await run('document.querySelector(".split-group-tab .sub-tab-label")?.textContent'), '查看日志')
+  await renameTerminal('.split-group-tab .sub-tab-label', '')
+  await wait('document.querySelector(".split-group-tab .sub-tab-label")?.textContent==="终端 1"')
   assert.deepEqual(await run('({ai:window.__dock.snapshot().panels.ai,files:window.__dock.snapshot().panels.files})'), { ai: true, files: true })
   assert.equal(await run(`document.querySelector('${tool('ai')}').disabled`), false)
   assert.ok(await run('window.__savedAiInput.checkVisibility() && window.__savedAiInput.value==="Keep this draft while moving"'))
@@ -369,6 +410,6 @@ app.whenReady().then(async () => {
     layouts++
   }
   await click('.dock-layout-button'); await click('[data-layout-reset]'); await wait('window.__dock.snapshot().layout.tools.every(tool=>tool.edge==="left") && !window.__dock.snapshot().saving')
-  console.log(JSON.stringify({ passed: true, layouts, flows: process.env.LITECONNECT_DOCK_MATRIX_ONLY ? ['side dock composer', 'layout variations', 'reset'] : ['left/right move', 'composer/file path/xterm identity preserved', 'simultaneous regions', 'fixed SFTP font and density', 'terminal focus', 'session switch', 'same-host and cross-host splits with independent docks', 'explicit AI target and manual close preserved', 'split-aware dock allocation', 'pointer and keyboard resize', 'icon ordering', 'drag preview/drop', 'lock/reset', 'save failure retry', 'SQLite reload', 'cross-window notification and legacy edge migration'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, flows: process.env.LITECONNECT_DOCK_MATRIX_ONLY ? ['side dock composer', 'layout variations', 'reset'] : ['left/right move', 'composer/file path/xterm identity preserved', 'simultaneous regions', 'terminal label rename and reset', 'direct and collapsed SFTP breadcrumbs', 'fixed SFTP font and density', 'terminal focus', 'session switch', 'same-host and cross-host splits with independent docks', 'explicit AI target and manual close preserved', 'split-aware dock allocation', 'pointer and keyboard resize', 'icon ordering', 'drag preview/drop', 'lock/reset', 'save failure retry', 'SQLite reload', 'cross-window notification and legacy edge migration'], artifacts }))
   clearTimeout(timeout); window.destroy(); runtime.closeAppDatabase(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); database?.close(); app.exit(1) })

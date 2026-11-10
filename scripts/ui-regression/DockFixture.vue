@@ -97,6 +97,10 @@ const { isSplit: split, splitMode, splitRatio, isResizing, splitPrimarySessionId
   setSplitMode, setSplitPrimarySessionId, setSecondarySessionId, setSplitPreview, closeSplit, suspendSplit, restoreSplit, toggleHorizontal, toggleVertical, startSplitResize, resetSplitRatio } = useSplitTerminal()
 function getGroupBySessionId(id: string) { return [production, staging].find(item => item.sessions.some(session => session.id === id)) || null }
 function selectSession(id: string) { const next = getGroupBySessionId(id); if (next) { group.value = next; next.activeSessionId = id } }
+function renameSession(id: string, label: string) {
+  const session = allSessions.value.find(item => item.id === id)
+  if (session) session.label = label || undefined
+}
 const splitController = useWorkspaceSplitController({ isSplit: split, activeSessionId: computed(() => current.value.id), primarySessionId: splitPrimarySessionId, secondarySessionId,
   getGroupBySessionId, createSession: async () => null, closeSession: async () => {}, setSidebarTarget: () => {}, setPrimarySessionId: setSplitPrimarySessionId, setSecondarySessionId, closeSplit, suspendSplit, restoreSplit })
 function commitSplit(payload: SplitDropPayload) {
@@ -133,6 +137,7 @@ onMounted(() => {
       @toggle-ai="toggle('ai')" @toggle-files="toggle('files')" @toggle-monitor="toggle('monitor')" @toggle-batch="toggle('batch')" @toggle-snippets="toggle('snippets')" @toggle-sync="toggle('sync')" @toggle-docker="toggle('docker')"
       @close-ai="panels.ai.value = false" @close-files="panels.files.value = false" @close-monitor="panels.monitor.value = false" @close-batch="panels.batch.value = false" @close-snippets="panels.snippets.value = false" @close-sync="panels.sync.value = false"
       @bind-file-sidebar="sidebar = $event" @select-session="selectSession"
+      @rename-session="renameSession"
       @cd-command="pwd.handleCd" @pwd-output="pwd.setPwd"
       @toggle-horizontal="toggleHorizontal(current.id, secondarySessionId || group.sessions.find(session => session.id !== current.id)?.id)"
       @toggle-vertical="toggleVertical(current.id, secondarySessionId || group.sessions.find(session => session.id !== current.id)?.id)"

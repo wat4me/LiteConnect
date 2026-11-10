@@ -872,7 +872,7 @@ function onMenuAction(action: MenuAction) {
 
 }
 
-.connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: 4px; box-shadow: none; }
+.connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: var(--radius-sm); box-shadow: none; }
 .connection-row.compact .row-main { gap: 8px; }
 .connection-row.compact .row-info { flex-direction: row; align-items: center; gap: 12px; }
 .connection-row.compact .row-heading { flex: 0 1 34%; min-width: 0; }

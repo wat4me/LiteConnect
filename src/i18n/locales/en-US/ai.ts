@@ -528,6 +528,8 @@ export default {
     followLatestOn: 'On: streaming output scrolls to the latest position',
     followLatestOff: 'Off: the current scroll position stays put',
     jumpToLatest: 'Back to the bottom',
+    newReplyBelow: 'New reply',
+    jumpToNewReply: 'New reply. Back to the bottom',
     loadEarlierTurns: 'Load earlier conversation',
     loadingEarlierTurns: 'Loading…',
     hiddenEarlierTurns: '{count} earlier turns are still hidden',

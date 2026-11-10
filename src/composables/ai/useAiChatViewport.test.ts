@@ -15,6 +15,7 @@ async function setup() {
     id: `turn-${index}`, role: 'user', content: `question ${index}`, createdAt: index,
   })))
   let top = 0
+  let scrollHeight = 20000
   const conversationKey = ref('thread-1')
   let api: ReturnType<typeof useAiChatViewport>
   const firstIndex = () => messages.value.findIndex(message => message.id === api.visibleMessages.value[0]?.id)
@@ -25,8 +26,9 @@ async function setup() {
   }))
   const visibleRows = () => rows.filter(row => api.visibleMessages.value.some(message => message.id === row.dataset.messageId))
   const element = {
-    scrollHeight: 20000, clientHeight: 500,
-    get scrollTop() { return top }, set scrollTop(value: number) { top = Math.max(0, Math.min(value, 19500)) },
+    get scrollHeight() { return scrollHeight }, set scrollHeight(value: number) { scrollHeight = value },
+    clientHeight: 500,
+    get scrollTop() { return top }, set scrollTop(value: number) { top = Math.max(0, Math.min(value, scrollHeight - 500)) },
     querySelectorAll: visibleRows,
     querySelector: (selector: string) => selector === '[data-message-id]' ? visibleRows()[0] : visibleRows().find(row => selector.includes(`"${row.dataset.messageId}"`)),
     contains: (row: typeof rows[number]) => visibleRows().includes(row),
@@ -55,9 +57,28 @@ it('preserves the reader position across stream updates and follows only after r
   f.messages.value[199].content += ' streamed response'
   await f.flush()
   expect(f.element.scrollTop).toBe(120)
+  f.element.scrollTop = 19475
+  f.api.onListScroll()
+  expect(f.api.followLatest.value).toBe(false)
   f.element.scrollTop = 19500
   f.api.onListScroll()
   expect(f.api.followLatest.value).toBe(true)
+})
+
+it('keeps following when stream growth races with a scroll event at the old bottom', async () => {
+  const f = await setup()
+  f.element.scrollTop = 19200
+  f.api.onListScroll()
+  f.element.scrollTop = 19500
+  f.api.onListScroll()
+  await f.flush()
+
+  f.element.scrollHeight += 100
+  f.messages.value[199].content += ' next streamed chunk'
+  f.api.onListScroll()
+  expect(f.api.followLatest.value).toBe(true)
+  await f.flush()
+  expect(f.element.scrollTop).toBe(19600)
 })
 
 it('restores a saved reading position after KeepAlive reattachment', async () => {
@@ -191,15 +212,20 @@ it('does not read tool-output signatures or measure layout while the user reads 
   f.api.onListScroll()
   await f.flush()
   const measure = vi.spyOn(f.element, 'querySelectorAll')
+  expect(f.api.hasNewReply.value).toBe(false)
   readOutput.mockClear()
-  f.messages.value.at(-1)!.content = 'new output'
   f.messages.value.at(-1)!.toolRuns![0].status = 'done'
   await f.flush()
+  expect(f.api.hasNewReply.value).toBe(false)
+  f.messages.value.at(-1)!.content = 'new reply text'
+  await f.flush()
+  expect(f.api.hasNewReply.value).toBe(true)
   expect(readOutput).not.toHaveBeenCalled()
   expect(measure).not.toHaveBeenCalled()
   expect(f.element.scrollTop).toBe(120)
   f.api.toggleFollowLatest()
   await f.flush()
+  expect(f.api.hasNewReply.value).toBe(false)
   expect(readOutput).toHaveBeenCalled()
   expect(f.element.scrollTop).toBe(19500)
 })

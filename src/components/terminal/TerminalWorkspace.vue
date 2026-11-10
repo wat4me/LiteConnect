@@ -22,6 +22,10 @@ import {
 import AppIcon, { type AppIconName } from '../icons/AppIcon.vue'
 import { getSessionPaneStyle as resolveSessionPaneStyle, getDividerStyle as resolveDividerStyle } from '@/utils/terminal/splitPaneLayout'
 import { useTerminalSplitKeyboard } from '@/composables/terminal/useTerminalSplitKeyboard'
+import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
+import { fitFixedElement } from '@/utils/shared/popupPosition'
+import { appPrompt } from '@/composables/app/useAppDialog'
+import { TERMINAL_LABEL_MAX_LENGTH } from '@shared/types/settings'
 
 const TerminalTab = defineAsyncComponent(() => import('./TerminalTab.vue'))
 const SubTabBar = defineAsyncComponent(() => import('@/components/workspace/SubTabBar.vue'))
@@ -69,6 +73,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'select-session', sessionId: string): void
   (e: 'close-session', sessionId: string): void
+  (e: 'rename-session', sessionId: string, label: string): void
   (e: 'add-session', connectionId: string): void
   (e: 'session-closed', sessionId: string): void
   (e: 'reconnect', sessionId: string): void
@@ -93,6 +98,35 @@ const emit = defineEmits<{
   (e: 'select-docker'): void
   (e: 'close-docker'): void
 }>()
+
+const terminalMenu = ref<{ sessionId: string; left: number; top: number } | null>(null)
+const terminalMenuRef = ref<HTMLElement | null>(null)
+useOutsideDismiss(() => !!terminalMenu.value, () => { terminalMenu.value = null }, () => [terminalMenuRef.value])
+watch(() => props.workspaceVisible, (visible) => { if (!visible) terminalMenu.value = null })
+
+async function openTerminalMenu(event: MouseEvent, sessionId: string) {
+  const menu = { sessionId, left: event.clientX, top: event.clientY }
+  terminalMenu.value = menu
+  await nextTick()
+  if (terminalMenuRef.value && terminalMenu.value?.sessionId === sessionId) {
+    Object.assign(terminalMenu.value, fitFixedElement(terminalMenuRef.value, { x: menu.left, y: menu.top }))
+  }
+}
+
+async function renameTerminal(sessionId: string) {
+  terminalMenu.value = null
+  const session = props.allSessions.find((item) => item.id === sessionId)
+  if (!session) return
+  const label = await appPrompt({
+    title: t('terminal.renameTab'),
+    inputValue: session.label || '',
+    inputPlaceholder: t('terminal.tabLabel', { n: session.tabNumber }),
+    detail: t('terminal.renameTabHint'),
+    required: false,
+    maxLength: TERMINAL_LABEL_MAX_LENGTH,
+  }).catch(() => undefined)
+  if (label !== undefined) emit('rename-session', sessionId, label)
+}
 
 type TerminalTabExpose = FocusableTerminalTab & { sessionId?: string }
 
@@ -379,6 +413,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
       :split-group-active="isSplit && !crossHostSplit"
       @select="emit('select-session', $event)"
       @close="emit('close-session', $event)"
+      @terminal-menu="openTerminalMenu"
       @add="emit('add-session', $event)"
       @select-docker="emit('select-docker')"
       @close-docker="emit('close-docker')"
@@ -506,8 +541,10 @@ function onSplitDividerMousedown(e: MouseEvent) {
                   class="split-pane-tab"
                   :class="{ active: paneSession.id === session.id }"
                   :aria-selected="paneSession.id === session.id"
+                  :title="paneSession.label"
                   role="tab"
                   @click.stop="selectSplitPaneTerminal(session, paneSession)"
+                  @contextmenu.prevent.stop="openTerminalMenu($event, paneSession.id)"
                 >
                   {{ getTerminalLabel(paneSession) }}
                 </button>
@@ -530,12 +567,13 @@ function onSplitDividerMousedown(e: MouseEvent) {
                 :title="t('terminal.switchSplitSession')"
                 :aria-label="t('terminal.switchSplitSession')"
                 @change="emit('set-secondary-session', ($event.target as HTMLSelectElement).value)"
+                @contextmenu.prevent.stop="openTerminalMenu($event, session.id)"
               >
                 <option v-for="s in secondaryCandidates" :key="s.id" :value="s.id">
                   {{ sessionOptionLabel(s) }}
                 </option>
               </select>
-              <span v-else class="split-pane-tag">{{ getTerminalLabel(session) }}</span>
+              <span v-else class="split-pane-tag" :title="session.label" @contextmenu.prevent.stop="openTerminalMenu($event, session.id)">{{ getTerminalLabel(session) }}</span>
             </template>
             <span v-if="sessionUser(session)" class="split-pane-user">{{ sessionUser(session) }}</span>
           </div>
@@ -631,10 +669,20 @@ function onSplitDividerMousedown(e: MouseEvent) {
     <div v-show="dockerTabActive" class="docker-pane-host">
       <slot name="docker-pane" />
     </div>
+    <Teleport to="body">
+      <div v-if="terminalMenu" ref="terminalMenuRef" class="ui-menu terminal-tab-menu" :style="{ left: `${terminalMenu.left}px`, top: `${terminalMenu.top}px` }" role="menu">
+        <button type="button" class="ui-menu-item" role="menuitem" @click="renameTerminal(terminalMenu.sessionId)">
+          <AppIcon name="edit" size="sm" />
+          {{ t('terminal.renameTab') }}
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
+.terminal-tab-menu { border-radius: var(--radius-lg); }
+
 .terminal-section {
   flex: 1;
   display: flex;
@@ -843,6 +891,10 @@ function onSplitDividerMousedown(e: MouseEvent) {
 
 .split-pane-tab {
   padding: 0 6px;
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .split-pane-tab:hover,
@@ -868,9 +920,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
 }
 
 .split-pane-tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
   box-sizing: border-box;
   height: 20px;
   padding: 1px 6px;
@@ -879,7 +929,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   color: var(--accent);
   font-size: 10px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 18px;
   white-space: nowrap;
   max-width: 180px;
   overflow: hidden;

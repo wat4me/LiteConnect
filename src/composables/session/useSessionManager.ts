@@ -10,6 +10,7 @@ import type { Session, ConnectionGroup } from '@/domain/session/types'
 import { createConnectionAttemptGate } from '@/utils/connections/connectionAttemptGate'
 import { isSshHostKeyConfirmationRequired } from '@shared/sshHostKeyConfirmation'
 import { isSshConnectionCancelled, type SshConnectionStage } from '@shared/sshConnectionProgress'
+import { TERMINAL_LABEL_MAX_LENGTH } from '@shared/types/settings'
 
 export type { Session, ConnectionGroup }
 
@@ -92,6 +93,13 @@ export function useSessionManager(deps: {
     )
   }
 
+  function renameSession(sessionId: string, label: string) {
+    const session = getGroupBySessionId(sessionId)?.sessions.find((item) => item.id === sessionId)
+    if (!session) return
+    session.label = label.trim().slice(0, TERMINAL_LABEL_MAX_LENGTH) || undefined
+    schedulePersistWorkspace()
+  }
+
   async function loadConnections() {
     connections.value = await window.LiteConnect.getConnections()
   }
@@ -151,6 +159,7 @@ export function useSessionManager(deps: {
           connectionId: g.connectionId,
           sessionCount: g.sessions.length,
           sessionIds: g.sessions.map((session) => session.id),
+          sessionLabels: Object.fromEntries(g.sessions.flatMap((session) => session.label ? [[session.id, session.label]] : [])),
           activeIndex: Math.max(
             0,
             g.sessions.findIndex((s) => s.id === g.activeSessionId),
@@ -167,16 +176,19 @@ export function useSessionManager(deps: {
     sessionCount: number,
     activeIndex: number,
     sessionIds?: string[],
+    sessionLabels?: Record<string, string>,
   ) {
     if (groups.value.some((g) => g.connectionId === conn.id)) return
     const count = Math.max(1, Math.min(8, sessionCount))
     const sessions: Session[] = []
     for (let i = 0; i < count; i++) {
+      const id = sessionIds?.[i] || crypto.randomUUID()
       sessions.push({
-        id: sessionIds?.[i] || crypto.randomUUID(),
+        id,
         connectionId: conn.id,
         connectionName: conn.name,
         tabNumber: i + 1,
+        label: sessionLabels?.[id],
         pending: true,
       })
     }
@@ -200,7 +212,7 @@ export function useSessionManager(deps: {
       for (const g of saved.groups) {
         const conn = connections.value.find((c) => c.id === g.connectionId)
         if (!conn) continue
-        restorePendingGroup(conn, g.sessionCount, g.activeIndex, g.sessionIds)
+        restorePendingGroup(conn, g.sessionCount, g.activeIndex, g.sessionIds, g.sessionLabels)
       }
       if (saved.homeActive || !saved.activeConnectionId) {
         activeGroupId.value = HOME_ID
@@ -592,6 +604,7 @@ export function useSessionManager(deps: {
     hydrateConnectionData,
     getGroupByConnectionId,
     getGroupBySessionId,
+    renameSession,
     getLastSessionId,
     connectSidebar,
     restoreWorkspaceTabs,

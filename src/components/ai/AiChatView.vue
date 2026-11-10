@@ -222,7 +222,7 @@ const activityLayoutSignature = computed(() => props.messages
   })
   .join('|'))
 
-const { listRef, followLatest, timelineRef, showTimeline, activeTurnId,
+const { listRef, followLatest, hasNewReply, timelineRef, showTimeline, activeTurnId,
   visibleMessages, hiddenTurnCount, hasEarlierMessages, loadingEarlier, loadEarlierMessages,
   timelineExpanded, visibleTimelineTurns, setTimelineHovered, onTimelineFocus,
   onTimelineBlur, jumpToTurn, onListScroll, toggleFollowLatest, handleViewportInsetChange,
@@ -343,7 +343,7 @@ async function copyText(text: string, key: string) {
     <div
       ref="listRef"
       class="chat-list"
-      :class="{ 'has-timeline': showTimeline }"
+      :class="{ 'has-timeline': showTimeline, 'follows-latest': followLatest }"
       @scroll.passive="onListScroll"
     >
       <div v-if="messages.length === 0" class="ui-empty empty-state">
@@ -551,11 +551,13 @@ async function copyText(text: string, key: string) {
       v-if="messages.length > 0 && !followLatest"
       type="button"
       class="jump-latest"
-      :title="t('ai.jumpToLatest')"
-      :aria-label="t('ai.jumpToLatest')"
+      :class="{ 'has-new-reply': hasNewReply }"
+      :title="t(hasNewReply ? 'ai.jumpToNewReply' : 'ai.jumpToLatest')"
+      :aria-label="t(hasNewReply ? 'ai.jumpToNewReply' : 'ai.jumpToLatest')"
       @click="toggleFollowLatest"
     >
-      <AppIcon name="arrow-down" size="md" />
+      <AppIcon name="arrow-down" :size="hasNewReply ? 'sm' : 'md'" />
+      <span v-if="hasNewReply">{{ t('ai.newReplyBelow') }}</span>
     </button>
   </div>
 </template>

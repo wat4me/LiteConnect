@@ -21,7 +21,7 @@ import type {
 } from '@/domain/session/types'
 import type { SplitMode, SplitSide } from '@/domain/terminal/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
-import { getSnippetContext } from '@/utils/session/sessionDisplay'
+import { getSnippetContext, getTerminalLabel } from '@/utils/session/sessionDisplay'
 import { globalActiveTransfers } from '@/composables/sftp/useTransfers'
 import { scheduleAfterTerminalVisible } from '@/utils/terminal/workspaceTerminalFocus'
 
@@ -129,6 +129,7 @@ const emit = defineEmits<{
 
   (e: 'select-session', sessionId: string): void
   (e: 'close-session', sessionId: string): void
+  (e: 'rename-session', sessionId: string, label: string): void
   (e: 'add-session', connectionId: string): void
   (e: 'session-closed', sessionId: string): void
   (e: 'reconnect', sessionId: string): void
@@ -231,10 +232,8 @@ function connectionIdForSession(sessionId: string): string {
   return props.allSessions.find((session) => session.id === sessionId)?.connectionId || ''
 }
 
-/** Uses the stable session tabNumber; closing an earlier tab must not renumber this label. */
 function terminalLabelForSession(sessionId: string): string {
-  const session = props.allSessions.find((item) => item.id === sessionId)
-  return session ? t('terminal.tabLabel', { n: session.tabNumber }) : ''
+  return getTerminalLabel(props.allSessions.find((item) => item.id === sessionId))
 }
 
 function dockerSessionId(connectionId: string): string {
@@ -392,6 +391,7 @@ function toggleTool(id: WorkspaceTool) {
           :docker-tab-active="!!dockerMode"
           @select-session="onSelectTerminal"
           @close-session="emit('close-session', $event)"
+          @rename-session="(id, label) => emit('rename-session', id, label)"
           @add-session="emit('add-session', $event)"
           @session-closed="emit('session-closed', $event)"
           @reconnect="emit('reconnect', $event)"

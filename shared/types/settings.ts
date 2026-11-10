@@ -6,6 +6,7 @@ import type { SshWorkspaceLayout } from '../workspaceLayout'
 import type { UiDensity } from '../uiDensity'
 
 export type AppBackgroundFit = 'cover' | 'contain' | 'fill'
+export const TERMINAL_LABEL_MAX_LENGTH = 48
 
 export type AppBackgroundState = {
   fileName: string
@@ -24,6 +25,7 @@ export interface WorkspaceTabsState {
     activeIndex: number
     /** Stable terminal identities let restored tabs reconnect in place. */
     sessionIds?: string[]
+    sessionLabels?: Record<string, string>
   }>
 }
 

@@ -21,6 +21,10 @@
   padding-left: 26px;
 }
 
+.chat-list.follows-latest {
+  overflow-anchor: none;
+}
+
 .chat-load-earlier { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 8px; flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-caption); }
 
 .empty-state {
@@ -108,7 +112,8 @@
      inset = composer height + 20, composer top sits 12px above the shell bottom. */
   bottom: calc(var(--ai-composer-overlay-inset, 150px) + 2px);
   transform: translateX(-50%);
-  z-index: 2;
+  /* Keep the hit target above the expanded timeline in narrow panels. */
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -127,6 +132,20 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.jump-latest.has-new-reply {
+  width: auto;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
+  color: var(--accent);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.jump-latest.has-new-reply:hover { border-color: var(--accent); }
 
 .jump-latest:focus-visible {
   outline: 2px solid var(--accent);

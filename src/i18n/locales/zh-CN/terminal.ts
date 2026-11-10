@@ -77,6 +77,8 @@ export default {
     splitResizeHint: '拖拽调整分屏比例，双击复位',
     openLinkFailed: '无法打开链接',
     tabLabel: '终端 {n}',
+    renameTab: '重命名终端',
+    renameTabHint: '留空可恢复默认名称。',
     dragSplitTitle: '拖拽子标签到终端区域可分屏',
     dragHostSplitTitle: '拖到另一个 SSH 标签可直接分屏；拖到终端边缘可选择方向',
     splitNeedsSecondTerminal: '当前 SSH 只有一个终端；跨 SSH 分屏请拖拽顶部主机标签',

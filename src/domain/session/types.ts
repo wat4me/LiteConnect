@@ -3,6 +3,7 @@ export interface Session {
   connectionId: string
   connectionName: string
   tabNumber: number
+  label?: string
   /** Restored tab: no SSH yet; reconnect() will connect in-place */
   pending?: boolean
 }

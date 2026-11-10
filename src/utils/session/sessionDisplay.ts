@@ -3,8 +3,9 @@ import type { Session } from '@/domain/session/types'
 import type { BatchCommandTarget } from '@/domain/snippets/types'
 import { t } from '@/i18n'
 
-export function getTerminalLabel(session: Session | null | undefined): string {
-  return session ? t('terminal.tabLabel', { n: session.tabNumber }) : ''
+export function getTerminalLabel(session: Pick<Session, 'label' | 'tabNumber'> | null | undefined): string {
+  if (!session) return ''
+  return session.label || t('terminal.tabLabel', { n: session.tabNumber })
 }
 
 export function getSshAddress(

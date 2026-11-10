@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { SftpPathBookmark, SftpPathBookmarkScope } from '@shared/types/sftp'
 import AppIcon from '../icons/AppIcon.vue'
+import ToolbarDropdown from '../common/ToolbarDropdown.vue'
 import SftpBookmarkMenu from './SftpBookmarkMenu.vue'
 
 const { t } = useI18n()
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   (e: 'submit'): void
   (e: 'cancel'): void
   (e: 'blur-submit'): void
+  (e: 'navigate', path: string): void
   (e: 'toggle-bookmark'): void
   (e: 'add-bookmark', scope: SftpPathBookmarkScope): void
   (e: 'open-bookmark', bookmark: SftpPathBookmark): void
@@ -47,6 +49,10 @@ function onSubmit() {
 
 const pathInputRef = ref<HTMLInputElement | null>(null)
 const pathDisplayRef = ref<HTMLElement | null>(null)
+const rootCrumbRef = ref<HTMLButtonElement | null>(null)
+const ancestorsRef = ref<HTMLElement | null>(null)
+const currentCrumbRef = ref<HTMLElement | null>(null)
+const collapseAncestors = ref(false)
 const bookmarkWrapRef = ref<HTMLElement | null>(null)
 const bookmarkMenuOpen = ref(false)
 let pathEditCanceling = false
@@ -61,20 +67,36 @@ const displayPath = computed(() => {
   return raw.replace(/\/+$/, '') || '/'
 })
 
+const pathCrumbs = computed(() => Array.from(displayPath.value.matchAll(/[^/]+/g), (match) => ({
+  label: match[0],
+  path: displayPath.value.slice(0, match.index + match[0].length),
+})))
+const ancestors = computed(() => pathCrumbs.value.slice(0, -1))
+const currentCrumb = computed(() => pathCrumbs.value.at(-1)?.label || '/')
+const ancestorItems = computed(() => ancestors.value.map(({ label, path }) => ({ id: path, label, title: path })))
+
+function updateCollapse() {
+  const display = pathDisplayRef.value
+  if (!display?.clientWidth) return
+  const requiredWidth = (rootCrumbRef.value?.offsetWidth ?? 0)
+    + (ancestorsRef.value?.offsetWidth ?? 0)
+    + (currentCrumbRef.value?.scrollWidth ?? 0)
+  collapseAncestors.value = ancestors.value.length > 0 && requiredWidth > display.clientWidth
+}
+
+watch(pathDisplayRef, (display, _, onCleanup) => {
+  if (!display) return
+  const observer = new ResizeObserver(updateCollapse)
+  observer.observe(display)
+  updateCollapse()
+  onCleanup(() => observer.disconnect())
+}, { flush: 'post' })
+watch(displayPath, updateCollapse, { flush: 'post' })
+
 const localInput = computed({
   get: () => props.pathInput,
   set: (v: string) => emit('update:pathInput', v),
 })
-
-watch(
-  () => props.currentPath,
-  async () => {
-    await nextTick()
-    if (pathDisplayRef.value) {
-      pathDisplayRef.value.scrollLeft = pathDisplayRef.value.scrollWidth
-    }
-  },
-)
 
 watch(
   () => props.showPathInput,
@@ -116,15 +138,26 @@ function onBlur() {
     :class="{ focused: showPathInput }"
     :title="showPathInput ? undefined : (currentPath || '')"
   >
-    <div
+    <nav
       v-if="!showPathInput"
       ref="pathDisplayRef"
       class="path-display"
       :title="displayPath"
-      @click="onToggle"
+      :aria-label="t('sftp.pathBreadcrumbs')"
     >
-      <span class="path-display-text">{{ displayPath }}</span>
-    </div>
+      <button v-if="displayPath.startsWith('/') && pathCrumbs.length" ref="rootCrumbRef" type="button" class="path-crumb" :disabled="locked" :aria-label="t('sftp.openRootDirectory')" @click="emit('navigate', '/')">/</button>
+      <span v-if="ancestors.length" ref="ancestorsRef" class="path-ancestors" :class="{ collapsed: collapseAncestors }">
+        <template v-for="crumb in ancestors" :key="crumb.path">
+          <button type="button" class="path-crumb" :title="crumb.path" :disabled="locked" @click="emit('navigate', crumb.path)">{{ crumb.label }}</button>
+          <span aria-hidden="true">/</span>
+        </template>
+      </span>
+      <template v-if="collapseAncestors && ancestors.length">
+        <ToolbarDropdown class="path-overflow" :label="t('sftp.pathAncestors')" :items="ancestorItems" menu-class="path-ancestor-menu" icon-only @select="emit('navigate', $event)" />
+        <span aria-hidden="true">/</span>
+      </template>
+      <span ref="currentCrumbRef" class="path-current" aria-current="location">{{ currentCrumb }}</span>
+    </nav>
     <form v-else class="path-inline-form" @submit.prevent="onSubmit">
       <input
         ref="pathInputRef"
@@ -205,13 +238,8 @@ function onBlur() {
   min-width: 0;
   height: 28px;
   padding-right: 4px;
-  cursor: text;
   box-sizing: border-box;
   position: relative;
-}
-
-.path-field.focused {
-  cursor: default;
 }
 
 .path-display {
@@ -219,22 +247,54 @@ function onBlur() {
   min-width: 0;
   display: flex;
   align-items: center;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
   white-space: nowrap;
-  cursor: text;
-}
-
-.path-display::-webkit-scrollbar {
-  display: none;
-}
-
-.path-display-text {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-primary);
   line-height: 1.2;
+}
+
+.path-ancestors {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: max-content;
+}
+
+.path-ancestors.collapsed {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.path-crumb {
+  flex-shrink: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.path-crumb:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); }
+.path-crumb:disabled { cursor: default; }
+
+.path-current {
+  min-width: 0;
+  overflow: hidden;
+  padding: 3px;
+  text-overflow: ellipsis;
+}
+
+.path-display .path-overflow { position: static; }
+.path-overflow :deep(.dropdown-trigger) { width: 22px; height: 22px; }
+.path-overflow :deep(.path-ancestor-menu) {
+  width: min(300px, 100%);
+  min-width: 0;
+  max-height: 220px;
+  border-radius: var(--radius-lg);
 }
 
 .path-inline-form {

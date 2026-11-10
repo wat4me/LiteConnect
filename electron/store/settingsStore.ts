@@ -25,6 +25,7 @@ import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryP
 import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
 import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
 import { normalizeUiDensity } from '../../shared/uiDensity'
+import { TERMINAL_LABEL_MAX_LENGTH } from '../../shared/types/settings'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
   sanitizeTerminalPasteConfirmMaxChars,
@@ -54,6 +55,17 @@ function normalizeWorkspaceSessionIds(raw: unknown, count: number): string[] | u
     (id: unknown): id is string => typeof id === 'string' && isValidUUID(id),
   ))).slice(0, count)
   return ids.length === count ? ids : undefined
+}
+
+function normalizeWorkspaceSessionLabels(raw: unknown, ids?: string[]): Record<string, string> | undefined {
+  if (!ids || !raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const labels = raw as Record<string, unknown>
+  const entries = ids.flatMap((id) => {
+    const value = labels[id]
+    const label = typeof value === 'string' ? value.trim().slice(0, TERMINAL_LABEL_MAX_LENGTH) : ''
+    return label ? [[id, label]] : []
+  })
+  return entries.length ? Object.fromEntries(entries) : undefined
 }
 
 export class SettingsStore {
@@ -844,11 +856,13 @@ export class SettingsStore {
       .map((g: any) => {
         const sessionCount = Math.max(1, Math.min(8, Math.round(Number(g.sessionCount) || 1)))
         const sessionIds = normalizeWorkspaceSessionIds(g.sessionIds, sessionCount)
+        const sessionLabels = normalizeWorkspaceSessionLabels(g.sessionLabels, sessionIds)
         return {
           connectionId: String(g.connectionId),
           sessionCount,
           activeIndex: Math.max(0, Math.round(Number(g.activeIndex) || 0)),
           ...(sessionIds ? { sessionIds } : {}),
+          ...(sessionLabels ? { sessionLabels } : {}),
         }
       })
     if (groups.length === 0) return null
@@ -880,11 +894,13 @@ export class SettingsStore {
       groups: (state.groups || []).slice(0, 30).map((g) => {
         const sessionCount = Math.max(1, Math.min(8, Math.round(g.sessionCount || 1)))
         const sessionIds = normalizeWorkspaceSessionIds(g.sessionIds, sessionCount)
+        const sessionLabels = normalizeWorkspaceSessionLabels(g.sessionLabels, sessionIds)
         return {
           connectionId: g.connectionId,
           sessionCount,
           activeIndex: Math.max(0, Math.round(g.activeIndex || 0)),
           ...(sessionIds ? { sessionIds } : {}),
+          ...(sessionLabels ? { sessionLabels } : {}),
         }
       }),
     }

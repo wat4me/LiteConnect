@@ -9,6 +9,7 @@ const timeout = setTimeout(() => { console.error('Chat history UI timed out', { 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, width: 1100, height: 900, webPreferences: { contextIsolation: true, backgroundThrottling: false } })
   const run = script => window.webContents.executeJavaScript(script)
+  window.webContents.debugger.attach('1.3')
   const wait = async expression => {
     const start = Date.now()
     while (!await run(expression)) {
@@ -18,6 +19,7 @@ app.whenReady().then(async () => {
   }
   const rows = 'document.querySelectorAll(".ai-fixture .chat-row")'
   const list = 'document.querySelector(".ai-fixture .chat-list")'
+  const jump = 'document.querySelector(".ai-fixture .jump-latest")'
   const atBottom = `(() => {const el=${list};return el.scrollHeight-el.scrollTop-el.clientHeight<3})()`
   const frames = () => run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
@@ -29,12 +31,14 @@ app.whenReady().then(async () => {
   await frames()
   await run(`${list}.scrollTop=0;${list}.dispatchEvent(new Event('scroll'))`)
   await frames()
+  assert.equal(await run(`${jump}?.classList.contains('has-new-reply')`), false, 'Scrolling up keeps the plain jump button until new reply text arrives')
   assert.equal(await run(`${rows}.length`), 10, 'Scrolling up alone never mounts hidden history')
   await run(`window.__historyAnchor=${rows}[0];window.__historyAnchorTop=window.__historyAnchor.getBoundingClientRect().top;document.querySelector('.ai-fixture .chat-load-earlier button').click()`)
   await wait(`${rows}.length===20`)
   await frames()
   assert.ok(await run(`window.__historyAnchor.isConnected&&Math.abs(window.__historyAnchor.getBoundingClientRect().top-window.__historyAnchorTop)<2`), 'Prepending keeps the same content at the same visible position')
   await run(`window.__historyScroll=${list}.scrollTop;window.__uiRegression.appendAiTimelineReply()`)
+  await wait(`${jump}?.classList.contains('has-new-reply')`)
   await frames()
   assert.ok(await run(`Math.abs(${list}.scrollTop-window.__historyScroll)<2`), 'New output preserves manual history reading')
   await run(`document.querySelector('.ai-fixture .chat-load-earlier button').click()`)
@@ -43,9 +47,24 @@ app.whenReady().then(async () => {
   await wait(`${rows}.length===36 && !document.querySelector('.ai-fixture .chat-load-earlier')`)
   await run(`document.querySelector('.ai-fixture .jump-latest').click()`)
   await wait(`${rows}.length===10 && ${atBottom}`)
+  assert.equal(await run(`!!${jump}`), false, 'Returning to the bottom clears the new reply indicator')
   await run('window.__uiRegression.appendAiTimelineTurn()')
   await wait(`${rows}.length===10 && ${atBottom}`)
   assert.equal(await run(`${rows}[0].dataset.messageId`), 'timeline-user-14', 'Following latest evicts the oldest turn when a new one arrives')
+  const distanceFromBottom = distance => `${list}.scrollTop=${list}.scrollHeight-${list}.clientHeight-${distance};${list}.dispatchEvent(new Event('scroll'))`
+  await run(`document.querySelector('.ai-fixture').style.width='365px'`)
+  await frames()
+  await run(distanceFromBottom(160))
+  await wait(`!!${jump}`)
+  await run('window.__uiRegression.appendAiTimelineReply()')
+  await wait(`${jump}?.classList.contains('has-new-reply')`)
+  await run(distanceFromBottom(25))
+  await frames()
+  assert.ok(await run(`!!${jump} && !${atBottom}`), 'Approaching the bottom during a reply does not snap the viewport')
+  await run(distanceFromBottom(0))
+  await wait(`!${jump} && ${atBottom}`)
+  await run(`(async()=>{await Promise.all(Array.from({length:12},()=>window.__uiRegression.appendAiTimelineReply()));${list}.dispatchEvent(new Event('scroll'))})()`)
+  await wait(`!${jump} && ${atBottom}`)
   await run(`document.querySelector('.ai-fixture .chat-timeline').dispatchEvent(new MouseEvent('mouseenter'))`)
   await wait(`document.querySelectorAll('.ai-fixture .chat-timeline-item').length===19`)
   await run(`document.querySelectorAll('.ai-fixture .chat-timeline-item')[2].click()`)
@@ -57,6 +76,22 @@ app.whenReady().then(async () => {
   assert.equal(await run(`${rows}[0].dataset.messageId`), 'timeline-user-2', 'The bottom of an old page does not resume following the live tail')
   await run(`document.querySelector('.ai-fixture .jump-latest').click()`)
   await wait(`${rows}[0].dataset.messageId==='timeline-user-14' && ${atBottom}`)
+  await run(`Object.assign(document.querySelector('.ai-fixture').style, { position: 'fixed', top: '40px', left: '24px', width: '300px', height: '530px' })`)
+  await frames()
+  await run(distanceFromBottom(160))
+  await wait(`!!${jump}`)
+  await run('window.__uiRegression.appendAiTimelineReply()')
+  await wait(`${jump}?.classList.contains('has-new-reply')`)
+  await run(`document.querySelector('.ai-fixture .chat-timeline').dispatchEvent(new MouseEvent('mouseenter'))`)
+  await wait(`!!document.querySelector('.ai-fixture .chat-timeline.expanded')`)
+  const point = await run(`(() => {
+    const rect = ${jump}.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  assert.equal(await run(`document.elementFromPoint(${point.x}, ${point.y})?.closest('.jump-latest, .chat-timeline')?.classList[0]`), 'jump-latest', 'The jump button stays clickable over the expanded timeline')
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+  await wait(`!${jump} && ${atBottom}`)
   await run('window.__uiRegression.aiTimeline(3)')
   await wait(`${rows}.length===6 && !document.querySelector('.ai-fixture .chat-load-earlier')`)
   await run('window.__uiRegression.aiTimeline(0)')

@@ -340,6 +340,8 @@ export default {
     followLatestOn: '已开启：流式输出时自动滚到最新位置',
     followLatestOff: '已关闭：保持当前滚动位置',
     jumpToLatest: '回到底部',
+    newReplyBelow: '有新回复',
+    jumpToNewReply: '有新回复，回到底部',
     loadEarlierTurns: '加载更早对话',
     loadingEarlierTurns: '正在加载…',
     hiddenEarlierTurns: '还有 {count} 轮更早对话',

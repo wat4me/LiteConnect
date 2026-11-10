@@ -319,7 +319,7 @@ watch(
   margin: 0 0 0 0;
   padding: 0 4px 0 1px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--success);
   font: inherit;
@@ -355,7 +355,7 @@ watch(
   position: fixed;
   min-width: 108px;
   padding: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);

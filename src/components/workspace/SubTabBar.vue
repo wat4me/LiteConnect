@@ -6,13 +6,14 @@ import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import { resolveSplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import type { SplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
-import type { SplitDropPayload, SplitPreviewPayload } from '@/domain/session/types'
+import type { Session, SplitDropPayload, SplitPreviewPayload } from '@/domain/session/types'
 import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
+import { getTerminalLabel } from '@/utils/session/sessionDisplay'
 
 const { t } = useI18n()
 const { runningSessionIds: backgroundJobSessions } = useAiBackgroundJobs(() => null)
 
-type SessionItem = { id: string; tabNumber: number }
+type SessionItem = Pick<Session, 'id' | 'tabNumber' | 'label'>
 
 const SPLIT_TIP_KEY = 'LiteConnect.splitDragTipSeen'
 
@@ -36,6 +37,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', sessionId: string): void
   (e: 'close', sessionId: string): void
+  (e: 'terminal-menu', event: MouseEvent, sessionId: string): void
   (e: 'add', connectionId: string): void
   (e: 'select-docker'): void
   (e: 'close-docker'): void
@@ -57,10 +59,6 @@ const displayTabs = computed(() => buildCombinedTabItems(
 
 function hasSplitStatus(sessionIds: string[], source?: Set<string>) {
   return !!source && sessionIds.some((id) => source.has(id))
-}
-
-function splitSessionLabel(session: SessionItem) {
-  return t('terminal.tabLabel', { n: session.tabNumber })
 }
 
 function dismissSplitTip() {
@@ -149,9 +147,9 @@ function onTabClick(sessionId: string) {
             @click="emit('select-split')"
           >
             <AppIcon :name="splitMode === 'horizontal' ? 'split-h' : 'split-v'" size="xs" class="split-group-icon" />
-            <span class="sub-tab-label">{{ splitSessionLabel(item.primary) }}</span>
+            <span class="sub-tab-label" :title="getTerminalLabel(item.primary)" @contextmenu.prevent.stop="emit('terminal-menu', $event, item.primary.id)">{{ getTerminalLabel(item.primary) }}</span>
             <span class="split-group-divider">|</span>
-            <span class="sub-tab-label">{{ splitSessionLabel(item.secondary) }}</span>
+            <span class="sub-tab-label" :title="getTerminalLabel(item.secondary)" @contextmenu.prevent.stop="emit('terminal-menu', $event, item.secondary.id)">{{ getTerminalLabel(item.secondary) }}</span>
             <AppIcon v-if="hasSplitStatus([item.primary.id, item.secondary.id], backgroundJobSessions)" name="background-tasks" size="xs" :title="t('ai.backgroundRunningHint')" style="color: var(--accent); flex-shrink: 0" />
             <span
               v-if="hasSplitStatus([item.primary.id, item.secondary.id], disconnectedSessionIds)"
@@ -188,8 +186,9 @@ function onTabClick(sessionId: string) {
             :title="sessions.length >= 2 ? t('terminal.dragSplitTitle') : undefined"
             @mousedown="onTabDragStart($event, item.item.id)"
             @click="onTabClick(item.item.id)"
+            @contextmenu.prevent.stop="emit('terminal-menu', $event, item.item.id)"
           >
-            <span class="sub-tab-label">{{ t('terminal.tabLabel', { n: item.item.tabNumber }) }}</span>
+            <span class="sub-tab-label" :title="item.item.label">{{ getTerminalLabel(item.item) }}</span>
             <AppIcon v-if="backgroundJobSessions.has(item.item.id)" name="background-tasks" size="xs" :title="t('ai.backgroundRunningHint')" style="color: var(--accent); flex-shrink: 0" />
             <span
               v-if="disconnectedSessionIds?.has(item.item.id)"
@@ -346,6 +345,9 @@ function onTabClick(sessionId: string) {
 .sub-tab-label {
   font-weight: 500;
   min-width: 8px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
 }
 

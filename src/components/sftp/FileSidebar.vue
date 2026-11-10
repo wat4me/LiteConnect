@@ -797,6 +797,7 @@ defineExpose({ handleTerminalCd, clearSessionState })
           @submit="handlePathSubmit"
           @cancel="cancelPathInput"
           @blur-submit="handlePathSubmit"
+          @navigate="onTreeSelectDir"
           @toggle-bookmark="toggleCurrentPathBookmark"
           @add-bookmark="handleAddBookmark"
           @open-bookmark="handleOpenBookmark"

@@ -56,6 +56,7 @@ import { useWorkspacePanelPolicy } from '@/composables/workspace/useWorkspacePan
 import { workspacePanelEdge, type WorkspacePanel } from '@shared/workspaceLayout'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
+import { getTerminalLabel } from './utils/session/sessionDisplay'
 import { useSnippetHotkeys } from '@/composables/snippets/useSnippetHotkeys'
 import { useDockerSshBridge } from '@/composables/docker/useDockerSshBridge'
 import { useTransferToasts } from '@/composables/app/useTransferToasts'
@@ -137,6 +138,7 @@ const {
   onQuickConnect,
   onSelectSession,
   onCloseSession,
+  renameSession,
   onSessionClosed,
   removeSessionFromState,
   createSession,
@@ -270,7 +272,7 @@ watch(hasSplitGroup, (split, wasSplit) => {
     (session) => session.id === splitPrimarySessionId.value,
   )
   const terminal = boundSession
-    ? t('terminal.tabLabel', { n: boundSession.tabNumber })
+    ? getTerminalLabel(boundSession)
     : t('terminal.primaryTerminal')
   ElMessage.info({
     message: t('terminal.splitSftpFollowHint', { terminal }),
@@ -1020,6 +1022,7 @@ onBeforeUnmount(() => {
           @bind-file-sidebar="(el) => { fileSidebarRef.value = el }"
           @select-session="selectWorkspaceSession"
           @close-session="handleCloseSession"
+          @rename-session="renameSession"
           @add-session="createStandaloneSession"
           @session-closed="handleSessionClosed"
           @reconnect="handleReconnect"
