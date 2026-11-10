@@ -86,9 +86,12 @@ function toggleSection(key: keyof typeof expandedSections.value) {
   expandedSections.value[key] = !expandedSections.value[key]
 }
 
+const WARN_THRESHOLD = 70
+const DANGER_THRESHOLD = 90
+
 function barColor(percent: number): string {
-  if (percent >= 90) return 'var(--danger)'
-  if (percent >= 70) return 'var(--warning)'
+  if (percent >= DANGER_THRESHOLD) return 'var(--danger)'
+  if (percent >= WARN_THRESHOLD) return 'var(--warning)'
   return 'var(--success)'
 }
 
@@ -105,6 +108,15 @@ const swapPercent = computed(() => {
   if (!data.value || !data.value.memory.swapTotal) return 0
   return usagePercent(data.value.memory.swapUsed, data.value.memory.swapTotal)
 })
+const diskMaxPercent = computed(() => {
+  if (!data.value || data.value.disk.length === 0) return -1
+  return Math.max(...data.value.disk.map((d) => usagePercent(d.used, d.total)))
+})
+const overview = computed(() => [
+  { key: 'cpu', label: 'CPU', percent: cpuPercent.value },
+  { key: 'memory', label: t('monitor.memory'), percent: memPercent.value },
+  { key: 'disk', label: t('monitor.disk'), percent: diskMaxPercent.value },
+])
 
 onMounted(() => {
   void window.LiteConnect.getAppInfo()
@@ -166,6 +178,22 @@ watch(
     </div>
 
     <template v-else>
+      <div class="monitor-overview">
+        <div v-for="item in overview" :key="item.key" class="overview-card">
+          <span class="overview-label">{{ item.label }}</span>
+          <span class="overview-value" :style="{ color: item.percent >= 0 ? barColor(item.percent) : 'var(--text-secondary)' }">
+            {{ item.percent >= 0 ? item.percent + '%' : '--' }}
+          </span>
+          <div class="overview-bar">
+            <div class="overview-bar-fill" :style="{ width: Math.max(0, item.percent) + '%', backgroundColor: item.percent >= 0 ? barColor(item.percent) : 'var(--border-color)' }"></div>
+          </div>
+        </div>
+      </div>
+      <div class="monitor-legend" :title="t('monitor.thresholdHint')" :aria-label="t('monitor.thresholdHint')">
+        <span class="legend-item"><i class="legend-dot ok"></i>{{ t('monitor.thresholdNormal') }}</span>
+        <span class="legend-item"><i class="legend-dot warning"></i>{{ t('monitor.thresholdWarning') }}</span>
+        <span class="legend-item"><i class="legend-dot danger"></i>{{ t('monitor.thresholdDanger') }}</span>
+      </div>
       <div class="monitor-section" v-if="expandedSections.system">
         <div class="section-header" @click="toggleSection('system')">
           <span class="section-title">{{ t('monitor.systemInfo') }}</span>
@@ -363,6 +391,7 @@ watch(
 
 <style scoped>
 .monitor-panel {
+  --progress-tick: color-mix(in srgb, var(--text-primary) 55%, transparent);
   font-size: 12px;
   display: flex;
   flex-direction: column;
@@ -372,6 +401,66 @@ watch(
   overflow-x: hidden;
   padding: 10px;
 }
+
+.monitor-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+
+.overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.overview-label {
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+}
+
+.overview-value {
+  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.overview-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease, background-color 0.5s ease;
+}
+
+.monitor-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+}
+
+.legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.legend-dot.ok { background: var(--success); }
+.legend-dot.warning { background: var(--warning); }
+.legend-dot.danger { background: var(--danger); }
 
 .monitor-header {
   display: flex;
@@ -542,12 +631,24 @@ watch(
 }
 
 .progress-bar {
+  position: relative;
   width: 100%;
   height: 6px;
   background: var(--bg-tertiary);
   border-radius: 3px;
   overflow: hidden;
   margin: 2px 0;
+}
+
+/* Ticks explain why a bar turns amber (70%) or red (90%). */
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, transparent calc(70% - 1px), var(--progress-tick) calc(70% - 1px), var(--progress-tick) 70%, transparent 70%),
+    linear-gradient(to right, transparent calc(90% - 1px), var(--progress-tick) calc(90% - 1px), var(--progress-tick) 90%, transparent 90%);
 }
 
 .progress-fill {

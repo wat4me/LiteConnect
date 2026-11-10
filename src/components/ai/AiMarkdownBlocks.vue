@@ -45,5 +45,14 @@ const { parseMarkdown } = useMarkdownRenderer()
 .markdown-block :deep(.md-table td) { border: 1px solid var(--border-color); padding: 4px 8px; text-align: left; vertical-align: top; }
 .markdown-block :deep(.md-table th) { background: var(--bg-tertiary); font-weight: 600; }
 .markdown-block :deep(.md-table tr:nth-child(even) td) { background: color-mix(in srgb, var(--bg-tertiary) 35%, transparent); }
+.markdown-block :deep(.md-table td.md-status) { white-space: nowrap; }
+.markdown-block :deep(.md-table td.md-row-alert) { border-left: 2px solid var(--danger); }
+.markdown-block :deep(.md-status-chip) { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border: 1px solid transparent; border-radius: 999px; font-size: var(--font-caption); font-weight: 600; line-height: 1.5; }
+.markdown-block :deep(.md-status-chip::before) { content: ''; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+.markdown-block :deep(.md-status-ok) { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); border-color: color-mix(in srgb, var(--success) 28%, transparent); }
+.markdown-block :deep(.md-status-warning) { color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, transparent); border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
+.markdown-block :deep(.md-status-danger) { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: color-mix(in srgb, var(--danger) 28%, transparent); }
+.markdown-block :deep(.md-status-muted) { color: var(--text-secondary); background: var(--bg-tertiary); border-color: var(--border-color); }
+.markdown-block :deep(p.md-conclusion) { margin: 8px 0 4px; padding: 8px 10px; border-left: 3px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-bg); line-height: var(--line-reading); }
 .markdown-code-block { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-secondary); padding: 8px; border-radius: 5px; font-size: 12px; margin: 0; }
 </style>

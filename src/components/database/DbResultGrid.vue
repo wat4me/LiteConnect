@@ -50,6 +50,25 @@ const visibleRows = computed(() => props.rows.slice(start.value, end.value))
 const tableStyle = computed(() => virtual.value && columnWidths.value.length ? {
   tableLayout: 'fixed' as const, width: columnWidths.value.reduce((sum, width) => sum + width, 0) + 'px',
 } : undefined)
+
+/** Sample values so numeric columns can right-align without driver type metadata. */
+const numericColumns = computed(() => {
+  const numeric = new Set<string>()
+  const numericValue = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?$/
+  for (const col of props.columns) {
+    let seen = 0
+    let allNumeric = true
+    for (const row of props.rows.slice(0, 20)) {
+      const value = row[col]
+      if (value === null || value === undefined || value === '') continue
+      seen++
+      if (!numericValue.test(String(value))) { allNumeric = false; break }
+    }
+    if (seen > 0 && allNumeric) numeric.add(col)
+  }
+  return numeric
+})
+
 let observer: ResizeObserver | null = null
 let observedRow: HTMLElement | null = null
 let frame = 0
@@ -141,7 +160,7 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
             v-for="col in columns"
             :key="col"
             class="sortable"
-            :class="{ sorted: sort?.col === col }"
+            :class="{ sorted: sort?.col === col, numeric: numericColumns.has(col) }"
             @click="onHeaderClick(col)"
           >
             {{ col }}{{ sortIndicator(sort, col) }}
@@ -159,6 +178,7 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
               'cell-copyable': copyable,
               nul: isNullCell(row, col),
               blob: isBlobPlaceholder(cellValue(row, col)),
+              numeric: numericColumns.has(col),
             }"
             :title="formatCell(cellValue(row, col)) + (copyable ? t('database.grid.dblClickCopy') : '')"
             @dblclick="onCellDblClick(row, col)"
@@ -215,6 +235,17 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
   font-family: inherit;
   user-select: none;
   letter-spacing: 0.01em;
+}
+
+.sheet th.numeric,
+.sheet td.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  width: 1%;
+}
+
+.sheet tbody tr:nth-child(even):not(.grid-spacer) {
+  background: color-mix(in srgb, var(--bg-tertiary) 38%, transparent);
 }
 
 .sheet .rn {

@@ -207,3 +207,36 @@ describe('parseMarkdown code fences', () => {
     expect(blocks.some((b) => b.type === 'html' && b.content.includes('先确认入口'))).toBe(true)
   })
 })
+
+describe('status and conclusion emphasis', () => {
+  it('marks whole-cell status words in model-generated summary tables', () => {
+    const html = parseMarkdown([
+      '| 服务器 | 状态 | 关键证据 |',
+      '| --- | --- | --- |',
+      '| edge-01 | **正常** | 日志无 502 |',
+      '| api-01 | 异常（3 项） | 未监听 8080 |',
+      '| db-01 | 需复核 | 发现异常日志 |',
+    ].join('\n'))[0].content
+    expect(html).toContain('md-status-chip md-status-ok')
+    expect(html).toContain('md-status-chip md-status-danger')
+    expect(html).toContain('md-status-chip md-status-warning')
+    expect(html).toContain('md-row-alert')
+  })
+
+  it('does not color prose that merely contains a status word', () => {
+    const html = parseMarkdown([
+      '| 主机 | 关键证据 |',
+      '| --- | --- |',
+      '| api-01 | 发现异常日志 3 条 |',
+    ].join('\n'))[0].content
+    expect(html).not.toContain('md-status-chip')
+  })
+
+  it('separates conclusion paragraphs from body text', () => {
+    const blocks = parseMarkdown('检查完成。\n\n结论：网关无法连接 api-01:8080。\n\n优先处理 api-01 的监听异常。')
+    expect(blocks.some((b) => b.content.includes('<p>检查完成。</p>'))).toBe(true)
+    expect(blocks.some((b) => b.content.startsWith('<p class="md-conclusion">结论：'))).toBe(true)
+    expect(blocks.some((b) => b.content.startsWith('<p class="md-conclusion">优先处理'))).toBe(true)
+    expect(parseMarkdown('Conclusion')[0].content).toBe('<p>Conclusion</p>')
+  })
+})

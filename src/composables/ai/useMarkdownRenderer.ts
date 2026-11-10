@@ -86,6 +86,34 @@ function splitTableRow(line: string): string[] {
   return row.split('|').map((c) => c.trim())
 }
 
+/** Whole-cell status words in model-generated summary tables. */
+const STATUS_CELLS: Record<string, string> = {
+  异常: 'danger', 失败: 'danger', 错误: 'danger', 不可用: 'danger', 离线: 'danger', 故障: 'danger', 严重: 'danger', 中断: 'danger',
+  failed: 'danger', error: 'danger', critical: 'danger', offline: 'danger', down: 'danger',
+  需复核: 'warning', 警告: 'warning', 告警: 'warning', 待确认: 'warning', 超时: 'warning', 降级: 'warning', 部分异常: 'warning',
+  warning: 'warning', degraded: 'warning', timeout: 'warning', review: 'warning',
+  正常: 'ok', 成功: 'ok', 健康: 'ok', 通过: 'ok', 在线: 'ok', 已恢复: 'ok', 无异常: 'ok',
+  ok: 'ok', healthy: 'ok', normal: 'ok', success: 'ok', online: 'ok',
+  未知: 'muted', 未检查: 'muted', 跳过: 'muted', unknown: 'muted', skipped: 'muted',
+}
+
+function statusClass(raw: string): string | null {
+  // Require a whole-cell match so prose like "发现异常日志" is never colored.
+  const text = raw
+    .replace(/[*`~_]/g, '')
+    .trim()
+    .replace(/[（(【[].*?[)）】\]]\s*$/, '')
+    .trim()
+    .toLowerCase()
+  return STATUS_CELLS[text] ?? null
+}
+
+/** Conclusion paragraphs get their own visual block instead of blending into body text. */
+const CONCLUSION_LEAD = /^(结论|总结|综上|优先处理|处理优先级|下一步|处置建议)[：:、,，\s]/
+function isConclusionParagraph(text: string): boolean {
+  return CONCLUSION_LEAD.test(text.trim().replace(/^\*+/, ''))
+}
+
 type FenceOpen = { char: '`' | '~'; length: number; info: string }
 
 /**
@@ -179,7 +207,8 @@ export function useMarkdownRenderer() {
 
     const flushParagraph = () => {
       if (paragraph.length === 0) return
-      blocks.push({ type: 'html', content: `<p>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>` })
+      const cls = isConclusionParagraph(paragraph[0]) ? ' class="md-conclusion"' : ''
+      blocks.push({ type: 'html', content: `<p${cls}>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>` })
       paragraph = []
     }
 
@@ -243,7 +272,22 @@ export function useMarkdownRenderer() {
       const headHtml = header.map((c) => `<th>${renderInlineMarkdown(c)}</th>`).join('')
       const bodyHtml = rows
         .map((row) => {
-          const cells = header.map((_, idx) => `<td>${renderInlineMarkdown(row[idx] ?? '')}</td>`).join('')
+          const statuses = header.map((_, idx) => statusClass(row[idx] ?? ''))
+          const alert = statuses.includes('danger')
+          const cells = header
+            .map((_, idx) => {
+              const raw = row[idx] ?? ''
+              const status = statuses[idx]
+              const content = status
+                ? `<span class="md-status-chip md-status-${status}">${renderInlineMarkdown(raw)}</span>`
+                : renderInlineMarkdown(raw)
+              const classes: string[] = []
+              if (status) classes.push('md-status')
+              if (idx === 0 && alert) classes.push('md-row-alert')
+              const cls = classes.length ? ` class="${classes.join(' ')}"` : ''
+              return `<td${cls}>${content}</td>`
+            })
+            .join('')
           return `<tr>${cells}</tr>`
         })
         .join('')
