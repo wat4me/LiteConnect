@@ -277,10 +277,8 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
   min-height: 0;
   position: relative;
   overflow: hidden;
-  margin: 2px;
+  margin: 0;
   background: var(--bg-secondary);
-  border: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent);
-  border-radius: 10px;
   box-sizing: border-box;
 }
 .workspace-dock-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
