@@ -112,11 +112,6 @@ const diskMaxPercent = computed(() => {
   if (!data.value || data.value.disk.length === 0) return -1
   return Math.max(...data.value.disk.map((d) => usagePercent(d.used, d.total)))
 })
-const overview = computed(() => [
-  { key: 'cpu', label: 'CPU', percent: cpuPercent.value },
-  { key: 'memory', label: t('monitor.memory'), percent: memPercent.value },
-  { key: 'disk', label: t('monitor.disk'), percent: diskMaxPercent.value },
-])
 
 onMounted(() => {
   void window.LiteConnect.getAppInfo()
@@ -145,6 +140,9 @@ watch(
       <span class="monitor-title">{{ t('monitor.title') }}</span>
       <span class="monitor-name">{{ connectionName }}</span>
       <div class="monitor-header-actions">
+        <span class="threshold-dots" :title="t('monitor.thresholdHint')" :aria-label="t('monitor.thresholdHint')">
+          <i class="legend-dot ok"></i><i class="legend-dot warning"></i><i class="legend-dot danger"></i>
+        </span>
         <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="openAlertSettings">{{ t('monitor.alertSettings') }}<span v-if="alertRule.enabled"> · {{ t('monitor.alertStatusOn') }}</span></button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" :title="t('common.close')" :aria-label="t('monitor.closeAria')" @click="emit('close')">
           <AppIcon name="close" size="sm" />
@@ -178,22 +176,6 @@ watch(
     </div>
 
     <template v-else>
-      <div class="monitor-overview">
-        <div v-for="item in overview" :key="item.key" class="overview-card">
-          <span class="overview-label">{{ item.label }}</span>
-          <span class="overview-value" :style="{ color: item.percent >= 0 ? barColor(item.percent) : 'var(--text-secondary)' }">
-            {{ item.percent >= 0 ? item.percent + '%' : '--' }}
-          </span>
-          <div class="overview-bar">
-            <div class="overview-bar-fill" :style="{ width: Math.max(0, item.percent) + '%', backgroundColor: item.percent >= 0 ? barColor(item.percent) : 'var(--border-color)' }"></div>
-          </div>
-        </div>
-      </div>
-      <div class="monitor-legend" :title="t('monitor.thresholdHint')" :aria-label="t('monitor.thresholdHint')">
-        <span class="legend-item"><i class="legend-dot ok"></i>{{ t('monitor.thresholdNormal') }}</span>
-        <span class="legend-item"><i class="legend-dot warning"></i>{{ t('monitor.thresholdWarning') }}</span>
-        <span class="legend-item"><i class="legend-dot danger"></i>{{ t('monitor.thresholdDanger') }}</span>
-      </div>
       <div class="monitor-section" v-if="expandedSections.system">
         <div class="section-header" @click="toggleSection('system')">
           <span class="section-title">{{ t('monitor.systemInfo') }}</span>
@@ -284,6 +266,7 @@ watch(
       <div class="monitor-section" v-if="expandedSections.disk">
         <div class="section-header" @click="toggleSection('disk')">
           <span class="section-title">{{ t('monitor.disk') }}</span>
+          <span class="section-value" :style="{ color: diskMaxPercent >= 0 ? barColor(diskMaxPercent) : 'var(--text-secondary)' }">{{ diskMaxPercent >= 0 ? diskMaxPercent + '%' : '--' }}</span>
           <AppIcon name="chevron-down" size="xs" class="section-toggle" />
         </div>
         <div class="section-body">
@@ -301,6 +284,7 @@ watch(
       </div>
       <div v-else class="section-header collapsed" @click="toggleSection('disk')">
         <span class="section-title">{{ t('monitor.disk') }}</span>
+        <span class="section-value" :style="{ color: diskMaxPercent >= 0 ? barColor(diskMaxPercent) : 'var(--text-secondary)' }">{{ diskMaxPercent >= 0 ? diskMaxPercent + '%' : '--' }}</span>
         <AppIcon name="chevron-right" size="xs" class="section-toggle" />
       </div>
 
@@ -393,6 +377,7 @@ watch(
 .monitor-panel {
   --progress-tick: color-mix(in srgb, var(--text-primary) 55%, transparent);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -402,62 +387,8 @@ watch(
   padding: 10px;
 }
 
-.monitor-overview {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin: 2px 0 6px;
-}
-
-.overview-card {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-}
-
-.overview-label {
-  color: var(--text-secondary);
-  font-size: var(--font-caption);
-}
-
-.overview-value {
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-
-.overview-bar {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--bg-tertiary);
-  overflow: hidden;
-}
-
-.overview-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.5s ease, background-color 0.5s ease;
-}
-
-.monitor-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding: 0 2px 4px;
-  color: var(--text-secondary);
-  font-size: var(--font-caption);
-}
-
-.legend-item { display: inline-flex; align-items: center; gap: 4px; }
-.legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.threshold-dots { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; cursor: help; }
+.legend-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 .legend-dot.ok { background: var(--success); }
 .legend-dot.warning { background: var(--warning); }
 .legend-dot.danger { background: var(--danger); }
@@ -581,8 +512,10 @@ watch(
 .section-value {
   margin-left: auto;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 11px;
+  font-size: 14px;
+  line-height: 1;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .section-toggle {
