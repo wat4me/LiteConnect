@@ -277,9 +277,9 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
   min-height: 0;
   position: relative;
   overflow: hidden;
-  margin: 4px;
+  margin: 2px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent);
   border-radius: 10px;
   box-sizing: border-box;
 }
@@ -292,22 +292,8 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 .workspace-dock-resize { position: absolute; z-index: 6; top: 0; bottom: 0; width: 5px; cursor: col-resize; touch-action: none; }
 .resize-left { right: 0; }
 .resize-right { left: 0; }
-.workspace-dock-resize::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 2px;
-  height: 18px;
-  transform: translate(-50%, -50%);
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--text-secondary) 55%, transparent);
-  pointer-events: none;
-}
 .workspace-dock-resize:hover:not([aria-disabled=true]), .workspace-dock-resize:focus-visible { background: var(--accent); }
-.workspace-dock-resize:hover:not([aria-disabled=true])::after { background: var(--bg-primary); }
 .workspace-dock-resize[aria-disabled=true] { cursor: default; }
-.workspace-dock-resize[aria-disabled=true]::after { opacity: .35; }
 .dock-layout-button { margin-top: auto; margin-bottom: 8px; flex-shrink: 0; }
 .dock-backdrop { position: absolute; inset: 0; z-index: 2; background: #0003; }
 .is-single-panel .workspace-dock-region { z-index: 3; box-shadow: 0 6px 24px #0004; }
