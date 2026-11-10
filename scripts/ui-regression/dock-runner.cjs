@@ -163,6 +163,32 @@ app.whenReady().then(async () => {
   assert.deepEqual(await run('({ai:window.__dock.snapshot().panels.ai,files:window.__dock.snapshot().panels.files})'), { ai: true, files: true })
   assert.ok(await run(`(() => {const right=document.querySelector('.dock-right');return !right.innerText.includes('批量执行') && !right.innerText.includes('命令片段') && !right.querySelector('[role=tablist]')})()`), 'Opening AI does not advertise unopened batch/snippet tools')
   assert.ok(await run(`['left','right'].every(edge=>{const region=document.querySelector('.dock-'+edge),body=region.querySelector('.workspace-dock-body');return Math.abs(body.getBoundingClientRect().top-region.getBoundingClientRect().top)<=2})`), 'Original panel content starts directly at its dock boundary')
+  stage = 'fused panels keep one hairline divider'
+  const fused = await run(`(() => {
+    const panels = [...document.querySelectorAll('.workspace-dock-region')].filter(region => region.checkVisibility())
+    return { count: panels.length, ok: panels.every(region => {
+      const s = getComputedStyle(region)
+      const towardTerminal = region.classList.contains('dock-left') ? s.borderRightWidth : s.borderLeftWidth
+      const outerEdge = region.classList.contains('dock-left') ? s.borderLeftWidth : s.borderRightWidth
+      return parseFloat(s.marginLeft) === 0 && parseFloat(s.marginRight) === 0
+        && parseFloat(s.borderTopLeftRadius) === 0 && parseFloat(s.borderBottomRightRadius) === 0
+        && towardTerminal === '1px' && outerEdge === '0px'
+        && s.borderTopWidth === '0px' && s.borderBottomWidth === '0px'
+    }) }
+  })()`)
+  assert.ok(fused.count === 2 && fused.ok, `Docked panels stay edge-to-edge with one hairline toward the terminal: ${JSON.stringify(fused)}`)
+  const hotspot = await run(`(() => {const r=document.querySelector('.dock-left .workspace-dock-resize').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`)
+  assert.ok(await run(`document.elementFromPoint(${hotspot.x},${hotspot.y})?.classList.contains('workspace-dock-resize')`), 'Resize hotspot stays hit-testable')
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...hotspot })
+  await tick()
+  const hotspotBg = await run(`getComputedStyle(document.querySelector('.dock-left .workspace-dock-resize')).backgroundColor`)
+  assert.ok(hotspotBg === 'rgba(0, 0, 0, 0)' || hotspotBg === 'transparent', `Resize hotspot must not paint a solid band: ${hotspotBg}`)
+  const divider = await run(`(() => {
+    const region = document.querySelector('.dock-left')
+    return { current: getComputedStyle(region).getPropertyValue('--dock-divider').trim(), accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() }
+  })()`)
+  assert.equal(divider.current, divider.accent, 'Hover feedback lands on the hairline instead of the hotspot')
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 8, y: 8 })
   await run('window.__savedFilePane=document.querySelector(".file-sidebar")')
   await screenshot('dock-files-ai.png')
   stage = 'terminal labels and direct path breadcrumbs'

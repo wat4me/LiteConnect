@@ -280,7 +280,16 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
   margin: 0;
   background: var(--bg-secondary);
   box-sizing: border-box;
+  --dock-divider: var(--border-color);
 }
+/* 融合式分区：只在朝向终端的一侧留 1px 贴边线，不做四边闭合的卡片轮廓 */
+.workspace-dock-region.dock-left { border-right: 1px solid var(--dock-divider); }
+.workspace-dock-region.dock-right { border-left: 1px solid var(--dock-divider); }
+.workspace-dock-region:has(.workspace-dock-resize:hover:not([aria-disabled=true])),
+.workspace-dock-region:has(.workspace-dock-resize:focus-visible) { --dock-divider: var(--accent); }
+/* 内容滚动条平时压淡，避免 6px 灰条被读成中间分割线；悬停滚动时恢复 */
+.workspace-dock-canvas :deep(*::-webkit-scrollbar-thumb) { background: color-mix(in srgb, var(--scrollbar-thumb) 35%, transparent); }
+.workspace-dock-canvas :deep(*::-webkit-scrollbar-thumb:hover) { background: var(--scrollbar-thumb); }
 .workspace-dock-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .workspace-dock-body, .workspace-dock-tool { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-dock-tool > :deep(*) { min-width: 0; max-width: none; width: 100%; min-height: 0; box-sizing: border-box; }
@@ -290,7 +299,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 .workspace-dock-resize { position: absolute; z-index: 6; top: 0; bottom: 0; width: 5px; cursor: col-resize; touch-action: none; }
 .resize-left { right: 0; }
 .resize-right { left: 0; }
-.workspace-dock-resize:hover:not([aria-disabled=true]), .workspace-dock-resize:focus-visible { background: var(--accent); }
+/* 拖拽反馈落在贴边线本身（见 --dock-divider），不再给 5px 热区铺整条实心色带 */
 .workspace-dock-resize[aria-disabled=true] { cursor: default; }
 .dock-layout-button { margin-top: auto; margin-bottom: 8px; flex-shrink: 0; }
 .dock-backdrop { position: absolute; inset: 0; z-index: 2; background: #0003; }
