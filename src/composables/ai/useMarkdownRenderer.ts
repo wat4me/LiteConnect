@@ -11,6 +11,13 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+const ESCAPED_CHARS: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }
+
+/** Inverse of escapeHtml. One pass, so `&amp;lt;` decodes to `&lt;` rather than `<`. */
+function unescapeHtml(value: string): string {
+  return value.replace(/&(amp|lt|gt|quot|#39);/g, (_, name: string) => ESCAPED_CHARS[name])
+}
+
 function sanitizeExternalUrl(value: string): string | null {
   try {
     const parsed = new URL(value)
@@ -41,25 +48,27 @@ function renderInlineMarkdown(value: string): string {
   // Strikethrough
   rendered = rendered.replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
   // Remote images stay links. The app does not load model-provided image URLs.
+  // `rendered` is already escaped: decode a captured URL before parsing it, then escape the result once.
   rendered = rendered.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt: string, url: string) => {
-    const safeUrl = sanitizeExternalUrl(url)
+    const safeUrl = sanitizeExternalUrl(unescapeHtml(url))
     if (!safeUrl) return match
-    const label = escapeHtml(alt.trim() || safeUrl)
+    const label = alt.trim() || escapeHtml(safeUrl)
     const index = linkFragments.push(`<a class="md-image-link" href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`) - 1
     return `\x00L${index}\x01`
   })
   // Links
   rendered = rendered.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label: string, url: string) => {
-    const safeUrl = sanitizeExternalUrl(url)
+    const safeUrl = sanitizeExternalUrl(unescapeHtml(url))
     if (!safeUrl) return match
     const index = linkFragments.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer noopener">${label}</a>`) - 1
     return `\x00L${index}\x01`
   })
   // Stop before ASCII `)` and CJK punctuation so `（… https://x.com）` keeps the closing `）`.
+  // Quotes and angle brackets are entities by now; the lookahead ends the URL at them too.
   rendered = rendered.replace(
-    /(?<![="'])https?:\/\/[^\s<>"')（）【】《》「」『』。，、；：！？]+/g,
+    /(?<![="'])https?:\/\/(?:(?!&(?:lt|gt|quot|#39);)[^\s<>"')（）【】《》「」『』。，、；：！？])+/g,
     (url: string) => {
-      const safeUrl = sanitizeExternalUrl(url)
+      const safeUrl = sanitizeExternalUrl(unescapeHtml(url))
       if (!safeUrl) return url
       const escapedUrl = escapeHtml(safeUrl)
       return `<a href="${escapedUrl}" target="_blank" rel="noreferrer noopener">${escapedUrl}</a>`

@@ -208,6 +208,38 @@ describe('parseMarkdown code fences', () => {
   })
 })
 
+describe('link URLs', () => {
+  const link = (href: string, label = href) => `<a href="${href}" target="_blank" rel="noreferrer noopener">${label}</a>`
+
+  it('escapes & exactly once in bare, labelled and image links', () => {
+    expect(parseMarkdown('见 https://example.com/s?q=a&page=2')[0].content)
+      .toBe(`<p>见 ${link('https://example.com/s?q=a&amp;page=2')}</p>`)
+    expect(parseMarkdown('[面板](https://example.com/d/abc?orgId=1&from=now-6h&to=now)')[0].content)
+      .toBe(`<p>${link('https://example.com/d/abc?orgId=1&amp;from=now-6h&amp;to=now', '面板')}</p>`)
+    expect(parseMarkdown('![](https://example.com/i.png?w=1&h=2)')[0].content)
+      .toBe('<p><a class="md-image-link" href="https://example.com/i.png?w=1&amp;h=2" target="_blank" rel="noreferrer noopener">https://example.com/i.png?w=1&amp;h=2</a></p>')
+  })
+
+  it('escapes image alt text exactly once', () => {
+    expect(parseMarkdown('![CPU & 内存 <1m>](https://example.com/a.png)')[0].content)
+      .toContain('>CPU &amp; 内存 &lt;1m&gt;</a>')
+  })
+
+  it('ends a bare URL at surrounding quotes and angle brackets', () => {
+    expect(parseMarkdown('访问 "http://10.0.0.5:8080/actuator/health" 确认')[0].content)
+      .toBe(`<p>访问 &quot;${link('http://10.0.0.5:8080/actuator/health')}&quot; 确认</p>`)
+    expect(parseMarkdown("访问 'https://example.com/x' 确认")[0].content)
+      .toBe(`<p>访问 &#39;${link('https://example.com/x')}&#39; 确认</p>`)
+    expect(parseMarkdown('<https://example.com/x>')[0].content)
+      .toBe(`<p>&lt;${link('https://example.com/x')}&gt;</p>`)
+  })
+
+  it('keeps a decoded URL from adding markup', () => {
+    expect(parseMarkdown('[x](https://example.com/?q="><img)')[0].content)
+      .toBe(`<p>${link('https://example.com/?q=%22%3E%3Cimg', 'x')}</p>`)
+  })
+})
+
 describe('status and conclusion emphasis', () => {
   it('marks whole-cell status words in model-generated summary tables', () => {
     const html = parseMarkdown([
