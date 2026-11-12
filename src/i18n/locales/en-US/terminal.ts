@@ -1,5 +1,7 @@
 export default {
   terminal: {
+    scrollTabsLeft: 'Scroll to earlier connections',
+    scrollTabsRight: 'Scroll to later connections',
     syncTitle: 'Sync input',
     syncHint: 'Select at least two writable terminals. Characters, Enter, shortcuts, and paste from a selected terminal are sent to all of them.',
     syncActive: 'Syncing to {count} terminals',

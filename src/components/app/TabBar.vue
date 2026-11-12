@@ -10,6 +10,7 @@ import type { SplitDropPayload, SplitPreviewPayload } from '@/domain/session/typ
 import { resolveSplitDropTarget, type SplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
 import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
+import { tabOverflow, tabScrollDelta } from '@/utils/shared/tabScroll'
 
 const { t } = useI18n()
 const { runningSessionIds: backgroundJobSessions } = useAiBackgroundJobs(() => null)
@@ -287,8 +288,58 @@ async function updateQuickConnectDropdownPosition() {
   }
 }
 
+const tabsScrollRef = ref<HTMLElement | null>(null)
+const canScrollTabsLeft = ref(false)
+const canScrollTabsRight = ref(false)
+let tabsObserver: ResizeObserver | undefined
+
+function updateTabOverflow() {
+  const strip = tabsScrollRef.value
+  if (!strip) return
+  const overflow = tabOverflow(strip)
+  canScrollTabsLeft.value = overflow.left
+  canScrollTabsRight.value = overflow.right
+}
+
+/** Keep the active host visible when new connections push it out of the strip. */
+function revealActiveTab() {
+  const strip = tabsScrollRef.value
+  const active = strip?.querySelector<HTMLElement>('[data-active-tab="true"]')
+  if (!strip || !active) { updateTabOverflow(); return }
+  const delta = tabScrollDelta(strip.getBoundingClientRect(), active.getBoundingClientRect())
+  if (delta) strip.scrollLeft += delta
+  updateTabOverflow()
+}
+
+function scrollTabs(direction: -1 | 1) {
+  const strip = tabsScrollRef.value
+  if (!strip) return
+  strip.scrollLeft += direction * Math.max(120, Math.floor(strip.clientWidth * 0.8))
+  updateTabOverflow()
+}
+
+function onTabsWheel(event: WheelEvent) {
+  const strip = tabsScrollRef.value
+  if (!strip || strip.scrollWidth <= strip.clientWidth + 1) return
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+  if (!delta) return
+  event.preventDefault()
+  strip.scrollLeft += delta
+  updateTabOverflow()
+}
+
+watch(
+  () => [props.activeGroupId, props.homeActive, props.splitGroupActive, props.splitMode, props.groups.length],
+  async () => {
+    await nextTick()
+    revealActiveTab()
+  },
+  { immediate: true, flush: 'post' },
+)
+
 function handleViewportChange() {
   void updateQuickConnectDropdownPosition()
+  revealActiveTab()
 }
 
 function toggleQuickConnect() {
@@ -329,10 +380,18 @@ watch(
 
 onMounted(() => {
   window.addEventListener('resize', handleViewportChange)
+  const strip = tabsScrollRef.value
+  if (strip) {
+    tabsObserver = new ResizeObserver(() => revealActiveTab())
+    tabsObserver.observe(strip)
+  }
+  void nextTick(revealActiveTab)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleViewportChange)
+  tabsObserver?.disconnect()
+  tabsObserver = undefined
 })
 </script>
 
@@ -358,7 +417,19 @@ onBeforeUnmount(() => {
       </el-tooltip>
     </div>
 
-    <div class="tabs-scroll">
+    <div class="tabs-wrap">
+      <button
+        v-if="canScrollTabsLeft"
+        type="button"
+        class="tabs-overflow-btn"
+        data-tabs-scroll="left"
+        :title="t('terminal.scrollTabsLeft')"
+        :aria-label="t('terminal.scrollTabsLeft')"
+        @click="scrollTabs(-1)"
+      >
+        <AppIcon name="chevron-left" size="xs" />
+      </button>
+      <div ref="tabsScrollRef" class="tabs-scroll" @scroll="updateTabOverflow" @wheel="onTabsWheel">
       <template
         v-for="item in displayHostTabs"
         :key="item.kind === 'split'
@@ -369,6 +440,7 @@ onBeforeUnmount(() => {
           v-if="item.kind === 'split'"
           class="tab host-split-tab"
           :class="{ active: !homeActive && splitGroupActive }"
+          :data-active-tab="!homeActive && splitGroupActive"
           :title="t('terminal.restoreSplit')"
           @click="emit('select-split')"
         >
@@ -402,6 +474,7 @@ onBeforeUnmount(() => {
         <div
           v-else
           class="tab"
+          :data-active-tab="!homeActive && item.item.connectionId === activeGroupId"
           :class="{
             active: !homeActive && item.item.connectionId === activeGroupId,
             dragging: draggedConnectionId === item.item.connectionId,
@@ -443,6 +516,18 @@ onBeforeUnmount(() => {
       </template>
 
       <!-- 有会话时：+ 跟在标签后，表示「再开一个连接」 -->
+      </div>
+      <button
+        v-if="canScrollTabsRight"
+        type="button"
+        class="tabs-overflow-btn"
+        data-tabs-scroll="right"
+        :title="t('terminal.scrollTabsRight')"
+        :aria-label="t('terminal.scrollTabsRight')"
+        @click="scrollTabs(1)"
+      >
+        <AppIcon name="chevron-right" size="xs" />
+      </button>
     </div>
 
     <!-- + 移出 tabs-scroll，避免 overflow-x:auto 裁切下拉框 -->
@@ -603,10 +688,48 @@ onBeforeUnmount(() => {
   -webkit-app-region: drag;
 }
 
+.tabs-wrap {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
+  position: relative;
+}
+
+.tabs-overflow-btn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.tabs-overflow-btn[data-tabs-scroll='left'] { left: 0; }
+.tabs-overflow-btn[data-tabs-scroll='right'] { right: 0; }
+
+.tabs-overflow-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.tabs-overflow-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .tabs-scroll {
   display: flex;
   height: 100%;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   overflow-x: auto;
   overflow-y: hidden;
   align-items: center;
