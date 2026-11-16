@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import '@xterm/xterm/css/xterm.css'
 import type { Theme, CustomColors } from '@/composables/app/useTheme'
 import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
-import { useCommandBuffer } from '../../composables/terminal/useCommandBuffer'
+import { useCommandBuffer, type SubmittedCommandInfo } from '../../composables/terminal/useCommandBuffer'
 import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
 import { useTerminalLocalEcho } from '../../composables/terminal/useTerminalLocalEcho'
 import { createDelayedTerminalOutput, createTypingResponseTracker } from '../../composables/terminal/terminalTypingLatency'
@@ -136,7 +136,7 @@ const {
 
 const { updatePasteState, isPasting } = usePasteDetection()
 
-let onCommandSubmitted = (_cmd: string | null) => {}
+let onCommandSubmitted = (_cmd: string | null, _info: SubmittedCommandInfo) => {}
 
 const {
   commandBuffer,
@@ -146,12 +146,13 @@ const {
   cancelPendingSubmit,
   resetCommandBuffer,
   getVisibleCommandLine,
+  notePromptBeforeInput,
   syncAfterTabCompletion,
   extractCommandFromVisibleLine,
 } = useCommandBuffer({
   getTerminal,
   onCdCommand: emitHostCd,
-  onSubmitted: (cmd) => onCommandSubmitted(cmd),
+  onSubmitted: (cmd, info) => onCommandSubmitted(cmd, info),
 })
 
 const {
@@ -223,7 +224,7 @@ const {
   suggestPlaceAbove,
 } = suggest
 
-onCommandSubmitted = (cmd) => {
+onCommandSubmitted = (cmd, info) => {
   suggest.suggestDismissed.value = false
   if (cmd?.trim() && isContainerEnterCommand(cmd)) {
     markSftpFollowPausedByContainer(props.sessionId)
@@ -233,8 +234,9 @@ onCommandSubmitted = (cmd) => {
       }),
     )
   }
-  if (!cmd || !cmd.trim()) return
-  suggest.scheduleHistorySniff(cmd)
+  // Lines typed into passwords, REPLs, pagers or continuation prompts are never learned.
+  if (!cmd || !cmd.trim() || !info.historyEligible) return
+  suggest.scheduleHistorySniff(cmd, info.promptTerminator)
 }
 
 const {
@@ -318,6 +320,7 @@ const { handleTerminalUserInput, hasPendingTabCompletion, syncPendingTabCompleti
   suggest,
   capturedSubmitLine,
   getVisibleCommandLine,
+  notePromptBeforeInput,
   scheduleSubmit,
   cancelPendingSubmit,
   resetCommandBuffer,
@@ -692,6 +695,7 @@ defineExpose({
       :place-above="suggestPlaceAbove"
       @update:active-index="suggestActiveIndex = $event"
       @pick="suggest.onSuggestPick"
+      @remove="(item) => suggest.removeHistoryCommand(item.command)"
     />
     <TerminalSelectionMenu
       :visible="selectionMenuVisible"
@@ -740,8 +744,11 @@ defineExpose({
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 4px;
+  /* Breathing room around the text; painted with the xterm background (set by
+     useXtermInstance) so non-default palettes don't show a mismatched frame. */
+  padding: 10px 6px 6px 14px;
   box-sizing: border-box;
+  background: var(--terminal-bg, transparent);
 }
 
 .xterm-container {

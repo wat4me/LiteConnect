@@ -1,4 +1,4 @@
-﻿/* Shared ConnectionForm chrome. Imported unscoped; scoped to .connection-modal. */
+/* Shared ConnectionForm chrome. Imported unscoped; scoped to .connection-modal. */
 
 .connection-modal {
   width: 480px;
@@ -28,38 +28,10 @@
 
 .connection-modal .section-tabs {
   display: flex;
-  gap: 4px;
-  padding: 3px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
 }
 
 .connection-modal .section-tab {
   flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.connection-modal .section-tab:hover:not(.active) {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.connection-modal .section-tab.active {
-  background: var(--accent);
-  color: #fff;
 }
 
 .connection-modal .section-badge {
@@ -67,16 +39,11 @@
   height: 16px;
   padding: 0 5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
-  color: inherit;
+  background: var(--accent-bg);
+  color: var(--accent);
   font-size: 11px;
   line-height: 16px;
   text-align: center;
-}
-
-.connection-modal .section-tab:not(.active) .section-badge {
-  background: var(--accent-bg, rgba(56, 139, 253, 0.15));
-  color: var(--accent);
 }
 
 .connection-modal .form {
@@ -148,36 +115,11 @@
 }
 
 .connection-modal .btn-icon-remove {
-  height: 38px;
-  padding: 0 10px;
   flex-shrink: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.connection-modal .btn-icon-remove:hover {
-  color: var(--danger);
-  border-color: var(--danger);
 }
 
 .connection-modal .btn-add-row {
   align-self: flex-start;
-  padding: 6px 12px;
-  background: none;
-  border: 1px dashed var(--border-color);
-  border-radius: 6px;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.connection-modal .btn-add-row:hover {
-  border-color: var(--accent);
-  background: var(--accent-bg, rgba(56, 139, 253, 0.08));
 }
 
 .connection-modal .input-narrow {
@@ -203,35 +145,10 @@
 
 .connection-modal .auth-tabs {
   display: flex;
-  gap: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  overflow: hidden;
 }
 
 .connection-modal .auth-tab {
   flex: 1;
-  padding: 8px 0;
-  background: var(--bg-primary);
-  border: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.connection-modal .auth-tab:first-child {
-  border-right: 1px solid var(--border-color);
-}
-
-.connection-modal .auth-tab.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-.connection-modal .auth-tab:hover:not(.active) {
-  background: var(--bg-tertiary);
 }
 
 .connection-modal .username-row {
@@ -248,73 +165,21 @@
   flex-shrink: 0;
 }
 
-.connection-modal .btn-credential {
-  height: var(--control-h, 36px);
-  padding: 0 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s;
-}
-
-.connection-modal .btn-credential:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.connection-modal .btn-credential:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .connection-modal .privatekey-row {
   display: flex;
   gap: 6px;
   align-items: center;
 }
 
+/* File picker reads like a field: left-aligned, truncated file name. */
 .connection-modal .btn-select-key {
+  display: block;
   flex: 1;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: pointer;
+  min-width: 0;
+  line-height: calc(var(--control-h) - 2px);
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: border-color 0.2s;
-}
-
-.connection-modal .btn-select-key:hover {
-  border-color: var(--accent);
-}
-
-.connection-modal .btn-clear-key {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--control-h, 36px);
-  height: var(--control-h, 36px);
-  background: none;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md, 8px);
-  color: var(--text-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-
-.connection-modal .btn-clear-key:hover {
-  color: var(--danger);
-  border-color: var(--danger);
 }
 
 .connection-modal .host-row {
@@ -381,22 +246,9 @@
   gap: 6px;
 }
 
-.connection-modal .color-tag-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-}
-
-.connection-modal .color-tag-btn.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg);
+/* Selected swatch: neutral ring around the dot (ui-icon-btn.active adds the lift). */
+.connection-modal .color-tag-btn.active .color-tag-swatch {
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 3px var(--text-secondary);
 }
 
 .connection-modal .color-tag-swatch {

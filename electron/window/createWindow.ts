@@ -5,9 +5,9 @@ import { registerWindow } from './windowRegistry'
 import { resolveAppIcon, windowAppId } from './appIcon'
 
 const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
-  dark: { color: '#0d1117', symbolColor: '#8b949e' },
-  light: { color: '#ffffff', symbolColor: '#656d76' },
-  eyecare: { color: '#f5f0e8', symbolColor: '#8a7f70' },
+  dark: { color: '#1f1e1d', symbolColor: '#a19e95' },
+  light: { color: '#f9f9f8', symbolColor: '#63635e' },
+  eyecare: { color: '#ece5d8', symbolColor: '#8a7f70' },
 }
 
 export { titleBarThemes }

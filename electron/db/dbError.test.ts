@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyDbError, sanitizeDbErrorText, toIpcDbError } from './dbError'
+import { classifyDbError, dbErrorPayload, sanitizeDbErrorText, toIpcDbError } from './dbError'
 import { wrapSqlBatchError } from './sql/sqlBatch'
 
 describe('sanitizeDbErrorText', () => {
@@ -70,10 +70,25 @@ describe('classifyDbError', () => {
       code: 'ER_PARSE_ERROR',
     })
     const wrapped = wrapSqlBatchError(inner, 1, 4, 'INSERT INTO t VALUES (1)')
-    const e = toIpcDbError(wrapped, 'mysql')
-    expect((e as any).category).toBe('syntax')
-    expect((e as any).detail).toMatch(/Statement 2\/4/)
-    expect((e as any).detail).toMatch(/INSERT INTO t/)
+    const payload = dbErrorPayload(toIpcDbError(wrapped, 'mysql'))
+    expect(payload).toMatchObject({
+      category: 'syntax',
+      code: 'ER_PARSE_ERROR',
+      detail: "Statement 2/4\nYou have an error in your SQL syntax near 'INSERT'",
+    })
+  })
+
+  it('preserves PostgreSQL detail and hint in a serializable, redacted payload', () => {
+    const error = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      detail: 'Key (id)=(5) already exists. password="secret with spaces"',
+      hint: 'Choose a different ID.',
+    })
+    const payload = structuredClone(dbErrorPayload(toIpcDbError(error, 'postgres')))
+    expect(payload.code).toBe('23505')
+    expect(payload.detail).toBe(
+      'duplicate key value violates unique constraint\nKey (id)=(5) already exists. password=***\nChoose a different ID.',
+    )
   })
 
   it('toIpcDbError never embeds secrets in message', () => {

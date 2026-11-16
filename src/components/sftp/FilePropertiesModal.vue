@@ -186,7 +186,7 @@ function bitLabel(bit: string): string {
                 <span class="props-perm-label">{{ label }}</span>
                 <template v-for="bit in ['r', 'w', 'x']" :key="bit">
                   <button
-                    class="props-perm-cell"
+                    class="props-perm-cell ui-btn ui-btn-xs"
                     :class="{ active: getPermissionBits(chmodMode)[pos][bit as 'r'|'w'|'x'] }"
                     @click="toggleBit(pos, bit as 'r'|'w'|'x')"
                     :title="`${label} ${bitLabel(bit)}`"
@@ -318,7 +318,7 @@ function bitLabel(bit: string): string {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--danger);
-  background: rgba(248, 81, 73, 0.1);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
   border-radius: 6px;
 }
 
@@ -399,29 +399,15 @@ function bitLabel(bit: string): string {
   color: var(--text-secondary);
 }
 
+/* Unset bits read as muted; set bits use the neutral toggled-on surface. */
 .props-perm-cell {
-  height: 28px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.props-perm-cell:hover {
-  border-color: var(--accent);
 }
 
 .props-perm-cell.active {
-  background: var(--accent-bg);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
+  border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color));
+  color: var(--text-primary);
 }
 
 .props-mode-input {

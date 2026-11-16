@@ -17,7 +17,6 @@ export function useAppKeyboard(deps: {
   openJumpPalette?: () => void
   openShortcutsHelp?: () => void
   onSnippetHotkey?: (e: KeyboardEvent) => boolean
-  onCloseGroup: (connectionId: string) => void
   onAddSession?: (connectionId: string) => void
   onSelectSession?: (sessionId: string) => void
   hostKeyMismatchVisible?: Ref<boolean>
@@ -174,15 +173,6 @@ export function useAppKeyboard(deps: {
         ? (cur - 1 + ids.length) % ids.length
         : (cur + 1) % ids.length
       deps.onSelectSession?.(ids[next])
-      return
-    }
-
-    // Ctrl+W — 关闭当前连接标签（终端内不拦截）
-    if (key === 'w' && !e.shiftKey && isTerminalContext()) {
-      if (document.activeElement?.closest('.xterm-container')) return
-      e.preventDefault()
-      const group = deps.activeGroup.value
-      if (group) deps.onCloseGroup(group.connectionId)
     }
   }
 

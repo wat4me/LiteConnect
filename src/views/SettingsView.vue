@@ -325,7 +325,7 @@ defineExpose({ requestClose: handleClose })
       <div class="settings-stage">
         <button
           type="button"
-          class="settings-close-btn"
+          class="settings-close-btn ui-icon-btn ui-icon-btn-close"
           :title="t('common.close')"
           :aria-label="t('app.closeSettings')"
           :disabled="saving"
@@ -507,7 +507,7 @@ defineExpose({ requestClose: handleClose })
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-primary);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-menu);
 }
 
 .nav-search-hit {
@@ -525,9 +525,12 @@ defineExpose({ requestClose: handleClose })
   text-align: left;
 }
 
-.nav-search-hit:hover,
+.nav-search-hit:hover {
+  background: var(--tab-hover-surface);
+}
+
 .nav-search-hit.active {
-  background: var(--accent-bg);
+  background: var(--tab-selected-surface);
 }
 
 .nav-search-hit-title {
@@ -591,8 +594,9 @@ defineExpose({ requestClose: handleClose })
 }
 
 .nav-item.active {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .nav-item-label {
@@ -612,11 +616,6 @@ defineExpose({ requestClose: handleClose })
 
 .nav-item.active .nav-item-desc { display: block; }
 
-.nav-item.active .nav-item-desc {
-  color: var(--accent);
-  opacity: 0.8;
-}
-
 .settings-stage {
   flex: 1;
   min-width: 0;
@@ -631,27 +630,6 @@ defineExpose({ requestClose: handleClose })
   top: 12px;
   right: 14px;
   z-index: 5;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
-}
-
-.settings-close-btn:hover:not(:disabled) {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.settings-close-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .settings-main {

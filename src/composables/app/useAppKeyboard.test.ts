@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { useAppKeyboard } from './useAppKeyboard'
 
-function makeKb(overrides: { toggleDocker?: () => void } = {}) {
+function makeKb(overrides: Partial<Pick<Parameters<typeof useAppKeyboard>[0], 'activeGroup' | 'toggleDocker'>> = {}) {
   return useAppKeyboard({
     isHomeActive: computed(() => false),
     isSshWorkspace: computed(() => true),
@@ -11,10 +11,9 @@ function makeKb(overrides: { toggleDocker?: () => void } = {}) {
     toggleAiSidebar: vi.fn(),
     toggleMonitor: vi.fn(),
     toggleBatchPanel: vi.fn(),
-    toggleDocker: overrides.toggleDocker,
-    onCloseGroup: vi.fn(),
     hostKeyMismatchVisible: ref(false),
     decryptionFailedVisible: ref(false),
+    ...overrides,
   })
 }
 
@@ -81,4 +80,20 @@ describe('useAppKeyboard Docker module', () => {
     handleKeydown(e)
     expect(toggleDocker).not.toHaveBeenCalled()
   })
+})
+
+it.each([{ ctrlKey: true }, { metaKey: true }])('leaves Ctrl/Cmd+W unhandled with an open SSH connection (%o)', modifiers => {
+  const session = { id: 'session-1', connectionId: 'host-1', connectionName: 'Server', tabNumber: 1 }
+  const { handleKeydown } = makeKb({
+    activeGroup: computed(() => ({
+      connectionId: session.connectionId,
+      connectionName: session.connectionName,
+      sessions: [session],
+      activeSessionId: session.id,
+      nextTabNumber: 2,
+    })),
+  })
+  const e = keyEvent({ key: 'w', code: 'KeyW', ...modifiers })
+  handleKeydown(e)
+  expect(e.defaultPrevented).toBe(false)
 })

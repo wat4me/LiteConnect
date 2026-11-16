@@ -8,6 +8,8 @@ import { DbExportService } from '../db/export/exportService'
 import { SqlScriptImportService } from '../db/export/scriptImportService'
 import { assessSqlRisk } from '../../shared/sqlRisk'
 import { prepareDbQueryRequest } from '../db/sql/prepareDbQuery'
+import { dbErrorPayload } from '../db/dbError'
+import type { DbQueryReply, DbQueryResult } from '../../shared/types/database'
 import { DEFAULT_DB_PORT, normalizeDbEngine } from '../db/types'
 import { normalizeExtraOptions } from '../../shared/dbConnectionUrl'
 import {
@@ -20,6 +22,14 @@ import {
 import { t } from '../i18n'
 
 type MainWindowGetter = () => BrowserWindow | null
+
+async function queryReply(run: () => Promise<DbQueryResult>): Promise<DbQueryReply> {
+  try {
+    return { ok: true, result: await run() }
+  } catch (error) {
+    return { ok: false, error: dbErrorPayload(error) }
+  }
+}
 
 export function registerDbHandlers(
   dbStore: DbConnectionStore,
@@ -344,7 +354,7 @@ export function registerDbHandlers(
         /** When true, reject non-read-only SQL at IPC boundary (DQB-003) */
         readOnly?: boolean
       },
-    ) => {
+    ) => queryReply(async () => {
       const prepared = prepareDbQueryRequest(sessionId, sql, options, {
         getDialect: (sid) => {
           const session = dbManager.getSession(sid)
@@ -353,8 +363,8 @@ export function registerDbHandlers(
           return 'mysql'
         },
       })
-      return await dbManager.query(prepared.sessionId, prepared.sql, prepared.options)
-    },
+      return dbManager.query(prepared.sessionId, prepared.sql, prepared.options)
+    }),
   )
 
   ipcMain.handle('db:cancelQuery', async (_e, sessionId: string, queryId: string) => {
@@ -363,7 +373,7 @@ export function registerDbHandlers(
     return await dbManager.cancelQuery(sessionId, queryId.trim())
   })
 
-  ipcMain.handle('db:explain', async (_e, sessionId: string, sql: string, database?: string) => {
+  ipcMain.handle('db:explain', (_e, sessionId: string, sql: string, database?: string) => queryReply(async () => {
     if (!isValidUUID(sessionId)) throw new Error('Invalid session id')
     if (typeof sql !== 'string' || !sql.trim()) throw new Error('Invalid SQL')
     const session = dbManager.getSession(sessionId)
@@ -375,12 +385,12 @@ export function registerDbHandlers(
         : session.engine === 'oracle'
           ? `EXPLAIN PLAN FOR ${trimmed}`
           : `EXPLAIN ${trimmed}`
-    return await dbManager.query(sessionId, explainSql, {
+    return dbManager.query(sessionId, explainSql, {
       maxRows: 500,
       timeoutMs: 60_000,
       database: typeof database === 'string' ? database : undefined,
     })
-  })
+  }))
 
   // ── Transactions (DB-009) ──
   ipcMain.handle(

@@ -77,9 +77,9 @@ defineExpose({ nameInputRef })
 
     <div class="form-row">
       <label class="label">{{ t('connectionForm.authType') }}</label>
-      <div class="auth-tabs">
-        <button type="button" class="auth-tab" :class="{ active: authType === 'password' }" @click="emit('switch-auth', 'password')">{{ t('connectionForm.password') }}</button>
-        <button type="button" class="auth-tab" :class="{ active: authType === 'key' }" @click="emit('switch-auth', 'key')">{{ t('connectionForm.key') }}</button>
+      <div class="auth-tabs ui-btn-group">
+        <button type="button" class="auth-tab ui-btn ui-btn-ghost ui-btn-sm" :class="{ active: authType === 'password' }" @click="emit('switch-auth', 'password')">{{ t('connectionForm.password') }}</button>
+        <button type="button" class="auth-tab ui-btn ui-btn-ghost ui-btn-sm" :class="{ active: authType === 'key' }" @click="emit('switch-auth', 'key')">{{ t('connectionForm.key') }}</button>
       </div>
     </div>
 
@@ -96,8 +96,8 @@ defineExpose({ nameInputRef })
     <div v-if="authType === 'key'" class="form-row">
       <label class="label">{{ t('connectionForm.privateKey') }}</label>
       <div class="privatekey-row">
-        <button type="button" class="btn-select-key" @click="emit('select-private-key')">{{ privateKeyFileName || t('connectionForm.selectPrivateKey') }}</button>
-        <button v-if="form.privateKey || keepStoredPrivateKey" type="button" class="btn-clear-key" @click="emit('clear-private-key')" :title="t('connectionForm.clearPrivateKey')">
+        <button type="button" class="btn-select-key ui-btn" @click="emit('select-private-key')">{{ privateKeyFileName || t('connectionForm.selectPrivateKey') }}</button>
+        <button v-if="form.privateKey || keepStoredPrivateKey" type="button" class="btn-clear-key ui-icon-btn ui-icon-btn-danger" @click="emit('clear-private-key')" :title="t('connectionForm.clearPrivateKey')" :aria-label="t('connectionForm.clearPrivateKey')">
           <AppIcon name="close" size="sm" />
         </button>
       </div>
@@ -129,9 +129,10 @@ defineExpose({ nameInputRef })
             v-for="tag in CONNECTION_COLOR_TAGS"
             :key="tag.id || 'none'"
             type="button"
-            class="color-tag-btn"
+            class="color-tag-btn ui-icon-btn ui-icon-btn-sm"
             :class="{ active: form.colorTag === tag.id }"
             :title="tag.label"
+            :aria-label="tag.label"
             @click="form.colorTag = tag.id"
           >
             <span class="color-tag-swatch" :style="{ background: tag.color }"></span>

@@ -195,7 +195,7 @@ onBeforeUnmount(() => {
         <div class="editor-actions">
           <span v-if="dirty" class="editor-dirty-dot" :title="t('sftp.dirtyTitle')"></span>
           <button
-            class="editor-save-btn"
+            class="editor-save-btn ui-btn ui-btn-xs ui-btn-primary"
             :disabled="saving || loading || !dirty || loadFailed || !!conflictRevision"
             @click="saveFile()"
           >
@@ -210,8 +210,8 @@ onBeforeUnmount(() => {
       <div v-if="conflictRevision" class="editor-error" role="alert">
         <p>{{ t('sftp.editorConflictMessage') }}</p>
         <div class="editor-conflict-actions">
-          <button class="editor-save-btn" :disabled="saving" @click="overwriteConflict">{{ t('sftp.editorOverwrite') }}</button>
-          <button class="editor-save-btn" :disabled="saving" @click="reloadConflict">{{ t('sftp.editorReload') }}</button>
+          <button class="editor-save-btn ui-btn ui-btn-sm ui-btn-danger" :disabled="saving" @click="overwriteConflict">{{ t('sftp.editorOverwrite') }}</button>
+          <button class="editor-save-btn ui-btn ui-btn-sm" :disabled="saving" @click="reloadConflict">{{ t('sftp.editorReload') }}</button>
         </div>
       </div>
       <div v-if="backupPath" class="editor-error">{{ t('sftp.editorBackupSaved', { path: backupPath }) }}</div>
@@ -313,32 +313,11 @@ onBeforeUnmount(() => {
   background: var(--accent);
 }
 
-.editor-save-btn {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.editor-save-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.editor-save-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .editor-error {
   padding: 8px 16px;
   font-size: 12px;
   color: var(--danger);
-  background: rgba(248, 81, 73, 0.1);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
   border-bottom: 1px solid var(--border-color);
 }
 

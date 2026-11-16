@@ -368,7 +368,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="bookmark-more"
+              class="bookmark-more ui-icon-btn ui-icon-btn-sm"
               data-bookmark-more=""
               :title="t('sftp.bookmarkActions')"
               :aria-expanded="rowMenu?.bookmark.id === item.id"
@@ -455,7 +455,7 @@ onBeforeUnmount(() => {
 
 .bookmark-row.current,
 .bookmark-row.reveal {
-  background: var(--accent-bg);
+  background: var(--tab-selected-surface);
 }
 
 .bookmark-row.drop-before {
@@ -542,7 +542,7 @@ onBeforeUnmount(() => {
 }
 
 .bookmark-row.current .bookmark-tag {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 .bookmark-path {
@@ -553,25 +553,16 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 
+/* Compact to fit the 28px menu row. */
 .bookmark-more {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
   width: 22px;
   height: 22px;
   margin-right: 4px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
 }
 
-.bookmark-more:hover,
 .bookmark-more[aria-expanded='true'] {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .bookmark-empty {

@@ -191,6 +191,15 @@ const crossHostSplit = computed(
   () => splitHasSecondary.value && !!props.activeSession && !!secondarySession.value &&
     props.activeSession.connectionId !== secondarySession.value.connectionId,
 )
+/*
+ * A single terminal has nothing to switch, split or drag, so its tab row is
+ * hidden; the active host tab offers "+ new terminal" instead.
+ */
+const showSubTabBar = computed(() => {
+  const group = props.activeGroup
+  if (!group || group.sessions.length === 0 || crossHostSplit.value) return false
+  return group.sessions.length > 1 || !!props.dockerTabOpen || props.isSplit
+})
 const canUseLayoutButtons = computed(
   () => splitHasSecondary.value || (props.activeGroup?.sessions.length ?? 0) >= 2,
 )
@@ -397,7 +406,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
 <template>
   <div class="terminal-section">
     <SubTabBar
-      v-if="activeGroup && activeGroup.sessions.length > 0 && !crossHostSplit"
+      v-if="activeGroup && showSubTabBar"
       :sessions="activeGroup.sessions"
       :active-session-id="activeGroup.activeSessionId"
       :connection-id="activeGroup.connectionId"
@@ -550,7 +559,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
                 </button>
                 <button
                   type="button"
-                  class="split-pane-tab-add"
+                  class="split-pane-tab-add ui-icon-btn ui-icon-btn-sm"
                   :title="t('terminal.newTerminal')"
                   :aria-label="t('terminal.newTerminal')"
                   @click.stop="addSplitPaneTerminal(session)"
@@ -711,6 +720,14 @@ function onSplitDividerMousedown(e: MouseEvent) {
   min-height: 0;
 }
 
+.terminal-container.is-split {
+  background: var(--bg-secondary);
+}
+
+.terminal-container.is-split .terminal-pane:not(.is-maximized) {
+  border-radius: var(--radius-tab);
+}
+
 .docker-pane-host {
   flex: 1;
   min-width: 0;
@@ -742,6 +759,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
   box-sizing: border-box;
   font-size: 11px;
   font-weight: 600;
@@ -876,20 +894,16 @@ function onSplitDividerMousedown(e: MouseEvent) {
   overflow: hidden;
 }
 
-.split-pane-tab,
-.split-pane-tab-add {
+.split-pane-tab {
   height: 20px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
   font-size: 10px;
   line-height: 20px;
   cursor: pointer;
   white-space: nowrap;
-}
-
-.split-pane-tab {
   padding: 0 6px;
   min-width: 0;
   max-width: 120px;
@@ -897,26 +911,22 @@ function onSplitDividerMousedown(e: MouseEvent) {
   text-overflow: ellipsis;
 }
 
-.split-pane-tab:hover,
-.split-pane-tab-add:hover {
-  background: var(--bg-tertiary);
+.split-pane-tab:hover {
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
 .split-pane-tab.active {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
+/* Fits the 20px pane header row. */
 .split-pane-tab-add {
   width: 20px;
-  min-width: 20px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--border-color);
+  height: 20px;
 }
 
 .split-pane-tag {

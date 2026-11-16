@@ -142,7 +142,7 @@ function onKeydown(e: KeyboardEvent) {
   position: fixed;
   inset: 0;
   z-index: 13000;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--overlay-bg);
   display: flex;
   justify-content: center;
   padding-top: min(18vh, 120px);
@@ -156,7 +156,7 @@ function onKeydown(e: KeyboardEvent) {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
 }
 
@@ -194,9 +194,12 @@ function onKeydown(e: KeyboardEvent) {
   color: var(--text-primary);
 }
 
-.jump-item:hover,
+.jump-item:hover {
+  background: var(--tab-hover-surface);
+}
+
 .jump-item.active {
-  background: var(--hover-bg);
+  background: var(--tab-selected-surface);
 }
 
 .jump-title {

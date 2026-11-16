@@ -87,4 +87,39 @@ describe('terminal command suggestions', () => {
     expect(pushShellCommandHistory).toHaveBeenCalledWith('connection', 'docker ps -a')
     suggest.dispose()
   })
+
+  function sniffer() {
+    const pushShellCommandHistory = vi.fn(async () => [])
+    vi.stubGlobal('window', { LiteConnect: { pushShellCommandHistory } })
+    const suggest = useTerminalShellSuggest({
+      terminalRef: ref(undefined), getTerminal: () => null, connectionId: () => 'connection', sessionId: () => 'session',
+      isEffectiveActive: () => true, disconnected: ref(false), commandBuffer: ref(''), commandBufferDirty: ref(false),
+    })
+    return { suggest, pushShellCommandHistory }
+  }
+
+  it('drops a wrong path and learns quickly once the prompt returns', () => {
+    vi.useFakeTimers()
+    const { suggest, pushShellCommandHistory } = sniffer()
+    suggest.scheduleHistorySniff('cd /nope', '$')
+    suggest.feedHistorySniff('\r\n-bash: cd: /nope: No such file or directory\r\nops@edge:~$ ')
+    vi.advanceTimersByTime(7000)
+    expect(pushShellCommandHistory).not.toHaveBeenCalled()
+
+    suggest.scheduleHistorySniff('ls -la', '$')
+    suggest.feedHistorySniff('\r\ntotal 3\r\nops@edge:~$ ')
+    vi.advanceTimersByTime(250)
+    expect(pushShellCommandHistory).toHaveBeenCalledWith('connection', 'ls -la')
+    suggest.dispose()
+  })
+
+  it('learns the previous command when the next one is typed before it went quiet', () => {
+    vi.useFakeTimers()
+    const { suggest, pushShellCommandHistory } = sniffer()
+    suggest.scheduleHistorySniff('uptime', '$')
+    suggest.feedHistorySniff('\r\n 10:00 up 3 days\r\n')
+    suggest.scheduleHistorySniff('df -h', '$')
+    expect(pushShellCommandHistory).toHaveBeenCalledWith('connection', 'uptime')
+    suggest.dispose()
+  })
 })

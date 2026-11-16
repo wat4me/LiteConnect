@@ -219,6 +219,7 @@ export function useDbWorkspace() {
     queryEnsureColumns: tabsApi.queryEnsureColumns,
     runQuerySql: tabsApi.runQuerySql,
     explainQuerySql: tabsApi.explainQuerySql,
+    retryActiveQuery: tabsApi.retryActiveQuery,
     beginTransaction: tabsApi.beginTransaction,
     commitTransaction: tabsApi.commitTransaction,
     rollbackTransaction: tabsApi.rollbackTransaction,

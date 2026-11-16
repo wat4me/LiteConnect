@@ -92,11 +92,10 @@ export class SqlScriptImportService {
         bytesRead = item.bytesRead
         line = item.line
         if (job.cancelled) break
-        statements += 1
         if (engine === 'postgres' && /\bCOPY\b[\s\S]*\bFROM\s+STDIN\b/i.test(item.sql)) {
           throw new Error('PostgreSQL COPY FROM STDIN scripts are not supported yet')
         }
-        job.queryId = `script:${job.id}:${statements}`
+        job.queryId = `script:${job.id}:${statements + 1}`
         const result = await this.dbManager.query(job.sessionId, item.sql, {
           database,
           queryId: job.queryId,
@@ -104,6 +103,7 @@ export class SqlScriptImportService {
           // Import scripts never need to materialize an unbounded SELECT result.
           maxRows: 1_000,
         })
+        statements += 1
         affectedRows += result.affectedRows || 0
         job.queryId = null
         report('running')

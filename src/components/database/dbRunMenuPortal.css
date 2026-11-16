@@ -36,8 +36,7 @@
 }
 
 .run-menu-portal .run-menu-item:hover:not(:disabled) {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-hover-surface);
 }
 
 .run-menu-portal .run-menu-item:disabled {

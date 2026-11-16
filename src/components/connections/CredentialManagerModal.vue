@@ -231,7 +231,7 @@ function formatTime(value: number): string {
       <section v-if="formVisible" class="form-panel">
         <div class="form-panel-head">
           <h4 class="form-panel-title">{{ formTitle }}</h4>
-          <button type="button" class="link-btn" @click="hideForm">{{ t('common.cancel') }}</button>
+          <button type="button" class="link-btn ui-btn ui-btn-ghost ui-btn-xs" @click="hideForm">{{ t('common.cancel') }}</button>
         </div>
         <form class="form-grid" @submit.prevent="saveForm">
           <label class="field">
@@ -311,11 +311,11 @@ function formatTime(value: number): string {
             <div class="account-time">{{ t('credentials.updatedAt', { time: formatTime(item.updatedAt || item.createdAt) }) }}</div>
           </div>
           <div class="account-actions">
-            <button type="button" class="action-btn" @click="startEdit(item)">{{ t('credentials.edit') }}</button>
-            <button type="button" class="action-btn" @click="toggleReveal(item)">
+            <button type="button" class="action-btn ui-btn ui-btn-sm" @click="startEdit(item)">{{ t('credentials.edit') }}</button>
+            <button type="button" class="action-btn ui-btn ui-btn-sm" @click="toggleReveal(item)">
               {{ revealedPasswords[item.id] ? t('credentials.hidePassword') : t('credentials.showPassword') }}
             </button>
-            <button type="button" class="action-btn danger" @click="removeCredential(item)">{{ t('credentials.delete') }}</button>
+            <button type="button" class="action-btn danger ui-btn ui-btn-sm ui-btn-danger" @click="removeCredential(item)">{{ t('credentials.delete') }}</button>
           </div>
         </article>
       </div>
@@ -420,19 +420,6 @@ function formatTime(value: number): string {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-}
-
-.link-btn {
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  padding: 0;
-}
-
-.link-btn:hover {
-  color: var(--accent);
 }
 
 .form-grid {
@@ -596,27 +583,6 @@ function formatTime(value: number): string {
   flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
-}
-
-.action-btn {
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.action-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.action-btn.danger:hover {
-  border-color: var(--danger);
-  color: var(--danger);
 }
 
 @media (max-width: 640px) {

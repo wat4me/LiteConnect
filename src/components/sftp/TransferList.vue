@@ -95,14 +95,14 @@ function getProgress(item: TransferItem): number {
       <button
         v-if="item.status === 'completed' && direction === 'download'"
         type="button"
-        class="transfer-action transfer-open-folder"
+        class="transfer-action transfer-open-folder ui-icon-btn ui-icon-btn-sm"
         :title="t('sftp.openLocalFolder')"
         :aria-label="t('sftp.openLocalFolder')"
         @click.stop="emit('openFolder', item.localPath)"
       ><AppIcon name="folder" size="xs" /></button>
       <button
         v-if="item.status === 'downloading' || item.status === 'uploading'"
-        class="transfer-action"
+        class="transfer-action ui-icon-btn ui-icon-btn-sm ui-icon-btn-close"
         @click.stop="emit('cancel', id)"
         :title="t('sftp.cancel')"
       >
@@ -110,7 +110,7 @@ function getProgress(item: TransferItem): number {
       </button>
       <button
         v-if="canResumeTransfer(item)"
-        class="transfer-action resume"
+        class="transfer-action resume ui-btn ui-btn-xs ui-btn-ghost"
         @click.stop="emit('resume', id)"
         :title="t('sftp.resume')"
       >
@@ -118,7 +118,7 @@ function getProgress(item: TransferItem): number {
       </button>
       <button
         v-if="item.status === 'error' || item.status === 'skipped' || item.status === 'partial'"
-        class="transfer-action"
+        class="transfer-action ui-icon-btn ui-icon-btn-sm ui-icon-btn-close"
         @click.stop="emit('remove', id)"
         :title="t('sftp.remove')"
       >
@@ -294,40 +294,11 @@ function getProgress(item: TransferItem): number {
 }
 
 .transfer-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
   flex-shrink: 0;
-  transition: all 0.15s;
-  font-size: 10px;
 }
 
 .transfer-action svg {
   width: 12px;
   height: 12px;
-}
-
-.transfer-action:hover {
-  color: var(--danger);
-  background: rgba(248, 81, 73, 0.15);
-}
-
-.transfer-action.resume {
-  width: auto;
-  padding: 0 4px;
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.transfer-action.resume:hover {
-  color: var(--accent);
-  background: var(--accent-bg);
 }
 </style>

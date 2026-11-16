@@ -238,8 +238,8 @@ onMounted(loadSnippets)
       <div class="sessions-header">
         <span>{{ t('batch.targetSessions', { selected: selectedSessions.size, total: sessions.length }) }}</span>
         <div class="sessions-actions">
-          <button type="button" class="ui-btn ui-btn-xs" @click="selectAll">{{ t('batch.selectAll') }}</button>
-          <button type="button" class="ui-btn ui-btn-xs" @click="selectNone">{{ t('batch.selectNone') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="selectAll">{{ t('batch.selectAll') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="selectNone">{{ t('batch.selectNone') }}</button>
         </div>
       </div>
       <div class="sessions-list">
@@ -466,24 +466,6 @@ onMounted(loadSnippets)
   font-weight: 700;
 }
 
-.batch-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.batch-close:hover {
-  background: var(--hover-bg);
-  color: var(--danger);
-}
-
 .batch-sessions {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
@@ -689,12 +671,6 @@ onMounted(loadSnippets)
   border-bottom: 1px solid var(--border-color);
 }
 
-.execute-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .batch-results {
   flex: 1;
   min-height: 0;
@@ -789,16 +765,5 @@ onMounted(loadSnippets)
   font-size: 11px;
   color: var(--danger);
   margin-top: 4px;
-}
-
-.ui-btn-danger {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: #fff;
-}
-
-.ui-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 </style>

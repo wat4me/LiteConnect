@@ -107,11 +107,12 @@
 }
 
 .ai-history-item:hover {
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
 }
 
 .ai-history-item.active {
-  background: var(--accent-bg);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .ai-history-item-main {
@@ -136,17 +137,6 @@
 }
 
 .ai-history-item-action {
-  flex-shrink: 0;
-  width: 24px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
   opacity: 0;
 }
 
@@ -156,11 +146,6 @@
   opacity: 1;
 }
 
-.ai-history-item-action:hover { color: var(--accent); background: var(--hover-bg); }
-.ai-history-item-action.danger:hover {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
 
 .ai-history-item-title {
   overflow: hidden;
@@ -239,33 +224,17 @@
   align-items: center;
 }
 
+/* Composer toolbar: compact horizontal padding so the model name gets the room. */
 .ai-model-switcher {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   gap: 3px;
   max-width: 100%;
   min-width: 0;
-  height: var(--control-h-sm);
-  min-height: var(--control-h-sm);
-  box-sizing: border-box;
   padding: 0 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-ui-sm);
-  line-height: var(--line-ui);
-  font-family: inherit;
-  cursor: pointer;
-  transition: background .15s, color .15s, border-color .15s;
 }
 
-.ai-model-switcher:hover,
 .ai-model-switcher.active {
-  background: var(--hover-bg);
+  background: var(--tab-selected-surface);
   color: var(--text-primary);
-  border-color: var(--border-color);
 }
 
 .ai-model-switcher-name {
@@ -338,8 +307,8 @@
 .model-switcher-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .model-switcher-item.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .ai-header-actions,
@@ -423,9 +392,10 @@
   margin: 0;
   padding: var(--ai-composer-padding, 6px 8px);
   border: 1px solid var(--ai-composer-border, var(--border-color));
-  border-radius: var(--ai-composer-radius, 14px);
-  background: var(--ai-composer-background, var(--bg-secondary));
-  box-shadow: var(--ai-composer-shadow, none);
+  border-radius: var(--ai-composer-radius, 16px);
+  /* Lifted input card: lighter than the panel, with a soft shadow. */
+  background: var(--ai-composer-background, var(--bg-primary));
+  box-shadow: var(--ai-composer-shadow, 0 1px 2px color-mix(in srgb, var(--overlay-bg) 14%, transparent), 0 6px 20px color-mix(in srgb, var(--overlay-bg) 10%, transparent));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -437,7 +407,7 @@
 }
 
 .composer:focus-within {
-  border-color: var(--ai-composer-focus-border, color-mix(in srgb, var(--accent) 50%, var(--border-color)));
+  border-color: var(--ai-composer-focus-border, color-mix(in srgb, var(--text-primary) 28%, var(--border-color)));
   box-shadow: var(--ai-composer-focus-shadow, none);
 }
 
@@ -475,7 +445,6 @@
 .composer-permission-selector { display: flex; height: var(--control-h-sm); align-items: center; margin-left: auto; flex-shrink: 0; }
 .model-switcher-wrap { flex: 0 1 auto; min-width: 0; max-width: 220px; height: var(--control-h-sm); align-items: center; gap: var(--space-1); }
 
-.ai-model-switcher:disabled { cursor: not-allowed; opacity: .5; }
 .send-btn, .stop-btn { width: var(--ai-send-size); height: var(--ai-send-size); min-width: var(--ai-send-size); padding: 0; font-size: var(--font-caption); margin-left: 0; }
 .composer-context-warning { font-size: var(--font-caption); color: var(--text-secondary); text-align: right; }
 .composer-context-warning.warn { color: var(--warning); }
@@ -549,12 +518,7 @@
 .is-workspace .ai-header-actions .ui-icon-btn {
   width: var(--icon-btn-md);
   height: var(--icon-btn-md);
-  border: 1px solid var(--workspace-line);
-  border-radius: var(--workspace-radius);
-  background: var(--bg-primary);
 }
-.is-workspace .ai-header-actions .ui-icon-btn:hover:not(:disabled) { background: var(--hover-bg); border-color: var(--border-color); }
-.is-workspace .ai-header-actions .workspace-clear-chat:hover:not(:disabled) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .is-workspace .ai-header :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .is-workspace .ai-body {
   align-self: center;

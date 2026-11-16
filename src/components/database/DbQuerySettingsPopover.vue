@@ -231,7 +231,8 @@ defineExpose({
     <button
       ref="anchorRef"
       type="button"
-      class="settings-btn"
+      class="ui-icon-btn ui-icon-btn-sm settings-btn"
+      :class="{ active: open }"
       :disabled="disabled"
       :aria-expanded="open"
       aria-haspopup="dialog"
@@ -322,32 +323,6 @@ defineExpose({
 .settings-wrap {
   display: inline-flex;
   position: relative;
-}
-
-.settings-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.settings-btn:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
-.settings-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .settings-btn:focus-visible {

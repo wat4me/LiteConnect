@@ -84,7 +84,11 @@ app.whenReady().then(async () => {
   await wait('window.__navigation.actions().length===1')
   await run('window.__navigation.settings(true)'); await menuMode('ai'); await wait('window.__navigation.snapshot().mode==="ai" && !window.__navigation.snapshot().settings')
   assert.equal(await titlebarLabel(), 'AI')
-  assert.ok(await run(`(() => { const button=document.querySelector('[data-module=ai]');const marker=getComputedStyle(button,'::before');return getComputedStyle(button).color===marker.backgroundColor })()`), 'Active module keeps its accent color while hovered')
+  assert.ok(await run(`(() => {
+    const active=getComputedStyle(document.querySelector('[data-module=ai]'));
+    const inactive=getComputedStyle(document.querySelector('[data-module=ssh]'));
+    return active.backgroundColor!==inactive.backgroundColor && parseFloat(active.borderRadius)>=8;
+  })()`), 'The active module has a rounded selection fill')
   let layouts = 0
   for (const locale of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark', 'eyecare']) for (const width of [700, 1200]) for (const scale of [1, 1.25]) {
     stage = `checking ${locale}/${theme}/${width}/${scale}`
@@ -92,10 +96,10 @@ app.whenReady().then(async () => {
     await run(`window.__navigation.theme('${theme}','${locale}',${scale})`)
     await wait(`innerWidth===${width}`)
     assert.ok(await run(`(() => {
-      const rail=document.querySelector('.app-module-rail'), r=rail.getBoundingClientRect(), content=document.querySelector('.workspace').getBoundingClientRect(), header=document.querySelector('.app-titlebar').getBoundingClientRect();
+      const rail=document.querySelector('.app-module-rail'), r=rail.getBoundingClientRect(), workspace=document.querySelector('.workspace'), content=workspace.getBoundingClientRect(), header=document.querySelector('.app-titlebar').getBoundingClientRect();
       const buttons=[...rail.querySelectorAll('button')];
       return Math.abs(r.width-48*${scale})<1 && r.top>=header.bottom && Math.abs(content.left-r.right)<1 && content.right<=innerWidth+1 && content.bottom<=innerHeight+1 && buttons.length===3
-        && rail.querySelector('[aria-current=page]')?.dataset.module==='ai'
+        && rail.querySelector('[aria-current=page]')?.dataset.module==='ai' && parseFloat(getComputedStyle(workspace).borderRadius)>=12
         && buttons.every(el=>{const b=el.getBoundingClientRect();return b.left>=r.left && b.right<=r.right && b.bottom<=r.bottom && el.scrollWidth<=el.clientWidth+1 && el.title.length>0})
         && getComputedStyle(rail).getPropertyValue('-webkit-app-region')==='no-drag';
     })()`), `Persistent rail and content fit: ${locale}/${theme}/${width}/${scale}`)
@@ -107,7 +111,10 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.join(artifacts,'module-rail.png'),(await window.webContents.capturePage(rail)).toPNG())
   await run('window.__navigation.dedicated(true)')
   assert.equal(await run('!!document.querySelector(".app-module-rail")'), false)
-  assert.equal(await run('document.querySelector(".workspace").getBoundingClientRect().left'), 0, 'Dedicated window layout has no empty rail gutter')
+  assert.ok(await run(`(() => {
+    const shell = document.querySelector('.app-shell'), content = document.querySelector('.workspace').getBoundingClientRect();
+    return Math.abs(content.left-shell.getBoundingClientRect().left-parseFloat(getComputedStyle(shell).paddingLeft))<1;
+  })()`), 'Dedicated window layout only reserves the frame inset')
   assert.equal(await run('window.__navigationError || null'), null)
   console.log(JSON.stringify({ passed: true, layouts, flows: ['in-place module switching', 'all titlebar module entries', 'pointer and keyboard', 'lazy mount', 'draft/DOM/scroll retention', 'current SSH reselect', 'settings cancel/close', 'dedicated window layout'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()

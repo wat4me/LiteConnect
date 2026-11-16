@@ -30,7 +30,6 @@ export default {
       newSubSession: 'New subsession',
       nextSubSession: 'Next subsession',
       prevSubSession: 'Previous subsession',
-      closeTab: 'Close the current connection tab (ignored while the terminal is focused, to avoid closing it by mistake)',
       fontZoom: 'Increase or decrease the terminal font size',
       terminalSearch: 'Search in the terminal',
       searchNav: 'Next or previous search match',

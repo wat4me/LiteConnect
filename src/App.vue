@@ -625,7 +625,6 @@ const { handleKeydown, handleWheel, handlePageZoomKeydown } = useAppKeyboard({
   openJumpPalette: () => { jumpPaletteVisible.value = true },
   openShortcutsHelp: () => { shortcutsHelpVisible.value = true },
   onSnippetHotkey: (e) => tryRunSnippetHotkey(e),
-  onCloseGroup,
   onAddSession: createSession,
   onSelectSession,
   hostKeyMismatchVisible,
@@ -882,16 +881,14 @@ onBeforeUnmount(() => {
     <AppTitlebar
       :app-mode="appMode"
       :show-settings-page="showSettingsPage"
+      :module-menu="isDetachedWindow || isDbWindow"
       @enter-ssh="handleEnterSshModule"
       @enter-database="handleEnterDatabaseModule"
       @enter-ai="handleEnterAiModule"
       @toggle-settings="toggleSettingsPage"
       @open-shortcuts="shortcutsHelpVisible = true"
-    />
-
-    <AppWorkspaceShell :app-mode="appMode" :show-settings-page="showSettingsPage" :navigation-busy="moduleSwitching"
-      :show-modules="!isDetachedWindow && !isDbWindow" @select-module="selectModule">
-      <div v-show="!showSettingsPage && appMode === 'ssh'" class="workspace-top">
+    >
+      <template v-if="!showSettingsPage && appMode === 'ssh'" #tabs>
         <TabBar
           :groups="groups"
           :active-group-id="activeGroupId"
@@ -910,6 +907,7 @@ onBeforeUnmount(() => {
           :split-group-active="isSplit"
           @select="selectConnectionGroup"
           @close="onCloseGroup"
+          @add-session="createStandaloneSession"
           @select-home="navigateSshHome"
           @quick-connect="navigateQuickConnect"
           @split-preview="setSplitPreview"
@@ -917,7 +915,10 @@ onBeforeUnmount(() => {
           @select-split="selectSplitGroup"
           @close-split="closeSplit"
         />
-      </div>
+      </template>
+    </AppTitlebar>
+    <AppWorkspaceShell :app-mode="appMode" :show-settings-page="showSettingsPage" :navigation-busy="moduleSwitching"
+      :show-modules="!isDetachedWindow && !isDbWindow" @select-module="selectModule">
 
       <SettingsView
         v-if="showSettingsPage"
@@ -1106,22 +1107,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   position: relative;
   background: transparent;
-}
-
-.workspace-top {
-  display: flex;
-  align-items: stretch;
-  flex-shrink: 0;
-  height: var(--tab-height);
-  min-height: var(--tab-height);
-  max-height: var(--tab-height);
-  background: var(--bg-secondary);
-  overflow: hidden;
-}
-
-.workspace-top :deep(.tab-bar) {
-  flex: 1;
-  min-width: 0;
 }
 
 .app-main-body {

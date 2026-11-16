@@ -89,10 +89,10 @@ const toolNameLabel = useAiToolNameLabel()
           </div>
         </details>
         <div class="tool-approval-actions">
-          <button type="button" class="tool-approval-btn" :disabled="isApprovalResolving(run.id)" @click="handleToolApproval(run.id, false)">{{ t('ai.toolDeny') }}</button>
+          <button type="button" class="ui-btn ui-btn-sm tool-approval-btn" :disabled="isApprovalResolving(run.id)" @click="handleToolApproval(run.id, false)">{{ t('ai.toolDeny') }}</button>
           <button
             type="button"
-            class="tool-approval-btn primary"
+            class="ui-btn ui-btn-primary ui-btn-sm tool-approval-btn primary"
             :disabled="isApprovalResolving(run.id)"
             @click="handleToolApproval(run.id, true)"
           >

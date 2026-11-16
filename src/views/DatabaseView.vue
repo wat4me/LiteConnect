@@ -8,6 +8,8 @@ import DbCreateDatabaseDialog from '../components/database/DbCreateDatabaseDialo
 import { useI18n } from 'vue-i18n'
 import { formatBytes } from '@shared/formatBytes'
 import { useDbWorkspace } from '../composables/database/useDbWorkspace'
+import { appConfirm } from '../composables/app/useAppDialog'
+import type { DbScriptProgress } from '@shared/types/database'
 
 const { t } = useI18n()
 
@@ -85,6 +87,7 @@ const {
   queryEnsureColumns,
   runQuerySql,
   explainQuerySql,
+  retryActiveQuery,
   beginTransaction,
   commitTransaction,
   rollbackTransaction,
@@ -160,29 +163,53 @@ const {
 const renamingTabId = ref<string | null>(null)
 const renameDraft = ref('')
 const scriptJobId = ref<string | null>(null)
-const scriptStatus = ref('')
+const scriptPreparing = ref(false)
+const scriptStatus = ref<{ state: DbScriptProgress['state']; text: string } | null>(null)
 let stopScriptProgress: (() => void) | null = null
+let pendingScriptProgress: DbScriptProgress | null = null
 
 async function importSqlScript() {
   const live = session.value
-  if (!live || scriptJobId.value) return
+  if (!live || scriptJobId.value || scriptPreparing.value) return
+  const query = activeQueryTab.value
+  const database = (query?.connectionId === live.connectionId ? query.database : '') || live.database || undefined
+  scriptPreparing.value = true
   try {
     const file = await window.LiteConnect.dbSelectSqlScript()
     if (!file) return
-    const accepted = window.confirm(t('database.msg.importSqlConfirm', {
-      name: file.name,
-      size: formatBytes(file.size),
-    }))
-    if (!accepted) return
+    await appConfirm({
+      title: t('database.msg.importSqlTitle'),
+      message: t('database.msg.importSqlConfirm', {
+        name: file.name,
+        size: formatBytes(file.size),
+        connection: live.connectionName,
+        database: database ?? t('database.msg.importSqlDefaultDatabase'),
+      }),
+      detail: t('database.msg.importSqlConfirmDetail'),
+      confirmText: t('database.msg.importSqlRun'),
+      danger: true,
+      tone: 'danger',
+    })
+    const current = getLiveSession(live.connectionId)
+    if (current?.sessionId !== live.sessionId || (!database && current.database)) {
+      scriptStatus.value = { state: 'failed', text: t('database.query.retryTargetChanged') }
+      return
+    }
     const result = await window.LiteConnect.dbRunSqlScript(
       live.sessionId,
       file.token,
-      activeQueryTab.value?.database || undefined,
+      database,
     )
     scriptJobId.value = result.jobId
-    scriptStatus.value = t('database.msg.importSqlRunning', { name: file.name })
+    scriptStatus.value = { state: 'running', text: t('database.msg.importSqlRunning', { name: file.name }) }
+    if (pendingScriptProgress?.jobId === result.jobId) updateScriptProgress(pendingScriptProgress)
   } catch (err: any) {
-    window.alert(t('database.msg.importSqlFailed', { error: err?.message || err }))
+    if (err !== 'cancel') {
+      scriptStatus.value = { state: 'failed', text: t('database.msg.importSqlFailed', { error: err?.message || err }) }
+    }
+  } finally {
+    pendingScriptProgress = null
+    scriptPreparing.value = false
   }
 }
 
@@ -190,25 +217,33 @@ async function cancelSqlScript() {
   if (scriptJobId.value) await window.LiteConnect.dbCancelSqlScript(scriptJobId.value)
 }
 
-onMounted(() => {
-  stopScriptProgress = window.LiteConnect.onDbScriptProgress((progress) => {
-    if (progress.jobId !== scriptJobId.value) return
-    const pct = progress.size ? Math.min(100, Math.round((progress.bytesRead / progress.size) * 100)) : 0
-    scriptStatus.value = t('database.msg.importSqlProgress', {
-      name: progress.name,
-      pct,
-      count: progress.statements,
-    })
-    if (progress.state === 'failed') {
-      scriptStatus.value += ` · ${t('database.msg.importSqlFailedDetail', { error: progress.error || t('database.msg.importSqlUnknownError') })}`
-      scriptJobId.value = null
-    } else if (progress.state === 'completed' || progress.state === 'cancelled') {
-      scriptStatus.value += progress.state === 'completed'
-        ? ` · ${t('database.msg.importSqlDone')}`
-        : ` · ${t('database.msg.importSqlCancelled')}`
-      scriptJobId.value = null
-    }
+function updateScriptProgress(progress: DbScriptProgress) {
+  if (progress.jobId !== scriptJobId.value) {
+    if (scriptPreparing.value && !scriptJobId.value) pendingScriptProgress = progress
+    return
+  }
+  const pct = progress.size ? Math.min(100, Math.round((progress.bytesRead / progress.size) * 100)) : 0
+  let text = t('database.msg.importSqlProgress', {
+    name: progress.name,
+    pct,
+    count: progress.statements,
   })
+  if (progress.state === 'failed') {
+    text += ` · ${t('database.msg.importSqlFailedDetail', {
+      line: progress.line,
+      error: progress.error || t('database.msg.importSqlUnknownError'),
+    })}`
+  } else if (progress.state === 'completed' || progress.state === 'cancelled') {
+    text += progress.state === 'completed'
+      ? ` · ${t('database.msg.importSqlDone')}`
+      : ` · ${t('database.msg.importSqlCancelled')}`
+  }
+  if (progress.state !== 'running') scriptJobId.value = null
+  scriptStatus.value = { state: progress.state, text }
+}
+
+onMounted(() => {
+  stopScriptProgress = window.LiteConnect.onDbScriptProgress(updateScriptProgress)
 })
 
 onBeforeUnmount(() => stopScriptProgress?.())
@@ -270,7 +305,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
         <div class="bk-topbar-right">
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
+            class="ui-btn ui-btn-ghost ui-btn-sm"
             :disabled="!session"
             :title="t('database.newQuery')"
             @click="openQueryTab()"
@@ -280,8 +315,8 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
           </button>
           <button
             type="button"
-            class="ui-btn ui-btn-sm"
-            :disabled="!session || !!scriptJobId"
+            class="ui-btn ui-btn-ghost ui-btn-sm"
+            :disabled="!session || scriptPreparing || !!scriptJobId"
             :title="t('database.importSql')"
             @click="importSqlScript"
           >
@@ -309,7 +344,19 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
           </button>
         </div>
       </header>
-      <div v-if="scriptStatus" class="bk-script-status" role="status">{{ scriptStatus }}</div>
+      <div v-if="scriptStatus" class="bk-script-status" :class="{ failed: scriptStatus.state === 'failed' }">
+        <span role="status">{{ scriptStatus.text }}</span>
+        <button
+          v-if="scriptStatus.state !== 'running'"
+          type="button"
+          class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-ghost"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          @click="scriptStatus = null"
+        >
+          <AppIcon name="close" size="xs" />
+        </button>
+      </div>
 
       <div class="bk-main">
         <DbNavTree
@@ -408,12 +455,13 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
                 >•</span>
                 <button
                   type="button"
-                  class="bk-tab-x"
+                  class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-close bk-tab-x"
+                  :title="t('common.close')"
                   :aria-label="t('common.close')"
                   @click.stop="closeTab(tab.id)"
                 ><AppIcon name="close" size="xs" /></button>
               </div>
-              <button type="button" class="bk-tab add" :title="t('database.newQuery')" @click="openQueryTab()">
+              <button type="button" class="ui-icon-btn ui-icon-btn-sm bk-tab add" :title="t('database.newQuery')" :aria-label="t('database.newQuery')" @click="openQueryTab()">
                 <AppIcon name="plus" size="sm" />
               </button>
             </div>
@@ -444,7 +492,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
               @begin-tx="beginTransaction"
               @commit-tx="commitTransaction"
               @rollback-tx="rollbackTransaction"
-              @retry="runQuerySql(activeQueryTab.sql, 'all')"
+              @retry="retryActiveQuery"
               @change-database="onQueryChangeDatabase"
               @copy-result="copyActiveResult"
               @export-csv="exportActiveResultCsv"
@@ -680,18 +728,24 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
 }
 
 .bk-script-status {
-  height: 24px;
   min-height: 24px;
-  padding: 0 12px;
+  padding: 4px 12px;
   display: flex;
   align-items: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 8px;
+  justify-content: space-between;
+  overflow-wrap: anywhere;
+  max-height: 25%;
+  overflow: auto;
   border-bottom: 1px solid var(--border-color);
   background: var(--accent-bg);
   color: var(--text-secondary);
   font-size: 11px;
+}
+
+.bk-script-status.failed {
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-primary));
+  color: var(--text-primary);
 }
 
 .bk-conn-name {
@@ -736,7 +790,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   flex-shrink: 0;
 }
 
-.bk-tab {
+.bk-tab:not(.add) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -753,7 +807,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   cursor: pointer;
 }
 
-.bk-tab:hover {
+.bk-tab:not(.add):hover {
   color: var(--text-primary);
   background: var(--hover-bg);
 }
@@ -765,9 +819,8 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
 }
 
 .bk-tab.add {
-  max-width: none;
-  font-weight: 700;
-  padding: 0 12px;
+  align-self: center;
+  margin-left: 2px;
 }
 
 .bk-tab-kind {
@@ -810,7 +863,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
 }
 
 .bk-tab.active .bk-tab-conn {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 .bk-tab-title {
@@ -859,14 +912,10 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   opacity: 0.9;
 }
 
+/* Compact size so the close icon fits inside the 30px tab. */
 .bk-tab-x {
-  display: inline-flex;
-  opacity: 0.5;
-}
-
-.bk-tab-x:hover {
-  opacity: 1;
-  color: var(--danger);
+  width: 18px;
+  height: 18px;
 }
 
 .bk-tab-empty {

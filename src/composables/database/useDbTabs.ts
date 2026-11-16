@@ -93,11 +93,6 @@ export function useDbTabs(deps: DbTabsDeps) {
             ? (tab.result.hasNext ? `${tab.result.total}+` : String(tab.result.total))
             : String(tab.result.total)
       extra = t('database.footerPage', { page: tab.page, total: totalLabel })
-    } else if (tab?.kind === 'query' && tab.result?.hasResultSet) {
-      extra = t('database.footerQueryRows', {
-        rows: tab.result.rowCount,
-        ms: tab.result.durationMs,
-      })
     }
     const multi =
       deps.liveSessionCount.value > 1
@@ -466,6 +461,7 @@ export function useDbTabs(deps: DbTabsDeps) {
     loadStructure: tableOps.loadStructure,
     runQuerySql: queryRun.runQuerySql,
     explainQuerySql: queryRun.explainQuerySql,
+    retryActiveQuery: queryRun.retryActiveQuery,
     beginTransaction: queryRun.beginTransaction,
     commitTransaction: queryRun.commitTransaction,
     rollbackTransaction: queryRun.rollbackTransaction,

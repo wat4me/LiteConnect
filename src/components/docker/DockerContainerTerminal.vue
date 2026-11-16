@@ -648,7 +648,7 @@ function onHostClick(): void {
       <div class="ct-actions">
         <button
           type="button"
-          class="ct-btn"
+          class="ct-btn ui-btn ui-btn-xs ui-btn-ghost"
           :title="t('terminal.search')"
           @click="toggleSearch"
         >
@@ -657,7 +657,7 @@ function onHostClick(): void {
         <button
           v-if="execState === 'ended' || execState === 'error' || execState === 'disconnected'"
           type="button"
-          class="ct-btn primary"
+          class="ct-btn primary ui-btn ui-btn-xs ui-btn-primary"
           :disabled="!canStart"
           @click="onRetry"
         >
@@ -666,7 +666,7 @@ function onHostClick(): void {
         <button
           v-if="showRetrySh"
           type="button"
-          class="ct-btn"
+          class="ct-btn ui-btn ui-btn-xs ui-btn-ghost"
           :disabled="!canStart"
           @click="onRetrySh"
         >
@@ -787,26 +787,6 @@ function onHostClick(): void {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.ct-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ct-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ct-btn.primary {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .ct-banner {

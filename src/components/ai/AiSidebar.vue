@@ -626,7 +626,7 @@ async function runCodeToTerminal(code: string) {
               v-if="displayModelName"
               ref="modelSwitcherButtonRef"
               type="button"
-              class="ai-model-switcher"
+              class="ui-btn ui-btn-ghost ui-btn-sm ai-model-switcher"
               :disabled="loading || savingComposer"
               :aria-expanded="showModelSwitcher"
               aria-haspopup="menu"
@@ -775,9 +775,9 @@ async function runCodeToTerminal(code: string) {
             </span>
           </button>
           <div class="ai-history-item-actions">
-            <button type="button" class="ai-history-item-action" :title="t('ai.renameConversation')" :aria-label="t('ai.renameConversation')" @click="handleRenameConversation(item.id, item.customTitle || item.title, $event)"><AppIcon name="edit" size="xs" /></button>
-            <button type="button" class="ai-history-item-action" :title="t(item.pinned ? 'ai.unpinConversation' : 'ai.pinConversation')" :aria-label="t(item.pinned ? 'ai.unpinConversation' : 'ai.pinConversation')" @click="handleTogglePin(item.id, item.pinned, $event)"><AppIcon :name="item.pinned ? 'pin-fill' : 'pin'" size="xs" /></button>
-            <button type="button" class="ai-history-item-action danger" :title="t('ai.deleteHistoryItem')" :aria-label="t('ai.deleteHistoryItem')" @click="handleDeleteConversation(item.id, $event)"><AppIcon name="delete" size="xs" /></button>
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm ai-history-item-action" :title="t('ai.renameConversation')" :aria-label="t('ai.renameConversation')" @click="handleRenameConversation(item.id, item.customTitle || item.title, $event)"><AppIcon name="edit" size="xs" /></button>
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm ai-history-item-action" :title="t(item.pinned ? 'ai.unpinConversation' : 'ai.pinConversation')" :aria-label="t(item.pinned ? 'ai.unpinConversation' : 'ai.pinConversation')" @click="handleTogglePin(item.id, item.pinned, $event)"><AppIcon :name="item.pinned ? 'pin-fill' : 'pin'" size="xs" /></button>
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger ai-history-item-action danger" :title="t('ai.deleteHistoryItem')" :aria-label="t('ai.deleteHistoryItem')" @click="handleDeleteConversation(item.id, $event)"><AppIcon name="delete" size="xs" /></button>
           </div>
         </div>
       </div>

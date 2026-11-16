@@ -303,7 +303,9 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 .workspace-dock-resize[aria-disabled=true] { cursor: default; }
 .dock-layout-button { margin-top: auto; margin-bottom: 8px; flex-shrink: 0; }
 .dock-backdrop { position: absolute; inset: 0; z-index: 2; background: #0003; }
-.is-single-panel .workspace-dock-region { z-index: 3; box-shadow: 0 6px 24px #0004; }
+.is-single-panel .workspace-dock-region { z-index: 3; box-shadow: var(--shadow-menu); }
+.is-single-panel .dock-left { border-radius: 0 var(--radius-window) var(--radius-window) 0; }
+.is-single-panel .dock-right { border-radius: var(--radius-window) 0 0 var(--radius-window); }
 .workspace-dock-targets { --dock-drop-band: 30px; position: absolute; inset: 0; z-index: 20; pointer-events: none; }
 .dock-layout-error { position: absolute; z-index: 8; bottom: 8px; left: 8px; right: 8px; width: fit-content; max-width: calc(100% - 16px); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--danger); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: var(--font-caption); }
 .dock-drop-strip {
@@ -339,7 +341,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
   text-align: center;
   overflow-wrap: anywhere;
 }
-.workspace-layout-menu { position: fixed; z-index: 4000; display: flex; flex-direction: column; min-width: 190px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; padding: 5px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: 0 8px 24px #0004; font-size: var(--font-body); -webkit-app-region: no-drag; }
+.workspace-layout-menu { position: fixed; z-index: 4000; display: flex; flex-direction: column; min-width: 190px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; padding: 5px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-menu); font-size: var(--font-body); -webkit-app-region: no-drag; }
 .workspace-layout-menu button { border: 0; background: transparent; color: inherit; text-align: left; font: inherit; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; }
 .workspace-layout-menu button:hover:not(:disabled), .workspace-layout-menu button:focus-visible { background: var(--accent-bg); color: var(--accent); outline: none; }
 .workspace-layout-menu button:disabled { opacity: .45; cursor: default; }

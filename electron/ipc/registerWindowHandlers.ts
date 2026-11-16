@@ -95,7 +95,7 @@ export function registerWindowHandlers(
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win || win.isDestroyed()) return
 
-      let finalColors = { color: '#0d1117', symbolColor: '#8b949e' }
+      let finalColors = { color: '#1f1e1d', symbolColor: '#a19e95' }
       try {
         const { titleBarThemes } = await import('../window/createWindow')
         finalColors = titleBarThemes[theme as keyof typeof titleBarThemes] || titleBarThemes.dark

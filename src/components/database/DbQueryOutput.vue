@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import type { QueryHistoryItem, QueryTab } from '@/domain/database/types'
 import DbResultGrid from './DbResultGrid.vue'
 import DbQueryHistoryPanel from './DbQueryHistoryPanel.vue'
@@ -88,7 +89,30 @@ const showPlanGrid = computed(
   () => !!props.tab.result?.hasResultSet && isPlan.value,
 )
 const truncated = computed(() => !!props.tab.result?.truncated)
+const previousOutput = computed(() => !!props.tab.result && (props.tab.loading || !!props.tab.error))
+const resultEmptyLabel = computed(() => {
+  if (props.tab.loading) return t('database.query.running')
+  if (props.tab.error) return t('database.msg.execFailed')
+  if (isPlan.value) return t('database.query.resultIsPlan')
+  if (props.tab.result) return t('database.query.noResultSet')
+  return t('database.query.resultEmpty')
+})
+const displayedRowCount = computed(() => {
+  const rows = props.tab.result?.rowCount ?? 0
+  return t(truncated.value ? 'database.query.truncatedRows' : 'database.query.resultRows', { rows })
+})
 const panelIds = computed(() => outputPanelDomIds(props.tab.id))
+
+async function copyError() {
+  const { error, errorCode, errorDetail } = props.tab
+  const text = [errorCode ? `${error} [${errorCode}]` : error, errorDetail].filter(Boolean).join('\n')
+  try {
+    await window.LiteConnect.clipboardWriteText(text)
+    ElMessage.success(t('database.msg.copied'))
+  } catch {
+    ElMessage.error(t('database.msg.copyFailed'))
+  }
+}
 
 function setPanel(panel: QueryOutputPanel) {
   emit('update:activePanel', panel)
@@ -113,19 +137,20 @@ function onTablistKeydown(e: KeyboardEvent) {
 watch(
   () =>
     [
+      props.tab.id,
       props.tab.error,
       props.tab.result,
       props.tab.outputKind,
       props.tab.loading,
     ] as const,
   (
-    curr: readonly [string, unknown, unknown, boolean],
-    prev: readonly [string, unknown, unknown, boolean] | undefined
+    curr,
+    prev,
   ) => {
     if (props.tab.loading) return
-    const wasLoading = prev ? prev[3] : false
+    const wasLoading = prev?.[4] ?? false
     // Only auto-switch when a run just finished or error/result identity changed after load
-    if (!wasLoading && prev && curr[0] === prev[0] && curr[1] === prev[1] && curr[2] === prev[2]) {
+    if (!wasLoading && prev && curr.slice(0, 4).every((value, index) => value === prev[index])) {
       return
     }
     let event: 'query-success' | 'query-error' | 'explain-success' | 'explain-error' | 'idle' =
@@ -147,6 +172,7 @@ watch(
     })
     if (next !== props.activePanel) emit('update:activePanel', next)
   },
+  { immediate: true },
 )
 </script>
 
@@ -224,18 +250,17 @@ watch(
       role="tabpanel"
       :aria-labelledby="panelIds.tabs.result"
     >
-      <div class="result-toolbar">
-        <span v-if="showResultGrid">
-          {{ t('database.query.resultRows', { rows: tab.result!.rowCount }) }}
-          <span v-if="truncated" class="badge trunc inline">{{ t('database.query.truncatedBadge') }}</span>
-          <template v-if="tab.filter.trim()">
+      <div v-if="showResultGrid" class="result-toolbar">
+        <span role="status">
+          <span v-if="previousOutput" class="badge trunc inline">{{ t('database.query.previousResult') }}</span>
+          {{ displayedRowCount }}
+          <template v-if="tab.result!.rows.length && tab.filter.trim()">
             · {{ t('database.query.filteredRows', { rows: queryDisplayRows.length }) }}
           </template>
           · {{ tab.result!.durationMs }}ms
         </span>
-        <span v-else class="dim">{{ t('database.query.resultEmpty') }}</span>
-        <div v-if="showResultGrid" class="result-actions">
-          <div class="grid-filter-field">
+        <div class="result-actions">
+          <div v-if="tab.result!.rows.length" class="grid-filter-field">
             <input
               v-model="tab.filter"
               class="ui-input ui-input-sm grid-filter-input"
@@ -266,25 +291,37 @@ watch(
         :columns="tab.result!.columns"
         :rows="queryDisplayRows"
         :sort="tab.sort"
-        :filter-active="!!tab.filter.trim()"
+        :filter-active="!!tab.result!.rows.length && !!tab.filter.trim()"
+        :empty-text="t('database.query.zeroRows')"
         @sort="emit('sort', $event)"
         @copy-cell="emit('copyCell', $event)"
       />
-      <div v-else class="ui-empty output-empty-container">
-        <div class="ui-empty-icon empty-icon" aria-hidden="true">
+      <div v-else-if="!tab.loading && !tab.error && !tab.result" class="ui-empty output-idle">
+        <div class="ui-empty-icon" aria-hidden="true">
           <AppIcon name="database" size="hero" />
         </div>
-        <span class="ui-empty-title">{{ t('database.query.resultEmpty') }}</span>
+        <span class="ui-empty-title">{{ resultEmptyLabel }}</span>
         <div class="empty-tips">
           <div class="tip-item">
-            <span class="tip-label">{{ t('database.query.runSelectionTip') }}</span>
-            <kbd class="tip-key">Ctrl + Enter</kbd>
+            <span>{{ t('database.query.runSelectionTip') }}</span>
+            <kbd>Ctrl + Enter</kbd>
           </div>
           <div class="tip-item">
-            <span class="tip-label">{{ t('database.query.saveScriptTip') }}</span>
-            <kbd class="tip-key">Ctrl + S</kbd>
+            <span>{{ t('database.query.saveScriptTip') }}</span>
+            <kbd>Ctrl + S</kbd>
           </div>
         </div>
+      </div>
+      <div v-else class="output-empty">
+        <span role="status">{{ resultEmptyLabel }}</span>
+        <button
+          v-if="!tab.loading && (tab.error || tab.result)"
+          type="button"
+          class="ui-btn ui-btn-sm"
+          @click="setPanel(tab.error || !isPlan ? 'messages' : 'plan')"
+        >
+          {{ t(tab.error || !isPlan ? 'database.query.viewMessages' : 'database.query.viewPlan') }}
+        </button>
       </div>
     </div>
 
@@ -292,26 +329,28 @@ watch(
     <div
       v-show="activePanel === 'messages'"
       :id="panelIds.panels.messages"
-      class="output-body"
+      class="output-body messages-body"
       role="tabpanel"
       :aria-labelledby="panelIds.tabs.messages"
       aria-live="polite"
     >
-      <div v-if="tab.error" class="err-panel">
-        <div class="err-summary">{{ tab.error }}</div>
-        <details v-if="tab.errorDetail" class="err-detail">
-          <summary><AppIcon name="chevron-right" size="xs" class="details-chevron" />{{ t('database.query.errorDetail') }}</summary>
-          <pre>{{ tab.errorDetail }}</pre>
-        </details>
-        <button
-          v-if="tab.errorRetryable"
-          type="button"
-          class="ui-btn ui-btn-sm"
-          style="margin-top: 8px"
-          @click="emit('retry')"
-        >
-          {{ t('database.query.retry') }}
-        </button>
+      <div v-if="tab.loading" class="grid-empty">{{ t('database.query.running') }}</div>
+      <div v-else-if="tab.error" class="err-panel">
+        <div class="err-header">
+          <AppIcon name="alert-circle" size="sm" class="err-icon" />
+          <strong class="err-summary">{{ tab.error }}</strong>
+          <code v-if="tab.errorCode" class="err-code">{{ tab.errorCode }}</code>
+          <div class="err-actions">
+            <button v-if="tab.errorRetryable" type="button" class="ui-btn ui-btn-sm" @click="emit('retry')">
+              {{ t('database.query.retry') }}
+            </button>
+            <button type="button" class="ui-btn ui-btn-sm" @click="copyError">
+              <AppIcon name="copy" size="xs" />
+              {{ t('database.query.copyError') }}
+            </button>
+          </div>
+        </div>
+        <pre v-if="tab.errorDetail" class="err-detail" tabindex="0" :aria-label="t('database.query.errorDetail')">{{ tab.errorDetail }}</pre>
       </div>
       <div
         v-else-if="tab.result && !tab.result.hasResultSet && !isPlan"
@@ -334,9 +373,9 @@ watch(
         class="ok-panel"
       >
         <template v-if="(tab.result.batch?.statementCount ?? 0) > 1">
-          {{ t('database.query.successBatch', {
+          {{ t('database.query.successBatchResult', {
             count: tab.result.batch!.statementCount,
-            rows: tab.result.affectedRows ?? tab.result.rowCount,
+            rows: tab.result.rowCount,
             ms: tab.result.durationMs,
           }) }}
         </template>
@@ -357,14 +396,13 @@ watch(
       role="tabpanel"
       :aria-labelledby="panelIds.tabs.plan"
     >
-      <div class="result-toolbar">
+      <div v-if="showPlanGrid" class="result-toolbar">
         <span class="plan-label">{{ t('database.query.planLabel') }}</span>
-        <span v-if="showPlanGrid">
-          · {{ tab.result!.rowCount }} rows · {{ tab.result!.durationMs }}ms
-          <span v-if="truncated" class="badge trunc inline">{{ t('database.query.truncatedBadge') }}</span>
+        <span>
+          <span v-if="previousOutput" class="badge trunc inline">{{ t('database.query.previousPlan') }}</span>
+          {{ displayedRowCount }} · {{ tab.result!.durationMs }}ms
         </span>
-        <span v-else class="dim">{{ t('database.query.planEmpty') }}</span>
-        <div v-if="showPlanGrid" class="result-actions">
+        <div class="result-actions">
           <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('database.query.copyTitle')" :aria-label="t('database.query.copyTitle')" @click="emit('copyResult')">
             <AppIcon name="copy" size="sm" />
           </button>
@@ -421,6 +459,7 @@ watch(
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  overflow-x: auto;
 }
 
 .output-tab {
@@ -436,6 +475,8 @@ watch(
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .output-tab:hover {
@@ -443,8 +484,8 @@ watch(
 }
 
 .output-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -484,6 +525,7 @@ watch(
 .result-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border-color);
@@ -571,112 +613,114 @@ watch(
 }
 
 .err-panel {
+  flex: none;
   margin: 10px;
   padding: 10px 12px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-lg);
   border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border-color));
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  background: color-mix(in srgb, var(--danger) 5%, var(--bg-primary));
+  color: var(--text-primary);
+}
+
+.messages-body {
+  overflow-y: auto;
+}
+
+.err-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.err-icon {
+  flex-shrink: 0;
   color: var(--danger);
-  font-size: var(--db-font-size, 13px);
-  white-space: pre-wrap;
-  font-family: var(--db-font-family, var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace));
 }
 
 .err-summary {
-  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.err-code {
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--text-secondary);
+}
+
+.err-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-inline-start: auto;
 }
 
 .err-detail {
-  margin-top: 6px;
-  font-size: var(--db-font-size, 13px);
-}
-
-.err-detail summary {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  list-style: none;
-  cursor: pointer;
-}
-
-.err-detail summary::-webkit-details-marker {
-  display: none;
-}
-
-.err-detail .details-chevron {
-  flex-shrink: 0;
-  transition: transform 0.12s ease;
-}
-
-.err-detail[open] > summary .details-chevron {
-  transform: rotate(90deg);
-}
-
-.err-detail pre {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  font: var(--db-font-size, 13px)/1.5 var(--db-font-family, var(--font-mono, monospace));
   white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 160px;
+  overflow-wrap: anywhere;
+  max-height: 220px;
   overflow: auto;
 }
 
-.output-empty-container {
-  flex: 1;
-  padding: 40px 20px;
+.output-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 0;
+  padding: 24px 12px;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
-.empty-icon {
-  opacity: 0.7;
+.output-idle {
+  flex: 1;
+  justify-content: safe center;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px;
+}
+
+.output-idle .ui-empty-icon {
+  flex-shrink: 0;
 }
 
 .empty-tips {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px 16px;
-  max-width: 320px;
+  box-sizing: border-box;
   width: 100%;
+  max-width: 320px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  font-size: 12px;
 }
 
 .tip-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  text-align: start;
 }
 
-.tip-label {
-  opacity: 0.75;
-}
-
-.tip-key {
-  font-family: var(--font-mono, monospace);
-  background: var(--bg-primary);
+.tip-item kbd {
+  padding: 2px 6px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 11px;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+  background: var(--bg-primary);
   color: var(--text-primary);
+  font: 11px var(--font-mono);
+  white-space: nowrap;
 }
-
-.tip-link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  text-decoration: underline;
-}
-
-.tip-link-btn:hover {
-  color: var(--accent-hover, var(--accent));
-}
-
 </style>

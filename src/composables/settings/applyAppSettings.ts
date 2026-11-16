@@ -12,7 +12,7 @@ export function applyAppSettings(all: AppSettingsAll, changed?: Array<keyof AppS
   if (affects('uiDensity', 'uiFontSize')) applyUiSizes(all)
   if (affects('theme', 'customColors')) {
     const theme = useTheme()
-    theme.setCustomColors(all.customColors || { fontColor: '#e6edf3', bgColor: '#0d1117' })
+    theme.setCustomColors(all.customColors || { fontColor: '#ece9e1', bgColor: '#262624' })
     if (['dark', 'light', 'eyecare', 'custom'].includes(all.theme)) theme.setTheme(all.theme as Theme)
   }
   if (affects('appBackground')) {

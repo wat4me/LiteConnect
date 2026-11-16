@@ -379,7 +379,7 @@ const diskMaxPercent = computed(() => {
   padding: 10px;
 }
 
-.monitor-alert-btn { position: relative; color: var(--text-secondary); }
+.monitor-alert-btn { position: relative; }
 .monitor-alert-btn.is-on { color: var(--success); }
 .monitor-alert-btn.is-on::after {
   content: '';
@@ -404,7 +404,7 @@ const diskMaxPercent = computed(() => {
 
 .monitor-title {
   font-weight: 600;
-  color: var(--success);
+  color: var(--text-primary);
   font-size: 13px;
   flex-shrink: 0;
 }

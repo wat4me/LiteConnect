@@ -333,16 +333,16 @@ defineExpose({ show })
 <template>
   <AiKnowledgeGroupDialog v-if="KNOWLEDGE_GROUPS_ENABLED && groupDialog && active" :group-id="editingGroupId" :initial-ids="overview.targets.map(server => server.connectionId)" @close="groupDialog = false" @saved="groupSaved" />
   <span v-if="!groupId" class="knowledge-controls">
-    <button ref="trigger" type="button" class="knowledge-trigger" :title="triggerLabel" :aria-label="triggerLabel" aria-haspopup="dialog" :aria-expanded="open" @click="show()"><AppIcon name="file-text" size="sm" /><span v-if="count" class="knowledge-count" aria-hidden="true">{{ count > 99 ? '99+' : count }}</span></button>
+    <button ref="trigger" type="button" class="ui-btn ui-btn-ghost ui-btn-xs knowledge-trigger" :title="triggerLabel" :aria-label="triggerLabel" aria-haspopup="dialog" :aria-expanded="open" @click="show()"><AppIcon name="file-text" size="sm" /><span v-if="count" class="knowledge-count" aria-hidden="true">{{ count > 99 ? '99+' : count }}</span></button>
     <label v-if="singleTarget || !overview.targets.length" class="knowledge-mode-field" :title="usageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="knowledgeMode(singleTarget)" :title="usageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="usageHint" :disabled="!singleTarget || !active || pending || busy" @change="changeMode($event, singleTarget)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
-    <button v-else-if="visibleGroups.length" type="button" class="knowledge-usage-summary" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">
+    <button v-else-if="visibleGroups.length" type="button" class="ui-btn ui-btn-ghost ui-btn-xs knowledge-usage-summary" aria-haspopup="dialog" :aria-expanded="open" :disabled="!active || pending" @click="show()">
       {{ t('ai.knowledge.group.summary', { servers: enabledCount, groups: visibleGroups.filter(group => group.enabled).length }) }}<AppIcon name="chevron-down" size="xs" />
     </button>
     <ElPopover v-else :visible="modePickerOpen" role="group" placement="top-start" :width="300" :offset="6" :show-arrow="false" :persistent="false" :trigger-keys="[]"
       popper-class="knowledge-mode-popover" :popper-style="{ maxWidth: 'calc(100vw - 24px)' }" @after-enter="focusModePicker">
       <template #reference>
         <span class="knowledge-usage-anchor">
-          <button ref="modePickerTrigger" type="button" class="knowledge-usage-summary"
+          <button ref="modePickerTrigger" type="button" class="ui-btn ui-btn-ghost ui-btn-xs knowledge-usage-summary"
             :title="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })"
             :aria-label="t('ai.knowledge.usageManage', { enabled: enabledCount, total: overview.targets.length })"
             aria-haspopup="dialog" :aria-expanded="modePickerOpen" :aria-controls="modePickerOpen ? modePickerId : undefined"
@@ -401,7 +401,7 @@ defineExpose({ show })
           </aside>
           <main>
             <template v-if="document || editing">
-              <div class="knowledge-actions"><button type="button" class="ui-btn ui-btn-sm" :disabled="pending || (editing && (!title.trim() || invalidEditor))" @click="editing ? save() : beginEdit()">{{ t(editing ? 'common.save' : 'ai.knowledge.edit') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="exportDocument">{{ t('ai.knowledge.export') }}</button><button v-if="KNOWLEDGE_GROUPS_ENABLED && !isSystem && !target?.groupId && visibleGroups.some(group => group.memberConnectionIds?.includes(connectionId))" type="button" class="ui-btn ui-btn-sm knowledge-copy-group" :disabled="!document || pending || editing || busy" @click="copyToGroup">{{ t('ai.knowledge.group.copy') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="remove">{{ t('common.delete') }}</button></div>
+              <div class="knowledge-actions"><button type="button" class="ui-btn ui-btn-sm" :disabled="pending || (editing && (!title.trim() || invalidEditor))" @click="editing ? save() : beginEdit()">{{ t(editing ? 'common.save' : 'ai.knowledge.edit') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!document || pending" @click="exportDocument">{{ t('ai.knowledge.export') }}</button><button v-if="KNOWLEDGE_GROUPS_ENABLED && !isSystem && !target?.groupId && visibleGroups.some(group => group.memberConnectionIds?.includes(connectionId))" type="button" class="ui-btn ui-btn-sm knowledge-copy-group" :disabled="!document || pending || editing || busy" @click="copyToGroup">{{ t('ai.knowledge.group.copy') }}</button><button type="button" class="ui-btn ui-btn-sm ui-btn-danger" :disabled="!document || pending" @click="remove">{{ t('common.delete') }}</button></div>
               <p v-if="document" class="knowledge-meta">{{ t('ai.knowledge.updated', { revision: document.revision, author: t(document.author === 'ai' ? 'ai.knowledge.aiAuthor' : 'ai.knowledge.userAuthor'), time: new Date(document.updatedAt).toLocaleString() }) }}</p>
               <p v-if="changed" class="knowledge-warning">{{ t('ai.knowledge.changed') }}</p>
               <template v-if="editing"><input v-model="title" maxlength="120" :disabled="pending" :aria-label="t('ai.knowledge.documentTitle')" :placeholder="t('ai.knowledge.documentTitle')" />
@@ -444,10 +444,11 @@ defineExpose({ show })
 .knowledge-mode-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .knowledge-mode-field .knowledge-mode-select { flex: 0 0 auto; width: auto; min-width: 0; max-width: 120px; height: 100%; padding: 0 3px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .knowledge-toolbar .knowledge-mode-field { height: var(--control-h-sm); }
-.knowledge-trigger, .knowledge-usage-summary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); box-sizing: border-box; padding: 0 5px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: var(--font-caption); line-height: 1; white-space: nowrap; cursor: pointer; }
-:is(.knowledge-trigger, .knowledge-usage-summary):is(:hover, [aria-expanded="true"]):not(:disabled) { background: var(--hover-bg); color: var(--text-primary); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color)); }
+/* Composer toolbar buttons follow the composer's tool size (24px in the terminal panel). */
+.knowledge-trigger, .knowledge-usage-summary { flex: 0 0 auto; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); padding: 0 5px; }
+:is(.knowledge-trigger, .knowledge-usage-summary)[aria-expanded="true"]:not(:disabled) { background: var(--tab-selected-surface); color: var(--text-primary); }
 :is(.knowledge-trigger, .knowledge-usage-summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.knowledge-mode-select:disabled, .knowledge-usage-summary:disabled { opacity: .5; cursor: not-allowed; }
+.knowledge-mode-select:disabled { opacity: .5; cursor: not-allowed; }
 .knowledge-count { flex-shrink: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
 .knowledge-mode-picker { color: var(--text-primary); font-size: var(--font-ui-sm); }
 .knowledge-mode-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 6px 4px; }
@@ -464,8 +465,8 @@ defineExpose({ show })
 .knowledge-mode-row .knowledge-mode-select:focus-visible { box-shadow: none; }
 :global(.knowledge-mode-popover.el-popover.el-popper) { padding: 8px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-menu); max-height: min(360px, calc(100vh - 24px)); overflow-y: auto; box-sizing: border-box; }
 /* Electron titlebar drag regions intercept native clicks even above higher-z-index overlays. */
-.knowledge-layer { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(titlebar-area-height, var(--titlebar-height, 36px))); box-sizing: border-box; background: #0005; -webkit-app-region: no-drag; }
-.knowledge-panel { display: flex; flex-direction: column; width: min(1000px, 100%); height: min(760px, 100%); max-height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 12px 48px #0004; -webkit-app-region: no-drag; }
+.knowledge-layer { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(titlebar-area-height, var(--titlebar-height, 36px))); box-sizing: border-box; background: var(--overlay-bg); -webkit-app-region: no-drag; }
+.knowledge-panel { display: flex; flex-direction: column; width: min(1000px, 100%); height: min(760px, 100%); max-height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: var(--shadow-dialog); -webkit-app-region: no-drag; }
 header { display: flex; align-items: center; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border-color); }
 header button { margin-left: auto; -webkit-app-region: no-drag; }
 .knowledge-local, .knowledge-meta, .knowledge-notice, .knowledge-doc small { color: var(--text-secondary); font-size: var(--font-caption); }
@@ -481,7 +482,8 @@ aside, main { min-width: 0; overflow: auto; padding: 12px; }
 aside { border-right: 1px solid var(--border-color); }
 .knowledge-create, .knowledge-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .knowledge-doc { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 9px; border: none; border-radius: 6px; background: transparent; color: var(--text-primary); text-align: left; overflow-wrap: anywhere; cursor: pointer; }
-.knowledge-doc.selected { background: var(--accent-bg); color: var(--accent); }
+.knowledge-doc:hover:not(:disabled) { background: var(--tab-hover-surface); }
+.knowledge-doc.selected { background: var(--tab-selected-surface); color: var(--text-primary); }
 main { display: flex; flex-direction: column; gap: 10px; }
 main h3, .knowledge-meta { margin: 0; overflow-wrap: anywhere; }
 input, textarea { width: 100%; box-sizing: border-box; }

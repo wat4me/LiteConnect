@@ -359,7 +359,7 @@ function toggleTool(id: WorkspaceTool) {
           }}
           <template v-if="approvalHint.extra">{{ t('ai.approvalHintMore', { n: approvalHint.extra }) }}</template>
         </span>
-        <button type="button" class="ai-approval-bar-btn" @click="emit('jump-ai-approval', approvalHint.sessionId)">
+        <button type="button" class="ai-approval-bar-btn ui-btn ui-btn-xs ui-btn-primary" @click="emit('jump-ai-approval', approvalHint.sessionId)">
           {{ t('ai.approvalHintAction') }}
         </button>
       </div>
@@ -562,19 +562,6 @@ function toggleTool(id: WorkspaceTool) {
 
 .ai-approval-bar-btn {
   flex-shrink: 0;
-  height: 24px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--warning);
-  color: var(--bg-primary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.ai-approval-bar-btn:hover {
-  filter: brightness(1.05);
 }
 
 .terminal-host {

@@ -286,7 +286,7 @@ app.whenReady().then(async () => {
       const root=document.documentElement;
       const row=document.querySelector('.connection-row'); row.classList.add('keyboard-active');
       const chip=document.querySelector('.tag-filter .dropdown-trigger');
-      const probe=document.createElement('span'); probe.style.background='var(--accent-bg)'; document.body.append(probe);
+      const probe=document.createElement('span'); probe.style.background='var(--tab-selected-surface)'; document.body.append(probe);
       const result={ background:getComputedStyle(row).backgroundColor, expected:getComputedStyle(probe).backgroundColor,
         tag:getComputedStyle(row).borderLeftColor, chipText:getComputedStyle(chip).color, text:getComputedStyle(root).getPropertyValue('--text-primary').trim() };
       probe.remove(); return result;
@@ -298,10 +298,10 @@ app.whenReady().then(async () => {
     assert.equal(actions.length, 4, 'Copy, edit, pin and more actions remain discoverable')
     assert.ok(actions.every(action => action.opacity === '1' && action.pointerEvents !== 'none'), `${theme} row actions are visible and clickable without hover`)
     if (theme === 'custom') {
-      await run('document.documentElement.style.setProperty("--accent", "#ae49e1")')
+      await run('document.documentElement.style.setProperty("--text-primary", "#ae49e1")')
       await new Promise(resolve => setTimeout(resolve, 160))
-      const dynamic = await run(`(() => {const row=document.querySelector('.connection-row');const probe=document.createElement('span');probe.style.background='var(--accent-bg)';document.body.append(probe);const result={row:getComputedStyle(row).backgroundColor,expected:getComputedStyle(probe).backgroundColor};probe.remove();return result})()`)
-      assert.equal(dynamic.row, dynamic.expected, 'Runtime accent overrides update selected rows')
+      const dynamic = await run(`(() => {const row=document.querySelector('.connection-row');const probe=document.createElement('span');probe.style.background='var(--tab-selected-surface)';document.body.append(probe);const result={row:getComputedStyle(row).backgroundColor,expected:getComputedStyle(probe).backgroundColor};probe.remove();return result})()`)
+      assert.equal(dynamic.row, dynamic.expected, 'Runtime token overrides update selected rows (neutral selection, docs/UI_STYLES.md)')
     }
   }
   await run('window.__uiRegression.setTheme("dark")')
@@ -412,7 +412,7 @@ app.whenReady().then(async () => {
     assert.equal(bounds.binding === 'none', width < 340, 'Binding badge yields space on narrow panes')
     await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
     await waitFor('document.querySelector(".sftp-toolbar-menu")')
-    assert.equal(await run('document.querySelectorAll(".sftp-toolbar-menu button").length'), 3, 'Secondary SFTP actions remain available')
+    assert.equal(await run('document.querySelectorAll(".sftp-toolbar-menu button").length'), 4, 'Secondary SFTP actions remain available (collapse, upload folder, sync, query cwd)')
     assert.equal(await run(`(() => {const menu=document.querySelector('.sftp-toolbar-menu').getBoundingClientRect();const pane=document.querySelector('.sftp-toolbar-fixture').getBoundingClientRect();return menu.left>=pane.left-1 && menu.right<=pane.right+1})()`), true, 'Overflow menu fits within the pane')
     if (width === 280) await saveScreenshot('sftp-toolbar-narrow.png')
     await run('document.querySelector(".sftp-toolbar-more .dropdown-trigger").click()')
@@ -1200,14 +1200,14 @@ app.whenReady().then(async () => {
   assert.ok(await run(`(() => {const toolbar=document.querySelector('.lite-ai-chat .ai-header');const centers=['.workspace-back','.ai-title','.workspace-target','.ai-header-actions','.workspace-session-action'].map(selector=>{const r=toolbar.querySelector(selector).getBoundingClientRect();return r.top+r.height/2});return Math.max(...centers)-Math.min(...centers)<=1})()`), 'Title, server information and session actions align on one row in a wide window')
   assert.equal(await run(`document.querySelectorAll('.lite-ai-chat .ai-header-actions button').length`), 3, 'Workspace exposes execution history, clear, and the conversation menu')
   assert.ok(await run(`(() => {const button=document.querySelector('.lite-ai-chat .workspace-clear-chat');return button.checkVisibility() && !!button.querySelector('svg') && !button.textContent.trim() && button.getAttribute('aria-label')==='清空当前对话'})()`), 'The clear icon stays visible with an explicit accessible name')
-  assert.equal(await run(`document.querySelector('.workspace-session-action').textContent.trim()`), '关闭会话', 'Legacy and scoped chats use the same close action')
+  assert.equal(await run(`document.querySelector('.workspace-session-action').getAttribute('aria-label')`), '关闭会话', 'Legacy and scoped chats use the same close action')
   await openConversationMenu()
   assert.deepEqual(await run(`Array.from(document.querySelectorAll('.ai-conversation-menu [data-action]')).map(button=>button.dataset.action)`), ['new-current','new-scope','history','settings','disconnect'])
   await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}))`)
   assert.equal(await run('document.activeElement.dataset.action'), 'new-scope', 'Arrow keys move through enabled actions')
   await run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))`)
   await waitFor('!document.querySelector(".ai-conversation-menu") && document.activeElement.classList.contains("ai-conversation-menu-trigger")')
-  assert.ok(await run(`(() => {const button=document.querySelector('.workspace-session-action');const style=getComputedStyle(button);return !!button.querySelector('svg') && style.borderTopStyle==='solid' && parseFloat(style.borderTopWidth)>=1 && !['transparent','rgba(0, 0, 0, 0)'].includes(style.backgroundColor)})()`), 'Closing a session has an icon, visible border and surface before hover')
+  assert.ok(await run(`(() => {const button=document.querySelector('.workspace-session-action');const style=getComputedStyle(button);return !!button.querySelector('svg') && button.getAttribute('aria-label') && ['transparent','rgba(0, 0, 0, 0)'].includes(style.backgroundColor)})()`), 'Closing a session is a labelled borderless header icon button (docs/UI_STYLES.md)')
   await run(`window.__uiRegression.setTheme('light')`)
   await saveScreenshot('lite-ai-desktop-chat-light.png')
   await run(`window.__uiRegression.setTheme('dark')`)

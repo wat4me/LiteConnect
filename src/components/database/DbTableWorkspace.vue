@@ -171,8 +171,8 @@ const structureTab = computed((): StructureTab => ({
 }
 
 .panel-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
   font-weight: 600;
 }
 

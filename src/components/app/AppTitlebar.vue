@@ -6,10 +6,12 @@ import SettingsAppResources from '@/components/settings/SettingsAppResources.vue
 import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   appMode: 'ssh' | 'database' | 'ai'
   showSettingsPage: boolean
-}>()
+  /** The module menu duplicates the module rail; show it only where the rail is absent. */
+  moduleMenu?: boolean
+}>(), { moduleMenu: true })
 
 const emit = defineEmits<{
   (e: 'enter-ssh', forceHome?: boolean): void
@@ -131,7 +133,7 @@ watch(
   <header class="app-titlebar">
     <div class="titlebar-safe">
       <div class="titlebar-left">
-        <div class="titlebar-brand">
+        <div v-if="moduleMenu" class="titlebar-brand">
           <button
             ref="brandButtonRef"
             type="button"
@@ -183,6 +185,8 @@ watch(
             </div>
           </Teleport>
         </div>
+        <!-- Host tabs live in the titlebar (one row instead of two); empty space stays draggable. -->
+        <div v-if="$slots.tabs" class="titlebar-tabs"><slot name="tabs" /></div>
       </div>
 
       <div class="titlebar-right">
@@ -235,7 +239,7 @@ watch(
             <span>{{ t('about.resources') }}</span>
             <button
               type="button"
-              class="titlebar-resource-close"
+              class="titlebar-resource-close ui-icon-btn ui-icon-btn-sm ui-icon-btn-close"
               :title="t('common.close')"
               :aria-label="t('common.close')"
               @click="closeResourcePopup"
@@ -254,7 +258,7 @@ watch(
 .app-titlebar {
   height: env(titlebar-area-height, 36px);
   min-height: env(titlebar-area-height, 36px);
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border-bottom: none;
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -289,6 +293,31 @@ watch(
   -webkit-app-region: drag;
 }
 
+.titlebar-tabs {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  margin-left: -6px;
+}
+/* The host tab strip blends into the titlebar instead of drawing its own band. */
+.titlebar-tabs :deep(.tab-bar) {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  padding-right: 0;
+  background: transparent;
+  border-bottom: 0;
+}
+.titlebar-tabs :deep(.home-zone) {
+  width: auto;
+  min-width: 0;
+  padding-right: 2px;
+  border-right: 0;
+}
 .titlebar-right {
   /* Only the actual buttons should be no-drag. Let the empty middle area stay
      inside titlebar-left so it remains a native window drag target. */
@@ -321,7 +350,7 @@ watch(
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--success);
+  color: var(--text-primary);
   font: inherit;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
@@ -329,9 +358,10 @@ watch(
 }
 
 .titlebar-brand-mod-text {
-  font-size: var(--font-ui);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-family: var(--font-serif);
+  font-size: calc(var(--font-ui) + 2px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1;
 }
 
@@ -343,7 +373,7 @@ watch(
 
 .titlebar-brand-module:hover,
 .titlebar-brand-module.open {
-  background: color-mix(in srgb, var(--success) 12%, transparent);
+  background: var(--tab-hover-surface);
 }
 
 .titlebar-brand-module:focus-visible {
@@ -358,7 +388,7 @@ watch(
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-menu);
   z-index: 12000;
   -webkit-app-region: no-drag;
 }
@@ -393,7 +423,7 @@ watch(
   width: 12px;
   flex-shrink: 0;
   font-size: var(--font-caption);
-  color: var(--success);
+  color: var(--accent);
   text-align: center;
 }
 
@@ -415,13 +445,13 @@ watch(
 }
 
 .titlebar-icon-btn:hover {
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
 .titlebar-icon-btn.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .titlebar-icon-btn:focus-visible {
@@ -438,7 +468,7 @@ watch(
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-menu);
   z-index: 12000;
   -webkit-app-region: no-drag;
 }
@@ -458,24 +488,6 @@ watch(
   background: var(--bg-secondary);
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
-}
-
-.titlebar-resource-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--icon-btn-sm);
-  height: var(--icon-btn-sm);
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.titlebar-resource-close:hover {
-  background: var(--hover-bg);
   color: var(--text-primary);
 }
 </style>

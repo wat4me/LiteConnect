@@ -53,7 +53,7 @@ function loadCustomColors(): CustomColors {
     const saved = localStorage.getItem(CUSTOM_COLORS_KEY)
     if (saved) return JSON.parse(saved)
   } catch {}
-  return { fontColor: '#e6edf3', bgColor: '#0d1117' }
+  return { fontColor: '#ece9e1', bgColor: '#262624' }
 }
 
 const CUSTOM_CSS_VARS = [
@@ -71,38 +71,43 @@ function clearCustomVars() {
   }
 }
 
-function applyCustomColors(colors: CustomColors) {
+/** CSS variables for a custom theme. Shared by the app root and the settings preview. */
+export function customThemeVariables(colors: CustomColors): Record<string, string> {
   const { fontColor, bgColor } = colors
+  const isDark = getLuminance(bgColor) < 0.5
+  const chrome = mixColors(bgColor, fontColor, isDark ? 0.08 : 0.04)
+  return {
+    '--bg-primary': bgColor,
+    '--bg-secondary': chrome,
+    '--bg-tertiary': mixColors(bgColor, fontColor, isDark ? 0.15 : 0.08),
+    '--border-color': mixColors(bgColor, fontColor, isDark ? 0.2 : 0.15),
+    '--text-primary': fontColor,
+    '--text-secondary': mixColors(fontColor, bgColor, isDark ? 0.4 : 0.45),
+    '--accent': isDark ? '#d97757' : '#c4623f',
+    '--accent-hover': isDark ? '#e48c6e' : '#a9522f',
+    // Keep derived highlights linked to the active token, including CSS overrides.
+    '--accent-bg': `color-mix(in srgb, var(--accent) ${isDark ? 10 : 8}%, transparent)`,
+    '--danger': isDark ? '#ef6a6a' : '#c2364a',
+    '--success': isDark ? '#8cbf73' : '#4c8738',
+    '--warning': isDark ? '#e3ac5b' : '#a46c18',
+    '--scrollbar-thumb': mixColors(bgColor, fontColor, isDark ? 0.2 : 0.15),
+    '--scrollbar-thumb-hover': mixColors(bgColor, fontColor, isDark ? 0.3 : 0.22),
+    '--overlay-bg': isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)',
+    '--hover-bg': isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+    '--selection-bg': `color-mix(in srgb, var(--accent) ${isDark ? 30 : 20}%, transparent)`,
+    '--titlebar-bg': chrome,
+    '--titlebar-symbol': mixColors(fontColor, bgColor, 0.5),
+  }
+}
+
+function applyCustomColors(colors: CustomColors) {
   const root = document.documentElement
   root.setAttribute('data-theme', 'custom')
-
-  const isDark = getLuminance(bgColor) < 0.5
-  const accent = isDark ? '#58a6ff' : '#0969da'
-  const accentHover = isDark ? '#79c0ff' : '#0550ae'
-
-  root.style.setProperty('--bg-primary', bgColor)
-  root.style.setProperty('--bg-secondary', mixColors(bgColor, fontColor, isDark ? 0.08 : 0.04))
-  root.style.setProperty('--bg-tertiary', mixColors(bgColor, fontColor, isDark ? 0.15 : 0.08))
-  root.style.setProperty('--border-color', mixColors(bgColor, fontColor, isDark ? 0.2 : 0.15))
-  root.style.setProperty('--text-primary', fontColor)
-  root.style.setProperty('--text-secondary', mixColors(fontColor, bgColor, isDark ? 0.4 : 0.45))
-  root.style.setProperty('--accent', accent)
-  root.style.setProperty('--accent-hover', accentHover)
-  // Keep derived highlights linked to the active token, including CSS overrides.
-  root.style.setProperty('--accent-bg', `color-mix(in srgb, var(--accent) ${isDark ? 10 : 8}%, transparent)`)
-  root.style.setProperty('--danger', isDark ? '#f85149' : '#cf222e')
-  root.style.setProperty('--success', isDark ? '#3fb950' : '#1a7f37')
-  root.style.setProperty('--warning', isDark ? '#d29922' : '#9a6700')
-  root.style.setProperty('--scrollbar-thumb', mixColors(bgColor, fontColor, isDark ? 0.2 : 0.15))
-  root.style.setProperty('--scrollbar-thumb-hover', mixColors(bgColor, fontColor, isDark ? 0.3 : 0.22))
-  root.style.setProperty('--overlay-bg', isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)')
-  root.style.setProperty('--hover-bg', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
-  root.style.setProperty('--selection-bg', `color-mix(in srgb, var(--accent) ${isDark ? 30 : 20}%, transparent)`)
-  root.style.setProperty('--titlebar-bg', bgColor)
-  root.style.setProperty('--titlebar-symbol', mixColors(fontColor, bgColor, 0.5))
-
+  const variables = customThemeVariables(colors)
+  for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value)
+  const chrome = variables['--titlebar-bg']
   try {
-    const titleBarColors = { color: bgColor, symbolColor: mixColors(fontColor, bgColor, 0.5) }
+    const titleBarColors = { color: chrome, symbolColor: variables['--titlebar-symbol'] }
     window.LiteConnect?.updateTitleBar('custom', titleBarColors)
   } catch {}
 }
@@ -190,8 +195,8 @@ export const terminalPaletteOrder: TerminalPaletteId[] = [
 export const terminalPaletteLabels: Record<TerminalPaletteId, string> = new Proxy(
   {
     auto: '',
-    dark: 'GitHub Dark',
-    light: 'GitHub Light',
+    dark: 'Clay Dark',
+    light: 'Clay Light',
     eyecare: '',
     dracula: 'Dracula',
     'solarized-dark': 'Solarized Dark',
@@ -318,48 +323,48 @@ export function pickInstalledFontFamily(preferred?: string | null): string {
 
 const presetPalettes: Record<string, Record<string, string>> = {
   dark: {
-    background: '#0d1117',
-    foreground: '#e6edf3',
-    cursor: '#58a6ff',
-    selectionBackground: 'rgba(88,166,255,0.3)',
-    black: '#0d1117',
-    red: '#ff7b72',
-    green: '#3fb950',
-    yellow: '#d29922',
-    blue: '#58a6ff',
-    magenta: '#bc8cff',
-    cyan: '#39c5cf',
-    white: '#e6edf3',
-    brightBlack: '#8b949e',
-    brightRed: '#ffa198',
-    brightGreen: '#56d364',
-    brightYellow: '#e3b341',
-    brightBlue: '#79c0ff',
-    brightMagenta: '#d2a8ff',
-    brightCyan: '#56d4dd',
-    brightWhite: '#ffffff',
+    background: '#262624',
+    foreground: '#e8e5dc',
+    cursor: '#d97757',
+    selectionBackground: 'rgba(217,119,87,0.30)',
+    black: '#1f1e1d',
+    red: '#ef7a6f',
+    green: '#a5c67c',
+    yellow: '#e6b562',
+    blue: '#82a9e0',
+    magenta: '#c59de0',
+    cyan: '#76c3b9',
+    white: '#d6d3ca',
+    brightBlack: '#8d8a82',
+    brightRed: '#f59b91',
+    brightGreen: '#bdd99b',
+    brightYellow: '#f0cb86',
+    brightBlue: '#a4c2ea',
+    brightMagenta: '#d8b9ee',
+    brightCyan: '#9ad6cd',
+    brightWhite: '#faf9f5',
   },
   light: {
     background: '#ffffff',
-    foreground: '#1f2328',
-    cursor: '#0969da',
-    selectionBackground: 'rgba(9,105,218,0.2)',
-    black: '#1f2328',
-    red: '#cf222e',
-    green: '#1a7f37',
-    yellow: '#9a6700',
-    blue: '#0969da',
-    magenta: '#8250df',
-    cyan: '#0b7570',
-    white: '#656d76',
-    brightBlack: '#6e7781',
-    brightRed: '#a40e26',
-    brightGreen: '#116329',
-    brightYellow: '#845306',
-    brightBlue: '#0550ae',
-    brightMagenta: '#6e40c9',
-    brightCyan: '#06615f',
-    brightWhite: '#24292f',
+    foreground: '#21201c',
+    cursor: '#c4623f',
+    selectionBackground: 'rgba(196,98,63,0.18)',
+    black: '#2b2a27',
+    red: '#b8432f',
+    green: '#3f7d2c',
+    yellow: '#8f6510',
+    blue: '#2f62b0',
+    magenta: '#8a46b0',
+    cyan: '#1f7a72',
+    white: '#6d6a61',
+    brightBlack: '#8a877e',
+    brightRed: '#9e3322',
+    brightGreen: '#2f6a1f',
+    brightYellow: '#7a5508',
+    brightBlue: '#234f94',
+    brightMagenta: '#723a94',
+    brightCyan: '#16645d',
+    brightWhite: '#1f1e1d',
   },
   eyecare: {
     background: '#f5f0e8',
@@ -515,7 +520,6 @@ export const KEYBOARD_SHORTCUTS: Array<{ keys: string; descKey: string; scopeKey
   { keys: 'Ctrl+Shift+T', descKey: 'settingsShortcuts.items.newSubSession', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+Tab', descKey: 'settingsShortcuts.items.nextSubSession', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+Shift+Tab', descKey: 'settingsShortcuts.items.prevSubSession', scopeKey: 'settingsShortcuts.scopes.workspace' },
-  { keys: 'Ctrl+W', descKey: 'settingsShortcuts.items.closeTab', scopeKey: 'settingsShortcuts.scopes.workspace' },
   { keys: 'Ctrl+= / Ctrl+-', descKey: 'settingsShortcuts.items.fontZoom', scopeKey: 'settingsShortcuts.scopes.terminal' },
   { keys: 'Ctrl+F', descKey: 'settingsShortcuts.items.terminalSearch', scopeKey: 'settingsShortcuts.scopes.terminal' },
   { keys: 'Enter / Shift+Enter', descKey: 'settingsShortcuts.items.searchNav', scopeKey: 'settingsShortcuts.scopes.terminalSearch' },

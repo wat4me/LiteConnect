@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -18,6 +18,8 @@ const containerRef = ref<HTMLElement | null>(null)
 let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
+// The padded frame uses the same color as the xterm canvas, like the live terminal.
+const previewBackground = computed(() => getTerminalColors(props.theme, props.customColors, props.palette).background)
 
 // Glyphs that differ clearly across mono fonts (0O / l1I / brackets).
 const SAMPLE = [
@@ -91,7 +93,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="terminal-preview-wrap">
+  <div class="terminal-preview-wrap" :style="{ background: previewBackground }">
     <div ref="containerRef" class="terminal-preview-xterm" />
   </div>
 </template>
@@ -107,7 +109,6 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(128, 128, 128, 0.25);
   min-height: 200px;
   height: 220px;
-  background: #0d1117;
   padding: 8px 10px 4px;
   box-sizing: border-box;
 }

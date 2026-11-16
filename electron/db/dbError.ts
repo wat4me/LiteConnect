@@ -1,5 +1,6 @@
 import { sanitizeCancelError } from './common'
 import type { DbEngine } from './types'
+import type { DbErrorPayload } from '../../shared/types/database'
 import { isSqlBatchExecuteError } from './sql/sqlBatch'
 
 /**
@@ -37,8 +38,7 @@ export type DbStructuredError = {
 }
 
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  [/(password|pwd|passwd|passphrase)\s*[:=]\s*([^\s;,'"]+)/gi, '$1=***'],
-  [/(password|pwd|passwd)\s*=\s*[^;\s]+/gi, '$1=***'],
+  [/(password|pwd|passwd|passphrase)\s*[:=]\s*(?:'(?:''|[^'])*'|"(?:""|[^"])*"|[^\s;,'"]+)/gi, '$1=***'],
   [/(:\/\/)([^/@\s:]+):([^@/\s]+)@/g, '$1***:***@'],
   [/:\/\/[^@\s]+@/g, '://***@'],
   [/(-----BEGIN[^-]+PRIVATE KEY-----)[\s\S]*?(-----END[^-]+PRIVATE KEY-----)/gi, '$1***$2'],
@@ -354,33 +354,32 @@ export function classifyDbError(
     category: 'unknown',
     summary: sanitizeDbErrorText(rawMsg, 160) || 'Database error',
     detail: sanitizeDbErrorText(rawMsg),
-    code: code,
+    code: code || oraCode,
     retryable: false,
   }
 }
 
-/** Throw-friendly Error that serializes category via message + custom props for IPC. */
+/** Keep driver diagnostics on the error while it is still in the main process. */
 export function toIpcDbError(err: unknown, engine?: DbEngine | string, hints?: { viaTunnel?: boolean }): Error {
-  const structured = classifyDbError(err, engine, hints)
-  if (isSqlBatchExecuteError(err)) {
-    const head = `Statement ${err.statementIndex + 1}/${err.statementCount}: ${err.statementPreview}`
-    structured.detail = structured.detail ? `${head}\n${structured.detail}` : head
-  }
-  const e = new Error(structured.summary) as Error & {
-    category: DbErrorCategory
-    detail?: string
-    retryable: boolean
-    dbCode?: string
-    name: string
-  }
-  e.name = 'DbStructuredError'
-  e.category = structured.category
-  e.detail = structured.detail
-  e.retryable = structured.retryable
-  e.dbCode = structured.code
-  // Also attach for electron structured clone if supported
-  ;(e as any).code = structured.code
-  return e
+  const batch = isSqlBatchExecuteError(err) ? err : null
+  const source = batch?.cause ?? err
+  const structured = classifyDbError(source, engine, hints)
+  const driver = source as { detail?: unknown; hint?: unknown } | null
+  const detail = [
+    batch ? `Statement ${batch.statementIndex + 1}/${batch.statementCount}` : '',
+    structured.detail,
+    driver?.detail,
+    driver?.hint,
+  ].filter((line): line is string => typeof line === 'string' && !!line.trim())
+  structured.detail = sanitizeDbErrorText([...new Set(detail)].join('\n'), 2000) || undefined
+  return Object.assign(new Error(structured.summary), structured)
+}
+
+export function dbErrorPayload(err: unknown): DbErrorPayload {
+  const { category, summary, detail, code, retryable } = isDbStructuredError(err)
+    ? err
+    : classifyDbError(err)
+  return { category, summary, detail, code, retryable }
 }
 
 /** Keep cancel path using shared sanitizer. */

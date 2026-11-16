@@ -59,11 +59,11 @@ function messageTimeIso(): string {
         <button
           v-if="message.id === lastUserMessageId"
           type="button"
-          class="msg-action-btn"
+          class="ui-icon-btn ui-icon-btn-sm msg-action-btn"
           :title="t('ai.editMessage')"
           @click="emit('edit')"
         ><AppIcon name="edit" size="xs" /></button>
-        <button type="button" class="msg-action-btn" :title="t('ai.deleteMessage')" @click="emit('delete')">
+        <button type="button" class="ui-icon-btn ui-icon-btn-sm msg-action-btn" :title="t('ai.deleteMessage')" @click="emit('delete')">
           <AppIcon name="delete" size="xs" />
         </button>
       </template>
@@ -71,28 +71,28 @@ function messageTimeIso(): string {
         <button
           v-if="latestReply && (message.error || message.status === 'aborted')"
           type="button"
-          class="msg-action-btn"
+          class="ui-icon-btn ui-icon-btn-sm msg-action-btn"
           :title="t('ai.retry')"
           @click="emit('retry')"
         ><AppIcon name="refresh" size="xs" /></button>
         <button
           v-else-if="latestReply && message.content"
           type="button"
-          class="msg-action-btn"
+          class="ui-icon-btn ui-icon-btn-sm msg-action-btn"
           :title="t('ai.regenerate')"
           @click="emit('regenerate')"
         ><AppIcon name="refresh" size="xs" /></button>
         <button
           v-if="message.content"
           type="button"
-          class="msg-action-btn"
+          class="ui-icon-btn ui-icon-btn-sm msg-action-btn"
           :title="copiedKey === `${message.id}-message` ? t('common.copied') : t('ai.copyReply')"
           @click="emit('copy')"
         >
           <AppIcon v-if="copiedKey === `${message.id}-message`" name="check" size="xs" />
           <AppIcon v-else name="copy" size="xs" />
         </button>
-        <button type="button" class="msg-action-btn" :title="t('ai.deleteMessage')" :disabled="loading" @click="emit('delete')">
+        <button type="button" class="ui-icon-btn ui-icon-btn-sm msg-action-btn" :title="t('ai.deleteMessage')" :disabled="loading" @click="emit('delete')">
           <AppIcon name="delete" size="xs" />
         </button>
       </template>

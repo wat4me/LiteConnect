@@ -434,15 +434,15 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 
     <div v-if="error" class="sidebar-error">
       <div class="sidebar-error-text">{{ error }}</div>
-      <button type="button" class="sidebar-error-retry" @click="emit('retry')">{{ t('sftp.retry') }}</button>
+      <button type="button" class="sidebar-error-retry ui-btn ui-btn-sm" @click="emit('retry')">{{ t('sftp.retry') }}</button>
     </div>
 
     <div v-if="selectedCount > 0" class="file-selection-bar">
       <span>{{ t('sftp.selectedCount', { count: selectedCount }) }}</span>
       <div class="file-selection-actions">
-        <button type="button" class="file-selection-btn" @click="downloadSelected">{{ t('sftp.batchDownload') }}</button>
-        <button type="button" class="file-selection-btn danger" @click="deleteSelected">{{ t('sftp.delete') }}</button>
-        <button type="button" class="file-selection-btn ghost" @click="clearSelection">{{ t('common.cancel') }}</button>
+        <button type="button" class="file-selection-btn ui-btn ui-btn-xs" @click="downloadSelected">{{ t('sftp.batchDownload') }}</button>
+        <button type="button" class="file-selection-btn danger ui-btn ui-btn-xs ui-btn-danger" @click="deleteSelected">{{ t('sftp.delete') }}</button>
+        <button type="button" class="file-selection-btn ghost ui-btn ui-btn-xs ui-btn-ghost" @click="clearSelection">{{ t('common.cancel') }}</button>
       </div>
     </div>
 
@@ -505,10 +505,10 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
           <div class="tree-more">
             <span class="tree-more-text">{{ t('sftp.filesShownHidden', { shown: row.shown, total: row.total, hidden: row.total - row.shown }) }}</span>
             <div class="tree-more-actions">
-              <button type="button" class="tree-more-btn" @click="onMoreClick(row, $event)">
+              <button type="button" class="tree-more-btn ui-btn ui-btn-xs ui-btn-ghost" @click="onMoreClick(row, $event)">
                 {{ t('sftp.showMore', { count: INITIAL_FILE_LIMIT }) }}
               </button>
-              <button type="button" class="tree-more-btn" @click="onShowAllClick(row, $event)">
+              <button type="button" class="tree-more-btn ui-btn ui-btn-xs ui-btn-ghost" @click="onShowAllClick(row, $event)">
                 {{ t('sftp.showAll') }}
               </button>
             </div>
@@ -551,10 +551,10 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
             class="tree-size"
           >{{ formatBytes(row.entry.size) }}</span>
           <div v-if="row.kind === 'file'" class="tree-quick-actions">
-            <button type="button" class="tree-quick-btn" :title="t('sftp.download')" @click.stop="emit('download', row.entry)">
+            <button type="button" class="tree-quick-btn ui-icon-btn ui-icon-btn-sm" :title="t('sftp.download')" @click.stop="emit('download', row.entry)">
               <AppIcon name="download" size="xs" />
             </button>
-            <button v-if="canEdit?.(row.name)" type="button" class="tree-quick-btn" :title="t('sftp.edit')" @click.stop="emit('edit', row.entry)">
+            <button v-if="canEdit?.(row.name)" type="button" class="tree-quick-btn ui-icon-btn ui-icon-btn-sm" :title="t('sftp.edit')" @click.stop="emit('edit', row.entry)">
               <AppIcon name="edit" size="xs" />
             </button>
           </div>
@@ -634,8 +634,8 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .tree-row.current {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -650,11 +650,11 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 }
 
 .tree-row.selected {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .tree-row.focused {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 30%, transparent);
 }
 
 .tree-chevron {
@@ -680,12 +680,12 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
 
 .tree-chevron.open {
   transform: rotate(90deg);
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 .tree-chevron:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  background: var(--tab-hover-surface);
+  color: var(--text-primary);
 }
 
 .tree-select-slot {
@@ -767,23 +767,10 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   pointer-events: auto;
 }
 
+/* Fixed slot width so a missing edit button does not shift the row. */
 .tree-quick-btn {
   width: var(--tree-quick-btn, 24px);
   height: var(--tree-quick-btn, 24px);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.tree-quick-btn:hover {
-  color: var(--accent);
-  background: var(--bg-tertiary);
 }
 
 .tree-quick-btn svg {
@@ -830,31 +817,15 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   gap: 6px;
 }
 
-.tree-more-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-radius: 5px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tree-more-btn:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary));
-}
-
+/* Quiet footnote rather than a bordered bar; it still carries selection / transfer counts. */
 .tree-status-bar {
-  min-height: 26px;
+  min-height: 22px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
-  border-top: 1px solid var(--border-color);
+  padding: 0 10px 2px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -947,26 +918,6 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   gap: 4px;
 }
 
-.file-selection-btn {
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 11px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.file-selection-btn.danger {
-  color: var(--danger);
-}
-
-.file-selection-btn.ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-secondary);
-}
-
 .tree-empty {
   padding: 28px 16px;
   text-align: center;
@@ -998,14 +949,5 @@ defineExpose({ toggleSearch, handleKeydown, clearSelection, revealPath })
   color: var(--danger);
   margin-bottom: 6px;
   line-height: 1.45;
-}
-
-.sidebar-error-retry {
-  font-size: 11px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  border-radius: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
 }
 </style>

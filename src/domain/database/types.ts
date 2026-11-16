@@ -21,9 +21,11 @@ export type QueryTab = {
   database: string
   sql: string
   loading: boolean
+  running?: { scope: 'selection' | 'statement' | 'all' | 'explain'; startedAt: number }
   error: string
-  /** Expandable technical detail (sanitized) */
+  /** Technical detail from the database driver (sanitized) */
   errorDetail?: string
+  errorCode?: string
   /** Structured error category for retry UI */
   errorCategory?: string
   errorRetryable?: boolean

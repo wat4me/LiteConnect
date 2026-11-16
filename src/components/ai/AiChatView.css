@@ -33,7 +33,7 @@
 }
 
 .empty-mark {
-  background: var(--accent-bg);
+  background: transparent;
   color: var(--accent);
 }
 
@@ -53,9 +53,9 @@
   gap: var(--space-3);
   max-width: 100%;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
   color: var(--text-primary);
   font: inherit;
   font-size: var(--font-ui-sm);
@@ -68,26 +68,14 @@
 .empty-example-chip :deep(.app-icon) { flex-shrink: 0; color: var(--text-secondary); }
 
 .empty-example-chip:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+  border-color: color-mix(in srgb, var(--text-primary) 20%, var(--border-color));
   color: var(--text-primary);
-  background: var(--accent-bg);
+  background: var(--bg-tertiary);
 }
 
 .empty-model-settings {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   margin-top: 4px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-caption);
-  cursor: pointer;
 }
-.empty-model-settings:hover { color: var(--text-primary); background: var(--hover-bg); }
 .empty-example-chip:focus-visible,
 .empty-model-settings:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -124,13 +112,13 @@
   border-radius: 50%;
   background: var(--bg-primary);
   color: var(--text-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--shadow-menu);
   cursor: pointer;
 }
 
 .jump-latest:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color));
+  background: var(--bg-tertiary);
 }
 
 .jump-latest.has-new-reply {
@@ -185,7 +173,7 @@
   padding: var(--space-1);
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-menu);
   scrollbar-width: thin;
 }
 
@@ -212,7 +200,7 @@
 .chat-timeline.expanded .chat-timeline-item { flex-shrink: 0; }
 
 .chat-timeline-item:hover {
-  background: var(--accent-bg);
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
@@ -227,7 +215,7 @@
 
 .chat-timeline-item.active .chat-timeline-dash {
   width: 12px;
-  background: var(--accent);
+  background: var(--text-primary);
   opacity: 1;
 }
 
@@ -251,25 +239,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-}
-
-.code-action-btn {
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: var(--font-caption);
-  padding: 2px 6px;
-  cursor: pointer;
-}
-
-.code-action-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
-.code-action-btn.primary {
-  color: var(--accent);
 }
 
 .chat-row {
@@ -357,25 +326,11 @@
   pointer-events: auto;
 }
 
+/* Footer icons stay compact so the hover row keeps its 22px height. */
 :deep(.msg-action-btn) {
   width: 22px;
   height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
 }
-
-:deep(.msg-action-btn:hover:not(:disabled)) {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-:deep(.msg-action-btn:disabled) { opacity: 0.5; cursor: not-allowed; }
 
 .message-content {
   position: relative;
@@ -426,38 +381,6 @@
   justify-content: flex-end;
   gap: 6px;
   margin-top: 6px;
-}
-
-.message-edit-btn {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-caption);
-  cursor: pointer;
-}
-
-.message-edit-btn:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.message-edit-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.message-edit-btn.primary:hover {
-  filter: brightness(1.08);
-}
-
-.message-edit-btn.primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: none;
 }
 
 .chat-row.assistant .message-content {
@@ -708,7 +631,7 @@
 
 .code-block-header {
   min-height: 28px;
-  padding: 4px 6px 4px 8px;
+  padding: 2px 4px 2px 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -723,28 +646,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-caption);
-}
-
-.copy-btn,
-.message-copy-btn {
-  width: 24px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.copy-btn:hover,
-.message-copy-btn:hover {
-  border-color: var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
 }
 
 .message-copy-btn {

@@ -28,9 +28,9 @@ async function copyText(text: string) {
     <div class="code-block-header">
       <span class="code-language">{{ block.language || 'text' }}</span>
       <div class="code-actions">
-        <button v-if="terminalActions" type="button" class="code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
-        <button v-if="terminalActions" type="button" class="code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
-        <button type="button" class="copy-btn" :title="copied ? t('common.copied') : t('ai.copyCode')" @click="copyText(block.content)">
+        <button v-if="terminalActions" type="button" class="ui-btn ui-btn-ghost ui-btn-xs code-action-btn" :title="t('ai.fillTerminal')" @click="emit('fill-code', block.content)">{{ t('ai.fill') }}</button>
+        <button v-if="terminalActions" type="button" class="ui-btn ui-btn-ghost ui-btn-xs code-action-btn primary" :title="t('ai.runTerminal')" @click="emit('run-code', block.content)">{{ t('ai.run') }}</button>
+        <button type="button" class="ui-icon-btn ui-icon-btn-sm copy-btn" :title="copied ? t('common.copied') : t('ai.copyCode')" @click="copyText(block.content)">
           <AppIcon :name="copied ? 'check' : 'copy'" size="sm" />
         </button>
       </div>

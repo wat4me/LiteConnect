@@ -221,7 +221,10 @@ export function useXtermInstance(deps: {
       terminalPalette.value,
     )
     // Wallpaper on → semi-transparent terminal bg so the image shows in session area
-    return withWallpaperTerminalTheme(base)
+    const resolved = withWallpaperTerminalTheme(base)
+    // The wrapper's padding is painted with the same color as the xterm canvas.
+    deps.terminalRef.value?.parentElement?.style.setProperty('--terminal-bg', resolved.background || 'transparent')
+    return resolved
   }
 
   function applyTerminalTheme() {

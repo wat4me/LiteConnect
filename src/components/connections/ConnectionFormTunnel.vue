@@ -43,9 +43,9 @@ const macX11 = /Macintosh|Mac OS X/i.test(navigator.userAgent)
         </div>
         <div class="x11-field">
           <label class="label">{{ t('connectionForm.jumpAuthType') }}</label>
-          <div class="auth-tabs">
-            <button type="button" class="auth-tab" :class="{ active: jumpAuthType === 'password' }" @click="emit('switch-jump-auth', 'password')">{{ t('connectionForm.password') }}</button>
-            <button type="button" class="auth-tab" :class="{ active: jumpAuthType === 'key' }" @click="emit('switch-jump-auth', 'key')">{{ t('connectionForm.key') }}</button>
+          <div class="auth-tabs ui-btn-group">
+            <button type="button" class="auth-tab ui-btn ui-btn-ghost ui-btn-sm" :class="{ active: jumpAuthType === 'password' }" @click="emit('switch-jump-auth', 'password')">{{ t('connectionForm.password') }}</button>
+            <button type="button" class="auth-tab ui-btn ui-btn-ghost ui-btn-sm" :class="{ active: jumpAuthType === 'key' }" @click="emit('switch-jump-auth', 'key')">{{ t('connectionForm.key') }}</button>
           </div>
         </div>
       </div>
@@ -60,7 +60,7 @@ const macX11 = /Macintosh|Mac OS X/i.test(navigator.userAgent)
         <div class="key-file-row">
           <button type="button" class="ui-btn" @click="emit('select-jump-key')">{{ t('connectionForm.selectPrivateKey') }}</button>
           <span v-if="jumpPrivateKeyFileName" class="key-file-name">{{ jumpPrivateKeyFileName }}</span>
-          <button v-if="jumpPrivateKeyFileName" type="button" class="btn-icon-remove" @click="emit('clear-jump-key')">{{ t('connectionForm.clearPrivateKey') }}</button>
+          <button v-if="jumpPrivateKeyFileName" type="button" class="btn-icon-remove ui-btn ui-btn-danger" @click="emit('clear-jump-key')">{{ t('connectionForm.clearPrivateKey') }}</button>
         </div>
       </div>
     </div>
@@ -87,11 +87,11 @@ const macX11 = /Macintosh|Mac OS X/i.test(navigator.userAgent)
           <label class="label">{{ t('connectionForm.remotePort') }}</label>
           <input v-model.number="fwd.remotePort" type="number" min="1" max="65535" class="ui-input" />
         </div>
-        <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.localForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
+        <button type="button" class="btn-icon-remove ui-btn ui-btn-danger" :title="t('common.delete')" @click="form.localForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
       </div>
       <button
         type="button"
-        class="btn-add-row"
+        class="btn-add-row ui-btn ui-btn-sm"
         @click="form.localForwards.push({ localPort: 0, remoteHost: '127.0.0.1', remotePort: 0 })"
       >
         {{ t('connectionForm.addForward') }}
@@ -116,11 +116,11 @@ const macX11 = /Macintosh|Mac OS X/i.test(navigator.userAgent)
           <label class="label">{{ t('connectionForm.localPort') }}</label>
           <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
         </div>
-        <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.remoteForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
+        <button type="button" class="btn-icon-remove ui-btn ui-btn-danger" :title="t('common.delete')" @click="form.remoteForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
       </div>
       <button
         type="button"
-        class="btn-add-row"
+        class="btn-add-row ui-btn ui-btn-sm"
         @click="form.remoteForwards.push({ remoteHost: '127.0.0.1', remotePort: 0, localHost: '127.0.0.1', localPort: 0 })"
       >
         {{ t('connectionForm.addRemoteForward') }}
@@ -137,11 +137,11 @@ const macX11 = /Macintosh|Mac OS X/i.test(navigator.userAgent)
           <label class="label">{{ t('connectionForm.socksPort') }}</label>
           <input v-model.number="fwd.localPort" type="number" min="1" max="65535" class="ui-input" />
         </div>
-        <button type="button" class="btn-icon-remove" :title="t('common.delete')" @click="form.dynamicForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
+        <button type="button" class="btn-icon-remove ui-btn ui-btn-danger" :title="t('common.delete')" @click="form.dynamicForwards.splice(idx, 1)">{{ t('connectionForm.removeShort') }}</button>
       </div>
       <button
         type="button"
-        class="btn-add-row"
+        class="btn-add-row ui-btn ui-btn-sm"
         @click="form.dynamicForwards.push({ localPort: 1080 })"
       >
         {{ t('connectionForm.addSocksForward') }}

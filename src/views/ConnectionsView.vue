@@ -392,7 +392,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
           <span v-if="activeColorTag" class="active-tag">
             <span class="tag-filter-swatch" :style="{ background: activeColorTag.color }" aria-hidden="true"></span>
             <span>{{ activeColorTag.label }}</span>
-            <button type="button" class="active-tag-clear" :title="t('connections.clearColorFilter')" :aria-label="t('connections.clearColorFilter')" @click="colorTagFilter = ''"><AppIcon name="close" size="xs" /></button>
+            <button type="button" class="active-tag-clear ui-icon-btn ui-icon-btn-sm ui-icon-btn-close" :title="t('connections.clearColorFilter')" :aria-label="t('connections.clearColorFilter')" @click="colorTagFilter = ''"><AppIcon name="close" size="xs" /></button>
           </span>
         </div>
         <div class="sort-bar">
@@ -403,9 +403,9 @@ defineExpose({ loadData, editConnection: onEditConnection })
             @select="selectSortMode($event as ConnectionSortMode)"
           />
         </div>
-        <div class="density-switch" role="group" :aria-label="t('connections.listDensity')">
-          <button type="button" :class="{ active: !compactList }" :aria-pressed="!compactList" :title="t('connections.standardListHint')" @click="compactList = false">{{ t('connections.standardList') }}</button>
-          <button type="button" :class="{ active: compactList }" :aria-pressed="compactList" :title="t('connections.compactListHint')" @click="compactList = true">{{ t('connections.compactList') }}</button>
+        <div class="density-switch ui-btn-group" role="group" :aria-label="t('connections.listDensity')">
+          <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs" :class="{ active: !compactList }" :aria-pressed="!compactList" :title="t('connections.standardListHint')" @click="compactList = false">{{ t('connections.standardList') }}</button>
+          <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs" :class="{ active: compactList }" :aria-pressed="compactList" :title="t('connections.compactListHint')" @click="compactList = true">{{ t('connections.compactList') }}</button>
         </div>
       </div>
 
@@ -414,13 +414,13 @@ defineExpose({ loadData, editConnection: onEditConnection })
       <button
         v-if="crossGroupSearchHits > 0 && filteredCount === 0"
         type="button"
-        class="cross-group-hint"
+        class="cross-group-hint ui-btn ui-btn-sm"
         @click="expandSearchToAllGroups"
       >
         {{ t('connections.expandSearchAll', { count: crossGroupSearchHits }) }}
       </button>
       <p v-else-if="crossGroupSearchHits > 0" class="cross-group-hint-inline">
-        <button type="button" class="cross-group-link" @click="expandSearchToAllGroups">
+        <button type="button" class="cross-group-link ui-btn ui-btn-ghost ui-btn-xs" @click="expandSearchToAllGroups">
           {{ t('connections.expandSearchAll', { count: crossGroupSearchHits }) }}
         </button>
       </p>
@@ -586,31 +586,11 @@ defineExpose({ loadData, editConnection: onEditConnection })
   flex-shrink: 0;
   align-self: flex-start;
   margin: 0 0 8px;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
-  border-radius: 8px;
-  background: var(--accent-bg);
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .cross-group-hint-inline {
   margin: 0 0 6px;
   font-size: 12px;
-}
-
-.cross-group-link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .color-filter {
@@ -639,9 +619,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
   color: var(--text-primary);
   font-size: 11px;
 }
-.active-tag-clear { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.active-tag-clear:hover { background: var(--hover-bg); color: var(--text-primary); }
-.active-tag-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Sits inside the 22px pill; keep the round hit target. */
+.active-tag-clear { --icon-btn-sm: calc(22px * var(--ui-scale)); border-radius: 50%; }
 .tag-filter :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: 12px; }
 .sort-control :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: 12px; }
 
@@ -671,11 +650,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   padding-bottom: 8px;
 }
 
-.density-switch { display: inline-flex; flex-shrink: 0; gap: 2px; padding: 2px; border: 1px solid var(--border-color); border-radius: 6px; }
-.density-switch button { padding: 3px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
-.density-switch button:hover { background: var(--hover-bg); color: var(--text-primary); }
-.density-switch button.active { background: var(--accent-bg); color: var(--accent); }
-.density-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.density-switch { flex-shrink: 0; }
 
 .knowledge-selectable { padding-left: 28px; }
 .connection-knowledge-checkbox { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); }

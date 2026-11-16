@@ -56,9 +56,11 @@ async function addRecentPath() {
     <div class="settings-card narrow">
       <div class="settings-label" data-setting="files.sftpFontSize">{{ t('settingsFiles.sftpFontSize') }}</div>
       <div class="font-size-row">
-        <button type="button" class="ui-icon-btn font-size-btn" :disabled="draft.sftpFontSize <= MIN_SFTP_FONT_SIZE" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateSftpFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
-        <span class="font-size-value">{{ draft.sftpFontSize }}px</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :disabled="draft.sftpFontSize >= MAX_SFTP_FONT_SIZE" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateSftpFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+        <div class="ui-btn-group">
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :disabled="draft.sftpFontSize <= MIN_SFTP_FONT_SIZE" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateSftpFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
+          <span class="font-size-value ui-btn-group-value">{{ draft.sftpFontSize }}px</span>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :disabled="draft.sftpFontSize >= MAX_SFTP_FONT_SIZE" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateSftpFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+        </div>
       </div>
       <div class="settings-hint">{{ t('settingsFiles.sftpFontSizeHint') }}</div>
 
@@ -102,7 +104,7 @@ async function addRecentPath() {
           {{ p }}
         </button>
       </div>
-      <button type="button" class="add-path-btn" @click="addRecentPath">{{ t('settingsFiles.addDownloadPath') }}</button>
+      <button type="button" class="add-path-btn ui-btn ui-btn-sm" @click="addRecentPath">{{ t('settingsFiles.addDownloadPath') }}</button>
 
       <div class="settings-label" style="margin-top: 16px" data-setting="files.conflictStrategy">{{ t('settingsFiles.conflictStrategy') }}</div>
       <select v-model="draft.downloadConflictStrategy" class="settings-select">
@@ -175,24 +177,13 @@ async function addRecentPath() {
 }
 
 .recent-path-item.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-bg);
+  border-color: var(--tab-selected-edge);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
+  font-weight: 600;
 }
 
 .add-path-btn {
-  border: 1px dashed var(--border-color);
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 6px;
-  padding: 8px;
   width: 100%;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.add-path-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 </style>

@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createServer, Socket } from 'node:net'
-import { buildXauthority, probeAuthenticatedX11, probeX11Setup } from './x11Auth'
+import { buildXauthority, createXauthorityCookie, probeAuthenticatedX11, probeX11Setup } from './x11Auth'
 import { buildX11ConnectionSetupPacket } from './x11Probe'
 import { isChildProcessAlive, resolveX11Executable } from './x11Server'
 
@@ -42,16 +42,35 @@ async function portFree(port: number): Promise<boolean> {
   })
 }
 
+/**
+ * A failed cold start costs several seconds (spawn, readiness wait, shutdown)
+ * and every SSH shell waits for it. Reuse the failure for a while so later
+ * connections open immediately without forwarding instead of repeating it.
+ */
+export const X11_START_FAILURE_COOLDOWN_MS = 2 * 60_000
+
+export type ManagedX11EnsureOptions = { executablePath?: string; retryNow?: boolean }
+
 export class ManagedX11Server {
   private target?: ManagedX11Target
   private child?: ChildProcess
   private directory?: string
   private starting?: Promise<ManagedX11Target>
   private stopping = false
+  private failure?: { error: Error; until: number }
 
-  ensure(executablePath?: string): Promise<ManagedX11Target> {
+  ensure(executablePath?: string, options: Pick<ManagedX11EnsureOptions, 'retryNow'> = {}): Promise<ManagedX11Target> {
     if (this.stopping) return Promise.reject(new Error('X11 service is stopping'))
-    return this.starting ??= this.start(executablePath).finally(() => { this.starting = undefined })
+    if (options.retryNow) this.failure = undefined
+    if (this.failure && Date.now() < this.failure.until) return Promise.reject(this.failure.error)
+    return this.starting ??= this.start(executablePath).then(
+      target => { this.failure = undefined; return target },
+      (error: unknown) => {
+        const failure = error instanceof Error ? error : new Error(String(error))
+        if (!this.stopping) this.failure = { error: failure, until: Date.now() + X11_START_FAILURE_COOLDOWN_MS }
+        throw failure
+      },
+    ).finally(() => { this.starting = undefined })
   }
 
   private async start(executablePath?: string): Promise<ManagedX11Target> {
@@ -65,7 +84,7 @@ export class ManagedX11Server {
       if (!await portFree(6000 + display)) continue
       const directory = await mkdtemp(join(tmpdir(), 'liteconnect-x11-'))
       this.directory = directory
-      const cookie = randomBytes(16)
+      const cookie = createXauthorityCookie()
       const authority = join(directory, 'Xauthority')
       await writeFile(authority, buildXauthority(display, cookie), { mode: 0o600 })
       if (this.stopping) { await this.release(); throw new Error('X11 service is stopping') }
@@ -128,14 +147,15 @@ export class ManagedX11Service {
   private readonly servers = new Map<string, ManagedX11Server>()
   private stopping = false
 
-  async ensure(path?: string): Promise<ManagedX11Target> {
+  /** `retryNow` (explicit test from settings) ignores a remembered start failure. */
+  async ensure(path?: string, options: Pick<ManagedX11EnsureOptions, 'retryNow'> = {}): Promise<ManagedX11Target> {
     if (this.stopping) throw new Error('X11 service is stopping')
     const executable = await resolveX11Executable(path)
     if (!executable) throw new Error('Bundled X11 runtime is missing. Reinstall LiteConnect.')
     if (this.stopping) throw new Error('X11 service is stopping')
     let server = this.servers.get(executable)
     if (!server) { server = new ManagedX11Server(); this.servers.set(executable, server) }
-    return server.ensure(executable)
+    return server.ensure(executable, options)
   }
 
   async stop(): Promise<void> {

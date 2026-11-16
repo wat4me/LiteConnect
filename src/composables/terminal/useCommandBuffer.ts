@@ -1,15 +1,49 @@
 import { ref } from 'vue'
-import type { Terminal } from '@xterm/xterm'
+import type { IBufferLine, Terminal } from '@xterm/xterm'
+import { promptTerminator } from '@/utils/terminal/shellHistoryEligibility'
+
+/** How a submitted line may be used for local command history. */
+export type SubmittedCommandInfo = {
+  /** Typed at a shell prompt on the normal screen and echoed back: safe to learn from. */
+  historyEligible: boolean
+  /** Prompt end character (`$`, `#`…) used to recognise the shell returning. */
+  promptTerminator: string
+}
+
+const PROMPT_SEPARATORS = /[$#%❯➜λ»>] /g
+const NOT_A_SHELL_PROMPT = [
+  /=[#>]\s*$/, // psql "db=# "
+  /^\s*(?:>{1,3}|\.\.\.|\w*>|\w+\s*\[[^\]]*\]>|[\w-]+(?:\s[\w.:-]+)?>)\s*$/, // continuation, python, mysql, redis…
+  /^\s*\(\w+\)\s*$/, // (gdb), (Pdb)
+]
+
+/**
+ * The text in front of a command looks like an interactive shell prompt rather
+ * than a password request, REPL, pager or continuation (`> `) prompt.
+ */
+export function isShellPromptLike(prefix: string): boolean {
+  const prompt = (prefix || '').replace(/\s+$/, ' ')
+  if (!prompt.trim()) return false
+  const terminator = promptTerminator(prompt)
+  // oh-my-zsh style themes lead with the symbol: "➜  repo git:(main) ".
+  if (!terminator) return /^\s*[➜❯λ]\s/.test(prompt)
+  if (NOT_A_SHELL_PROMPT.some((pattern) => pattern.test(prompt))) return false
+  // `>` ends Windows prompts ("PS C:\work> "), but also many REPLs.
+  if (terminator === '>') return /^(?:PS )?[A-Za-z]:\\[^\n]*>\s*$/.test(prompt)
+  return true
+}
 
 export function useCommandBuffer(deps: {
   getTerminal: () => Terminal | null
   onCdCommand: (cmd: string) => void
   /** Fired after Enter / paste-with-newline submits a line (may be null if empty). */
-  onSubmitted?: (cmd: string | null) => void
+  onSubmitted?: (cmd: string | null, info: SubmittedCommandInfo) => void
 }) {
   const commandBuffer = ref('')
   const commandBufferDirty = ref(false)
   const capturedSubmitLine = ref('')
+  /** Prompt text in front of the cursor when typing of this line began. */
+  let promptSnapshot: string | null = null
 
   let pendingSubmitTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -24,17 +58,48 @@ export function useCommandBuffer(deps: {
     return line.replace(/\[Pasted[^\]]*\]\s*/g, '')
   }
 
+  /**
+   * Rows of the logical line around `row`. Long commands wrap onto several
+   * screen rows; reading only the cursor row used to record a fragment.
+   */
+  function logicalLineRows(row: number): { start: number; end: number } | null {
+    const buffer = deps.getTerminal()?.buffer?.active
+    if (!buffer?.getLine(row)) return null
+    let start = row
+    while (start > 0 && buffer.getLine(start)?.isWrapped) start--
+    let end = row
+    while (buffer.getLine(end + 1)?.isWrapped) end++
+    return { start, end }
+  }
+
+  function readRows(start: number, end: number, lastColumn?: number): string {
+    const buffer = deps.getTerminal()?.buffer?.active
+    if (!buffer) return ''
+    let text = ''
+    for (let row = start; row <= end; row++) {
+      const line: IBufferLine | undefined = buffer.getLine(row)
+      if (!line) break
+      const last = row === end
+      text += last && lastColumn !== undefined
+        ? line.translateToString(false, 0, lastColumn)
+        : line.translateToString(last)
+    }
+    return text
+  }
+
   function getVisibleCommandLine(): string {
     const terminal = deps.getTerminal()
     if (!terminal) return ''
     try {
-      const activeBuffer = (terminal as any).buffer?.active
-      if (!activeBuffer) return ''
-      const cursorY = activeBuffer.baseY + activeBuffer.cursorY
-      for (let offset = 0; offset < 5; offset++) {
-        const line = activeBuffer.getLine(cursorY - offset)
-        const text = line?.translateToString(true) ?? ''
+      const buffer = terminal.buffer?.active
+      if (!buffer) return ''
+      let row = buffer.baseY + buffer.cursorY
+      for (let offset = 0; offset < 5 && row >= 0; offset++) {
+        const rows = logicalLineRows(row)
+        if (!rows) return ''
+        const text = readRows(rows.start, rows.end)
         if (text.trim()) return text
+        row = rows.start - 1
       }
       return ''
     } catch {
@@ -42,12 +107,25 @@ export function useCommandBuffer(deps: {
     }
   }
 
+  /** Remember the prompt before the first key of a new command line. */
+  function notePromptBeforeInput() {
+    if (promptSnapshot !== null || commandBuffer.value || commandBufferDirty.value) return
+    try {
+      const buffer = deps.getTerminal()?.buffer?.active
+      if (!buffer || buffer.type !== 'normal') { promptSnapshot = ''; return }
+      const row = buffer.baseY + buffer.cursorY
+      const rows = logicalLineRows(row)
+      promptSnapshot = rows ? stripShellNotifications(readRows(rows.start, row, buffer.cursorX)) : ''
+    } catch {
+      promptSnapshot = ''
+    }
+  }
+
   function syncAfterTabCompletion(originalInput: string, requireChange = false): boolean {
     const terminal = deps.getTerminal()
     const activeBuffer = terminal?.buffer?.active
     if (!activeBuffer || !originalInput || !commandBuffer.value.startsWith(originalInput)) return false
-    const cursorY = activeBuffer.baseY + activeBuffer.cursorY
-    const currentLine = activeBuffer.getLine(cursorY)?.translateToString(true) ?? ''
+    const currentLine = getVisibleCommandLine()
     const command = extractCommandFromLine(stripShellNotifications(currentLine))
     if (!command.startsWith(commandBuffer.value)) return false
     if (requireChange && command === commandBuffer.value) return false
@@ -56,109 +134,82 @@ export function useCommandBuffer(deps: {
     return true
   }
 
+  /** Split "prompt + command". Uses the remembered prompt, else the first prompt separator. */
+  function splitPromptLine(line: string): { prompt: string; command: string } {
+    if (!line.trim()) return { prompt: '', command: '' }
+    if (promptSnapshot && line.startsWith(promptSnapshot)) {
+      return { prompt: promptSnapshot, command: line.slice(promptSnapshot.length).trim() }
+    }
+    // The first separator ends the prompt; later ones belong to the command (`echo a > b`).
+    for (const match of line.matchAll(PROMPT_SEPARATORS)) {
+      const end = (match.index ?? 0) + match[0].length
+      const prompt = line.slice(0, end)
+      if (isShellPromptLike(prompt)) return { prompt, command: line.slice(end).trim() }
+    }
+    return { prompt: '', command: line.trim() }
+  }
+
   function extractCommandFromLine(line: string): string {
-    if (!line.trim()) return ''
-    const separators = ['$ ', '# ', '> ', '% ']
-    let lastSepIndex = -1
-    for (const sep of separators) {
-      const idx = line.lastIndexOf(sep)
-      if (idx > lastSepIndex) lastSepIndex = idx
-    }
-    if (lastSepIndex !== -1) {
-      return line.slice(lastSepIndex + 2).trim()
-    }
-    return line.trim()
+    return splitPromptLine(line).command
   }
 
   function extractCommandFromVisibleLine(): string {
     return extractCommandFromLine(stripShellNotifications(getVisibleCommandLine()))
   }
 
+  /** Locate the typed text on the submitted line; the shell echo is the source of truth. */
+  function locateTypedCommand(line: string, typed: string): { prompt: string; command: string } | null {
+    const trimmed = typed.trim()
+    if (!trimmed || !line) return null
+    if (promptSnapshot && line.startsWith(promptSnapshot) && line.slice(promptSnapshot.length).trim().startsWith(trimmed.split(/\s+/)[0])) {
+      return { prompt: promptSnapshot, command: line.slice(promptSnapshot.length).trim() }
+    }
+    const index = line.lastIndexOf(trimmed)
+    if (index === -1) return null
+    return { prompt: line.slice(0, index), command: line.slice(index).trim() }
+  }
+
   function inferSubmittedCommand(command: string): string {
-    // Preserve the conventional leading-space "private history" marker. The
-    // command is still sent to the remote shell unchanged; only local history
-    // collection interprets it.
     if (/^\s/.test(command) && command.trim()) return command.trimEnd()
-    const trimmedCommand = command.trim()
-    if (!trimmedCommand) return trimmedCommand
     const visibleLine = stripShellNotifications(getVisibleCommandLine())
-    if (!visibleLine.trim()) return trimmedCommand
-    const commandStart = visibleLine.lastIndexOf(trimmedCommand)
-    if (commandStart !== -1) {
-      return visibleLine.slice(commandStart).trim()
-    }
-
-    const firstToken = trimmedCommand.split(/\s+/)[0]
-    if (!firstToken) return trimmedCommand
-
-    const separators = ['$ ', '# ', '> ', '% ']
-    let lastSepIndex = -1
-    for (const sep of separators) {
-      const idx = visibleLine.lastIndexOf(sep)
-      if (idx > lastSepIndex) lastSepIndex = idx
-    }
-    if (lastSepIndex !== -1) {
-      const candidate = visibleLine.slice(lastSepIndex + 2).trim()
-      if (candidate.startsWith(firstToken)) {
-        return candidate
-      }
-    }
-
-    const tokenWithSpaces = ` ${firstToken} `
-    const tokenAtEnd = ` ${firstToken}`
-    const exactAtStart = visibleLine.startsWith(firstToken) ? 0 : -1
-    const withSpacesIndex = visibleLine.lastIndexOf(tokenWithSpaces)
-    const atEndIndex = visibleLine.endsWith(tokenAtEnd) ? visibleLine.length - tokenAtEnd.length : -1
-
-    let fallbackStart = -1
-    if (withSpacesIndex !== -1) {
-      fallbackStart = withSpacesIndex + 1
-    } else if (atEndIndex !== -1) {
-      fallbackStart = atEndIndex + 1
-    } else if (exactAtStart === 0) {
-      fallbackStart = 0
-    }
-
-    if (fallbackStart !== -1) {
-      const visibleCommand = visibleLine.slice(fallbackStart).trim()
-      if (visibleCommand.startsWith(firstToken)) {
-        return visibleCommand
-      }
-    }
-
-    return trimmedCommand
+    return locateTypedCommand(visibleLine, command)?.command || command.trim()
   }
 
   function submitBufferedCommand(): string | null {
-    let cmd = ''
-    const submitLine = capturedSubmitLine.value
+    const submitLine = stripShellNotifications(capturedSubmitLine.value)
     capturedSubmitLine.value = ''
-    const hadUserInput = commandBufferDirty.value || !!commandBuffer.value.trim()
+    const typed = commandBuffer.value
+    const dirty = commandBufferDirty.value
+    const hadUserInput = dirty || !!typed.trim()
+    const terminal = deps.getTerminal()
+    const normalScreen = !terminal || terminal.buffer?.active?.type !== 'alternate'
 
-    // Dirty (tab / history / multi-line): trust the line captured at Enter time
-    // (visible screen). Clean path: merge buffer with the live visible line.
-    if (commandBufferDirty.value) {
-      if (submitLine.trim()) {
-        cmd = extractCommandFromLine(submitLine)
+    let cmd = ''
+    let prompt = ''
+    let echoed = false
+    if (hadUserInput) {
+      if (!dirty) {
+        const found = locateTypedCommand(submitLine, typed) ?? locateTypedCommand(stripShellNotifications(getVisibleCommandLine()), typed)
+        if (found) { cmd = found.command; prompt = found.prompt; echoed = true }
+        else cmd = typed.trim() // not echoed: password or hidden input
+      } else {
+        // Tab completion, shell history recall or line editing: trust the screen.
+        const split = splitPromptLine(submitLine || stripShellNotifications(getVisibleCommandLine()))
+        cmd = split.command
+        prompt = split.prompt
+        echoed = !!split.command && !!submitLine
       }
-    } else if (commandBuffer.value.trim()) {
-      cmd = inferSubmittedCommand(commandBuffer.value)
-    }
-
-    // An empty Enter must not turn a status line (for example "Connecting to…")
-    // already on screen into a shell command.
-    if (!cmd && hadUserInput) {
-      const visibleCmd = extractCommandFromVisibleLine()
-      if (visibleCmd) {
-        cmd = visibleCmd
-      }
-    }
-
-    if (!cmd) {
-      cmd = commandBuffer.value.trim()
     }
 
     const submittedCommand = cmd || null
+    const info: SubmittedCommandInfo = {
+      historyEligible: !!submittedCommand
+        && echoed
+        && normalScreen
+        && !/^\s/.test(typed) // leading space: conventional private-history marker
+        && isShellPromptLike(prompt),
+      promptTerminator: promptTerminator(prompt),
+    }
 
     if (submittedCommand && /(?:^|[;&|]\s*)cd(?:\s|$)/.test(submittedCommand)) {
       setTimeout(() => {
@@ -168,9 +219,10 @@ export function useCommandBuffer(deps: {
 
     commandBuffer.value = ''
     commandBufferDirty.value = false
+    promptSnapshot = null
     pendingSubmitTimer = null
 
-    deps.onSubmitted?.(submittedCommand)
+    deps.onSubmitted?.(submittedCommand, info)
 
     return submittedCommand
   }
@@ -193,6 +245,7 @@ export function useCommandBuffer(deps: {
     commandBuffer.value = ''
     commandBufferDirty.value = false
     capturedSubmitLine.value = ''
+    promptSnapshot = null
     cancelPendingSubmit()
   }
 
@@ -203,6 +256,7 @@ export function useCommandBuffer(deps: {
     submitBufferedCommand,
     stripTerminalSequences,
     getVisibleCommandLine,
+    notePromptBeforeInput,
     syncAfterTabCompletion,
     inferSubmittedCommand,
     extractCommandFromLine,

@@ -856,28 +856,28 @@ defineExpose({ handleTerminalCd, clearSessionState })
           <span v-if="activeTransfers > 0" class="transfer-action-badge static">{{ activeTransfers }}</span>
         </div>
         <div style="flex:1"></div>
-        <button type="button" class="ui-btn ui-btn-xs" @click="clearFinishedTransfers(transferDirection)">{{ t('sftp.clearRecords') }}</button>
+        <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="clearFinishedTransfers(transferDirection)">{{ t('sftp.clearRecords') }}</button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close" @click="emit('close')" :title="t('sftp.closeSidebar')">
           <AppIcon name="close" size="sm" />
         </button>
       </div>
       <div class="transfers-toolbar">
-        <div class="transfer-direction-tabs" :aria-label="t('sftp.transferDirection')">
+        <div class="transfer-direction-tabs ui-btn-group" :aria-label="t('sftp.transferDirection')">
           <button
             type="button"
-            class="transfer-direction-tab"
+            class="transfer-direction-tab ui-btn ui-btn-xs"
             :class="{ active: transferDirection === 'download' }"
             @click="transferDirection = 'download'"
           >{{ t('sftp.download') }} <span>{{ downloadTransfers.length }}</span></button>
           <button
             type="button"
-            class="transfer-direction-tab"
+            class="transfer-direction-tab ui-btn ui-btn-xs"
             :class="{ active: transferDirection === 'upload' }"
             @click="transferDirection = 'upload'"
           >{{ t('sftp.upload') }} <span>{{ uploadTransfers.length }}</span></button>
         </div>
         <div class="transfer-status-tabs">
-          <button v-for="item in transferStatusFilters" :key="item.id" type="button" :class="{ active: transferStatus === item.id }" @click="transferStatus = item.id">
+          <button v-for="item in transferStatusFilters" :key="item.id" type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :class="{ active: transferStatus === item.id }" @click="transferStatus = item.id">
             {{ item.label }}
           </button>
         </div>
@@ -953,8 +953,8 @@ defineExpose({ handleTerminalCd, clearSessionState })
           />
         </div>
         <div class="rename-actions">
-          <button class="rename-cancel-btn" @click="cancelRename">{{ t('common.cancel') }}</button>
-          <button class="rename-confirm-btn" @click="confirmRename">{{ t('sftp.confirm') }}</button>
+          <button class="rename-cancel-btn ui-btn" @click="cancelRename">{{ t('common.cancel') }}</button>
+          <button class="rename-confirm-btn ui-btn ui-btn-primary" @click="confirmRename">{{ t('sftp.confirm') }}</button>
         </div>
       </div>
     </div>

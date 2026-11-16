@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../icons/AppIcon.vue'
 import type { RunScope } from '@/utils/database/sqlStatement'
@@ -12,10 +12,13 @@ const { t } = useI18n()
 
 const props = defineProps<{
   loading: boolean
+  canCancel: boolean
+  cancelling: boolean
   sessionAlive: boolean
   defaultScope: RunScope
   hasSelection: boolean
   canRunStatement: boolean
+  hasSql: boolean
   readOnly: boolean
   isSaved: boolean
 }>()
@@ -24,12 +27,12 @@ const emit = defineEmits<{
   run: [scope: RunScope]
   explain: []
   saveQuery: []
+  cancel: []
 }>()
 
-const runDisabled = computed(() => !props.sessionAlive || props.loading)
-
 const showScopeMenu = ref(false)
-const mainBtnRef = ref<HTMLButtonElement | null>(null)
+const runGroupRef = ref<HTMLElement | null>(null)
+const scopeButton = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<{ top: string; left: string; minWidth: string }>({
   top: '0px',
@@ -37,22 +40,23 @@ const menuStyle = ref<{ top: string; left: string; minWidth: string }>({
   minWidth: '180px',
 })
 
-/** Short scope label shown below the run button */
+const runLabel = computed(() => {
+  if (props.defaultScope === 'selection') return t('database.query.runSelection')
+  if (props.defaultScope === 'statement') return t('database.query.runStatement')
+  return t('database.query.runAll')
+})
 const scopeLabel = computed(() => {
   if (props.defaultScope === 'selection') return t('database.query.scopeLabelSelection')
   if (props.defaultScope === 'statement') return t('database.query.scopeLabelStatement')
   return t('database.query.scopeLabelAll')
 })
-
-/** Tooltip for the main run button, including the scope */
-const runTooltip = computed(() => {
-  const base = t('database.query.run')
-  const scope = scopeLabel.value
-  return `${base}（${scope}）· Ctrl+Enter`
-})
+const cancelLabel = computed(() =>
+  t(props.cancelling ? 'database.query.cancelling' : 'database.query.cancel'),
+)
+const scopeDisabled = computed(() => !props.sessionAlive || props.loading || !props.hasSql)
 
 function scopeEnabled(scope: RunScope) {
-  if (props.loading) return false
+  if (scopeDisabled.value) return false
   return isRunMenuItemEnabled(scope, {
     hasSelection: props.hasSelection,
     canRunStatement: props.canRunStatement,
@@ -61,7 +65,7 @@ function scopeEnabled(scope: RunScope) {
 }
 
 function runDefault() {
-  if (runDisabled.value) return
+  if (!scopeEnabled(props.defaultScope)) return
   closeScopeMenu(false)
   emit('run', props.defaultScope)
 }
@@ -73,22 +77,16 @@ function runWith(scope: RunScope) {
 }
 
 function positionMenu() {
-  const btn = mainBtnRef.value
+  const btn = scopeButton.value
   if (!btn) return
   const rect = btn.getBoundingClientRect()
   const menuEl = menuRef.value
   const menuW = Math.max(200, menuEl?.offsetWidth || 200)
   const menuH = menuEl?.offsetHeight || 160
-  // Prefer right of rail; flip left near right edge
-  let left = rect.right + 6
-  if (left + menuW > window.innerWidth - 8) {
-    left = Math.max(8, rect.left - menuW - 6)
-  }
-  const pos = clampPopupToViewport(
-    { x: left, y: rect.top },
-    { width: menuW, height: menuH },
-    { flip: true },
-  )
+  const gap = 6
+  const right = rect.right + gap
+  const left = right + menuW <= window.innerWidth - 8 ? right : rect.left - menuW - gap
+  const pos = clampPopupToViewport({ x: left, y: rect.top }, { width: menuW, height: menuH })
   menuStyle.value = {
     top: `${pos.top}px`,
     left: `${pos.left}px`,
@@ -99,26 +97,39 @@ function positionMenu() {
 function closeScopeMenu(refocus = false) {
   if (!showScopeMenu.value) return
   showScopeMenu.value = false
-  if (refocus) void nextTick(() => mainBtnRef.value?.focus())
+  if (refocus) void nextTick(() => scopeButton.value?.focus())
 }
 
-function onContextMenu(e: MouseEvent) {
-  if (runDisabled.value) return
-  e.preventDefault()
+function toggleScopeMenu() {
+  if (scopeDisabled.value) return
   showScopeMenu.value = !showScopeMenu.value
   if (showScopeMenu.value) {
-    void nextTick(() => positionMenu())
+    void nextTick(() => {
+      positionMenu()
+      menuRef.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
   }
+}
+
+function moveScopeFocus(direction: number) {
+  if (!menuRef.value) return
+  const items = [...menuRef.value.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+  const index = items.findIndex((item) => item === document.activeElement)
+  items[(index + direction + items.length) % items.length]?.focus()
 }
 
 function onViewportChange() {
   if (showScopeMenu.value) positionMenu()
 }
 
+watch(scopeDisabled, (disabled) => {
+  if (disabled) closeScopeMenu()
+})
+
 useOutsideDismiss(
   showScopeMenu,
   () => closeScopeMenu(false),
-  () => [mainBtnRef.value, menuRef.value],
+  () => [runGroupRef.value, menuRef.value],
 )
 
 onMounted(() => {
@@ -133,51 +144,69 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="query-action-rail" role="toolbar" :aria-label="t('database.query.actionRail')">
-      <!-- Single smart run button -->
-      <div class="rail-run-group">
-        <button
-          ref="mainBtnRef"
-          type="button"
-          class="rail-btn primary"
-          :disabled="runDisabled"
-          :aria-label="runTooltip"
-          :data-tooltip="runTooltip"
-          @click="runDefault"
-          @contextmenu="onContextMenu"
-        >
-          <AppIcon name="play" size="md" />
-        </button>
-        <span
-          class="rail-scope-label"
-          :class="{ disabled: runDisabled }"
-          :title="t('database.query.scopeLabelHint')"
-        >{{ scopeLabel }}</span>
-      </div>
-      <span class="rail-divider" aria-hidden="true" />
+  <div class="query-action-rail" role="group" :aria-label="t('database.query.actionRail')">
+    <div ref="runGroupRef" class="run-group">
       <button
+        v-if="loading && canCancel"
         type="button"
-        class="rail-btn"
-        :disabled="runDisabled"
-        :aria-label="t('database.query.plan')"
-        :data-tooltip="t('database.query.planTitle')"
-        @click="emit('explain')"
+        class="ui-btn ui-btn-sm ui-btn-danger-solid run-stop"
+        :disabled="cancelling"
+        :aria-label="cancelLabel"
+        :aria-busy="cancelling"
+        :title="cancelling ? cancelLabel : t('database.query.cancelTitle')"
+        @click="emit('cancel')"
       >
-        <AppIcon name="query-plan" size="md" />
+        <AppIcon name="stop" size="sm" />
       </button>
       <button
+        v-else
         type="button"
-        class="rail-btn"
-        :class="{ active: isSaved }"
-        :aria-label="t('database.query.saveQuery')"
-        :data-tooltip="t('database.query.saveQueryTitle')"
-        @click="emit('saveQuery')"
+        class="ui-btn ui-btn-sm ui-btn-primary run-main"
+        :disabled="!scopeEnabled(defaultScope)"
+        :aria-label="runLabel"
+        :title="`${runLabel} · Ctrl+Enter`"
+        @click="runDefault"
+        @contextmenu.prevent="toggleScopeMenu"
       >
-        <AppIcon :name="isSaved ? 'star-fill' : 'star'" size="md" />
+        <AppIcon name="play" size="sm" />
       </button>
+      <button
+        ref="scopeButton"
+        type="button"
+        class="run-scope"
+        :disabled="scopeDisabled"
+        :aria-label="t('database.query.runMenu')"
+        :title="`${t('database.query.runMenu')} · ${runLabel}`"
+        aria-haspopup="menu"
+        :aria-expanded="showScopeMenu"
+        @click="toggleScopeMenu"
+      >
+        {{ scopeLabel }}
+      </button>
+    </div>
+    <span class="rail-divider" aria-hidden="true" />
+    <button
+      type="button"
+      class="ui-icon-btn ui-icon-btn-sm"
+      :disabled="!scopeEnabled(defaultScope)"
+      :aria-label="t('database.query.plan')"
+      :title="t('database.query.planTitle')"
+      @click="emit('explain')"
+    >
+      <AppIcon name="query-plan" size="sm" />
+    </button>
+    <button
+      type="button"
+      class="ui-icon-btn ui-icon-btn-sm"
+      :class="{ 'is-saved': isSaved }"
+      :disabled="!hasSql"
+      :aria-label="t('database.query.saveQuery')"
+      :title="t('database.query.saveQueryTitle')"
+      @click="emit('saveQuery')"
+    >
+      <AppIcon :name="isSaved ? 'star-fill' : 'star'" size="sm" />
+    </button>
     <span v-if="readOnly" class="rail-ro" :title="t('database.query.readOnlyOn')">RO</span>
-
-    <!-- Right-click scope selection menu (teleported to body) -->
     <Teleport to="body">
       <div
         v-if="showScopeMenu"
@@ -186,7 +215,9 @@ onBeforeUnmount(() => {
         role="menu"
         :style="menuStyle"
         @click.stop
-        @keydown.escape.prevent="closeScopeMenu(true)"
+        @keydown.escape.stop.prevent="closeScopeMenu(true)"
+        @keydown.down.prevent="moveScopeFocus(1)"
+        @keydown.up.prevent="moveScopeFocus(-1)"
       >
         <button
           type="button"
@@ -224,141 +255,76 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.query-action-rail {
+.query-action-rail,
+.run-group {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  width: 36px;
   flex-shrink: 0;
-  padding: 6px 4px;
-  overflow: visible;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
-  z-index: 20;
 }
 
-.rail-run-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+.query-action-rail {
+  gap: 4px;
+  box-sizing: border-box;
+  width: calc(var(--icon-btn-sm) + 10px);
+  padding: 6px 4px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  background: var(--bg-secondary);
+  border-inline-end: 1px solid var(--border-color);
+}
+
+.run-group {
   gap: 2px;
 }
 
-.rail-scope-label {
+.run-main,
+.run-stop {
+  width: var(--icon-btn-sm);
+  height: var(--icon-btn-sm);
+  padding: 0;
+}
+
+.run-scope {
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--accent);
   font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  text-align: center;
-  line-height: 1;
   white-space: nowrap;
-  user-select: none;
-  cursor: default;
-}
-
-.rail-scope-label.disabled {
-  opacity: 0.45;
-  color: var(--text-secondary);
-}
-
-.rail-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
   cursor: pointer;
 }
 
-.rail-btn::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  z-index: 10020;
-  max-width: 300px;
-  padding: 5px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
-  background: var(--bg-secondary);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  color: var(--text-primary);
-  font-size: 11px;
-  line-height: 1.3;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transform: translateY(-50%) translateX(-2px);
-  transition: opacity 100ms ease, transform 100ms ease;
+.run-scope:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
-.rail-btn:hover::after,
-.rail-btn:focus-visible::after {
-  opacity: 1;
-  transform: translateY(-50%) translateX(0);
-}
-
-.rail-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-bg);
-}
-
-.rail-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.rail-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.rail-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.rail-btn.active:not(:disabled) {
-  color: #dd6b20;
-  border-color: #dd6b20;
-  background: color-mix(in srgb, #dd6b20 8%, transparent);
-}
-
-.rail-btn.active.primary {
-  background: #dd6b20;
-  border-color: #dd6b20;
-  color: #fff;
-}
-
-.rail-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  color: #fff;
+.run-scope:disabled {
+  opacity: .45;
+  cursor: default;
 }
 
 .rail-divider {
+  flex: 0 0 1px;
   width: 22px;
-  height: 1px;
   margin: 2px 0;
   background: var(--border-color);
 }
 
 .rail-ro {
   margin-top: 4px;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: var(--warning);
+  padding: 1px 3px;
   border: 1px solid var(--warning);
   border-radius: 3px;
-  padding: 1px 3px;
+  color: var(--warning);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.is-saved {
+  color: var(--warning);
 }
 </style>

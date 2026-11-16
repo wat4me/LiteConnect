@@ -63,12 +63,12 @@ watch(
         v-if="detail && !reconnecting && !neverConnected"
         class="reconnect-detail"
       >{{ detail }}</span>
-      <button class="reconnect-btn" type="button" @click="emit('reconnect')">
+      <button class="reconnect-btn ui-btn ui-btn-primary" type="button" @click="emit('reconnect')">
         {{ reconnecting ? t('terminal.reconnectNow') : (neverConnected ? t('terminal.connectNow') : t('terminal.reconnect')) }}
       </button>
       <button
         v-if="reconnecting"
-        class="reconnect-btn ghost"
+        class="reconnect-btn ghost ui-btn"
         type="button"
         @click="emit('cancel-auto')"
       >
@@ -100,7 +100,7 @@ watch(
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-menu);
   color: var(--text-secondary);
 }
 
@@ -115,33 +115,9 @@ watch(
   color: var(--text-secondary);
 }
 
+/* Overlay keeps a wider pill; colors come from ui-btn levels. */
 .reconnect-btn {
-  padding: 8px 24px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.reconnect-btn:hover {
-  background: var(--accent-hover);
-}
-
-.reconnect-btn.ghost {
-  background: transparent;
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.reconnect-btn.ghost:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-bg);
+  padding: 0 24px;
 }
 
 .reconnect-hint {

@@ -674,7 +674,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
             <div v-if="dropIndex === getGroupIndex(group.id) && dragIndex !== null && dragIndex < getGroupIndex(group.id)" class="drop-indicator top"></div>
             <div class="group-item-content">
               <button
-                class="collapse-btn"
+                class="collapse-btn ui-icon-btn ui-icon-btn-sm"
                 :aria-expanded="!isGroupCollapsed(group.id)"
                 :aria-label="t(isGroupCollapsed(group.id) ? 'groups.expand' : 'groups.collapse')"
                 @click.stop="toggleGroupCollapsed(group.id)"
@@ -701,12 +701,12 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
             </div>
             <div v-if="editingId !== group.id" class="group-actions">
               <el-tooltip :content="t('groups.newSubgroup')" placement="right">
-                <button class="icon-btn-tiny" :aria-label="t('groups.newSubgroup')" @click.stop="emit('add', group.id)">
+                <button class="icon-btn-tiny ui-icon-btn ui-icon-btn-sm" :aria-label="t('groups.newSubgroup')" @click.stop="emit('add', group.id)">
                   <AppIcon name="plus" size="xs" />
                 </button>
               </el-tooltip>
               <el-tooltip :content="t('groups.moreActions')" placement="right">
-                <button class="icon-btn-tiny" :aria-label="t('groups.moreActions')" @click.stop="onGroupActions($event, group)">
+                <button class="icon-btn-tiny ui-icon-btn ui-icon-btn-sm" :aria-label="t('groups.moreActions')" @click.stop="onGroupActions($event, group)">
                   <AppIcon name="more" size="xs" />
                 </button>
               </el-tooltip>
@@ -764,7 +764,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
               <button
                 v-else
                 type="button"
-                class="sidebar-conn-pin"
+                class="sidebar-conn-pin ui-icon-btn ui-icon-btn-sm"
                 :class="{ active: !!conn.pinned }"
                 :title="conn.pinned ? t('connections.unpin') : t('connections.pin')"
                 :aria-label="conn.pinned ? t('connections.unpin') : t('connections.pin')"
@@ -786,7 +786,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
     </div>
 
     <div class="group-panel-footer">
-      <button class="add-group-btn" @click="emit('add')">
+      <button class="add-group-btn ui-btn ui-btn-sm" @click="emit('add')">
         <AppIcon name="plus" size="sm" />
         <span>{{ t('groups.newGroup') }}</span>
       </button>
@@ -1051,8 +1051,10 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .smart-item.active {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .smart-item-name {
@@ -1114,11 +1116,11 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .group-item.active {
-  background: var(--accent-bg);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .group-item.active .group-name {
-  color: var(--accent);
   font-weight: 600;
 }
 
@@ -1154,9 +1156,10 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-size: 10px;
+  /* Counts are information, not alerts: neutral like the tab counters. */
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -1172,25 +1175,11 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   align-items: center;
 }
 
+/* Compact row: 24px hit target that does not grow the 20px line box. */
 .collapse-btn {
-  width: 24px;
-  height: 24px;
+  /* Accessibility minimum, so not scaled down with interface density. */
+  --icon-btn-sm: 24px;
   margin-block: -2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.collapse-btn:hover {
-  color: var(--text-primary);
-  background: var(--hover-bg);
 }
 
 .empty-groups {
@@ -1214,31 +1203,14 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-item:hover .group-actions,
 .group-item:focus-within .group-actions { opacity: 1; pointer-events: auto; }
-.group-item.active .group-actions { background: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--bg-secondary); }
+.group-item.active .group-actions { background: var(--tab-selected-surface); }
 .group-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (hover: none) {
   .group-item:focus-within .group-actions { opacity: 1; }
 }
 
 .icon-btn-tiny {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 3px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  transition: all 0.15s;
-}
-
-.icon-btn-tiny:hover {
-  color: var(--text-primary);
-  background: var(--hover-bg);
-}
-
-.icon-btn-tiny.danger:hover {
-  color: var(--danger);
+  --icon-btn-sm: calc(24px * var(--ui-scale));
 }
 
 .rename-input {
@@ -1283,24 +1255,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .add-group-btn {
   width: 100%;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: transparent;
-  color: var(--accent);
-  border: 1px dashed var(--border-color);
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.add-group-btn:hover {
-  background: var(--accent-bg);
-  border-color: var(--accent);
 }
 
 .group-connections {
@@ -1379,32 +1333,15 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .sidebar-conn-pin {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
+  --icon-btn-sm: calc(20px * var(--ui-scale));
   margin-left: auto;
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
   opacity: 0;
-  cursor: pointer;
 }
 
 .sidebar-conn:hover .sidebar-conn-pin,
 .sidebar-conn-pin.active,
 .sidebar-conn.pinned .sidebar-conn-pin {
   opacity: 1;
-}
-
-.sidebar-conn-pin:hover,
-.sidebar-conn-pin.active {
-  color: var(--accent);
-  background: var(--accent-bg);
 }
 
 .sidebar-conn.connecting .sidebar-conn-pin {

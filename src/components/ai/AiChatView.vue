@@ -371,7 +371,7 @@ async function copyText(text: string, key: string) {
             <AppIcon name="chevron-right" size="xs" aria-hidden="true" />
           </button>
         </div>
-        <button v-if="hasApiConfigured" type="button" class="empty-model-settings" @click="emit('open-settings')">
+        <button v-if="hasApiConfigured" type="button" class="ui-btn ui-btn-ghost ui-btn-xs empty-model-settings" @click="emit('open-settings')">
           <AppIcon name="models" size="xs" aria-hidden="true" />{{ t('ai.manageModels') }}
         </button>
       </div>
@@ -411,12 +411,12 @@ async function copyText(text: string, key: string) {
           @keydown="onEditKeydown($event, message)"
         ></textarea>
         <div class="message-edit-actions">
-          <button type="button" class="message-edit-btn" :disabled="editSubmitting" @click="cancelEdit">
+          <button type="button" class="ui-btn ui-btn-xs message-edit-btn" :disabled="editSubmitting" @click="cancelEdit">
             {{ t('common.cancel') }}
           </button>
           <button
             type="button"
-            class="message-edit-btn primary"
+            class="ui-btn ui-btn-primary ui-btn-xs message-edit-btn primary"
             :disabled="(!editingText.trim() && !message.images?.length) || editSubmitting"
             @click="confirmEdit(message)"
           >
@@ -469,7 +469,7 @@ async function copyText(text: string, key: string) {
                 <span class="code-language">{{ block.language || 'text' }}</span>
                 <button
                   type="button"
-                  class="copy-btn"
+                  class="ui-icon-btn ui-icon-btn-sm copy-btn"
                   :title="copiedKey === `${message.id}-seg${segIndex}-rcode-${index}` ? t('common.copied') : t('ai.copyCode')"
                   @click="copyText(block.content, `${message.id}-seg${segIndex}-rcode-${index}`)"
                 >

@@ -79,15 +79,16 @@ function onKeydown(e: KeyboardEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay-bg);
 }
 .kb-card {
   width: min(420px, 92vw);
   padding: 18px 20px 16px;
   border-radius: 10px;
-  background: var(--bg-elevated, #161b22);
-  border: 1px solid var(--border, #30363d);
-  color: var(--text, #e6edf3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-dialog);
 }
 .kb-head {
   display: flex;
@@ -103,7 +104,7 @@ function onKeydown(e: KeyboardEvent) {
 .kb-hint {
   margin: 0 0 10px;
   font-size: 12px;
-  color: var(--text-secondary, #8b949e);
+  color: var(--text-secondary);
   white-space: pre-wrap;
 }
 .kb-field {

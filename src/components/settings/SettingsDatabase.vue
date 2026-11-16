@@ -101,9 +101,11 @@ function onDefaultTimeoutSecInput(ev: Event) {
 
         <div class="settings-label" style="margin-top: 14px" data-setting="database.fontSize">{{ t('settingsDatabase.fontSize') }}</div>
         <div class="font-size-row">
-          <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateDbFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
-          <span class="font-size-value">{{ draft.dbFontSize }}px</span>
-          <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateDbFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+          <div class="ui-btn-group">
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="updateDbFontSize(-1)"><AppIcon name="minus" size="xs" /></button>
+            <span class="font-size-value ui-btn-group-value">{{ draft.dbFontSize }}px</span>
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="updateDbFontSize(1)"><AppIcon name="plus" size="xs" /></button>
+          </div>
         </div>
 
         <div class="settings-label" style="margin-top: 14px" data-setting="database.pageSize">{{ t('settingsDatabase.pageSize') }}</div>

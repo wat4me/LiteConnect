@@ -482,7 +482,7 @@ defineExpose({ applyExternal })
         <div class="provider-item-actions">
           <button v-if="provider.id !== draftSettings.activeProviderId && provider.models.length" type="button" class="ui-btn ui-btn-xs" @click="setActiveProvider(provider)">{{ t('ai.setActiveProvider') }}</button>
           <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('ai.editProvider')" :title="t('ai.editProvider')" @click="openProvider(provider)"><AppIcon name="edit" size="sm" /></button>
-          <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('common.delete')" :title="t('common.delete')" @click="deleteProvider(provider.id)"><AppIcon name="trash" size="sm" /></button>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger" :aria-label="t('common.delete')" :title="t('common.delete')" @click="deleteProvider(provider.id)"><AppIcon name="trash" size="sm" /></button>
         </div>
       </div>
 
@@ -552,7 +552,7 @@ defineExpose({ applyExternal })
           <small v-if="index === 0">{{ t('ai.defaultModel') }}</small>
           <span class="model-summary-actions">
             <button type="button" class="ui-icon-btn ui-icon-btn-sm" :disabled="!model.id.trim() || index === 0" :aria-label="t('ai.setDefaultModel')" :aria-pressed="index === 0" :title="t(index === 0 ? 'ai.defaultModel' : 'ai.setDefaultModel')" @click.stop.prevent="makeDefaultModel(model)"><AppIcon :name="index === 0 ? 'star-fill' : 'star'" size="sm" /></button>
-            <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('ai.deleteModel')" :title="t('ai.deleteModel')" @click.stop.prevent="removeModelFromProvider(editingProvider, index)"><AppIcon name="trash" size="sm" /></button>
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger" :aria-label="t('ai.deleteModel')" :title="t('ai.deleteModel')" @click.stop.prevent="removeModelFromProvider(editingProvider, index)"><AppIcon name="trash" size="sm" /></button>
           </span>
         </summary>
         <div class="model-fields">
@@ -570,7 +570,8 @@ defineExpose({ applyExternal })
           <p class="permission-hint">{{ t('ai.modelContextBudgetHint') }}</p>
         </div>
       </details>
-            </div>
+
+            </div>
           </details>
 
 

@@ -135,7 +135,7 @@ onBeforeUnmount(() => {
           <div class="hotkey-controls">
             <button
               type="button"
-              class="hotkey-capture"
+              class="hotkey-capture ui-btn ui-btn-sm"
               :class="{ 'is-capturing': capturing, 'is-invalid': invalid }"
               :title="t('settingsApp.globalHotkeyCaptureTitle')"
               :aria-label="t('settingsApp.globalHotkeyCaptureTitle')"
@@ -214,24 +214,10 @@ onBeforeUnmount(() => {
 }
 
 .hotkey-capture {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   min-width: 168px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  justify-content: center;
 }
 
-.hotkey-capture:hover {
-  border-color: var(--accent);
-}
-
+/* Listening for keys reads like a focused field. */
 .hotkey-capture.is-capturing {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-bg);

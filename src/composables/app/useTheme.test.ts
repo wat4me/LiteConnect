@@ -69,7 +69,8 @@ describe('theme highlights and preset compatibility', () => {
     expect(getTerminalColors('custom', theme.customColors.value)).toMatchObject({
       background: colors.bgColor, foreground: colors.fontColor,
     })
-    expect(updateTitleBar).toHaveBeenLastCalledWith('custom', expect.objectContaining({ color: colors.bgColor }))
+    // The titlebar paints with the chrome surface, so the native overlay matches it.
+    expect(updateTitleBar).toHaveBeenLastCalledWith('custom', expect.objectContaining({ color: variables.get('--bg-secondary') }))
   })
 
   it.each(['dark', 'light', 'eyecare'] as const)('clears all custom inline tokens before switching to %s', async preset => {

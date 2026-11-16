@@ -135,7 +135,7 @@ async function copyFingerprint() {
             <span class="fingerprint-algo">{{ newFp.algorithm }}</span>
             <button
               type="button"
-              class="copy-fp-btn"
+              class="copy-fp-btn ui-btn ui-btn-ghost ui-btn-xs"
               :title="t('dialog.copyFingerprint')"
               @click="copyFingerprint"
             >
@@ -157,7 +157,7 @@ async function copyFingerprint() {
         <button
           type="button"
           class="ui-btn ui-btn-primary dialog-btn"
-          :class="{ danger: isMismatch }"
+          :class="{ danger: isMismatch, 'ui-btn-danger-solid': isMismatch }"
           @click="emit('accept')"
         >
           {{ isUnknown ? t('dialog.trustAndConnect') : t('dialog.trustChangedKey') }}
@@ -296,21 +296,6 @@ async function copyFingerprint() {
 
 .copy-fp-btn {
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-
-.copy-fp-btn:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .fingerprint-large {
@@ -359,11 +344,5 @@ async function copyFingerprint() {
 
 .dialog-btn {
   min-width: 96px;
-}
-
-.dialog-btn.danger {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: #fff;
 }
 </style>

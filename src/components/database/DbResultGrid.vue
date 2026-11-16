@@ -241,7 +241,6 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
 .sheet td.numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  width: 1%;
 }
 
 .sheet tbody tr:nth-child(even):not(.grid-spacer) {
@@ -256,6 +255,7 @@ function onCellDblClick(row: Record<string, unknown>, col: string) {
   z-index: 2;
   text-align: right;
   min-width: 36px;
+  width: 1%;
 }
 
 .sheet th.rn {

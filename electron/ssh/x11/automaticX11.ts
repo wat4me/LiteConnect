@@ -6,7 +6,8 @@ export async function ensureAutomaticLocalX11(options?: { force?: boolean; execu
   if (!options?.force && !getX11ServerOptions().autoStart) throw new Error(t('x11.automaticDisabled'))
   if (process.platform === 'win32') {
     const { managedX11Server } = await import('./managedX11')
-    const target = await managedX11Server.ensure(options?.executablePath)
+    // `force` is the explicit settings test: retry now even after a recent failure.
+    const target = await managedX11Server.ensure(options?.executablePath, { retryNow: options?.force })
     return {
       ...target, endpoint: { host: target.host, port: 6000 + target.display },
       displayAddress: `${target.host}:${6000 + target.display}`, screen: 0, started: false,

@@ -6,7 +6,7 @@ import type { SqlDialect } from '@/utils/database/dbSql'
 import { t } from '../../i18n'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import { assessSqlRisk, shouldConfirmSqlRisk } from '@/utils/database/sqlRisk'
-import { parseDbError } from '@/utils/database/dbErrorUi'
+import { parseDbError, unwrapDbQuery } from '@/utils/database/dbErrorUi'
 import {
   cancelResultUi,
   isLiveRequest,
@@ -49,6 +49,49 @@ export type DbQueryRunDeps = {
 }
 
 export function useDbQueryRun(deps: DbQueryRunDeps) {
+  const retryByTab = new WeakMap<QueryTab, () => Promise<void>>()
+
+  function setQueryError(
+    tab: QueryTab,
+    error: unknown,
+    request: { sessionId: string; database: string; sql: string; retry: () => Promise<void> },
+  ) {
+    const ui = parseDbError(error)
+    tab.error = ui.summary
+    tab.errorDetail = ui.detail
+    tab.errorCode = ui.code
+    tab.errorCategory = ui.category
+    // A transport failure can arrive after a write has already committed.
+    tab.errorRetryable = ui.retryable && assessSqlReadOnly(request.sql, deps.dialectOf(tab.connectionId)).allowed
+    if (tab.errorRetryable) {
+      retryByTab.set(tab, async () => {
+        const live = deps.getLiveSession(tab.connectionId)
+        if (live?.sessionId !== request.sessionId || (tab.database || live.database || '') !== request.database) {
+          tab.errorRetryable = false
+          ElMessage.warning(t('database.query.retryTargetChanged'))
+          return
+        }
+        await request.retry()
+      })
+    }
+    return ui
+  }
+
+  function resetQueryError(tab: QueryTab) {
+    retryByTab.delete(tab)
+    tab.error = ''
+    tab.errorDetail = undefined
+    tab.errorCode = undefined
+    tab.errorCategory = ''
+    tab.errorRetryable = false
+  }
+
+  async function retryActiveQuery() {
+    const tab = deps.activeTab.value
+    if (tab?.kind !== 'query' || tab.loading || !tab.errorRetryable) return
+    await retryByTab.get(tab)?.()
+  }
+
   function newQueryId() {
     return `q-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   }
@@ -103,7 +146,7 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
 
   async function runQuerySql(sql: string, scope: 'selection' | 'statement' | 'all' = 'all') {
     const tab = deps.activeTab.value
-    if (!tab || tab.kind !== 'query') return
+    if (!tab || tab.kind !== 'query' || tab.loading) return
     const live = deps.getLiveSession(tab.connectionId)
     if (!live) {
       ElMessage.warning(t('database.msg.disconnected'))
@@ -122,7 +165,15 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
         return
       }
     }
+    const database = tab.database
+    const retryDatabase = database || live.database || ''
     if (!(await confirmDangerousSqlIfNeeded(trimmed))) return
+    const currentSession = deps.getLiveSession(tab.connectionId)
+    if (tab.loading || !deps.tabs.value.includes(tab) || currentSession?.sessionId !== live.sessionId) return
+    if ((tab.database || currentSession.database || '') !== retryDatabase) {
+      ElMessage.warning(t('database.query.retryTargetChanged'))
+      return
+    }
 
     const tabId = tab.id
     const dispatchFullDocSql = tab.sql
@@ -130,28 +181,25 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
     const gen = nextRequestGen(deps.queryRunGen, tabId)
     const queryId = newQueryId()
     const sessionId = live.sessionId
-    const database = tab.database
     const connectionId = tab.connectionId
     const started = Date.now()
     tab.loading = true
+    tab.running = { scope: dispatchScope, startedAt: started }
     tab.cancelling = false
-    tab.error = ''
-    tab.errorDetail = ''
-    tab.errorCategory = ''
-    tab.errorRetryable = false
+    resetQueryError(tab)
     tab.queryId = queryId
     tab.sort = null
     const maxRows = clampQueryMaxRows(tab.maxRows ?? 1000)
     const timeoutMs = clampQueryTimeoutMs(tab.timeoutMs ?? 120_000)
     try {
-      const result = await window.LiteConnect.dbQuery(sessionId, trimmed, {
+      const result = unwrapDbQuery(await window.LiteConnect.dbQuery(sessionId, trimmed, {
         maxRows,
         timeoutMs,
         queryId,
         database: database || undefined,
         clientKey: tabId,
         readOnly: !!tab.readOnly,
-      })
+      }))
       if (!isLiveRequest(deps.queryRunGen, tabId, gen)) return
       const still = deps.tabs.value.find((t) => t.id === tabId)
       if (!still || still.kind !== 'query') return
@@ -186,11 +234,12 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
       const still = deps.tabs.value.find((t) => t.id === tabId)
       if (!still || still.kind !== 'query') return
       if (!deps.getLiveSession(still.connectionId)) return
-      const ui = parseDbError(err)
-      still.error = ui.summary
-      still.errorDetail = ui.detail || ''
-      still.errorCategory = ui.category
-      still.errorRetryable = ui.retryable
+      const ui = setQueryError(still, err, {
+        sessionId,
+        database: retryDatabase,
+        sql: trimmed,
+        retry: () => runQuerySql(trimmed, dispatchScope),
+      })
       const cancelled = ui.category === 'cancel'
       void deps.pushQueryHistory(trimmed, still.database, {
         status: cancelled ? 'cancelled' : 'failed',
@@ -204,6 +253,7 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
         const still = deps.tabs.value.find((t) => t.id === tabId)
         if (still && still.kind === 'query') {
           still.loading = false
+          still.running = undefined
           still.cancelling = false
           still.queryId = null
         }
@@ -313,7 +363,7 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
 
   async function explainQuerySql(sql: string) {
     const tab = deps.activeTab.value
-    if (!tab || tab.kind !== 'query') return
+    if (!tab || tab.kind !== 'query' || tab.loading) return
     const live = deps.getLiveSession(tab.connectionId)
     if (!live) {
       ElMessage.warning(t('database.msg.disconnected'))
@@ -329,22 +379,21 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
     const gen = nextRequestGen(deps.queryRunGen, tabId)
     const sessionId = live.sessionId
     const database = tab.database
+    const retryDatabase = database || live.database || ''
     const connectionId = tab.connectionId
     const started = Date.now()
     tab.loading = true
+    tab.running = { scope: 'explain', startedAt: started }
     tab.cancelling = false
-    tab.error = ''
-    tab.errorDetail = ''
-    tab.errorCategory = ''
-    tab.errorRetryable = false
+    resetQueryError(tab)
     tab.sort = null
     tab.filter = ''
     try {
-      const result = await window.LiteConnect.dbExplain(
+      const result = unwrapDbQuery(await window.LiteConnect.dbExplain(
         sessionId,
         trimmed,
         database || undefined,
-      )
+      ))
       if (!isLiveRequest(deps.queryRunGen, tabId, gen)) return
       const still = deps.tabs.value.find((t) => t.id === tabId)
       if (!still || still.kind !== 'query') return
@@ -372,11 +421,12 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
       const still = deps.tabs.value.find((t) => t.id === tabId)
       if (!still || still.kind !== 'query') return
       if (!deps.getLiveSession(still.connectionId)) return
-      const ui = parseDbError(err)
-      still.error = ui.summary || err.message || t('database.msg.explainFailed')
-      still.errorDetail = ui.detail || ''
-      still.errorCategory = ui.category
-      still.errorRetryable = ui.retryable
+      const ui = setQueryError(still, err, {
+        sessionId,
+        database: retryDatabase,
+        sql: trimmed,
+        retry: () => explainQuerySql(trimmed),
+      })
       const cancelled = ui.category === 'cancel'
       void deps.pushQueryHistory(
         trimmed,
@@ -387,14 +437,17 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
           connectionId,
           outcome: {
             kind: cancelled ? 'cancelled' : 'failed',
-            errorSummary: ui.summary || still.error,
+            errorSummary: ui.summary,
           },
         }),
       )
     } finally {
       if (shouldClearLoading(deps.queryRunGen, tabId, gen)) {
         const still = deps.tabs.value.find((t) => t.id === tabId)
-        if (still && still.kind === 'query') still.loading = false
+        if (still && still.kind === 'query') {
+          still.loading = false
+          still.running = undefined
+        }
       }
     }
   }
@@ -427,6 +480,7 @@ export function useDbQueryRun(deps: DbQueryRunDeps) {
   }
 
   return {
+    retryActiveQuery,
     runQuerySql,
     explainQuerySql,
     beginTransaction,

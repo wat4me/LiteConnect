@@ -222,6 +222,10 @@ export type DbErrorPayload = {
   retryable: boolean
 }
 
+export type DbQueryReply =
+  | { ok: true; result: DbQueryResult }
+  | { ok: false; error: DbErrorPayload }
+
 export type DbTestParams = Pick<
   DbConnection,
   | 'host'

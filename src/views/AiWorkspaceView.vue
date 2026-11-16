@@ -163,7 +163,7 @@ function openHostChat(connectionId: string) {
     <AiSettingsPanel v-if="showModelSettings" ref="modelSettingsPanel" class="workspace-model-settings" :model-value="settings" layout="page" @saved="replaceSettings" @close="closeModelSettings" />
     <aside v-show="!showModelSettings" class="ai-workspace-rail" :class="{ collapsed: railCollapsed }">
       <div class="rail-top-actions">
-        <button type="button" class="workspace-new-chat" :title="t('ai.workspace.newConversationMenu')" :aria-label="t('ai.workspace.newConversationMenu')" :disabled="selectionLocked || !connections.length" @click="openHostPicker('create')">
+        <button type="button" class="ui-btn workspace-new-chat" :title="t('ai.workspace.newConversationMenu')" :aria-label="t('ai.workspace.newConversationMenu')" :disabled="selectionLocked || !connections.length" @click="openHostPicker('create')">
           <AppIcon name="plus" size="sm" /><span v-if="!railCollapsed">{{ t('ai.workspace.newConversationMenu') }}</span>
         </button>
         <button type="button" class="ui-icon-btn ui-icon-btn-ghost rail-collapse" :title="t(railCollapsed ? 'ai.workspace.expandRail' : 'ai.workspace.collapseRail')" :aria-label="t(railCollapsed ? 'ai.workspace.expandRail' : 'ai.workspace.collapseRail')" :aria-expanded="!railCollapsed" @click="railCollapsed = !railCollapsed"><AppIcon :name="railCollapsed ? 'chevron-right' : 'chevron-left'" size="xs" /></button>
@@ -228,7 +228,7 @@ function openHostChat(connectionId: string) {
               </button>
             </div>
           </div>
-          <button v-if="historyConversations.length > HISTORY_PREVIEW_COUNT" type="button" class="rail-history-toggle" :aria-expanded="historyExpanded" @click="toggleHistory">
+          <button v-if="historyConversations.length > HISTORY_PREVIEW_COUNT" type="button" class="ui-btn ui-btn-ghost ui-btn-xs rail-history-toggle" :aria-expanded="historyExpanded" @click="toggleHistory">
             <AppIcon :name="historyExpanded ? 'chevron-up' : 'chevron-down'" size="xs" />
             {{ historyExpanded ? t('ai.workspace.collapseHistory') : t('ai.workspace.expandHistory', { count: historyConversations.length - HISTORY_PREVIEW_COUNT }) }}
           </button>
@@ -267,7 +267,7 @@ function openHostChat(connectionId: string) {
             @conversation-cleared="refreshRecent"
           >
             <template #header-leading>
-              <button type="button" class="ui-btn ui-btn-xs workspace-back" :title="t('ai.workspace.backToHosts')" :aria-label="t('ai.workspace.backToHosts')" @click="backToHosts"><AppIcon name="chevron-left" size="sm" /></button>
+              <button type="button" class="ui-icon-btn workspace-back" :title="t('ai.workspace.backToHosts')" :aria-label="t('ai.workspace.backToHosts')" @click="backToHosts"><AppIcon name="chevron-left" size="sm" /></button>
             </template>
             <template #workspace-toolbar>
               <header v-if="activeScope" class="workspace-target workspace-scope-target">
@@ -293,7 +293,7 @@ function openHostChat(connectionId: string) {
               <header v-else-if="selected" class="workspace-target">
                 <button
                   type="button"
-                  class="workspace-target-host"
+                  class="ui-btn ui-btn-sm workspace-target-host"
                   :title="t('ai.workspace.switchHost')"
                   :disabled="!!connectingId || closing"
                   @click="openHostPicker('switch')"
@@ -306,7 +306,7 @@ function openHostChat(connectionId: string) {
               </header>
             </template>
             <template #header-trailing>
-              <button v-if="selected && connectingId === selected.id" type="button" class="ui-btn ui-btn-xs workspace-session-action" @click="cancelConnect"><AppIcon name="close" size="sm" />{{ t('common.cancel') }}</button>
+              <button v-if="selected && connectingId === selected.id" type="button" class="ui-btn ui-btn-ghost ui-btn-xs workspace-session-action" @click="cancelConnect"><AppIcon name="close" size="sm" />{{ t('common.cancel') }}</button>
               <button v-else type="button" class="ui-icon-btn ui-icon-btn-close workspace-session-action workspace-close-session" :disabled="selectionLocked" :title="t('ai.workspace.closeHint')" :aria-label="t('ai.workspace.closeScope')" @click="closeCurrentConversation"><AppIcon name="close" size="sm" /></button>
             </template>
           </AiSidebar>
@@ -328,9 +328,9 @@ function openHostChat(connectionId: string) {
 
       <div v-else class="workspace-browser">
         <div class="workspace-toolbar">
-          <div class="workspace-filter-tabs" role="group" :aria-label="t('ai.workspace.filterHosts')">
-            <button type="button" data-filter="all" :class="{ active: hostFilter === 'all' }" :aria-pressed="hostFilter === 'all'" @click="hostFilter = 'all'">{{ t('ai.workspace.allHosts') }}<span>{{ connections.length }}</span></button>
-            <button type="button" data-filter="connected" :class="{ active: hostFilter === 'connected' }" :aria-pressed="hostFilter === 'connected'" @click="hostFilter = 'connected'">{{ t('ai.workspace.connected') }}<span>{{ connectedCount }}</span></button>
+          <div class="ui-btn-group workspace-filter-tabs" role="group" :aria-label="t('ai.workspace.filterHosts')">
+            <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs" data-filter="all" :class="{ active: hostFilter === 'all' }" :aria-pressed="hostFilter === 'all'" @click="hostFilter = 'all'">{{ t('ai.workspace.allHosts') }}<span>{{ connections.length }}</span></button>
+            <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs" data-filter="connected" :class="{ active: hostFilter === 'connected' }" :aria-pressed="hostFilter === 'connected'" @click="hostFilter = 'connected'">{{ t('ai.workspace.connected') }}<span>{{ connectedCount }}</span></button>
           </div>
           <div class="workspace-toolbar-controls">
             <div class="workspace-search-field">
@@ -338,7 +338,7 @@ function openHostChat(connectionId: string) {
               <input v-model="query" class="workspace-search" :placeholder="t('ai.workspace.search')" :aria-label="t('ai.workspace.search')" />
               <button v-if="query" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm workspace-search-clear" :title="t('ai.workspace.clearSearch')" :aria-label="t('ai.workspace.clearSearch')" @click="query = ''"><AppIcon name="close" size="xs" /></button>
             </div>
-            <div class="workspace-view-switch" role="group" :aria-label="t('ai.workspace.viewMode')">
+            <div class="ui-btn-group workspace-view-switch" role="group" :aria-label="t('ai.workspace.viewMode')">
               <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" data-view="cards" :class="{ active: hostView === 'cards' }" :aria-pressed="hostView === 'cards'" :title="t('ai.workspace.cardViewLabel')" :aria-label="t('ai.workspace.cardViewLabel')" @click="hostView = 'cards'"><AppIcon name="home-grid" size="sm" /></button>
               <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" data-view="list" :class="{ active: hostView === 'list' }" :aria-pressed="hostView === 'list'" :title="t('ai.workspace.listViewLabel')" :aria-label="t('ai.workspace.listViewLabel')" @click="hostView = 'list'"><AppIcon name="list" size="sm" /></button>
             </div>
@@ -352,7 +352,7 @@ function openHostChat(connectionId: string) {
 
         <div class="workspace-selection-guide">
           <span><AppIcon name="circle-check" size="sm" />{{ t('ai.workspace.selectionHint') }}</span>
-          <button type="button" class="workspace-text-action workspace-select-results" :disabled="!visible.length || selectionLocked || !canSelectResults" :title="!canSelectResults ? t('ai.workspace.selectionLimit', { count: AI_WORKSPACE_MAX_HOSTS }) : undefined" @click="toggleResults">{{ t(allResultsSelected ? 'ai.workspace.deselectResults' : 'ai.workspace.selectResults') }}</button>
+          <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs workspace-text-action workspace-select-results" :disabled="!visible.length || selectionLocked || !canSelectResults" :title="!canSelectResults ? t('ai.workspace.selectionLimit', { count: AI_WORKSPACE_MAX_HOSTS }) : undefined" @click="toggleResults">{{ t(allResultsSelected ? 'ai.workspace.deselectResults' : 'ai.workspace.selectResults') }}</button>
         </div>
         <div class="workspace-host-scroll">
         <p v-if="error" class="workspace-error" role="alert">{{ error }}</p>
@@ -414,7 +414,7 @@ function openHostChat(connectionId: string) {
         </div>
         <footer class="workspace-selection-bar" :class="{ 'has-selection': browserSelection.length > 0 }">
           <div class="workspace-selection-summary">
-            <div v-if="browserSelection.length" class="workspace-selection-heading"><strong aria-live="polite">{{ t('ai.workspace.selectionCount', { count: browserSelection.length }) }}</strong><button v-if="browserSelection.length" type="button" class="workspace-text-action workspace-clear-selection" :disabled="selectionLocked" @click="browserSelection = []">{{ t('ai.workspace.clearSelection') }}</button></div>
+            <div v-if="browserSelection.length" class="workspace-selection-heading"><strong aria-live="polite">{{ t('ai.workspace.selectionCount', { count: browserSelection.length }) }}</strong><button v-if="browserSelection.length" type="button" class="ui-btn ui-btn-ghost ui-btn-xs workspace-text-action workspace-clear-selection" :disabled="selectionLocked" @click="browserSelection = []">{{ t('ai.workspace.clearSelection') }}</button></div>
             <div v-if="browserSelection.length" class="workspace-selection-chips" :aria-label="t('ai.workspace.selectedServers')">
               <button v-for="host in browserSelectionHosts" :key="host.id" type="button" class="workspace-selection-chip" :disabled="selectionLocked" :title="host.name" :aria-label="t('ai.workspace.removeSelected', { name: host.name })" @click="toggleBrowserHost(host.id)"><span>{{ host.name }}</span><AppIcon name="close" size="xs" /></button>
             </div>

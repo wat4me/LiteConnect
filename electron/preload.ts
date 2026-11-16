@@ -119,6 +119,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('shellHistory:list', connectionId),
   pushShellCommandHistory: (connectionId: string, command: string) =>
     ipcRenderer.invoke('shellHistory:push', connectionId, command),
+  removeShellCommandHistory: (connectionId: string, command: string) =>
+    ipcRenderer.invoke('shellHistory:remove', connectionId, command),
   clearShellCommandHistory: (connectionId?: string) =>
     ipcRenderer.invoke('shellHistory:clear', connectionId),
   getRecentDownloadPaths: () => ipcRenderer.invoke('settings:getRecentDownloadPaths'),

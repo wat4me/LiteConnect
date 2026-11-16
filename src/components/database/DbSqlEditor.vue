@@ -28,6 +28,7 @@ import {
   bracketMatching,
   indentOnInput,
   syntaxHighlighting,
+  syntaxTree,
   defaultHighlightStyle,
 } from '@codemirror/language'
 import {
@@ -202,9 +203,11 @@ function stopThemeObserver() {
   themeObserver = null
 }
 
+const sqlIdentifierToken = /^[\p{L}\p{M}\p{N}_`$]*$/u
+
 function getSqlTokenAt(doc: string, cursor: number) {
   let i = cursor - 1
-  while (i >= 0 && /[\w`$]/.test(doc[i])) i -= 1
+  while (i >= 0 && sqlIdentifierToken.test(doc[i])) i -= 1
   const start = i + 1
   const token = doc.slice(start, cursor)
   let tableRef: string | null = null
@@ -250,6 +253,78 @@ function parseSqlTableMap(sqlText: string): Map<string, string> {
   return map
 }
 
+function foldUnquotedIdentifier(name: string, dialect: SqlDialect): string {
+  if (dialect === 'postgres') return name.toLowerCase()
+  if (dialect === 'oracle') return name.toUpperCase()
+  return name
+}
+
+function singleWhereSource(
+  context: CompletionContext,
+  start: number,
+  database: string,
+  dialect: SqlDialect,
+): { database: string; table: string } | null {
+  const { state, pos } = context
+  const statement = syntaxTree(state).topNode.childBefore(pos)
+  if (statement?.name !== 'Statement') return null
+
+  const tokens = []
+  for (let node = statement.firstChild; node && node.from < start; node = node.nextSibling) {
+    if (!node.name.endsWith('Comment')) tokens.push(node)
+  }
+  const words = tokens.map((node) =>
+    node.name === 'Keyword' ? state.sliceDoc(node.from, node.to).toUpperCase() : '',
+  )
+  const fromIndex = words.indexOf('FROM')
+  const whereIndex = words.indexOf('WHERE')
+  if (words[0] !== 'SELECT' || fromIndex < 0 || whereIndex <= fromIndex) return null
+
+  const where = tokens[whereIndex]
+  const beforePrefix = state.sliceDoc(where.from, start)
+  const condition = /\b(?:WHERE|AND|OR|NOT)\s+(?:\(\s*)*$/i.exec(beforePrefix)
+  if (
+    !condition ||
+    !tokens.some((node, index) => node.from === where.from + condition.index && words[index])
+  ) {
+    return null
+  }
+  const clauseEnd = /^(?:GROUP|ORDER|HAVING|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|MINUS|FOR)$/
+  if (words.slice(whereIndex + 1).some((word) => clauseEnd.test(word))) return null
+
+  const [table, ...afterTable] = tokens.slice(fromIndex + 1, whereIndex)
+  if (!table) return null
+  const alias = words[fromIndex + 2] === 'AS' ? afterTable.slice(1) : afterTable
+  const isIdentifier = (name: string) => name === 'Identifier' || name === 'QuotedIdentifier'
+  if (afterTable.length && (alias.length !== 1 || !isIdentifier(alias[0].name))) return null
+
+  const readIdentifier = (node: typeof table) => {
+    const name = state.sliceDoc(node.from, node.to)
+    if (node.name === 'QuotedIdentifier') {
+      return name[0] === '`'
+        ? name.slice(1, -1).replace(/``/g, '`')
+        : name.slice(1, -1).replace(/""/g, '"')
+    }
+    return foldUnquotedIdentifier(name, dialect)
+  }
+  if (isIdentifier(table.name)) return { database, table: readIdentifier(table) }
+  if (table.name !== 'CompositeIdentifier') return null
+  const schemaNode = table.firstChild
+  const tableNode = schemaNode?.nextSibling?.nextSibling
+  if (
+    !schemaNode || !isIdentifier(schemaNode.name) ||
+    !tableNode || !isIdentifier(tableNode.name) || tableNode.nextSibling
+  ) {
+    return null
+  }
+  const schema = readIdentifier(schemaNode)
+  const name = readIdentifier(tableNode)
+  if (dialect === 'postgres') {
+    return { database, table: schema === 'public' ? name : `${schema}.${name}` }
+  }
+  return { database: schema, table: name }
+}
+
 function currentEditorTokenState(): { pos: number; doc: string; token: string; start: number; tableRef: string | null } {
   if (!view) {
     return { pos: 0, doc: '', token: '', start: 0, tableRef: null }
@@ -291,6 +366,12 @@ async function schemaCompletion(context: CompletionContext): Promise<CompletionR
   const prefix = token.replace(/^["`]/, '').replace(/["`]$/, '')
   const database = props.tab.database
   const dialect = props.dialect || 'mysql'
+  if (context.tokenBefore(['String', 'LineComment', 'BlockComment'])) return null
+  // Retry at the new prefix when typing changes the document during metadata loading.
+  context.addEventListener('abort', () => completionGen.invalidate(), { onDocChange: true })
+  const source = tableRef
+    ? { database, table: parseSqlTableMap(doc).get(tableRef.toLowerCase()) || tableRef }
+    : singleWhereSource(context, start, database, dialect)
 
   const snapshot = makeCompletionRequestSnapshot({
     gen,
@@ -306,44 +387,29 @@ async function schemaCompletion(context: CompletionContext): Promise<CompletionR
   })
 
   try {
-    if (tableRef && database) {
+    if (source?.table && source.database) {
       let cols: DbColumnInfo[] = []
       const built = await runGuardedAsyncSteps({
         steps: [
           async () => {
-            await props.ensureTables(database)
-          },
-          async () => {
-            if (!isSchemaCompletionStillLive(snapshot)) return
-            const tableMap = parseSqlTableMap(doc)
-            const realTable = tableMap.get(tableRef.toLowerCase()) || tableRef
-            cols = await props.ensureColumns(database, realTable)
+            cols = await props.ensureColumns(source.database, source.table)
           },
         ],
         isLive: () => isSchemaCompletionStillLive(snapshot),
         build: () => {
-          const options = cols
-            .filter(
-              (c) =>
-                !prefix ||
-                c.name.toLowerCase().startsWith(prefix.toLowerCase()) ||
-                c.name.toLowerCase().includes(prefix.toLowerCase()),
-            )
-            .slice(0, 40)
-            .map((c) => {
-              const needsQuote = !/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.name)
-              const label = c.name
-              const apply = needsQuote ? quoteIdent(c.name, dialect) : c.name
-              return {
-                label,
-                apply,
-                type: 'property' as const,
-                detail: c.type || undefined,
-                boost: label.toLowerCase().startsWith(prefix.toLowerCase()) ? 2 : 0,
-              }
-            })
+          const options = cols.map((c) => {
+            const needsQuote =
+              !/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.name) ||
+              c.name !== foldUnquotedIdentifier(c.name, dialect)
+            return {
+              label: c.name,
+              apply: needsQuote ? quoteIdent(c.name, dialect) : c.name,
+              type: 'property' as const,
+              detail: c.type || undefined,
+            }
+          })
           if (options.length === 0) return null
-          return { from: start, options, validFor: /^[\w`$]*$/ } as CompletionResult
+          return { from: start, options, validFor: sqlIdentifierToken } as CompletionResult
         },
       })
       return built
@@ -379,7 +445,7 @@ async function schemaCompletion(context: CompletionContext): Promise<CompletionR
             }
           })
         if (options.length === 0) return null
-        return { from: start, options, validFor: /^[\w`$]*$/ } as CompletionResult
+        return { from: start, options, validFor: sqlIdentifierToken } as CompletionResult
       },
     })
     return built

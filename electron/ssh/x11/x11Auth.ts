@@ -1,11 +1,30 @@
 import { Transform, type TransformCallback } from 'node:stream'
-import { timingSafeEqual } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { Socket } from 'node:net'
 import type { X11Endpoint } from './x11Endpoint'
 
 export const X11_AUTH_PROTOCOL = 'MIT-MAGIC-COOKIE-1'
 export type X11Authentication = { remoteCookie: Buffer; localCookie: Buffer }
 const padded = (length: number) => (length + 3) & ~3
+
+/**
+ * VcXsrv reads the Xauthority file in Windows text mode: 0x1A ends the read and
+ * CR LF collapses to LF. Either corrupts the file, the server then loads no
+ * cookie and falls back to allowing every local client. Cookies written to a
+ * local Xauthority therefore never contain CR, LF or SUB (~127.6 bits remain).
+ */
+const TEXT_MODE_UNSAFE = new Set([0x0a, 0x0d, 0x1a])
+export function createXauthorityCookie(length = 16): Buffer {
+  const cookie = Buffer.alloc(length)
+  let filled = 0
+  while (filled < length) {
+    for (const byte of randomBytes(length)) {
+      if (filled === length) break
+      if (!TEXT_MODE_UNSAFE.has(byte)) cookie[filled++] = byte
+    }
+  }
+  return cookie
+}
 
 /** Xauthority uses network byte order, independently of the X11 client's order. */
 export function buildXauthority(display: number, cookie: Buffer): Buffer {

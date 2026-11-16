@@ -423,14 +423,20 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.mcp-approval-option:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color));
+  background: var(--tab-hover-surface);
+}
+
 .mcp-approval-option:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
+/* Selected choice card: neutral lift, not accent tint. */
 .mcp-approval-option.active {
-  border-color: var(--accent);
-  background: var(--accent-bg);
+  border-color: color-mix(in srgb, var(--text-primary) 35%, var(--border-color));
+  background: var(--tab-selected-surface);
 }
 
 .mcp-approval-title {
@@ -516,8 +522,8 @@ onMounted(() => {
 }
 
 .active-policy[data-tone='deny'] {
-  border-color: color-mix(in srgb, var(--warning-color, #d98e04) 45%, var(--border-color));
-  background: color-mix(in srgb, var(--warning-color, #d98e04) 8%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
 }
 
 .active-policy[data-tone='ask'] {
@@ -526,8 +532,8 @@ onMounted(() => {
 }
 
 .active-policy[data-tone='danger'] {
-  border-color: color-mix(in srgb, var(--danger-color, #d94a4a) 45%, var(--border-color));
-  background: color-mix(in srgb, var(--danger-color, #d94a4a) 8%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .policy-intro {
@@ -579,7 +585,7 @@ onMounted(() => {
 }
 
 .command-chip-list.danger code {
-  color: var(--danger-color, #d94a4a);
+  color: var(--danger);
 }
 
 .policy-rule-list {

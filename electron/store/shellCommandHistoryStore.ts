@@ -3,6 +3,7 @@ import {
   normalizeShellHistoryExcludePatterns,
   shouldStoreShellCommand,
 } from '../../shared/shellHistoryPrivacy'
+import { isPlausibleShellCommand } from '../../shared/shellHistoryQuality'
 
 export type ShellCommandHistoryItem = {
   command: string
@@ -42,7 +43,7 @@ export class ShellCommandHistoryStore {
       next[record.connectionId] = record.items
         .filter((item) => item && typeof item.command === 'string' && item.command.trim())
         .filter((item) => {
-          const keep = shouldStoreShellCommand(item.command)
+          const keep = shouldStoreShellCommand(item.command) && isPlausibleShellCommand(item.command)
           if (!keep) removedUnsafeItem = true
           return keep
         })
@@ -109,7 +110,7 @@ export class ShellCommandHistoryStore {
     await this.init()
     if (!connectionId || typeof connectionId !== 'string') return []
     const raw = String(command || '').replace(/\r?\n/g, ' ')
-    if (!shouldStoreShellCommand(raw, this.excludePatterns)) return this.list(connectionId)
+    if (!shouldStoreShellCommand(raw, this.excludePatterns) || !isPlausibleShellCommand(raw)) return this.list(connectionId)
     const cmd = raw
       .trim()
       .slice(0, MAX_COMMAND_CHARS)
@@ -133,6 +134,21 @@ export class ShellCommandHistoryStore {
     }
 
     this.scheduleSave()
+    return [...next]
+  }
+
+  /** Remove one entry, e.g. a wrong line the user dismisses from suggestions. */
+  async remove(connectionId: string, command: string): Promise<ShellCommandHistoryItem[]> {
+    await this.init()
+    const prev = this.byConnection[connectionId]
+    if (!prev) return []
+    const target = String(command || '').trim()
+    const next = prev.filter((item) => item.command !== target)
+    if (next.length !== prev.length) {
+      if (next.length) this.byConnection[connectionId] = next
+      else delete this.byConnection[connectionId]
+      this.scheduleSave()
+    }
     return [...next]
   }
 

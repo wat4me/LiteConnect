@@ -35,7 +35,7 @@ import type {
   DbIndexInfo,
   DbQueryHistoryItem,
   DbQueryHistoryStatus,
-  DbQueryResult,
+  DbQueryReply,
   DbScriptProgress,
   DbSessionInfo,
   DbSqlRiskAssessment,
@@ -200,6 +200,7 @@ export interface LiteConnectApi extends SftpApi {
   importCommandSnippets: (mode?: 'append' | 'replace') => Promise<{ imported: number; total: number } | null>
   listShellCommandHistory: (connectionId: string) => Promise<ShellCommandHistoryItem[]>
   pushShellCommandHistory: (connectionId: string, command: string) => Promise<ShellCommandHistoryItem[]>
+  removeShellCommandHistory: (connectionId: string, command: string) => Promise<ShellCommandHistoryItem[]>
   clearShellCommandHistory: (connectionId?: string) => Promise<boolean>
   getRecentDownloadPaths: () => Promise<string[]>
   addRecentDownloadPath: (dirPath: string) => Promise<void>
@@ -608,7 +609,7 @@ export interface LiteConnectApi extends SftpApi {
       clientKey?: string
       readOnly?: boolean
     },
-  ) => Promise<DbQueryResult>
+  ) => Promise<DbQueryReply>
   dbCancelQuery: (sessionId: string, queryId: string) => Promise<DbCancelResult>
   dbSelectSqlScript: () => Promise<{ token: string; name: string; size: number } | null>
   dbRunSqlScript: (
@@ -618,7 +619,7 @@ export interface LiteConnectApi extends SftpApi {
   ) => Promise<{ jobId: string }>
   dbCancelSqlScript: (jobId: string) => Promise<boolean>
   onDbScriptProgress: (callback: (data: DbScriptProgress) => void) => () => void
-  dbExplain: (sessionId: string, sql: string, database?: string) => Promise<DbQueryResult>
+  dbExplain: (sessionId: string, sql: string, database?: string) => Promise<DbQueryReply>
   dbBeginTransaction: (
     sessionId: string,
     clientKey: string,

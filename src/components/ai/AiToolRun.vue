@@ -70,7 +70,7 @@ function onToggle(event: Event) {
             <span v-if="exitLabel" class="tool-run-exit">{{ exitLabel }}</span>
             <span v-if="detail" class="tool-run-detail">{{ detail }}</span>
           </span>
-          <button v-if="run.name === 'knowledge_save' && run.status === 'done' && !run.isError" type="button" class="tool-run-knowledge" :title="t('ai.knowledge.view')" :aria-label="t('ai.knowledge.view')" @click.stop.prevent="emit('view-knowledge')">{{ t('ai.knowledge.view') }}</button>
+          <button v-if="run.name === 'knowledge_save' && run.status === 'done' && !run.isError" type="button" class="ui-btn ui-btn-ghost ui-btn-xs tool-run-knowledge" :title="t('ai.knowledge.view')" :aria-label="t('ai.knowledge.view')" @click.stop.prevent="emit('view-knowledge')">{{ t('ai.knowledge.view') }}</button>
         </summary>
         <template v-if="isOpen">
         <div v-if="executionHistoryAvailable && run.name === 'exec'" class="tool-run-section"><button type="button" class="ui-btn ui-btn-xs tool-run-view-execution" @click="emit('view-execution')"><AppIcon name="terminal-history" size="xs" />{{ t('ai.execution.view') }}</button></div>
@@ -92,7 +92,7 @@ function onToggle(event: Event) {
 </template>
 
 <style scoped>
-.tool-run-knowledge { flex-shrink: 0; padding: 0 3px; border: none; background: transparent; color: var(--accent); cursor: pointer; font: inherit; }
+.tool-run-knowledge { flex-shrink: 0; }
 .tool-run:has(.tool-run-knowledge) .tool-run-outcome { flex-shrink: 0; }
 .tool-run-target { min-width: 0; max-width: min(200px, 25%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-size: 10px; }
 .tool-run-view-execution { display: inline-flex; align-items: center; gap: 5px; }

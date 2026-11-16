@@ -55,19 +55,6 @@
   flex-shrink: 0;
 }
 
-/* path-action-btn kept for transfers header layout if needed */
-.path-action-btn {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  opacity: 0.8;
-}
-
-.path-action-btn.confirm {
-  opacity: 1;
-  color: var(--accent);
-}
-
 .transfers-header {
   display: flex;
   align-items: center;
@@ -97,34 +84,10 @@
   flex-wrap: wrap;
 }
 
-.transfer-direction-tabs {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--bg-tertiary);
-}
-
-.transfer-direction-tab {
-  height: 26px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
 .transfer-direction-tab span {
   margin-left: 3px;
   color: inherit;
   font-variant-numeric: tabular-nums;
-}
-
-.transfer-direction-tab.active {
-  background: var(--bg-primary);
-  color: var(--accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
 .transfer-status-tabs {
@@ -135,21 +98,10 @@
   gap: 3px;
 }
 
-.transfer-status-tabs button {
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.transfer-status-tabs button:hover,
+/* Selected filter: neutral toggled-on surface (ui-btn-ghost has no .active). */
 .transfer-status-tabs button.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .follow-footer {
@@ -339,34 +291,4 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.rename-cancel-btn {
-  padding: 6px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.rename-cancel-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-}
-
-.rename-confirm-btn {
-  padding: 6px 16px;
-  border: none;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.rename-confirm-btn:hover {
-  background: var(--accent-hover);
 }

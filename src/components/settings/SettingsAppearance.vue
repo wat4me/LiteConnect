@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useTheme, type Theme } from '@/composables/app/useTheme'
+import { customThemeVariables, useTheme, type Theme } from '@/composables/app/useTheme'
+import AppIcon from '@/components/icons/AppIcon.vue'
 import {
   FANCY_CURSOR_STYLES,
   type FancyCursorStyle,
@@ -23,10 +24,10 @@ const { t } = useI18n()
 const { themeOrder, themeLabels } = useTheme()
 
 const themeSwatches: Record<Theme, { bg: string; fg: string }> = {
-  dark: { bg: '#0d1117', fg: '#e6edf3' },
-  light: { bg: '#ffffff', fg: '#1f2328' },
+  dark: { bg: '#262624', fg: '#ece9e1' },
+  light: { bg: '#ffffff', fg: '#21201c' },
   eyecare: { bg: '#f5f0e8', fg: '#5c5346' },
-  custom: { bg: '#0d1117', fg: '#e6edf3' },
+  custom: { bg: '#262624', fg: '#ece9e1' },
 }
 
 const styleOptions = computed(() =>
@@ -37,31 +38,16 @@ const styleOptions = computed(() =>
   })),
 )
 
-function mix(hex1: string, hex2: string, ratio: number): string {
-  const parse = (h: string) => {
-    const n = h.replace('#', '')
-    if (n.length !== 6) return [13, 17, 23]
-    return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)]
-  }
-  const [r1, g1, b1] = parse(hex1)
-  const [r2, g2, b2] = parse(hex2)
-  const r = Math.round(r1 + (r2 - r1) * ratio)
-  const g = Math.round(g1 + (g2 - g1) * ratio)
-  const b = Math.round(b1 + (b2 - b1) * ratio)
-  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`
-}
-
-const previewUi = computed(() => {
-  if (props.draft.theme === 'custom') {
-    return {
-      bg: props.draft.bgColor,
-      fg: props.draft.fontColor,
-      secondary: mix(props.draft.bgColor, props.draft.fontColor, 0.12),
-    }
-  }
-  const s = themeSwatches[props.draft.theme]
-  return { bg: s.bg, fg: s.fg, secondary: mix(s.bg, s.fg, 0.12) }
-})
+/*
+ * The preview carries data-theme="<draft theme>", so the theme blocks in
+ * main.css resolve every token for it exactly as in the real window. A custom
+ * draft gets the same variables useTheme applies to the document root.
+ */
+const previewThemeVars = computed<Record<string, string>>(() =>
+  props.draft.theme === 'custom'
+    ? customThemeVariables({ bgColor: props.draft.bgColor, fontColor: props.draft.fontColor })
+    : {},
+)
 
 const bgFitOptions = computed(() =>
   (['cover', 'contain', 'fill'] as AppBackgroundFit[]).map((id) => ({
@@ -76,8 +62,9 @@ const hasBgImage = computed(
 
 const previewBgStyle = computed(() => {
   const base: Record<string, string> = {
-    background: previewUi.value.bg,
-    color: previewUi.value.fg,
+    ...previewThemeVars.value,
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
   }
   if (!hasBgImage.value) return base
   const fit = props.draft.appBackground.fit
@@ -86,7 +73,7 @@ const previewBgStyle = computed(() => {
   return {
     ...base,
     backgroundImage: [
-      `linear-gradient(color-mix(in srgb, ${previewUi.value.bg} ${overlay}%, transparent), color-mix(in srgb, ${previewUi.value.bg} ${overlay}%, transparent))`,
+      `linear-gradient(color-mix(in srgb, var(--bg-primary) ${overlay}%, transparent), color-mix(in srgb, var(--bg-primary) ${overlay}%, transparent))`,
       `url("${props.draft.appBackground.imageUrl.replace(/"/g, '\\"')}")`,
     ].join(', '),
     backgroundSize: `${size}, ${size}`,
@@ -396,12 +383,12 @@ onBeforeUnmount(() => {
         <p class="settings-hint">{{ t('settingsAppearance.bgImageHint') }}</p>
         <template v-if="hasBgImage">
           <div class="settings-label" style="margin-top: 12px">{{ t('settingsAppearance.bgImageFitLabel') }}</div>
-          <div class="bg-fit-options">
+          <div class="bg-fit-options ui-btn-group">
             <button
               v-for="opt in bgFitOptions"
               :key="opt.id"
               type="button"
-              class="bg-fit-option"
+              class="bg-fit-option ui-btn ui-btn-ghost ui-btn-xs"
               :class="{ active: draft.appBackground.fit === opt.id }"
               @click="setBackgroundFit(opt.id)"
             >
@@ -462,32 +449,50 @@ onBeforeUnmount(() => {
           ref="previewRef"
           class="ui-preview"
           :class="{ 'fancy-cursor-preview': draft.fancyCursorEnabled }"
+          :data-theme="draft.theme"
           :style="previewBgStyle"
           @pointerenter="onPreviewEnter"
           @pointerleave="onPreviewLeave"
           @pointermove="onPreviewMove"
         >
-          <div class="ui-preview-bar" :style="{ background: previewUi.secondary, borderColor: mix(previewUi.bg, previewUi.fg, 0.2) }">
-            <span class="ui-preview-dot" />
-            <span class="ui-preview-dot" />
-            <span class="ui-preview-title">LiteConnect</span>
+          <!-- Same structure and theme tokens as the real shell: titlebar, module rail, framed workspace. -->
+          <div class="ui-preview-bar">
+            <span class="ui-preview-title">SSH</span>
+            <AppIcon name="chevron-down" size="xs" class="ui-preview-chevron" />
           </div>
-          <div class="ui-preview-body">
-            <div class="ui-preview-side" :style="{ background: previewUi.secondary, borderColor: mix(previewUi.bg, previewUi.fg, 0.2) }">
-              <div class="ui-preview-side-item active">{{ t('settingsAppearance.previewConnections') }}</div>
-              <div class="ui-preview-side-item">{{ t('settingsAppearance.previewGroupA') }}</div>
-              <div class="ui-preview-side-item">{{ t('settingsAppearance.previewGroupB') }}</div>
+          <div class="ui-preview-shell">
+            <div class="ui-preview-rail" aria-hidden="true">
+              <span class="ui-preview-module active"><AppIcon name="terminal" size="xs" /></span>
+              <span class="ui-preview-module"><AppIcon name="database" size="xs" /></span>
+              <span class="ui-preview-module"><AppIcon name="ai-chat" size="xs" /></span>
             </div>
-            <div class="ui-preview-main">
-              <div class="ui-preview-row" :style="{ borderColor: mix(previewUi.bg, previewUi.fg, 0.18) }">
-                <span class="ui-preview-name">prod-web</span>
-                <span class="ui-preview-meta" :style="{ color: mix(previewUi.fg, previewUi.bg, 0.4) }">root@10.0.0.1</span>
+            <div class="ui-preview-window ui-preview-body">
+              <div class="ui-preview-side">
+                <div class="ui-preview-side-item active">{{ t('settingsAppearance.previewConnections') }}</div>
+                <div class="ui-preview-side-item">{{ t('settingsAppearance.previewGroupA') }}</div>
+                <div class="ui-preview-side-item">{{ t('settingsAppearance.previewGroupB') }}</div>
               </div>
-              <div class="ui-preview-row" :style="{ borderColor: mix(previewUi.bg, previewUi.fg, 0.18) }">
-                <span class="ui-preview-name">stage-db</span>
-                <span class="ui-preview-meta" :style="{ color: mix(previewUi.fg, previewUi.bg, 0.4) }">ubuntu@10.0.0.2</span>
+              <div class="ui-preview-main">
+                <div class="ui-preview-head">
+                  <span class="ui-preview-heading">{{ t('groups.defaultGroup') }}</span>
+                  <span class="ui-preview-btn">{{ t('connections.newConnection') }}</span>
+                </div>
+                <div class="ui-preview-tools">
+                  <span class="ui-preview-search" />
+                  <span class="ui-preview-segment">
+                    <span class="active">{{ t('connections.standardList') }}</span>
+                    <span>{{ t('connections.compactList') }}</span>
+                  </span>
+                </div>
+                <div class="ui-preview-row">
+                  <span class="ui-preview-name">prod-web</span>
+                  <span class="ui-preview-meta">root@10.0.0.1</span>
+                </div>
+                <div class="ui-preview-row">
+                  <span class="ui-preview-name">stage-db</span>
+                  <span class="ui-preview-meta">ubuntu@10.0.0.2</span>
+                </div>
               </div>
-              <div class="ui-preview-btn" :style="{ background: 'var(--accent)', color: '#fff' }">{{ t('settingsAppearance.previewConnect') }}</div>
             </div>
           </div>
 
@@ -566,14 +571,18 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.theme-option:hover {
-  border-color: var(--accent);
+.theme-option:hover,
+.cursor-style-option:hover {
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color));
+  background: var(--tab-hover-surface);
 }
 
-.theme-option.active {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-  color: var(--accent);
+/* Selected choice card: neutral lift, same as other selected states. */
+.theme-option.active,
+.cursor-style-option.active {
+  border-color: color-mix(in srgb, var(--text-primary) 35%, var(--border-color));
+  background: var(--tab-selected-surface);
+  color: var(--text-primary);
 }
 
 .theme-swatch {
@@ -593,33 +602,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.bg-fit-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.bg-fit-option {
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.bg-fit-option:hover {
-  border-color: var(--accent);
-}
-
-.bg-fit-option.active {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 600;
 }
 
 .overlay-row {
@@ -664,22 +646,9 @@ onBeforeUnmount(() => {
   text-align: left;
 }
 
-.cursor-style-option:hover {
-  border-color: var(--accent);
-}
-
-.cursor-style-option.active {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-}
-
 .cursor-style-name {
   font-size: 12px;
   font-weight: 600;
-}
-
-.cursor-style-option.active .cursor-style-name {
-  color: var(--accent);
 }
 
 .cursor-style-desc {
@@ -729,7 +698,7 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 10px;
   overflow: hidden;
-  border: 1px solid rgba(128, 128, 128, 0.25);
+  border: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
   min-height: 200px;
 }
 
@@ -843,90 +812,164 @@ onBeforeUnmount(() => {
   opacity: 0.9;
 }
 
+/* Mirrors the real shell; every color is a theme token resolved by data-theme. */
 .ui-preview-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid;
+  gap: 2px;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--titlebar-bg, var(--bg-secondary));
 }
-
-.ui-preview-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.35;
-}
-
 .ui-preview-title {
-  margin-left: 4px;
-  font-size: 11px;
+  font-family: var(--font-serif);
+  font-size: 12px;
   font-weight: 600;
-  opacity: 0.85;
+  color: var(--text-primary);
 }
-
-.ui-preview-body {
+.ui-preview-chevron { color: var(--text-secondary); }
+.ui-preview-shell {
   display: flex;
-  min-height: 150px;
+  gap: 4px;
+  padding: 0 6px 6px 0;
 }
-
-.ui-preview-side {
-  width: 88px;
-  padding: 10px 8px;
-  border-right: 1px solid;
+.ui-preview-rail {
+  width: 32px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  padding-top: 2px;
 }
-
+.ui-preview-module {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.ui-preview-module.active {
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge), var(--tab-selected-shadow);
+}
+.ui-preview-window {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  min-height: 170px;
+  overflow: hidden;
+  border: 1px solid var(--window-edge);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  box-shadow: var(--window-shadow);
+}
+.ui-preview-side {
+  width: 84px;
+  flex-shrink: 0;
+  padding: 8px 6px;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
 .ui-preview-side-item {
   font-size: 11px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  opacity: 0.75;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
 }
-
 .ui-preview-side-item.active {
-  background: var(--accent-bg);
-  color: var(--accent);
-  opacity: 1;
+  color: var(--text-primary);
   font-weight: 600;
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge), var(--tab-selected-shadow);
 }
-
 .ui-preview-main {
   flex: 1;
+  min-width: 0;
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
-
+.ui-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.ui-preview-heading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.ui-preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+.ui-preview-search {
+  flex: 1;
+  height: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+.ui-preview-segment {
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--segment-track);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.ui-preview-segment > span {
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.ui-preview-segment > .active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--segment-selected);
+  box-shadow: var(--segment-selected-shadow);
+}
 .ui-preview-row {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  background: var(--bg-primary);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
-
 .ui-preview-name {
   font-size: 12px;
   font-weight: 600;
+  color: var(--text-primary);
 }
-
 .ui-preview-meta {
   font-size: 10px;
+  color: var(--text-secondary);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
-
 .ui-preview-btn {
-  align-self: flex-start;
-  margin-top: 4px;
-  padding: 5px 12px;
-  border-radius: 6px;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent);
+  white-space: nowrap;
 }
 </style>

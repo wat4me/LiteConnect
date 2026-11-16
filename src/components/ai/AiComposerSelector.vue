@@ -48,7 +48,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 </script>
 <template>
   <span class="selector-wrap" :title="title">
-    <button ref="anchor" type="button" class="composer-selector" :class="{ active: open }" :disabled="disabled" :aria-label="`${title}: ${label}`" aria-haspopup="menu" :aria-expanded="open" @click="open = !open" @keydown.down.prevent="open = true">
+    <button ref="anchor" type="button" class="ui-btn ui-btn-ghost ui-btn-sm composer-selector" :class="{ active: open }" :disabled="disabled" :aria-label="`${title}: ${label}`" aria-haspopup="menu" :aria-expanded="open" @click="open = !open" @keydown.down.prevent="open = true">
       <AppIcon :name="icon" size="sm" /><span class="selector-label">{{ label }}</span><AppIcon name="chevron-down" size="xs" />
     </button>
   </span>
@@ -63,17 +63,17 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 </template>
 <style scoped>
 .selector-wrap { display: inline-flex; align-items: center; min-width: 0; height: var(--control-h-sm); }
-.composer-selector { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); height: var(--control-h-sm); box-sizing: border-box; padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-md); color: var(--text-secondary); background: transparent; font: inherit; font-size: var(--font-ui-sm); line-height: var(--line-ui); white-space: nowrap; cursor: pointer; }
+/* Composer toolbar: compact horizontal padding. */
+.composer-selector { gap: var(--space-1); padding: 0 6px; }
 .composer-selector :deep(.app-icon) { flex-shrink: 0; }
-.composer-selector:hover:not(:disabled), .composer-selector.active { background: var(--hover-bg); color: var(--text-primary); border-color: var(--border-color); }
-.composer-selector:disabled { opacity: .45; cursor: not-allowed; }
+.composer-selector.active { background: var(--tab-selected-surface); color: var(--text-primary); }
 .composer-selector:focus-visible, .composer-selector-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .selector-label { display: inline-flex; align-items: center; line-height: var(--line-ui); }
 .composer-selector-menu { position: fixed; z-index: var(--z-menu); padding: 6px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-menu); overflow-y: auto; box-sizing: border-box; }
 .selector-title { padding: 6px 8px; font-size: var(--font-caption); color: var(--text-secondary); }
 .composer-selector-menu button { display: flex; width: 100%; gap: var(--space-2); padding: var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.composer-selector-menu button:hover { background: var(--hover-bg); }
-.composer-selector-menu button[aria-checked="true"] { background: var(--accent-bg); color: var(--accent); }
+.composer-selector-menu button:hover { background: var(--tab-hover-surface); }
+.composer-selector-menu button[aria-checked="true"] { background: var(--tab-selected-surface); color: var(--text-primary); }
 .option-dot { display: inline-flex; align-items: center; justify-content: center; width: var(--icon-xs); min-width: var(--icon-xs); height: var(--icon-xs); margin-top: 1px; }
 .composer-selector-menu strong { font-size: var(--font-ui-sm); font-weight: 500; }
 .composer-selector-menu small { display: block; margin-top: 4px; font-size: var(--font-caption); line-height: 1.5; color: var(--text-secondary); }

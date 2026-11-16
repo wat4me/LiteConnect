@@ -74,7 +74,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', close); window.remo
 </template>
 
 <style scoped>
-.ai-conversation-menu-trigger { width: var(--icon-btn-md); height: var(--icon-btn-md); border-color: var(--workspace-line, var(--border-color)); background: var(--bg-primary); }
+.ai-conversation-menu-trigger { width: var(--icon-btn-md); height: var(--icon-btn-md); }
 .ai-conversation-menu { width: 240px; }
 .ai-conversation-menu .ui-menu-item { min-height: var(--control-h-sm); }
 .ai-conversation-menu .ui-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

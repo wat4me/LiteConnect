@@ -25,6 +25,12 @@ export function registerShellCommandHistoryHandlers(
     return store.push(connectionId, command)
   })
 
+  ipcMain.handle('shellHistory:remove', async (_event, connectionId: string, command: string) => {
+    await ready()
+    if (!isValidUUID(connectionId) || typeof command !== 'string') return []
+    return store.remove(connectionId, command)
+  })
+
   ipcMain.handle('shellHistory:clear', async (_event, connectionId?: string) => {
     await ready()
     if (connectionId != null && connectionId !== '' && !isValidUUID(connectionId)) {

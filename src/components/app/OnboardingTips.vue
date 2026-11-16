@@ -22,7 +22,8 @@ const tips = computed((): OnboardingTip[] => [
   {
     title: t('connections.tipAppModeTitle'),
     body: t('connections.tipAppModeBody'),
-    anchors: ['app-mode'],
+    // The titlebar menu only exists where the module rail is hidden.
+    anchors: ['app-mode', 'module-rail'],
     placement: 'bottom',
   },
   {
@@ -252,7 +253,7 @@ function next() {
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-menu);
 }
 
 /* Small caret toward the anchor */

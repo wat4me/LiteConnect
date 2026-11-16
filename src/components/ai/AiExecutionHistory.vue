@@ -116,8 +116,8 @@ onBeforeUnmount(() => {
 .execution-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; font: inherit; font-size: var(--font-ui-sm); color: var(--text-primary); background: transparent; }
 .execution-search:focus-within { outline: 2px solid var(--accent); }
 .execution-item { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; padding: 12px; border: 0; border-bottom: 1px solid var(--border-color); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
-.execution-item:hover { background: var(--hover-bg); }
-.execution-item.selected { background: var(--accent-bg); box-shadow: inset 3px 0 var(--accent); }
+.execution-item:hover { background: var(--tab-hover-surface); }
+.execution-item.selected { background: var(--tab-selected-surface); box-shadow: inset 3px 0 color-mix(in srgb, var(--text-primary) 45%, transparent); }
 .execution-item-heading { display: flex; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: var(--font-caption); }
 .execution-item-heading > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .execution-item-heading > span:last-child { flex-shrink: 0; }

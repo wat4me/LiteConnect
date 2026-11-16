@@ -352,7 +352,7 @@ const cellMenuPreview = computed(() => {
         <div class="tool-group pager">
           <button
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-btn ui-btn-ghost ui-btn-xs"
             :disabled="prevPageDisabled"
             :title="t('database.data.prevPage')"
             @click="emit('pageDelta', -1)"
@@ -374,7 +374,7 @@ const cellMenuPreview = computed(() => {
           </span>
           <button
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-btn ui-btn-ghost ui-btn-xs"
             :disabled="nextDisabled"
             :title="t('database.data.nextPage')"
             @click="emit('pageDelta', 1)"
@@ -434,7 +434,7 @@ const cellMenuPreview = computed(() => {
           </button>
           <button
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-btn ui-btn-ghost ui-btn-xs"
             :class="{ 'is-dirty-action': dirtyCount !== 0 }"
             :disabled="dirtyCount === 0 || tab.saving"
             :title="t('database.data.saveTitle')"
@@ -444,7 +444,7 @@ const cellMenuPreview = computed(() => {
           </button>
           <button
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-btn ui-btn-ghost ui-btn-xs"
             :disabled="dirtyCount === 0 || tab.saving"
             @click="emit('discardDirty')"
           >
@@ -465,8 +465,9 @@ const cellMenuPreview = computed(() => {
           <button
             ref="moreBtnRef"
             type="button"
-            class="ui-btn ui-btn-xs"
+            class="ui-btn ui-btn-ghost ui-btn-xs"
             :title="t('database.data.moreActions')"
+            :aria-label="t('database.data.moreActions')"
             :disabled="!tab.result && !tab.loading"
             @click="toggleMore"
           >

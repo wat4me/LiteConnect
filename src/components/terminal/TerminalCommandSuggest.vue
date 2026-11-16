@@ -2,6 +2,7 @@
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ShellSuggestItem } from '@/utils/terminal/shellCommandSuggest'
+import AppIcon from '@/components/icons/AppIcon.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -17,6 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:activeIndex', v: number): void
   (e: 'pick', item: ShellSuggestItem): void
+  (e: 'remove', item: ShellSuggestItem): void
 }>()
 
 const { t } = useI18n()
@@ -70,6 +72,14 @@ function subtitle(item: ShellSuggestItem): string {
       >
         <code class="title">{{ item.title }}</code>
         <span v-if="subtitle(item)" class="sub">{{ subtitle(item) }}</span>
+        <!-- Pointer shortcut for Shift+Delete; a span because buttons cannot nest. -->
+        <span
+          v-if="item.source === 'history'"
+          class="cmd-suggest-remove"
+          :title="t('shellSuggest.removeHistory')"
+          aria-hidden="true"
+          @mousedown.prevent.stop="emit('remove', item)"
+        ><AppIcon name="close" size="xs" /></span>
       </button>
     </div>
     <div class="cmd-suggest-footer" aria-hidden="true">
@@ -91,7 +101,7 @@ function subtitle(item: ShellSuggestItem): string {
   background: var(--bg-secondary, #252526);
   border: 1px solid var(--border-color, #3c3c3c);
   border-radius: 6px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-menu);
   overflow: hidden;
   pointer-events: auto;
   transform: translateY(0);
@@ -125,7 +135,7 @@ function subtitle(item: ShellSuggestItem): string {
 }
 
 .cmd-suggest-item.active {
-  background: var(--accent-bg, rgba(74, 158, 255, 0.18));
+  background: var(--tab-selected-surface);
 }
 
 .title {
@@ -145,6 +155,30 @@ function subtitle(item: ShellSuggestItem): string {
   flex: 1 1 auto;
   max-width: none;
   color: var(--warning);
+}
+
+.cmd-suggest-remove {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  visibility: hidden;
+}
+
+.cmd-suggest-item:hover .cmd-suggest-remove,
+.cmd-suggest-item.active .cmd-suggest-remove {
+  visibility: visible;
+}
+
+.cmd-suggest-remove:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .cmd-suggest-item.flag .title {

@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { access } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { ManagedX11Server, ManagedX11Service, managedX11Args } from './managedX11'
+import { ManagedX11Server, ManagedX11Service, managedX11Args, X11_START_FAILURE_COOLDOWN_MS } from './managedX11'
+import { createXauthorityCookie } from './x11Auth'
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn(), probe: vi.fn(), anonymous: vi.fn(), resolve: vi.fn(), free: true }))
 vi.mock('node:child_process', () => ({ spawn: mocks.spawn }))
@@ -69,6 +70,43 @@ describe('managed Windows display lifecycle', () => {
     await expect(server.ensure()).rejects.toThrow('invalid cookie')
     expect(mocks.spawn.mock.results[0].value.kill).toHaveBeenCalledOnce()
     await server.stop()
+  })
+
+  it('reuses a recent start failure so later connections do not relaunch the server', async () => {
+    mocks.probe.mockReset().mockResolvedValue(true)
+    const server = new ManagedX11Server()
+    await expect(server.ensure()).rejects.toThrow('invalid cookie')
+    await expect(server.ensure()).rejects.toThrow('invalid cookie')
+    await expect(server.ensure()).rejects.toThrow('invalid cookie')
+    expect(mocks.spawn).toHaveBeenCalledOnce()
+    // The explicit settings test retries at once and clears the remembered failure.
+    mocks.probe.mockReset().mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockResolvedValue(true)
+    await expect(server.ensure(undefined, { retryNow: true })).resolves.toMatchObject({ display: 50 })
+    expect(mocks.spawn).toHaveBeenCalledTimes(2)
+    await server.stop()
+  })
+
+  it('tries a fresh start automatically after the failure cooldown', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      mocks.probe.mockReset().mockResolvedValue(true)
+      const server = new ManagedX11Server()
+      await expect(server.ensure()).rejects.toThrow('invalid cookie')
+      vi.setSystemTime(Date.now() + X11_START_FAILURE_COOLDOWN_MS + 1)
+      await expect(server.ensure()).rejects.toThrow('invalid cookie')
+      expect(mocks.spawn).toHaveBeenCalledTimes(2)
+      await server.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('writes cookies that survive VcXsrv text-mode reading of the Xauthority file', async () => {
+    for (let i = 0; i < 200; i++) {
+      const cookie = createXauthorityCookie()
+      expect(cookie).toHaveLength(16)
+      for (const byte of [0x0a, 0x0d, 0x1a]) expect(cookie.includes(byte)).toBe(false)
+    }
   })
 
   it('does not terminate an existing display when testing a different executable', async () => {

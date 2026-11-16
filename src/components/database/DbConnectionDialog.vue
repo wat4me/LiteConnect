@@ -385,7 +385,7 @@ onMounted(() => {
                       autocomplete="current-password"
                       @input="patch('password', ($event.target as HTMLInputElement).value)"
                     />
-                    <button type="button" class="dbeaver-pwd-toggle" @click="showPassword = !showPassword">
+                    <button type="button" class="ui-btn dbeaver-pwd-toggle" @click="showPassword = !showPassword">
                       {{ showPassword ? t('database.connection.hide') : t('database.connection.show') }}
                     </button>
                   </div>
@@ -697,7 +697,7 @@ onMounted(() => {
 }
 
 .dbeaver-tab.active {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 .dbeaver-tab.active::after {
@@ -708,7 +708,7 @@ onMounted(() => {
   bottom: 0;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--accent);
+  background: var(--text-primary);
 }
 
 .dbeaver-tab-panel {
@@ -784,20 +784,13 @@ onMounted(() => {
   min-width: 0;
 }
 
+/* Input addon: joined to the password field, so it keeps the right-only radius. */
 .dbeaver-pwd-toggle {
   width: 56px;
+  padding: 0;
   flex-shrink: 0;
-  border: 1px solid var(--border-color);
   border-left: none;
-  border-radius: 0 8px 8px 0;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.dbeaver-pwd-toggle:hover {
-  color: var(--text-primary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 
 .dbeaver-url-box {

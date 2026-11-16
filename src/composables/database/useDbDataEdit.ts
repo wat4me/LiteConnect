@@ -12,6 +12,7 @@ import {
 } from '@/utils/database/dbSql'
 import type { WsTab } from '@/domain/database/types'
 import { formatCell } from '@/domain/database/dbFormat'
+import { unwrapDbQuery } from '@/utils/database/dbErrorUi'
 
 export type DbDataEditDeps = {
   activeTab: ComputedRef<WsTab | null>
@@ -169,10 +170,10 @@ export function useDbDataEdit(deps: DbDataEditDeps) {
     )
     tab.saving = true
     try {
-      await window.LiteConnect.dbQuery(live.sessionId, sql, {
+      unwrapDbQuery(await window.LiteConnect.dbQuery(live.sessionId, sql, {
         timeoutMs: 30000,
         database: tab.database,
-      })
+      }))
       ElMessage.success(t('database.msg.inserted'))
       tab.inserting = null
       await deps.loadDataPage(tab.id)
@@ -213,10 +214,10 @@ export function useDbDataEdit(deps: DbDataEditDeps) {
           deps.dialectOf(tab.connectionId),
         )
         if (!sql) continue
-        await window.LiteConnect.dbQuery(live.sessionId, sql, {
+        unwrapDbQuery(await window.LiteConnect.dbQuery(live.sessionId, sql, {
           timeoutMs: 30000,
           database: tab.database,
-        })
+        }))
       }
       ElMessage.success(t('database.msg.savedRows', { n: indexes.length }))
       tab.dirty = {}
@@ -264,10 +265,10 @@ export function useDbDataEdit(deps: DbDataEditDeps) {
           deps.dialectOf(tab.connectionId),
         )
         if (!sql) continue
-        await window.LiteConnect.dbQuery(live.sessionId, sql, {
+        unwrapDbQuery(await window.LiteConnect.dbQuery(live.sessionId, sql, {
           timeoutMs: 30000,
           database: tab.database,
-        })
+        }))
       }
       ElMessage.success(t('database.msg.deleted'))
       tab.selected = []

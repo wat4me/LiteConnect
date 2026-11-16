@@ -15,6 +15,8 @@ export type TerminalUserInputDeps = {
   }
   capturedSubmitLine: Ref<string>
   getVisibleCommandLine: () => string
+  /** Remember the prompt in front of the cursor before a new line is typed. */
+  notePromptBeforeInput?: () => void
   scheduleSubmit: () => void
   cancelPendingSubmit: () => void
   resetCommandBuffer: () => void
@@ -45,6 +47,7 @@ export function useTerminalUserInput(deps: TerminalUserInputDeps) {
       deps.showReadOnlyHintOnce()
       return
     }
+    deps.notePromptBeforeInput?.()
     deps.updatePasteState(data)
     deps.onUserInput?.(data)
 

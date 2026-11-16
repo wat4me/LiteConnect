@@ -5,7 +5,8 @@ export default {
     badgeBuiltin: 'Command',
     badgeFlag: 'Option',
     historyHint: 'Local history · Enter selects',
-    hint: 'Enter inserts it; Enter again runs it · ↑↓ moves · Esc closes · Tab uses terminal completion',
+    hint: 'Enter inserts it; Enter again runs it · ↑↓ moves · Shift+Delete forgets history · Esc closes · Tab uses terminal completion',
+    removeHistory: 'Remove from history',
     selectHint: '↑↓ moves · Enter selects',
     cmd: {
       ls: 'List directory contents',

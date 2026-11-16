@@ -1,5 +1,11 @@
 import { t } from '@/i18n'
 import type { DbErrorCategory } from '@/env.d'
+import type { DbQueryReply, DbQueryResult } from '@shared/types/database'
+
+export function unwrapDbQuery(reply: DbQueryReply): DbQueryResult {
+  if (reply.ok) return reply.result
+  throw Object.assign(new Error(reply.error.summary), reply.error)
+}
 
 export type DbUiError = {
   category: DbErrorCategory

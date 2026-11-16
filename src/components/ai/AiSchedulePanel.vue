@@ -255,7 +255,7 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
         <button type="button" class="ui-btn ui-btn-primary ui-btn-xs schedule-run" :disabled="active || starting || working" @click="runNow(plan)">{{ t('ai.schedule.runNow') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :disabled="active || working" @click="toggle(plan)">{{ t(plan.enabled ? 'ai.schedule.pause' : 'ai.schedule.resume') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :disabled="active || working" @click="edit(plan)">{{ t('ai.schedule.edit') }}</button>
-        <button type="button" class="ui-icon-btn ui-icon-btn-sm schedule-delete" :disabled="active || working" :title="t('common.delete')" @click="remove(plan)"><AppIcon name="delete" size="xs" /></button>
+        <button type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger schedule-delete" :disabled="active || working" :title="t('common.delete')" @click="remove(plan)"><AppIcon name="delete" size="xs" /></button>
       </div>
     </article>
     <div class="schedule-history-heading">
@@ -321,7 +321,7 @@ h2 { font-size: 18px; margin: 0; } h3, h4 { font-size: 14px; margin: 0; }
 p, small, .schedule-toolbar-meta { font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
 .schedule-header { flex-wrap: wrap; }
 .schedule-header-actions { flex-shrink: 0; flex-wrap: wrap; }
-.schedule-header-actions .active { background: var(--accent-bg); color: var(--accent); }
+.schedule-header-actions .active { background: var(--tab-selected-surface); color: var(--text-primary); }
 .schedule-toolbar { flex-wrap: wrap; margin: 14px 0 16px; }
 .schedule-form, .schedule-plan, .schedule-result { padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; margin-bottom: 10px; background: var(--bg-primary); }
 .schedule-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; background: var(--bg-secondary); }
@@ -339,7 +339,6 @@ p, small, .schedule-toolbar-meta { font-size: 12px; line-height: 1.6; color: var
 .schedule-chip { display: inline-flex; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 8px; border-radius: 999px; background: var(--bg-secondary); border: 1px solid var(--border-color); font-size: 11px; color: var(--text-secondary); }
 .schedule-chip.muted { opacity: 0.8; }
 .schedule-actions { flex-shrink: 0; flex-wrap: wrap; }
-.schedule-delete { color: var(--danger); }
 .schedule-history-heading { margin: 24px 0 12px; justify-content: space-between; }
 .schedule-result { padding: 0; overflow: hidden; }
 .schedule-result-summary { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
@@ -357,7 +356,8 @@ p, small, .schedule-toolbar-meta { font-size: 12px; line-height: 1.6; color: var
 .schedule-host-panel { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 12px; margin-top: 14px; }
 .schedule-host-list { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
 .schedule-host-tab { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; font: inherit; font-size: 12px; }
-.schedule-host-tab.active { border-color: var(--accent); background: var(--accent-bg); }
+.schedule-host-tab:hover { background: var(--tab-hover-surface); }
+.schedule-host-tab.active { border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color)); background: var(--tab-selected-surface); }
 .schedule-host-tab[data-status=failed] small { color: var(--danger); }
 .schedule-host-tab[data-status=completed] small { color: var(--success); }
 .schedule-host-detail { min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }

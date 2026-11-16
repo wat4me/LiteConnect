@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { useDbQueryRun } from './useDbQueryRun'
 import type { QueryTab, WsTab } from '@/domain/database/types'
-import type { DbSessionInfo } from '@shared/types/database'
+import type { DbQueryReply, DbSessionInfo } from '@shared/types/database'
 
 vi.mock('element-plus/es/components/message/index', () => ({
   ElMessage: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -12,11 +12,12 @@ vi.mock('../../i18n', () => ({ t: (key: string) => key }))
 afterEach(() => vi.unstubAllGlobals())
 
 function fixture() {
-  const result = { columns: [], rows: [], rowCount: 0, hasResultSet: true, durationMs: 1 }
+  const result = { columns: [], rows: [], rowCount: 0, hasResultSet: true, durationMs: 1, truncated: false }
+  const reply = { ok: true, result } as const
   const ipc = {
     getDbConfirmDangerousSql: vi.fn(async () => false),
-    dbQuery: vi.fn(async () => result),
-    dbExplain: vi.fn(async () => result),
+    dbQuery: vi.fn(async (): Promise<DbQueryReply> => reply),
+    dbExplain: vi.fn(async (): Promise<DbQueryReply> => reply),
     dbCancelQuery: vi.fn(async () => ({ status: 'requested' })),
     dbBeginTransaction: vi.fn(async () => ({ inTransaction: true, autocommit: false })),
     dbCommitTransaction: vi.fn(async () => ({ inTransaction: false, autocommit: true })),
@@ -53,14 +54,14 @@ describe('database query execution through the real composable', () => {
 
   it('cancels the actual in-flight query and clears busy state when it settles', async () => {
     const { api, ipc, tab, result } = fixture()
-    let resolve!: (value: typeof result) => void
+    let resolve!: (value: DbQueryReply) => void
     ipc.dbQuery.mockImplementationOnce(() => new Promise(done => { resolve = done }))
     const pending = api.runQuerySql('SELECT 1')
     await vi.waitFor(() => expect(ipc.dbQuery).toHaveBeenCalledOnce())
     const queryId = tab.queryId
     await api.cancelActiveQuery()
     expect(ipc.dbCancelQuery).toHaveBeenCalledWith('s1', queryId)
-    resolve(result)
+    resolve({ ok: true, result })
     await pending
     expect(tab.loading).toBe(false)
     expect(tab.cancelling).toBe(false)
@@ -89,5 +90,51 @@ describe('database query execution through the real composable', () => {
     expect(ipc.dbExplain).toHaveBeenCalledWith('s1', 'SELECT 1', 'db')
     expect(tab.outputKind).toBe('plan')
     expect(tab.loading).toBe(false)
+  })
+
+  const timeout: DbQueryReply = {
+    ok: false,
+    error: {
+      category: 'query_timeout',
+      summary: 'Query timed out',
+      detail: 'canceling statement due to statement timeout',
+      code: '57014',
+      retryable: true,
+    },
+  }
+
+  it('shows the driver error and retries the original selection after the editor changes', async () => {
+    const { api, ipc, tab } = fixture()
+    ipc.dbQuery.mockResolvedValueOnce(timeout)
+    await api.runQuerySql('SELECT 42', 'selection')
+    expect(tab.error).toBeTruthy()
+    expect(tab.errorCode).toBe('57014')
+    expect(tab.errorDetail).toBe('canceling statement due to statement timeout')
+    tab.sql = 'SELECT 42; DELETE FROM users;'
+    await api.retryActiveQuery()
+    expect(ipc.dbQuery).toHaveBeenLastCalledWith('s1', 'SELECT 42', expect.any(Object))
+    expect(tab.errorCode).toBeUndefined()
+  })
+
+  it('retries EXPLAIN as EXPLAIN and declines retry when the target database changes', async () => {
+    const { api, ipc, tab } = fixture()
+    ipc.dbExplain.mockResolvedValue(timeout)
+    await api.explainQuerySql('SELECT 42')
+    await api.retryActiveQuery()
+    expect(ipc.dbExplain).toHaveBeenCalledTimes(2)
+    expect(ipc.dbExplain).toHaveBeenLastCalledWith('s1', 'SELECT 42', 'db')
+    tab.database = 'other_db'
+    await api.retryActiveQuery()
+    expect(ipc.dbExplain).toHaveBeenCalledTimes(2)
+    expect(ipc.dbQuery).not.toHaveBeenCalled()
+  })
+
+  it('does not offer retry when a timed-out write may already have completed', async () => {
+    const { api, ipc, tab } = fixture()
+    ipc.dbQuery.mockResolvedValueOnce(timeout)
+    await api.runQuerySql('UPDATE users SET active = true WHERE id = 42')
+    expect(tab.errorRetryable).toBe(false)
+    await api.retryActiveQuery()
+    expect(ipc.dbQuery).toHaveBeenCalledOnce()
   })
 })

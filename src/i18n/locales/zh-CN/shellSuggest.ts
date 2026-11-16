@@ -5,7 +5,8 @@ export default {
     badgeBuiltin: '命令',
     badgeFlag: '参数',
     historyHint: '本机记录 · 回车选中',
-    hint: '回车填入，再按回车执行 · ↑↓ 切换 · Esc 关闭 · Tab 终端补全',
+    hint: '回车填入，再按回车执行 · ↑↓ 切换 · Shift+Delete 删除历史 · Esc 关闭 · Tab 终端补全',
+    removeHistory: '从历史中删除',
     selectHint: '↑↓ 切换 · 回车选中',
     cmd: {
       ls: '列出目录内容',

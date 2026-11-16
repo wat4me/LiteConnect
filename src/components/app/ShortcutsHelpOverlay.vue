@@ -89,7 +89,7 @@ watch(
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay-bg);
 }
 
 .shortcuts-panel {
@@ -100,7 +100,7 @@ watch(
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-dialog);
   outline: none;
 }
 

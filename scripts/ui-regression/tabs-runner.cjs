@@ -7,8 +7,9 @@ app.setPath('userData', path.join(artifacts, 'profile'))
 let stage = 'starting', window
 const timeout = setTimeout(() => { console.error('Tabs UI timed out', { stage, artifacts }); app.exit(1) }, 120000)
 
-const measure = `(() => {
-  const strip = document.querySelector('.tabs-scroll')
+const measureStrip = (selector) => `(() => {
+  const wrapper = document.querySelector('${selector}')
+  const strip = wrapper?.querySelector('.tabs-scroll')
   const active = strip?.querySelector('[data-active-tab="true"]')
   if (!strip || !active) return null
   const c = strip.getBoundingClientRect(), t = active.getBoundingClientRect()
@@ -16,18 +17,14 @@ const measure = `(() => {
     scrollLeft: strip.scrollLeft,
     maxScroll: strip.scrollWidth - strip.clientWidth,
     fits: t.left >= c.left - 1 && t.right <= c.right + 1,
-    activeText: active.querySelector('.tab-name')?.textContent,
-    arrows: [...document.querySelectorAll('.tabs-overflow-btn')].map(button => button.dataset.tabsScroll),
+    activeText: active.querySelector('.tab-name, .sub-tab-label')?.textContent,
+    arrows: [...wrapper.querySelectorAll('.tabs-overflow-btn:not(:disabled)')].map(button => button.dataset.tabsScroll),
   }
 })()`
 
-const fitsExpression = `(() => {
-  const strip = document.querySelector('.tabs-scroll')
-  const active = strip?.querySelector('[data-active-tab="true"]')
-  if (!strip || !active) return false
-  const c = strip.getBoundingClientRect(), t = active.getBoundingClientRect()
-  return t.left >= c.left - 1 && t.right <= c.right + 1
-})()`
+const measure = measureStrip('.tabs-wrap')
+const measureSubTabs = measureStrip('.sub-tabs-wrap')
+const fitsExpression = `(${measure})?.fits === true`
 
 app.whenReady().then(async () => {
   window = new BrowserWindow({ show: false, width: 1100, height: 700, webPreferences: { backgroundThrottling: false } })
@@ -62,7 +59,7 @@ app.whenReady().then(async () => {
 
   stage = 'left arrow scrolls back'
   const beforeArrow = state.scrollLeft
-  await run(`document.querySelector('[data-tabs-scroll="left"]').click()`)
+  await run(`document.querySelector('.tabs-wrap [data-tabs-scroll="left"]').click()`)
   await tick()
   state = await run(measure)
   assert.ok(state.scrollLeft < beforeArrow, `Left arrow must scroll left: ${JSON.stringify(state)}`)
@@ -94,11 +91,39 @@ app.whenReady().then(async () => {
   await run(`window.__tabs.setActive('host-13')`)
   await wait(fitsExpression)
   window.setSize(620, 700)
+  await wait('innerWidth < 700')
   await wait(fitsExpression)
   state = await run(measure)
   assert.ok(state.fits, `Active host must stay visible after resize: ${JSON.stringify(state)}`)
 
-  console.log(JSON.stringify({ passed: true, flows: ['14 hosts overflow the strip', 'active host revealed on mount', 'overflow arrows and arrow scrolling', 'activation reveals first and last hosts', 'horizontal wheel scrolling', 'active host stays visible after resize'], artifacts }))
+  stage = 'connecting a new host after the strip is already full'
+  const newHostSession = await run(`window.__tabs.connect('host-14')`)
+  assert.equal(newHostSession, 'host-14-new-1')
+  await wait(`window.__tabs.state().session === 'host-14-new-1' && (${measure})?.activeText === '10.2.5.84' && ${fitsExpression}`)
+  await wait(`[...document.querySelectorAll('.terminal-pane:not(.is-hidden-session) .xterm')].some(el => el.getBoundingClientRect().width > 0)`)
+
+  stage = 'adding a terminal on a host with many existing sessions'
+  await run(`window.__tabs.setActive('host-13')`)
+  await wait(`document.querySelectorAll('.sub-tabs-wrap .sub-tab').length === 14`)
+  assert.ok((await run(measureSubTabs)).maxScroll > 0)
+  await run(`document.querySelector('.sub-tab-add').click()`)
+  await wait(`window.__tabs.state().session === 'host-13-new-2' && document.querySelectorAll('.sub-tabs-wrap .sub-tab').length === 15 && (${measureSubTabs})?.fits`)
+  const subTabsEnd = await run(measureSubTabs)
+  assert.ok(subTabsEnd.scrollLeft > 0)
+  await run(`document.querySelector('.sub-tabs-wrap [data-tabs-scroll="left"]').click()`)
+  await tick()
+  const subTabsAfterArrow = await run(measureSubTabs)
+  assert.ok(subTabsAfterArrow.scrollLeft < subTabsEnd.scrollLeft, JSON.stringify({ subTabsEnd, subTabsAfterArrow }))
+  const beforeTrackpad = (await run(measureSubTabs)).scrollLeft
+  await run(`document.querySelector('.sub-tabs-wrap .tabs-scroll').dispatchEvent(new WheelEvent('wheel', {deltaX: 160, bubbles: true, cancelable: true}))`)
+  await tick()
+  assert.ok((await run(measureSubTabs)).scrollLeft > beforeTrackpad)
+  await run(`document.querySelector('.sub-tabs-wrap [data-tabs-scroll="right"]').click()`)
+  await tick()
+  assert.ok((await run(measureSubTabs)).fits)
+  assert.equal(await run('window.__tabsError || null'), null)
+
+  console.log(JSON.stringify({ passed: true, flows: ['overflow and resize', 'new connection shows its tab and terminal', 'new session within one host is revealed', 'arrows and wheel on both tab strips'], artifacts }))
   clearTimeout(timeout)
   app.quit()
 }).catch(error => {

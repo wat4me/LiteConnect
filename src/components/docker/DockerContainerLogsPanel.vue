@@ -518,10 +518,6 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 
-.logs-actions .ui-btn {
-  font-weight: 500;
-}
-
 .logs-viewport {
   position: relative;
   display: flex;
@@ -534,10 +530,7 @@ onBeforeUnmount(() => {
   position: absolute;
   bottom: 12px;
   right: 20px;
-  color: var(--accent);
-  background: var(--bg-primary);
-  border-color: var(--accent);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  box-shadow: var(--shadow-menu);
 }
 
 .logs-match-count {

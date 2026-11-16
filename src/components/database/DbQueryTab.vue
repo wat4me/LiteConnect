@@ -24,6 +24,7 @@ import DbSqlEditor from './DbSqlEditor.vue'
 import DbQueryOutput from './DbQueryOutput.vue'
 import DbQuerySettingsPopover from './DbQuerySettingsPopover.vue'
 import AppIcon from '../icons/AppIcon.vue'
+import { createTxDurationTimer, formatTxDuration } from '@/utils/database/txDurationTimer'
 
 const { t } = useI18n()
 
@@ -109,13 +110,6 @@ const defaultScope = computed((): RunScope => {
   })
 })
 
-const fallbackHint = computed(() => {
-  if (!hasSelection.value && !canRunStatement.value && props.tab.sql.trim()) {
-    return t('database.query.runFallbackAll')
-  }
-  return ''
-})
-
 const execOpts = computed(() =>
   sanitizeQueryTabExecOptions({
     maxRows: props.tab.maxRows,
@@ -132,23 +126,40 @@ const dialectLabel = computed(() =>
       : 'MySQL',
 )
 
-/** Run scope indicator for the status bar */
 const scopeIndicator = computed(() => {
   if (defaultScope.value === 'selection') return t('database.query.scopeIndicatorSelection')
   if (defaultScope.value === 'statement') return t('database.query.scopeIndicatorStatement')
   return t('database.query.scopeIndicatorAll')
 })
 
-/** Last execution summary for the status bar */
 const lastExecSummary = computed(() => {
-  if (!props.tab.result) return ''
-  const ms = props.tab.result.durationMs
-  if (props.tab.result.hasResultSet) {
-    const rows = props.tab.result.rowCount
-    return t('database.query.lastExecResult', { ms, rows })
+  const result = props.tab.result
+  if (!result) return ''
+  const { durationMs: ms, hasResultSet, rowCount, affectedRows } = result
+  return hasResultSet
+    ? t('database.query.lastExecResult', { ms, rows: rowCount })
+    : t('database.query.lastExecAffected', { ms, rows: affectedRows ?? 0 })
+})
+
+const elapsed = ref('0:00')
+const executionTimer = createTxDurationTimer({
+  onTick: (ms) => { elapsed.value = formatTxDuration(ms) },
+})
+watch(() => props.tab.running, (running) => {
+  if (running) executionTimer.start(running.startedAt)
+  else executionTimer.stop()
+}, { immediate: true })
+onBeforeUnmount(() => executionTimer.stop())
+
+const runningLabel = computed(() => {
+  if (props.tab.cancelling) return t('database.query.cancelling')
+  switch (props.tab.running?.scope) {
+    case 'selection': return t('database.query.runningSelection')
+    case 'statement': return t('database.query.runningStatement')
+    case 'all': return t('database.query.runningAll')
+    case 'explain': return t('database.query.runningExplain')
+    default: return t('database.query.running')
   }
-  const affected = props.tab.result.affectedRows ?? 0
-  return t('database.query.lastExecAffected', { ms, rows: affected })
 })
 
 const bottomStyle = computed(() => {
@@ -238,10 +249,6 @@ function toggleQuerySort(col: string) {
   }
 }
 
-function openLog() {
-  activeOutputPanel.value = 'history'
-}
-
 function onExecOptions(opts: QueryTabExecOptions) {
   emit('update:execOptions', sanitizeQueryTabExecOptions(opts))
 }
@@ -320,7 +327,7 @@ function onSaveQuery() {
   emit('saveQuery', props.tab.id, props.tab.sql, props.tab.connectionId, props.tab.database)
 }
 
-defineExpose({ closePopovers, getSqlToRun, openLog })
+defineExpose({ closePopovers, getSqlToRun })
 </script>
 
 <template>
@@ -350,30 +357,21 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
       <div class="query-editor-row">
         <DbQueryActionRail
           :loading="tab.loading"
+          :can-cancel="!!tab.queryId"
+          :cancelling="!!tab.cancelling"
           :session-alive="sessionAlive"
           :default-scope="defaultScope"
           :has-selection="hasSelection"
           :can-run-statement="canRunStatement"
+          :has-sql="!!tab.sql.trim()"
           :read-only="!!tab.readOnly"
           :is-saved="!!tab.savedQueryId"
           @run="onRun"
+          @cancel="onCancel"
           @explain="onExplain"
           @save-query="onSaveQuery"
         />
         <div class="editor-main">
-          <button
-            v-if="tab.loading"
-            type="button"
-            class="query-cancel-float"
-            :disabled="!!tab.cancelling"
-            :aria-label="tab.cancelling ? t('database.query.cancelling') : t('database.query.cancel')"
-            :title="tab.cancelling ? t('database.query.cancelling') : t('database.query.cancelTitle')"
-            :aria-busy="!!tab.cancelling"
-            @click="onCancel"
-          >
-            <AppIcon name="stop" size="sm" />
-            <span>{{ tab.cancelling ? t('database.query.cancelling') : t('database.query.cancel') }}</span>
-          </button>
           <DbSqlEditor
             ref="sqlEditorRef"
             :tab="tab"
@@ -403,17 +401,19 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
               <AppIcon name="play" size="xs" /> {{ scopeIndicator }}
             </span>
             <span class="st-item">{{ dialectLabel }}</span>
-            <span v-if="lastExecSummary" class="st-item st-last-exec" :title="t('database.query.lastExecTitle')">
+            <span v-if="tab.loading" class="st-item st-running">
+              {{ runningLabel }}
+              <span v-if="tab.running" aria-hidden="true"> · {{ elapsed }}</span>
+            </span>
+            <span v-else-if="lastExecSummary" class="st-item st-last-exec" :title="t('database.query.lastExecTitle')">
               {{ lastExecSummary }}
             </span>
-            <span v-if="fallbackHint" class="st-item dim" :title="fallbackHint">!</span>
             <div class="st-actions">
               <button
                 type="button"
-                class="st-btn"
+                class="ui-btn ui-btn-ghost ui-btn-xs st-btn"
                 :title="t('database.query.logTitle')"
-                :aria-label="t('database.query.log')"
-                @click="openLog"
+                @click="activeOutputPanel = 'history'"
               >
                 {{ t('database.query.log') }}
               </button>
@@ -436,7 +436,6 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
     <div
       class="query-bottom"
       :style="bottomStyle"
-      aria-live="polite"
     >
       <DbQueryOutput
         :tab="tab"
@@ -470,44 +469,6 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
   flex-direction: column;
   container-type: inline-size;
   container-name: db-query;
-}
-
-.editor-main {
-  position: relative;
-}
-
-.query-cancel-float {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  z-index: 30;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--danger);
-  border-radius: 6px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
-  cursor: pointer;
-}
-
-.query-cancel-float:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
-.query-cancel-float:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
-}
-
-.query-cancel-float:disabled {
-  opacity: 0.65;
-  cursor: wait;
 }
 
 .query-top {
@@ -560,17 +521,19 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
 }
 
 .st-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   color: var(--accent);
   font-weight: 600;
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: var(--accent-bg, color-mix(in srgb, var(--accent) 10%, transparent));
+  background: var(--accent-bg);
 }
 
 .st-last-exec {
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 4px;
@@ -578,8 +541,11 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
   background: var(--bg-primary);
 }
 
-.st-item.dim {
-  opacity: 0.7;
+.st-running {
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .st-actions {
@@ -587,27 +553,6 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
   align-items: center;
   gap: 4px;
   margin-left: auto;
-}
-
-.st-btn {
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.st-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
-.st-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .query-split-bar {
@@ -619,7 +564,6 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, height 0.15s;
 }
 
 .query-split-bar::after {
@@ -634,7 +578,6 @@ defineExpose({ closePopovers, getSqlToRun, openLog })
 
 .query-split-bar:hover {
   background: var(--accent);
-  height: 8px;
 }
 
 .query-split-bar:hover::after {

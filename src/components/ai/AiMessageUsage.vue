@@ -52,7 +52,7 @@ const rows = computed(() => {
     <template #reference>
       <span class="usage-trigger">
         <button
-          ref="triggerRef" type="button" class="usage-line" :class="{ 'is-open': open }"
+          ref="triggerRef" type="button" class="ui-btn ui-btn-ghost ui-btn-xs usage-line" :class="{ 'is-open': open }"
           :aria-label="`${compactLabel}，${t('ai.usageDetails.show')}${partial ? `，${t('ai.usagePartial')}` : ''}`"
           :aria-expanded="open" :aria-controls="open ? detailId : undefined"
           @mouseenter="show" @mouseleave="hideLater" @click="toggle"
@@ -80,24 +80,15 @@ const rows = computed(() => {
 
 <style scoped>
 .usage-trigger { display: inline-flex; flex: 0 0 auto; }
+/* Sits in the 22px message footer row next to the compact action icons. */
 .usage-line {
-  display: inline-flex;
-  align-items: center;
   flex: 0 0 auto;
   gap: 4px;
-  padding: 3px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-caption);
-  line-height: 1.3;
-  white-space: nowrap;
-  cursor: pointer;
+  height: 22px;
+  padding: 0 6px;
   font-variant-numeric: tabular-nums;
 }
-.usage-line:hover, .usage-line.is-open { border-color: var(--border-color); color: var(--text-primary); }
+.usage-line.is-open { background: var(--tab-selected-surface); color: var(--text-primary); }
 .usage-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .usage-partial { color: var(--warning); }
 .usage-details { font-size: var(--font-ui-sm); color: var(--text-primary); }

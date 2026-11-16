@@ -10,7 +10,7 @@ import type { SplitDropPayload, SplitPreviewPayload } from '@/domain/session/typ
 import { resolveSplitDropTarget, type SplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import { useSplitTabDrag } from '@/composables/terminal/useSplitTabDrag'
 import { buildCombinedTabItems } from '@/utils/shared/combinedTabs'
-import { tabOverflow, tabScrollDelta } from '@/utils/shared/tabScroll'
+import ScrollableTabs from '@/components/common/ScrollableTabs.vue'
 
 const { t } = useI18n()
 const { runningSessionIds: backgroundJobSessions } = useAiBackgroundJobs(() => null)
@@ -45,6 +45,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', connectionId: string): void
   (e: 'close', connectionId: string): void
+  (e: 'add-session', connectionId: string): void
   (e: 'select-home'): void
   (e: 'quick-connect', connectionId: string): void
   (e: 'split-preview', payload: SplitPreviewPayload | null): void
@@ -66,6 +67,12 @@ const displayHostTabs = computed(() => {
     secondary?.connectionId,
     (group) => group.connectionId,
   )
+})
+
+const activeHostTabKey = computed(() => {
+  if (props.homeActive) return null
+  if (props.splitGroupActive) return JSON.stringify([props.splitPrimarySessionId, props.splitSecondarySessionId])
+  return props.groups.find((group) => group.connectionId === props.activeGroupId)?.activeSessionId ?? props.activeGroupId
 })
 
 function splitHostHasStatus(source: Set<string> | undefined, primary: HostGroup, secondary: HostGroup) {
@@ -158,7 +165,8 @@ function formatLatency(ms: number): string {
 
 function latencyColor(ms: number): string {
   if (ms < 0) return 'var(--danger)'
-  if (ms < 200) return 'var(--success)'
+  // Healthy latency stays quiet; only slow or failed links draw color.
+  if (ms < 200) return 'var(--text-secondary)'
   if (ms < 500) return 'var(--warning)'
   return 'var(--danger)'
 }
@@ -288,58 +296,8 @@ async function updateQuickConnectDropdownPosition() {
   }
 }
 
-const tabsScrollRef = ref<HTMLElement | null>(null)
-const canScrollTabsLeft = ref(false)
-const canScrollTabsRight = ref(false)
-let tabsObserver: ResizeObserver | undefined
-
-function updateTabOverflow() {
-  const strip = tabsScrollRef.value
-  if (!strip) return
-  const overflow = tabOverflow(strip)
-  canScrollTabsLeft.value = overflow.left
-  canScrollTabsRight.value = overflow.right
-}
-
-/** Keep the active host visible when new connections push it out of the strip. */
-function revealActiveTab() {
-  const strip = tabsScrollRef.value
-  const active = strip?.querySelector<HTMLElement>('[data-active-tab="true"]')
-  if (!strip || !active) { updateTabOverflow(); return }
-  const delta = tabScrollDelta(strip.getBoundingClientRect(), active.getBoundingClientRect())
-  if (delta) strip.scrollLeft += delta
-  updateTabOverflow()
-}
-
-function scrollTabs(direction: -1 | 1) {
-  const strip = tabsScrollRef.value
-  if (!strip) return
-  strip.scrollLeft += direction * Math.max(120, Math.floor(strip.clientWidth * 0.8))
-  updateTabOverflow()
-}
-
-function onTabsWheel(event: WheelEvent) {
-  const strip = tabsScrollRef.value
-  if (!strip || strip.scrollWidth <= strip.clientWidth + 1) return
-  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-  if (!delta) return
-  event.preventDefault()
-  strip.scrollLeft += delta
-  updateTabOverflow()
-}
-
-watch(
-  () => [props.activeGroupId, props.homeActive, props.splitGroupActive, props.splitMode, props.groups.length],
-  async () => {
-    await nextTick()
-    revealActiveTab()
-  },
-  { immediate: true, flush: 'post' },
-)
-
 function handleViewportChange() {
   void updateQuickConnectDropdownPosition()
-  revealActiveTab()
 }
 
 function toggleQuickConnect() {
@@ -380,18 +338,10 @@ watch(
 
 onMounted(() => {
   window.addEventListener('resize', handleViewportChange)
-  const strip = tabsScrollRef.value
-  if (strip) {
-    tabsObserver = new ResizeObserver(() => revealActiveTab())
-    tabsObserver.observe(strip)
-  }
-  void nextTick(revealActiveTab)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleViewportChange)
-  tabsObserver?.disconnect()
-  tabsObserver = undefined
 })
 </script>
 
@@ -417,19 +367,7 @@ onBeforeUnmount(() => {
       </el-tooltip>
     </div>
 
-    <div class="tabs-wrap">
-      <button
-        v-if="canScrollTabsLeft"
-        type="button"
-        class="tabs-overflow-btn"
-        data-tabs-scroll="left"
-        :title="t('terminal.scrollTabsLeft')"
-        :aria-label="t('terminal.scrollTabsLeft')"
-        @click="scrollTabs(-1)"
-      >
-        <AppIcon name="chevron-left" size="xs" />
-      </button>
-      <div ref="tabsScrollRef" class="tabs-scroll" @scroll="updateTabOverflow" @wheel="onTabsWheel">
+    <ScrollableTabs class="tabs-wrap" :active-key="activeHostTabKey">
       <template
         v-for="item in displayHostTabs"
         :key="item.kind === 'split'
@@ -500,6 +438,18 @@ onBeforeUnmount(() => {
             class="tab-unread-dot"
           ></span>
           <span v-if="item.item.sessions.length > 1" class="tab-count">{{ item.item.sessions.length }}</span>
+          <!-- With one terminal the sub-tab row is hidden; adding a terminal lives on the host tab. -->
+          <button
+            v-else-if="!homeActive && item.item.connectionId === activeGroupId && item.item.sessions.length === 1"
+            type="button"
+            class="tab-add-session"
+            :title="t('terminal.newWindow')"
+            :aria-label="t('terminal.newWindow')"
+            @mousedown.stop
+            @click.stop="emit('add-session', item.item.connectionId)"
+          >
+            <AppIcon name="plus" size="xs" />
+          </button>
           <span
             v-if="isGroupDisconnected(item.item)"
             class="tab-disconnected"
@@ -515,20 +465,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <!-- 有会话时：+ 跟在标签后，表示「再开一个连接」 -->
-      </div>
-      <button
-        v-if="canScrollTabsRight"
-        type="button"
-        class="tabs-overflow-btn"
-        data-tabs-scroll="right"
-        :title="t('terminal.scrollTabsRight')"
-        :aria-label="t('terminal.scrollTabsRight')"
-        @click="scrollTabs(1)"
-      >
-        <AppIcon name="chevron-right" size="xs" />
-      </button>
-    </div>
+    </ScrollableTabs>
 
     <!-- + 移出 tabs-scroll，避免 overflow-x:auto 裁切下拉框 -->
     <div
@@ -561,7 +498,7 @@ onBeforeUnmount(() => {
       >
         <button
           ref="quickConnectButtonRef"
-          class="toolbar-btn"
+          class="toolbar-btn ui-icon-btn"
           type="button"
           data-onboarding="quick-connect"
           :class="{ active: showQuickConnect }"
@@ -613,7 +550,7 @@ onBeforeUnmount(() => {
         </div>
         <button
           type="button"
-          class="quick-connect-manage"
+          class="quick-connect-manage ui-btn ui-btn-sm"
           @click="showQuickConnect = false; emit('select-home')"
         >
           {{ t('connections.openConnectionList') }}
@@ -659,7 +596,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-tab);
   color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
@@ -667,7 +604,7 @@ onBeforeUnmount(() => {
 }
 
 .home-btn:hover {
-  background: var(--bg-tertiary);
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
@@ -677,8 +614,8 @@ onBeforeUnmount(() => {
 }
 
 .home-btn.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .spacer {
@@ -689,97 +626,40 @@ onBeforeUnmount(() => {
 }
 
 .tabs-wrap {
-  display: flex;
-  align-items: center;
-  height: 100%;
   flex: 0 1 auto;
-  min-width: 0;
-  position: relative;
+  --tabs-track-padding: 4px;
+  --tabs-track-gap: 3px;
 }
 
-.tabs-overflow-btn {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 2;
-  width: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.tabs-overflow-btn[data-tabs-scroll='left'] { left: 0; }
-.tabs-overflow-btn[data-tabs-scroll='right'] { right: 0; }
-
-.tabs-overflow-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.tabs-overflow-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.tabs-scroll {
-  display: flex;
-  height: 100%;
-  flex: 1 1 auto;
-  overflow-x: auto;
-  overflow-y: hidden;
-  align-items: center;
-  min-width: 0;
-  padding-left: 2px;
-}
-
-.tabs-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-/* Flat host tabs: 10.1.1.1  × | 10.2.1.1  ×  + */
 .tab {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  height: 100%;
+  padding: 0 10px;
+  height: calc(100% - 8px);
+  border: 1px solid transparent;
+  border-radius: var(--radius-tab);
   cursor: pointer;
   white-space: nowrap;
   font-size: var(--font-ui-sm);
   color: var(--text-secondary);
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
   user-select: none;
   position: relative;
   flex-shrink: 0;
   background: transparent;
 }
 
-/* pipe sits in the gap between tabs: A  |  B  (not stuck to B) */
-.tab + .tab {
-  margin-left: 10px;
-}
-
-.tab + .tab::before {
-  content: '';
-  position: absolute;
-  left: -5px;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 1px;
-  height: 14px;
-  background: var(--border-color);
-  pointer-events: none;
-}
-
 .tab:hover {
-  background: var(--bg-tertiary);
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
+}
+
+.tab.active {
+  background: var(--tab-selected-surface);
+  color: var(--text-primary);
+  border-color: var(--tab-selected-edge);
+  box-shadow: var(--tab-selected-shadow);
 }
 
 .tab.dragging {
@@ -795,16 +675,11 @@ onBeforeUnmount(() => {
 
 .host-split-tab {
   gap: 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
-  height: calc(100% - 8px);
-  margin-block: 4px;
-  border-radius: 6px;
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 .host-split-tab.active {
-  color: var(--accent);
-  background: var(--accent-bg);
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  border-color: var(--tab-selected-edge);
 }
 
 .host-split-icon {
@@ -813,21 +688,6 @@ onBeforeUnmount(() => {
 
 .host-split-divider {
   color: var(--border-color);
-}
-
-.tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.tab.active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--accent);
 }
 
 .tab-indicator {
@@ -861,15 +721,34 @@ onBeforeUnmount(() => {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-size: 10px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
+.tab-add-session {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.tab-add-session:hover {
+  color: var(--text-primary);
+  background: var(--tab-hover-surface);
+}
 .tab-unread-dot,
 .tab-approval-dot {
   width: 7px;
@@ -895,8 +774,9 @@ onBeforeUnmount(() => {
 }
 
 .tab-latency {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--font-caption);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   opacity: 0.85;
   margin-left: 2px;
@@ -921,13 +801,14 @@ onBeforeUnmount(() => {
 }
 
 .tab-close:hover {
-  background: rgba(248, 81, 73, 0.15);
-  color: var(--danger);
+  background: var(--tab-hover-surface);
+  color: var(--text-primary);
 }
 
 .tab-add-btn {
   width: var(--icon-btn-sm);
-  height: 100%;
+  height: calc(100% - 8px);
+  border-radius: var(--radius-tab);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -942,12 +823,12 @@ onBeforeUnmount(() => {
 
 .tab-add-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
+  background: var(--tab-hover-surface);
 }
 
 .tab-add-btn.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .quick-connect-wrapper {
@@ -977,30 +858,6 @@ onBeforeUnmount(() => {
   border-left: 1px solid var(--border-color);
 }
 
-.toolbar-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.15s;
-}
-
-.toolbar-btn:hover {
-  color: var(--text-primary);
-  background: var(--hover-bg);
-}
-
-.toolbar-btn.active {
-  color: var(--accent);
-  background: var(--accent-bg);
-}
-
 .settings-wrapper {
   position: relative;
 }
@@ -1027,7 +884,7 @@ onBeforeUnmount(() => {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-menu);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1116,18 +973,5 @@ onBeforeUnmount(() => {
 .quick-connect-manage {
   width: 100%;
   margin-top: 6px;
-  padding: 8px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.quick-connect-manage:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 </style>

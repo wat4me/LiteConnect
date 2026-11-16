@@ -609,7 +609,7 @@ onBeforeUnmount(() => {
             <div class="snippet-meta">
               <button
                 type="button"
-                class="pin-btn"
+                class="pin-btn ui-icon-btn ui-icon-btn-sm"
                 :class="{ active: item.pinned }"
                 :title="item.pinned ? t('snippets.unpin') : t('snippets.pin')"
                 @click.stop="togglePin(item)"
@@ -683,10 +683,6 @@ onBeforeUnmount(() => {
 }
 
 .snippets-close {
-  width: 28px;
-  height: 28px;
-  font-size: 18px;
-  line-height: 1;
   margin-left: 2px;
 }
 
@@ -865,21 +861,16 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 
+/* Compact to sit inline with the snippet name. */
 .pin-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 0 2px;
-  font-size: 12px;
-  line-height: 1;
-  opacity: 0.55;
+  width: 20px;
+  height: 20px;
 }
 
-.pin-btn.active,
-.pin-btn:hover {
+/* Pinned is content state (favorite star), not a toggled panel: keep the star tint, no chip. */
+.pin-btn.active {
   color: var(--warning);
-  opacity: 1;
+  background: transparent;
 }
 
 .snippet-name {

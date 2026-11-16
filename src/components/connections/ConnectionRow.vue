@@ -408,7 +408,7 @@ function onMenuAction(action: MenuAction) {
 
       <el-tooltip :content="connecting ? t('common.cancel') : connectionError ? t('terminal.retryConnection') : t('connections.connectTooltip')" placement="bottom">
         <button
-          class="action-btn connect"
+          class="action-btn connect ui-btn ui-btn-ghost ui-btn-xs"
           type="button"
           :aria-label="connecting ? t('common.cancel') : connectionError ? t('terminal.retryConnection') : t('connections.connect')"
           @click.stop="connecting ? emit('cancel-connect', connection.id) : requestConnect()"
@@ -421,7 +421,7 @@ function onMenuAction(action: MenuAction) {
 
       <el-tooltip :content="t('connections.copyConnection')" placement="bottom">
         <button
-          class="action-btn secondary-action"
+          class="action-btn secondary-action ui-icon-btn ui-icon-btn-sm"
           type="button"
           :aria-label="t('connections.copyConnection')"
           @click.stop="emit('copy', connection)"
@@ -432,7 +432,7 @@ function onMenuAction(action: MenuAction) {
 
       <el-tooltip :content="t('connections.edit')" placement="bottom">
         <button
-          class="action-btn secondary-action"
+          class="action-btn secondary-action ui-icon-btn ui-icon-btn-sm"
           type="button"
           :aria-label="t('connections.edit')"
           @click.stop="emit('edit', connection)"
@@ -443,7 +443,7 @@ function onMenuAction(action: MenuAction) {
 
       <el-tooltip :content="connection.pinned ? t('connections.unpin') : t('connections.pin')" placement="bottom">
         <button
-          class="action-btn secondary-action pin-action"
+          class="action-btn secondary-action pin-action ui-icon-btn ui-icon-btn-sm"
           type="button"
           :class="{ active: connection.pinned }"
           :aria-label="connection.pinned ? t('connections.unpin') : t('connections.pin')"
@@ -458,7 +458,7 @@ function onMenuAction(action: MenuAction) {
         <el-tooltip :content="t('connections.more')" placement="bottom" :disabled="menuOpen">
           <button
             ref="moreBtnRef"
-            class="action-btn more"
+            class="action-btn more ui-icon-btn ui-icon-btn-sm"
             type="button"
             :aria-label="t('connections.moreAria')"
             :aria-expanded="menuOpen"
@@ -550,22 +550,16 @@ function onMenuAction(action: MenuAction) {
    * Each row is its own rounded card.
    * Left accent + outer border; dividers on the wrap still meet the left strip.
    */
-  border: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+  /* Rows sit on the content surface; a tinted fill on white read as dirty gray. */
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
   margin-bottom: 0;
-  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
+  background: var(--bg-primary);
   user-select: none;
 }
 
-.connection-row.has-color-tag {
-  border-left-color: var(--tag-color);
-}
-
+/* The tag shows once, as the labelled dot; a colored left bar repeated it. */
 .connection-row.connecting {
-  border-top-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
-  border-right-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
-  border-bottom-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
   cursor: wait;
 }
 
@@ -580,7 +574,7 @@ function onMenuAction(action: MenuAction) {
 
 /* 轻量 hover：抬升一层背景，保留边框骨架 */
 .connection-row:hover {
-  background: color-mix(in srgb, var(--hover-bg) 80%, var(--bg-secondary));
+  background: var(--bg-secondary);
   border-right-color: color-mix(in srgb, var(--border-color) 75%, transparent);
 }
 
@@ -590,20 +584,17 @@ function onMenuAction(action: MenuAction) {
 
 .connection-row.menu-open,
 .connection-row:focus-within {
-  background: color-mix(in srgb, var(--hover-bg) 80%, var(--bg-secondary));
+  background: var(--bg-secondary);
 }
 
 /* Selection is a quiet fill; keyboard focus has its own crisp boundary. */
 .connection-row.keyboard-active,
 .connection-row.keyboard-active:hover {
-  background: var(--accent-bg);
+  background: var(--tab-selected-surface);
 }
 
 .connection-row:has(:focus-visible) {
-  /* Keep the left edge reserved for the connection's color tag. */
-  border-top-color: var(--accent);
-  border-right-color: var(--accent);
-  border-bottom-color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* Source row becomes a placeholder slot while the full-row ghost follows the cursor */
@@ -788,58 +779,17 @@ function onMenuAction(action: MenuAction) {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 5px 8px;
-  min-height: 28px;
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 6px;
-  font-size: 12px;
-  transition: color 0.12s, background 0.12s, border-color 0.12s;
-  white-space: nowrap;
-}
-
-.action-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
 .action-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
+/* Repeated on every row, so it stays neutral; accent appears only on the pointed row. */
 .action-btn.connect {
+  color: var(--text-primary);
+}
+.action-btn.connect:hover:not(:disabled) {
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  font-weight: 600;
-  padding-inline: 10px;
-}
-
-.action-btn.connect:hover {
-  background: var(--accent-bg);
-  border-color: var(--accent);
-}
-
-.action-btn.more,
-.action-btn.pin-action {
-  width: 28px;
-  padding-inline: 0;
-}
-
-.action-btn.pin-action.active {
-  color: var(--accent);
-  background: var(--accent-bg);
-}
-
-.connect-label {
-  font-size: 12px;
 }
 
 .more-wrap {

@@ -64,10 +64,10 @@ function onSearchInput(e: Event) {
 <template>
   <div class="list-column">
     <div class="docker-toolbar">
-      <div class="filter-group" role="tablist" :aria-label="t('docker.filters.label')">
+      <div class="filter-group ui-btn-group" role="tablist" :aria-label="t('docker.filters.label')">
         <button
           type="button"
-          class="filter-btn"
+          class="filter-btn ui-btn ui-btn-xs"
           :class="{ active: stateFilter === 'all' }"
           @click="emit('filter', 'all')"
         >
@@ -77,7 +77,7 @@ function onSearchInput(e: Event) {
         </button>
         <button
           type="button"
-          class="filter-btn"
+          class="filter-btn ui-btn ui-btn-xs"
           :class="{ active: stateFilter === 'running' }"
           @click="emit('filter', 'running')"
         >
@@ -88,7 +88,7 @@ function onSearchInput(e: Event) {
         </button>
         <button
           type="button"
-          class="filter-btn"
+          class="filter-btn ui-btn ui-btn-xs"
           :class="{ active: stateFilter === 'stopped' }"
           @click="emit('filter', 'stopped')"
         >
@@ -191,7 +191,7 @@ function onSearchInput(e: Event) {
                   v-for="act in primaryRowActions(c.state)"
                   :key="act"
                   type="button"
-                  class="action-btn"
+                  class="action-btn ui-btn ui-btn-xs ui-btn-ghost"
                   :aria-label="actionAria(act)"
                   :title="actionAria(act)"
                   :disabled="isActionBusy(c.id)"
@@ -228,32 +228,6 @@ function onSearchInput(e: Event) {
   gap: 10px;
   flex-wrap: wrap;
   min-width: 0;
-}
-
-.filter-group {
-  display: inline-flex;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-secondary);
-}
-
-.filter-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.filter-btn.active {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--text-primary);
-  font-weight: 600;
 }
 
 .filter-btn-text {
@@ -363,11 +337,11 @@ function onSearchInput(e: Event) {
 }
 
 .container-row:hover {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: var(--tab-hover-surface);
 }
 
 .container-row.selected {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--tab-selected-surface);
 }
 
 .container-row.row-busy {
@@ -404,21 +378,6 @@ function onSearchInput(e: Event) {
 .col-container,
 .col-runtime {
   min-width: 0;
-}
-
-.action-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-radius: 6px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .action-busy {

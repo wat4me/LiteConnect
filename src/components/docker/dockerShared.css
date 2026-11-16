@@ -38,33 +38,7 @@
   background: var(--bg-tertiary);
 }
 
-.action-btn {
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 5px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.action-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.action-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.action-btn.primary {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-}
+/* .action-btn visuals come from ui-btn (see docs/UI_STYLES.md → 按钮). */
 
 .action-busy {
   font-size: 11px;
@@ -90,32 +64,4 @@
   font-size: 12px;
   opacity: 0.85;
   word-break: break-word;
-}
-
-.filter-btn,
-.tab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.filter-btn:hover,
-.tab-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.filter-btn.active,
-.tab-btn.active {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }

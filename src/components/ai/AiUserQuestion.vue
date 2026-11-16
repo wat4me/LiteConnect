@@ -165,7 +165,7 @@ function submitPage() {
 legend:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ai-question-answer { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-color); }
 .ai-question-custom { display: flex; align-items: center; gap: var(--space-2); width: fit-content; max-width: 100%; padding: 3px 0; border-radius: var(--radius-sm); cursor: pointer; }
-.ai-question-custom.selected { color: var(--accent); }
+.ai-question-custom.selected { color: var(--text-primary); }
 .ai-question-custom:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ai-question-custom input { margin: 0; accent-color: var(--accent); }
 .ai-question-text-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -175,7 +175,7 @@ legend { padding: 0; margin-bottom: 4px; font-weight: 600; line-height: 1.5; ove
 .ai-question-option:hover { background: var(--hover-bg); }
 .ai-question-option:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .needs-answer legend { color: var(--warning); }
-.ai-question-option.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-primary)); }
+.ai-question-option.selected { border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color)); background: var(--tab-selected-surface); }
 .ai-question-option input { margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
 .ai-question-option span { min-width: 0; overflow-wrap: anywhere; }
 .ai-question-option strong { font-weight: 500; }

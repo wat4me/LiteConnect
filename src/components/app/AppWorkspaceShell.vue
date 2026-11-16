@@ -19,8 +19,8 @@ const modules = [
 </script>
 
 <template>
-  <div class="app-shell">
-    <nav v-if="showModules" class="app-module-rail" :aria-label="t('app.modulesAria')">
+  <div class="app-shell" :class="{ 'with-module-rail': showModules }">
+    <nav v-if="showModules" class="app-module-rail" data-onboarding="module-rail" :aria-label="t('app.modulesAria')">
       <button v-for="item in modules" :key="item.id" type="button" class="app-module-button"
         :data-module="item.id" :class="{ active: appMode === item.id && !showSettingsPage }"
         :aria-current="appMode === item.id && !showSettingsPage ? 'page' : undefined"
@@ -35,14 +35,36 @@ const modules = [
 </template>
 
 <style scoped>
-.app-shell { display: flex; flex: 1; min-width: 0; min-height: 0; position: relative; z-index: 1; overflow: hidden; border-top: 1px solid var(--border-color); background: transparent; }
-.app-module-rail { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 0 0 calc(48px * var(--ui-scale)); width: calc(48px * var(--ui-scale)); min-height: 0; box-sizing: border-box; padding: 8px 4px; border-right: 1px solid var(--border-color); background: var(--bg-secondary); -webkit-app-region: no-drag; }
-.app-module-button { display: flex; position: relative; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+.app-shell {
+  --workspace-inset: 6px;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  padding: 4px var(--workspace-inset) var(--workspace-inset);
+  background: var(--app-shell-background, var(--bg-secondary));
+}
+.app-shell.with-module-rail { padding-inline-start: 0; }
+.app-module-rail { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 0 0 calc(48px * var(--ui-scale)); width: calc(48px * var(--ui-scale)); min-height: 0; box-sizing: border-box; padding: 4px 5px; -webkit-app-region: no-drag; }
+.app-module-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
 .app-module-button > span { font-size: max(10px, calc(10px * var(--ui-font-scale))); line-height: 1.2; font-weight: 600; letter-spacing: .2px; }
-.app-module-button:hover:not(:disabled):not(.active) { background: var(--hover-bg); color: var(--text-primary); }
-.app-module-button.active { color: var(--accent); background: var(--accent-bg); }
-.app-module-button.active::before { content: ''; position: absolute; left: -4px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.app-module-button:hover:not(:disabled):not(.active) { background: var(--tab-hover-surface); color: var(--text-primary); }
+.app-module-button.active { color: var(--text-primary); background: var(--tab-selected-surface); border-color: var(--tab-selected-edge); box-shadow: var(--tab-selected-shadow); }
 .app-module-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .app-module-button:disabled { cursor: wait; opacity: .6; }
-.workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; background: transparent; }
+.workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--window-edge);
+  border-radius: var(--radius-window);
+  box-shadow: var(--window-shadow);
+}
 </style>

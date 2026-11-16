@@ -625,10 +625,10 @@ async function createSavedCredential(defaultUsername = '', defaultPassword = '')
 
       <header class="modal-header">
         <h3 class="modal-title">{{ connection?.id ? t('connectionForm.editTitle') : t('connectionForm.newTitle') }}</h3>
-        <nav class="section-tabs" :aria-label="t('connectionForm.sectionAria')">
+        <nav class="section-tabs ui-btn-group" :aria-label="t('connectionForm.sectionAria')">
           <button
             type="button"
-            class="section-tab"
+            class="section-tab ui-btn ui-btn-ghost ui-btn-sm"
             :class="{ active: formSection === 'basic' }"
             @click="formSection = 'basic'"
           >
@@ -636,7 +636,7 @@ async function createSavedCredential(defaultUsername = '', defaultPassword = '')
           </button>
           <button
             type="button"
-            class="section-tab"
+            class="section-tab ui-btn ui-btn-ghost ui-btn-sm"
             :class="{ active: formSection === 'tunnel' }"
             @click="formSection = 'tunnel'"
           >
@@ -645,7 +645,7 @@ async function createSavedCredential(defaultUsername = '', defaultPassword = '')
           </button>
           <button
             type="button"
-            class="section-tab"
+            class="section-tab ui-btn ui-btn-ghost ui-btn-sm"
             :class="{ active: formSection === 'advanced' }"
             @click="formSection = 'advanced'"
           >

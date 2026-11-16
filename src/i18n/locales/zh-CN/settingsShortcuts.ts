@@ -30,7 +30,6 @@ export default {
       newSubSession: '新建子会话',
       nextSubSession: '下一个子会话',
       prevSubSession: '上一个子会话',
-      closeTab: '关闭当前连接标签（焦点在终端内不拦截，避免误关）',
       fontZoom: '终端字体放大 / 缩小',
       terminalSearch: '终端搜索',
       searchNav: '搜索下一个 / 上一个',

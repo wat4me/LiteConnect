@@ -247,7 +247,7 @@ defineExpose({
     <div ref="dbPickerWrapRef" class="db-picker-wrap">
       <button
         type="button"
-        class="db-picker-btn"
+        class="ui-btn ui-btn-ghost ui-btn-xs db-picker-btn"
         :class="{ open: showDbPicker, empty: !database }"
         :disabled="dbSwitchDisabled"
         :title="dbSwitchTitle"
@@ -309,7 +309,7 @@ defineExpose({
     <div ref="savedPickerWrapRef" class="saved-picker-wrap">
       <button
         type="button"
-        class="saved-picker-btn"
+        class="ui-btn ui-btn-ghost ui-btn-xs saved-picker-btn"
         :class="{ open: showSavedPicker }"
         :title="t('database.query.viewSavedScripts')"
         @click.stop="toggleSavedPicker"
@@ -359,16 +359,18 @@ defineExpose({
                 <div class="saved-picker-actions">
                   <button
                     type="button"
-                    class="saved-picker-action-btn"
+                    class="ui-icon-btn ui-icon-btn-sm saved-picker-action-btn"
                     :title="t('database.query.rename')"
+                    :aria-label="t('database.query.rename')"
                     @click="beginRenameSavedQuery(row.id, row.title)"
                   >
                     <AppIcon name="edit" size="xs" />
                   </button>
                   <button
                     type="button"
-                    class="saved-picker-action-btn danger"
+                    class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger saved-picker-action-btn danger"
                     :title="t('common.delete')"
+                    :aria-label="t('common.delete')"
                     @click="emit('deleteSavedQuery', row.id)"
                   >
                     <AppIcon name="delete" size="xs" />
@@ -502,28 +504,12 @@ defineExpose({
 }
 
 .db-picker-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   max-width: 100%;
-  height: 24px;
-  padding: 0 6px 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
 }
 
 .db-picker-btn.open {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg);
-}
-
-.db-picker-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .db-picker-label {
@@ -621,8 +607,7 @@ defineExpose({
 }
 
 .db-picker-item.active {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
   font-weight: 600;
 }
 
@@ -665,27 +650,9 @@ defineExpose({
   }
 }
 
-.saved-picker-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 6px 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.saved-picker-btn:hover {
-  border-color: var(--accent);
-}
-
 .saved-picker-btn.open {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 .saved-badge-count {
@@ -792,27 +759,10 @@ defineExpose({
   gap: 2px;
 }
 
+/* Compact size so actions fit the 18px title line of a saved-query row. */
 .saved-picker-action-btn {
   width: 18px;
   height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.saved-picker-action-btn:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.saved-picker-action-btn.danger:hover {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg-primary));
 }
 
 .saved-picker-sql {

@@ -81,16 +81,18 @@ watch(() => [props.visible, props.sessionId, props.remotePath] as const, ([visib
       <p v-if="preview">{{ t('sftp.directorySyncSkipped', { count: preview.skipped }) }}</p>
       <label><input v-model="allowOverwrite" type="checkbox" :disabled="busy" /> {{ t('sftp.directorySyncOverwrite') }}</label>
       <footer>
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('sftp.directorySyncRefresh')" :aria-label="t('sftp.directorySyncRefresh')" :disabled="busy" @click="compare(preview?.localPath)"><AppIcon name="refresh" size="sm" /></button>
-        <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" :disabled="busy || !candidates.length" @click="queueUpload">{{ t('sftp.directorySyncUpload') }} ({{ candidates.length }})</button>
-        <button type="button" class="ui-btn ui-btn-sm" @click="emit('close')">{{ t('common.close') }}</button>
+        <button type="button" class="ui-icon-btn sync-refresh" :title="t('sftp.directorySyncRefresh')" :aria-label="t('sftp.directorySyncRefresh')" :disabled="busy" @click="compare(preview?.localPath)"><AppIcon name="refresh" size="sm" /></button>
+        <button type="button" class="ui-btn" @click="emit('close')">{{ t('common.close') }}</button>
+        <button type="button" class="ui-btn ui-btn-primary" :disabled="busy || !candidates.length" @click="queueUpload">{{ t('sftp.directorySyncUpload') }} ({{ candidates.length }})</button>
       </footer>
     </section>
   </div>
 </template>
 <style scoped>
-.sync-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,.45); display: grid; place-items: center; }
-.sync-modal { width: min(720px, 90vw); max-height: 85vh; overflow: auto; padding: 20px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 12px; }
+.sync-overlay { position: fixed; inset: 0; z-index: 1100; background: var(--overlay-bg); display: grid; place-items: center; }
+.sync-modal { width: min(720px, 90vw); max-height: 85vh; overflow: auto; padding: 20px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-dialog); box-shadow: var(--shadow-dialog); }
+/* Refresh sits at the far left; Close and the primary action stay right-aligned. */
+.sync-refresh { margin-right: auto; }
 .sync-path { overflow-wrap: anywhere; }
 .sync-modal > p { margin: 8px 0; font-size: 12px; line-height: 1.5; }
 .sync-modal > label { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; }

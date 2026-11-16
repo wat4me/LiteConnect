@@ -90,7 +90,7 @@ defineExpose({ resetSearches })
               v-for="act in actionsForState(container.state)"
               :key="act"
               type="button"
-              class="action-btn primary"
+              class="action-btn primary ui-btn ui-btn-sm"
               :aria-label="actionAria(act)"
               :title="actionAria(act)"
               :disabled="isActionBusy(container.id)"
@@ -234,25 +234,6 @@ defineExpose({ resetSearches })
   flex-shrink: 0;
 }
 
-.action-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.action-btn.primary {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
-}
-
-.action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .action-busy {
   font-size: 12px;
   color: var(--text-secondary);
@@ -263,7 +244,11 @@ defineExpose({ resetSearches })
   gap: 2px;
 }
 
+/* Underline tabs are navigation chrome; the selected tab uses a neutral underline. */
 .tab-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -271,11 +256,17 @@ defineExpose({ resetSearches })
   font-size: 12px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--tab-hover-surface);
 }
 
 .tab-btn.active {
   color: var(--text-primary);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--text-primary);
   font-weight: 600;
 }
 

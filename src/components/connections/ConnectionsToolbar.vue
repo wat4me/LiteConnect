@@ -58,7 +58,7 @@ defineExpose({ searchInputRef })
         <AppIcon :name="headingIcon || 'folder'" size="md" class="page-heading-icon" />
         <h2 class="page-title" :title="activeGroupName">{{ activeGroupName }}</h2>
         <span class="page-result-count">{{ resultSummary }}</span>
-        <button v-if="filtersActive" type="button" class="clear-filters" @click="emit('clear-filters')">{{ t('connections.clearFilters') }}</button>
+        <button v-if="filtersActive" type="button" class="clear-filters ui-btn ui-btn-ghost ui-btn-xs" @click="emit('clear-filters')">{{ t('connections.clearFilters') }}</button>
       </div>
       <div class="toolbar-actions">
         <ToolbarDropdown
@@ -98,16 +98,13 @@ defineExpose({ searchInputRef })
 .page-heading-icon { flex-shrink: 0; align-self: center; color: var(--text-secondary); }
 .page-title { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-result-count { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
-.clear-filters { flex-shrink: 0; display: inline-flex; align-items: center; min-height: 24px; padding: 2px 4px; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; line-height: 1.4; white-space: nowrap; cursor: pointer; }
-.clear-filters:hover { text-decoration: underline; }
-.clear-filters:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.clear-filters { flex-shrink: 0; }
 .page-toolbar { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .search-box { position: relative; flex: 1 1 220px; min-width: min(200px, 100%); }
 .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; }
 .search-box .search-input { padding-left: 36px; padding-right: 32px; }
 .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 24px !important; height: 24px !important; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.toolbar-actions .ui-btn { display: inline-flex; align-items: center; gap: 6px; }
 @media (max-width: 760px) {
   .page-heading { flex-wrap: wrap; }
   .page-title-row { flex-basis: 100%; }

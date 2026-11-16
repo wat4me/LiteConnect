@@ -14,6 +14,84 @@ function terminalShowing(text: string): Terminal {
   } as unknown as Terminal
 }
 
+type Row = { text: string; wrapped?: boolean }
+function terminalRows(rows: Row[], cursor: { y: number; x: number }, type: 'normal' | 'alternate' = 'normal'): Terminal {
+  return {
+    buffer: {
+      active: {
+        type,
+        baseY: 0,
+        cursorY: cursor.y,
+        cursorX: cursor.x,
+        getLine: (y: number) => rows[y] && {
+          isWrapped: !!rows[y].wrapped,
+          translateToString: (trim?: boolean, start = 0, end?: number) => {
+            const text = rows[y].text.slice(start, end)
+            return trim ? text.trimEnd() : text
+          },
+        },
+      },
+    },
+  } as unknown as Terminal
+}
+
+/** Simulate typing `typed` after `prompt`, then Enter with the screen showing `screen`. */
+function submit(prompt: string, typed: string, screen: Row[] = [{ text: prompt + typed }], type: 'normal' | 'alternate' = 'normal') {
+  let terminal = terminalRows([{ text: prompt }], { y: 0, x: prompt.length }, type)
+  const onSubmitted = vi.fn()
+  const buffer = useCommandBuffer({ getTerminal: () => terminal, onCdCommand: vi.fn(), onSubmitted })
+  buffer.notePromptBeforeInput()
+  buffer.commandBuffer.value = typed
+  terminal = terminalRows(screen, { y: screen.length - 1, x: 0 }, type)
+  buffer.capturedSubmitLine.value = buffer.getVisibleCommandLine()
+  const command = buffer.submitBufferedCommand()
+  return { command, info: onSubmitted.mock.calls[0][1] as { historyEligible: boolean; promptTerminator: string } }
+}
+
+describe('history eligibility of submitted lines', () => {
+  it('keeps redirections that contain a prompt-like "> "', () => {
+    const { command, info } = submit('ops@edge:~$ ', 'echo hi > out.txt')
+    expect(command).toBe('echo hi > out.txt')
+    expect(info).toEqual({ historyEligible: true, promptTerminator: '$' })
+  })
+
+  it('reads a long command across wrapped rows', () => {
+    const prompt = 'ops@edge:~$ '
+    const { command, info } = submit(prompt, 'docker logs --tail 200 web', [
+      { text: `${prompt}docker logs --ta` },
+      { text: 'il 200 web', wrapped: true },
+    ])
+    expect(command).toBe('docker logs --tail 200 web')
+    expect(info.historyEligible).toBe(true)
+  })
+
+  it('never learns input that the remote did not echo (passwords)', () => {
+    const { info } = submit('[sudo] password for ops: ', 'hunter2', [{ text: '[sudo] password for ops: ' }])
+    expect(info.historyEligible).toBe(false)
+  })
+
+  it.each([
+    ['mysql> ', 'select 1;'],
+    ['postgres=# ', 'select 1;'],
+    ['>>> ', 'print(1)'],
+    ['> ', 'done'],
+    ['redis 127.0.0.1:6379> ', 'keys *'],
+  ])('ignores lines typed at %j', (prompt, typed) => {
+    expect(submit(prompt, typed).info.historyEligible).toBe(false)
+  })
+
+  it('ignores input to full-screen programs and private leading-space commands', () => {
+    expect(submit('ops@edge:~$ ', ':wq', undefined, 'alternate').info.historyEligible).toBe(false)
+    expect(submit('ops@edge:~$ ', ' export TOKEN=x').info.historyEligible).toBe(false)
+  })
+
+  it('accepts common prompt styles', () => {
+    for (const prompt of ['[root@host ~]# ', 'user@mac ~ % ', '➜  repo git:(main) ', 'PS C:\\work> ']) {
+      expect(submit(prompt, 'ls').info.historyEligible).toBe(true)
+    }
+  })
+})
+
 describe('useCommandBuffer', () => {
   it('resyncs the command after a remote Tab completion so suggestions can return', () => {
     let visibleLine = 'root@host:~# cd /'
@@ -58,7 +136,7 @@ describe('useCommandBuffer', () => {
 
     buffer.capturedSubmitLine.value = 'Connecting to 10.2.178.163...'
     expect(buffer.submitBufferedCommand()).toBeNull()
-    expect(onSubmitted).toHaveBeenCalledWith(null)
+    expect(onSubmitted).toHaveBeenCalledWith(null, expect.objectContaining({ historyEligible: false }))
   })
 
   it('still captures a command recalled from shell history', () => {

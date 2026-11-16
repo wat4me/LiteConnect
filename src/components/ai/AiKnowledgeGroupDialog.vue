@@ -132,15 +132,15 @@ function trapFocus(event: KeyboardEvent) {
           <p v-if="oversized" class="knowledge-group-error" role="alert">{{ t('ai.knowledge.tooLarge') }}</p>
           <p v-if="error" class="knowledge-group-error" role="alert">{{ error }}</p>
         </div>
-        <footer><button v-if="current" type="button" class="ui-btn ui-btn-sm" :disabled="pending || !ready" @click="remove">{{ t('ai.knowledge.group.delete') }}</button><span /><button type="button" class="ui-btn ui-btn-sm" :disabled="pending" @click="close">{{ t('common.cancel') }}</button><button type="button" class="ui-btn ui-btn-primary ui-btn-sm knowledge-group-save" :disabled="pending || invalid" @click="save">{{ t(current ? 'common.save' : 'ai.knowledge.group.create') }}</button></footer>
+        <footer><button v-if="current" type="button" class="ui-btn ui-btn-danger" :disabled="pending || !ready" @click="remove">{{ t('ai.knowledge.group.delete') }}</button><span /><button type="button" class="ui-btn" :disabled="pending" @click="close">{{ t('common.cancel') }}</button><button type="button" class="ui-btn ui-btn-primary knowledge-group-save" :disabled="pending || invalid" @click="save">{{ t(current ? 'common.save' : 'ai.knowledge.group.create') }}</button></footer>
       </section>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
-.knowledge-group-layer { position: fixed; inset: 0; z-index: 2050; display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(titlebar-area-height, var(--titlebar-height, 36px))); box-sizing: border-box; background: #0005; -webkit-app-region: no-drag; }
-.knowledge-group-dialog { display: flex; flex-direction: column; width: min(620px, 100%); max-height: 100%; min-height: 0; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 12px 48px #0004; font-size: var(--font-body); -webkit-app-region: no-drag; }
+.knowledge-group-layer { position: fixed; inset: 0; z-index: 2050; display: grid; place-items: center; padding: 16px; padding-top: calc(16px + env(titlebar-area-height, var(--titlebar-height, 36px))); box-sizing: border-box; background: var(--overlay-bg); -webkit-app-region: no-drag; }
+.knowledge-group-dialog { display: flex; flex-direction: column; width: min(620px, 100%); max-height: 100%; min-height: 0; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-dialog); font-size: var(--font-body); -webkit-app-region: no-drag; }
 header, footer { display: flex; align-items: center; gap: 8px; padding: 12px 16px; flex-shrink: 0; }
 header { justify-content: space-between; border-bottom: 1px solid var(--border-color); }
 footer { border-top: 1px solid var(--border-color); flex-wrap: wrap; } footer span { flex: 1; }

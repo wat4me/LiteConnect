@@ -35,7 +35,7 @@ const emit = defineEmits<{
       <div v-else class="breadcrumb">
         <span class="tag">{{ t('database.structure.tagDetail') }}</span>
       </div>
-      <button type="button" class="ui-btn ui-btn-xs" :disabled="tab.loading" @click="emit('refresh')">{{ t('database.structure.refresh') }}</button>
+      <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs" :disabled="tab.loading" @click="emit('refresh')">{{ t('database.structure.refresh') }}</button>
     </div>
     <div v-if="tab.loading" class="grid-empty">{{ t('database.structure.loading') }}</div>
     <div v-else-if="tab.error" class="err-panel">{{ tab.error }}</div>

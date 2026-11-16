@@ -220,12 +220,10 @@
   margin-bottom: 4px;
 }
 
+/* Stepper value: ui-btn-group-value owns size and color; just keep "14px" from jittering. */
 :where(.settings-page) .settings-content .font-size-value {
   min-width: 48px;
-  text-align: center;
-  font-size: var(--font-section);
   font-weight: 600;
-  color: var(--text-primary);
 }
 
 :where(.settings-page) .settings-content .path-row,
@@ -304,7 +302,7 @@
   :where(.settings-page) .ui-preview-side {
     width: auto;
     border-right: none;
-    border-bottom: 1px solid;
+    border-bottom: 1px solid var(--border-color);
     flex-direction: row;
     flex-wrap: wrap;
   }

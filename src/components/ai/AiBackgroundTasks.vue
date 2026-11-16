@@ -206,7 +206,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
               <span class="tool-run-state">{{ t(toolStateKeys[backgroundJobState(job.status, job.exitCode, job.signal)]) }}</span>
               <span class="background-job-elapsed" :title="fullTimeRange(job)">{{ durationLabel(job) }}</span>
             </span>
-            <button v-if="job.status === 'running' || job.status === 'scheduled'" type="button" class="ui-icon-btn ui-icon-btn-sm background-job-stop" :disabled="stopping[job.jobId]" :aria-busy="stopping[job.jobId] || undefined" :title="t(stopping[job.jobId] ? 'ai.backgroundStopping' : job.status === 'scheduled' ? 'ai.backgroundCancelScheduleHint' : 'ai.backgroundStopHint')" :aria-label="stopping[job.jobId] ? t('ai.backgroundStopping') : t(job.status === 'scheduled' ? 'ai.backgroundCancelScheduleLabel' : 'ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)"><AppIcon :name="stopping[job.jobId] ? 'refresh' : job.status === 'scheduled' ? 'close' : 'stop'" size="sm" /></button>
+            <button v-if="job.status === 'running' || job.status === 'scheduled'" type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger background-job-stop" :disabled="stopping[job.jobId]" :aria-busy="stopping[job.jobId] || undefined" :title="t(stopping[job.jobId] ? 'ai.backgroundStopping' : job.status === 'scheduled' ? 'ai.backgroundCancelScheduleHint' : 'ai.backgroundStopHint')" :aria-label="stopping[job.jobId] ? t('ai.backgroundStopping') : t(job.status === 'scheduled' ? 'ai.backgroundCancelScheduleLabel' : 'ai.backgroundStopLabel', { command: job.command })" @click.stop.prevent="stopJob(job)"><AppIcon :name="stopping[job.jobId] ? 'refresh' : job.status === 'scheduled' ? 'close' : 'stop'" size="sm" /></button>
           </summary>
           <div v-if="opened.has(job.jobId)" class="background-job-detail">
             <div class="tool-run-section-label">{{ t('ai.toolCommand') }}</div>
@@ -243,7 +243,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
 <style scoped>
 .ai-background-tasks { position: absolute; z-index: 3; inset: 8px 10px var(--ai-composer-overlay-inset, 150px); pointer-events: none; color: var(--text-secondary); font-size: var(--font-ui-sm); }
 .background-float-trigger { position: absolute; display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 100%; padding: 0; border: 1px solid var(--border-color); border-radius: 50%; background: var(--bg-primary); color: var(--text-secondary); box-shadow: var(--shadow-menu); cursor: grab; touch-action: none; user-select: none; pointer-events: auto; -webkit-app-region: no-drag; }
-.background-float-trigger:hover, .background-float-trigger[aria-expanded="true"] { background: var(--bg-secondary); border-color: var(--accent); color: var(--accent); }
+.background-float-trigger:hover, .background-float-trigger[aria-expanded="true"] { background: var(--bg-tertiary); border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color)); color: var(--text-primary); }
 .background-float-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .background-float-trigger.is-morphed { visibility: hidden; pointer-events: none; }
 /* Tucked size matches TUCKED_SIZE in useAiTaskFloat.ts. Clip to a semicircle so the shadow cannot form a square. */
@@ -300,7 +300,6 @@ li { min-width: 0; color: var(--text-secondary); }
 .background-job-elapsed { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-secondary); }
 .tool-run-state { flex-shrink: 0; white-space: nowrap; }
 .background-job-stop { grid-column: 4; grid-row: 1; }
-.background-job-stop:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 .background-job-stop:disabled { cursor: wait; opacity: .6; }
 .background-job-stop[aria-busy="true"] :deep(svg) { animation: background-job-spin 1s linear infinite; }
 @keyframes background-job-spin { to { transform: rotate(360deg); } }
@@ -312,7 +311,6 @@ li { min-width: 0; color: var(--text-secondary); }
 .background-job-detail p { line-height: 1.5; }
 .background-job-error { color: var(--danger); overflow-wrap: anywhere; }
 .background-job-reload { margin: 4px; vertical-align: middle; }
-.background-job-reload:hover { color: var(--accent); border-color: var(--accent); }
 li[data-status="running"] .tool-run-state { color: var(--accent); }
 li[data-status="failed"] .tool-run-state, li[data-status="timeout"] .tool-run-state { color: var(--danger); }
 </style>

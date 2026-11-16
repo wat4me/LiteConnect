@@ -11,11 +11,19 @@ import {
   type ShellHistoryEntry,
   type ShellSuggestItem,
 } from '@/utils/terminal/shellCommandSuggest'
-import { looksLikeFailedShellOutput } from '@/utils/terminal/shellHistoryEligibility'
+import {
+  commandOutputAfterEcho,
+  endsWithShellPrompt,
+  looksLikeFailedShellOutput,
+} from '@/utils/terminal/shellHistoryEligibility'
 
 /** Allow slow SSH echoes to arrive before committing a command to history. */
 const HISTORY_INITIAL_WAIT_MS = 6000
 const HISTORY_OUTPUT_QUIET_MS = 1000
+/** The prompt is back; wait briefly in case a late stderr line follows. */
+const HISTORY_PROMPT_SETTLE_MS = 250
+const HISTORY_HEAD_CHARS = 6000
+const HISTORY_TAIL_CHARS = 400
 
 export function useTerminalShellSuggest(deps: {
   terminalRef: Ref<HTMLDivElement | undefined>
@@ -45,7 +53,10 @@ export function useTerminalShellSuggest(deps: {
   let suggestScrollDisp: { dispose: () => void } | null = null
 
   let historySniffCmd: string | null = null
-  let historySniffBuf = ''
+  let historySniffTerminator = ''
+  /** Start of the output (failure messages) and its end (returning prompt). */
+  let historySniffHead = ''
+  let historySniffTail = ''
   let historySniffTimer: ReturnType<typeof setTimeout> | null = null
 
   const suggestItems = computed(() => {
@@ -172,44 +183,61 @@ export function useTerminalShellSuggest(deps: {
     }
   }
 
+  async function removeHistoryCommand(command: string) {
+    shellHistory.value = shellHistory.value.filter((h) => h.command !== command)
+    try {
+      const list = await window.LiteConnect.removeShellCommandHistory(deps.connectionId(), command)
+      if (Array.isArray(list)) shellHistory.value = list
+    } catch {
+      // The local list already hides it; the next load reconciles with the store.
+    }
+  }
+
+  /**
+   * Observe one submitted command's output and learn it only if the start of
+   * the output does not report a wrong invocation. Finishing is detected by the
+   * prompt returning, or by output going quiet for long-running programs.
+   */
   function cancelHistorySniff() {
     if (historySniffTimer) {
       clearTimeout(historySniffTimer)
       historySniffTimer = null
     }
     historySniffCmd = null
-    historySniffBuf = ''
+    historySniffHead = ''
+    historySniffTail = ''
   }
 
-  function scheduleHistorySniff(command: string) {
+  function commitHistorySniff() {
+    const cmd = historySniffCmd
+    const failed = cmd ? looksLikeFailedShellOutput(commandOutputAfterEcho(historySniffHead, cmd)) : true
     cancelHistorySniff()
+    if (cmd && !failed) void pushShellHistory(cmd)
+  }
+
+  function scheduleHistorySniff(command: string, terminator = '') {
+    // A new command typed at the shell prompt means the previous one has finished.
+    if (historySniffCmd) commitHistorySniff()
     historySniffCmd = command
-    historySniffBuf = ''
+    historySniffTerminator = terminator
     armHistorySniff(HISTORY_INITIAL_WAIT_MS)
   }
 
   function armHistorySniff(delayMs: number) {
     if (historySniffTimer) clearTimeout(historySniffTimer)
-    historySniffTimer = setTimeout(() => {
-      const cmd = historySniffCmd
-      const buf = historySniffBuf
-      historySniffTimer = null
-      historySniffCmd = null
-      historySniffBuf = ''
-      if (!cmd) return
-      if (looksLikeFailedShellOutput(buf)) return
-      void pushShellHistory(cmd)
-    }, delayMs)
+    historySniffTimer = setTimeout(commitHistorySniff, delayMs)
   }
 
   function feedHistorySniff(chunk: string) {
     if (!historySniffCmd || !chunk) return
-    historySniffBuf += chunk
-    if (historySniffBuf.length > 12000) {
-      historySniffBuf = historySniffBuf.slice(-8000)
+    if (historySniffHead.length < HISTORY_HEAD_CHARS) {
+      historySniffHead = (historySniffHead + chunk).slice(0, HISTORY_HEAD_CHARS)
     }
-    if (looksLikeFailedShellOutput(historySniffBuf)) {
+    historySniffTail = (historySniffTail + chunk).slice(-HISTORY_TAIL_CHARS)
+    if (looksLikeFailedShellOutput(commandOutputAfterEcho(historySniffHead, historySniffCmd))) {
       cancelHistorySniff()
+    } else if (endsWithShellPrompt(historySniffTail, historySniffTerminator)) {
+      armHistorySniff(HISTORY_PROMPT_SETTLE_MS)
     } else {
       armHistorySniff(HISTORY_OUTPUT_QUIET_MS)
     }
@@ -263,6 +291,14 @@ export function useTerminalShellSuggest(deps: {
         suggestItems.value.length,
         navigationDirection,
       )
+      return false
+    }
+    // Shift+Delete forgets the highlighted history entry, as in browser address bars.
+    if (event.key === 'Delete' && event.shiftKey) {
+      const item = suggestItems.value[suggestActiveIndex.value]
+      if (!item || item.source !== 'history') return true
+      event.preventDefault()
+      void removeHistoryCommand(item.command)
       return false
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -328,6 +364,8 @@ export function useTerminalShellSuggest(deps: {
     onShellCommandHistoryCleared,
     scheduleHistorySniff,
     feedHistorySniff,
+    cancelHistorySniff,
+    removeHistoryCommand,
     hideSuggest,
     onSuggestPick,
     handleSuggestKey,

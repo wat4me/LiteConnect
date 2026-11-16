@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '@/components/icons/AppIcon.vue'
+import ScrollableTabs from '@/components/common/ScrollableTabs.vue'
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import { resolveSplitDropTarget } from '@/utils/terminal/splitDropTarget'
 import type { SplitDropTarget } from '@/utils/terminal/splitDropTarget'
@@ -56,6 +57,12 @@ const displayTabs = computed(() => buildCombinedTabItems(
   props.splitSecondarySessionId,
   (session) => session.id,
 ))
+
+const activeTabKey = computed(() => {
+  if (props.dockerTabActive) return 'docker'
+  if (props.splitGroupActive) return JSON.stringify([props.splitPrimarySessionId, props.splitSecondarySessionId])
+  return props.activeSessionId
+})
 
 function hasSplitStatus(sessionIds: string[], source?: Set<string>) {
   return !!source && sessionIds.some((id) => source.has(id))
@@ -137,12 +144,13 @@ function onTabClick(sessionId: string) {
 <template>
   <div class="sub-tab-bar-wrap">
     <div class="sub-tab-bar">
-      <div class="sub-tabs-scroll">
+      <ScrollableTabs class="sub-tabs-wrap" :active-key="activeTabKey">
         <template v-for="item in displayTabs" :key="item.kind === 'split' ? 'split-group' : item.item.id">
           <div
             v-if="item.kind === 'split'"
             class="sub-tab split-group-tab"
             :class="{ active: !dockerTabActive && splitGroupActive }"
+            :data-active-tab="!dockerTabActive && splitGroupActive"
             :title="t('terminal.restoreSplit')"
             @click="emit('select-split')"
           >
@@ -183,6 +191,7 @@ function onTabClick(sessionId: string) {
               dragging: draggingSessionId === item.item.id,
               disconnected: disconnectedSessionIds?.has(item.item.id),
             }"
+            :data-active-tab="!dockerTabActive && !splitGroupActive && item.item.id === activeSessionId"
             :title="sessions.length >= 2 ? t('terminal.dragSplitTitle') : undefined"
             @mousedown="onTabDragStart($event, item.item.id)"
             @click="onTabClick(item.item.id)"
@@ -213,6 +222,7 @@ function onTabClick(sessionId: string) {
           v-if="dockerTabOpen"
           class="sub-tab"
           :class="{ active: dockerTabActive }"
+          :data-active-tab="dockerTabActive"
           :title="t('docker.title')"
           @click="emit('select-docker')"
         >
@@ -227,17 +237,17 @@ function onTabClick(sessionId: string) {
             <AppIcon name="close" size="xs" />
           </button>
         </div>
-        <button class="sub-tab-add" @click="emit('add', connectionId)" :title="t('terminal.newWindow')">
-          <AppIcon name="plus" size="xs" />
-        </button>
-      </div>
+      </ScrollableTabs>
+      <button type="button" class="sub-tab-add" @click="emit('add', connectionId)" :title="t('terminal.newWindow')" :aria-label="t('terminal.newWindow')">
+        <AppIcon name="plus" size="xs" />
+      </button>
       <div v-if="$slots.actions" class="sub-tab-actions">
         <slot name="actions"></slot>
       </div>
     </div>
     <div v-if="showSplitTip" class="split-tip" role="status">
       <span>{{ t('terminal.splitTip') }}</span>
-      <button type="button" class="split-tip-dismiss" @click="dismissSplitTip">{{ t('terminal.gotIt') }}</button>
+      <button type="button" class="split-tip-dismiss ui-btn ui-btn-xs ui-btn-ghost" @click="dismissSplitTip">{{ t('terminal.gotIt') }}</button>
     </div>
   </div>
 </template>
@@ -247,6 +257,7 @@ function onTabClick(sessionId: string) {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  position: relative;
 }
 
 .sub-tab-bar {
@@ -259,36 +270,33 @@ function onTabClick(sessionId: string) {
   padding-left: 6px;
 }
 
+/* One-time hint floats over the terminal instead of pushing it down by a row. */
 .split-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 8px;
+  z-index: 30;
+  max-width: min(420px, calc(100% - 16px));
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-  padding: 4px 10px;
+  padding: 6px 6px 6px 10px;
   font-size: var(--font-caption);
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  line-height: 1.45;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu);
 }
 
 .split-tip-dismiss {
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font-size: var(--font-caption);
-  cursor: pointer;
   flex-shrink: 0;
-  padding: 2px 4px;
 }
 
-.sub-tabs-scroll {
-  display: flex;
-  height: 100%;
-  flex: 1;
-  align-items: center;
-  gap: 2px;
-  overflow: hidden;
-  min-width: 0;
+.sub-tabs-wrap {
+  flex: 0 1 auto;
+  --tabs-track-gap: 2px;
 }
 
 .sub-tab {
@@ -297,7 +305,7 @@ function onTabClick(sessionId: string) {
   gap: 4px;
   padding: 0 8px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: var(--radius-tab);
   cursor: pointer;
   font-size: var(--font-caption);
   color: var(--text-secondary);
@@ -312,24 +320,19 @@ function onTabClick(sessionId: string) {
 }
 
 .sub-tab:hover {
-  background: var(--bg-tertiary);
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
 .sub-tab.active {
-  background: var(--bg-tertiary);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge), var(--tab-selected-shadow);
   color: var(--text-primary);
 }
 
 .split-group-tab {
   border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   padding-left: 6px;
-}
-
-.split-group-tab.active {
-  background: var(--accent-bg);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--accent);
 }
 
 .split-group-icon {
@@ -403,32 +406,33 @@ function onTabClick(sessionId: string) {
 
 .sub-tab-close:hover {
   opacity: 1;
-  background: rgba(248, 81, 73, 0.15);
-  color: var(--danger);
+  background: var(--tab-hover-surface);
+  color: var(--text-primary);
 }
 
 .sub-tab-add {
+  margin-inline-start: 2px;
   width: 22px;
   height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: none;
-  border: 1px dashed var(--border-color);
-  border-radius: 4px;
+  border: 0;
+  border-radius: var(--radius-tab);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.12s, color 0.12s;
   flex-shrink: 0;
 }
 
 .sub-tab-add:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-hover-surface);
 }
 
 .sub-tab-actions {
+  margin-inline-start: auto;
   display: flex;
   align-items: center;
   gap: 6px;

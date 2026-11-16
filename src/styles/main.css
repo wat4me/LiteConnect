@@ -49,65 +49,74 @@ html[data-ui-font-size='comfortable'] {
   }
 }
 
+/*
+ * Palette: warm neutrals (ivory / charcoal) with a single clay accent.
+ * --bg-secondary is the app chrome (shell, rails, panels); --bg-primary is the
+ * content surface (terminal, editors, menus); --bg-tertiary is a raised layer.
+ * Accent is reserved for primary actions, focus and live indicators — selected
+ * navigation uses the neutral --tab-selected-* tokens instead.
+ */
 html:not([data-theme]),
 [data-theme="dark"],
 [data-theme="custom"] {
   color-scheme: dark;
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --border-color: #30363d;
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --accent: #58a6ff;
-  --accent-hover: #79c0ff;
-  --accent-bg: rgba(88, 166, 255, 0.1);
-  --danger: #f85149;
-  --success: #3fb950;
-  --warning: #d29922;
-  --file-folder: #d6a84f;
-  --file-archive: #c792ea;
-  --file-image: #56b6c2;
-  --file-code: #61afef;
-  --file-database: #e5c07b;
-  --scrollbar-thumb: #30363d;
-  --scrollbar-thumb-hover: #484f58;
-  --overlay-bg: rgba(0, 0, 0, 0.6);
-  --hover-bg: rgba(255, 255, 255, 0.06);
-  --selection-bg: rgba(88, 166, 255, 0.3);
-  --titlebar-bg: #0d1117;
-  --titlebar-symbol: #8b949e;
+  --bg-primary: #262624;
+  --bg-secondary: #1f1e1d;
+  --bg-tertiary: #30302e;
+  --border-color: #3a3935;
+  --text-primary: #ece9e1;
+  --text-secondary: #a19e95;
+  --accent: #d97757;
+  --accent-hover: #e48c6e;
+  --accent-bg: rgba(217, 119, 87, 0.13);
+  --danger: #ef6a6a;
+  --success: #8cbf73;
+  --warning: #e3ac5b;
+  --file-folder: #d9a65f;
+  --file-archive: #b9a0e6;
+  --file-image: #74bdb3;
+  --file-code: #8eaae2;
+  --file-database: #d8b46d;
+  --scrollbar-thumb: #45433e;
+  --scrollbar-thumb-hover: #5b5953;
+  --overlay-bg: rgba(12, 11, 10, 0.62);
+  --hover-bg: rgba(250, 249, 245, 0.05);
+  --selection-bg: rgba(217, 119, 87, 0.28);
+  --titlebar-bg: #1f1e1d;
+  --titlebar-symbol: #a19e95;
   /* native <select> chevron (matches --text-secondary) */
-  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a19e95' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
+/* Light: Radix Colors "sand" scale, the gray Radix pairs with orange/brown accents.
+   1 #fdfdfc · 2 #f9f9f8 chrome · 3 #f1f0ef raised · 5 #e2e1de border · 11 #63635e · 12 #21201c text */
 [data-theme="light"] {
   color-scheme: light;
   --bg-primary: #ffffff;
-  --bg-secondary: #f6f8fa;
-  --bg-tertiary: #eaeef2;
-  --border-color: #d0d7de;
-  --text-primary: #1f2328;
-  --text-secondary: #656d76;
-  --accent: #0969da;
-  --accent-hover: #0550ae;
-  --accent-bg: rgba(9, 105, 218, 0.08);
-  --danger: #cf222e;
-  --success: #1a7f37;
-  --warning: #9a6700;
-  --file-folder: #9a6700;
-  --file-archive: #8250df;
-  --file-image: #087f8c;
-  --file-code: #0969da;
-  --file-database: #9a6700;
-  --scrollbar-thumb: #d0d7de;
-  --scrollbar-thumb-hover: #afb8c1;
-  --overlay-bg: rgba(0, 0, 0, 0.4);
-  --hover-bg: rgba(0, 0, 0, 0.04);
-  --selection-bg: rgba(9, 105, 218, 0.2);
-  --titlebar-bg: #ffffff;
-  --titlebar-symbol: #656d76;
-  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23656d76' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  --bg-secondary: #f9f9f8;
+  --bg-tertiary: #f1f0ef;
+  --border-color: #e2e1de;
+  --text-primary: #21201c;
+  --text-secondary: #63635e;
+  --accent: #c4623f;
+  --accent-hover: #a9522f;
+  --accent-bg: rgba(196, 98, 63, 0.09);
+  --danger: #c2364a;
+  --success: #4c8738;
+  --warning: #a46c18;
+  --file-folder: #b5822c;
+  --file-archive: #8758c2;
+  --file-image: #2c8780;
+  --file-code: #456db3;
+  --file-database: #a17628;
+  --scrollbar-thumb: #dad9d6;
+  --scrollbar-thumb-hover: #bcbbb5;
+  --overlay-bg: rgba(33, 32, 28, 0.32);
+  --hover-bg: rgba(33, 32, 28, 0.045);
+  --selection-bg: rgba(196, 98, 63, 0.18);
+  --titlebar-bg: #f9f9f8;
+  --titlebar-symbol: #63635e;
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2363635e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
 
 [data-theme="eyecare"] {
@@ -134,7 +143,7 @@ html:not([data-theme]),
   --overlay-bg: rgba(92, 83, 70, 0.45);
   --hover-bg: rgba(92, 83, 70, 0.06);
   --selection-bg: rgba(91, 140, 90, 0.2);
-  --titlebar-bg: #f5f0e8;
+  --titlebar-bg: #ece5d8;
   --titlebar-symbol: #8a7f70;
   --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238a7f70' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
@@ -164,7 +173,7 @@ html, body, #app {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--font-ui);
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -190,6 +199,7 @@ html.has-app-bg #app {
 
 html.has-app-bg .app-container {
   background: transparent;
+  --app-shell-background: transparent;
 }
 
 /* Wallpaper + veil — painted under titlebar / workspace */
@@ -260,6 +270,13 @@ html.has-app-bg .settings-page,
 html.has-app-bg .sub-tab-bar,
 html.has-app-bg .split-mode-bar {
   background: color-mix(in srgb, var(--bg-primary) 78%, transparent) !important;
+}
+
+/* Host tabs sit inside the titlebar: one frosted band, not two stacked. */
+html.has-app-bg .app-titlebar .tab-bar {
+  background: transparent !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 html.has-app-bg .workspace,
@@ -464,6 +481,22 @@ html:not([data-theme]),
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-window: 14px;
+  --radius-tab: 8px;
+  --window-edge: color-mix(in srgb, var(--border-color) 70%, transparent);
+  --window-shadow: 0 1px 3px color-mix(in srgb, var(--overlay-bg) 18%, transparent);
+  /* Neutral navigation states: selected items lift, they are not tinted with the accent. */
+  --tab-hover-surface: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  --tab-selected-surface: color-mix(in srgb, var(--text-primary) 9%, var(--bg-secondary));
+  --tab-selected-edge: transparent;
+  --tab-selected-shadow: none;
+  /* Segmented control: recessed track + raised selected chip. */
+  --segment-track: color-mix(in srgb, var(--text-primary) 7%, var(--bg-secondary));
+  --segment-selected: color-mix(in srgb, var(--text-primary) 16%, var(--bg-secondary));
+  --segment-selected-shadow: 0 1px 2px color-mix(in srgb, var(--overlay-bg) 35%, transparent);
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  /* Display serif for brand and headings; CJK falls back to the UI sans rather than SimSun. */
+  --font-serif: Charter, 'Iowan Old Style', Georgia, 'Songti SC', 'Microsoft YaHei UI', serif;
   --control-h: calc(36px * var(--ui-scale));
   --control-h-sm: calc(32px * var(--ui-scale));
   --control-h-xs: calc(26px * var(--ui-scale));
@@ -479,7 +512,7 @@ html:not([data-theme]),
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --radius-dialog: 16px;
+  --radius-dialog: 18px;
   --menu-padding: 6px;
   --menu-item-padding: 8px;
   --shadow-menu: 0 8px 24px color-mix(in srgb, var(--overlay-bg) 55%, transparent);
@@ -494,6 +527,18 @@ html:not([data-theme]),
   --sftp-icon-slot: 1.375rem;
   --sftp-row-min-height: 1.75rem;
   --sftp-row-font: 0.75rem;
+}
+
+/* Light themes: a selected item reads as a white chip resting on the chrome. */
+[data-theme="light"],
+[data-theme="eyecare"] {
+  --tab-selected-surface: var(--bg-primary);
+  --tab-selected-edge: color-mix(in srgb, var(--border-color) 85%, transparent);
+  --tab-selected-shadow: 0 1px 2px rgba(31, 30, 29, 0.06);
+  --segment-track: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
+  --segment-selected: var(--bg-primary);
+  --segment-selected-shadow: 0 1px 2px rgba(31, 30, 29, 0.12), 0 0 0 1px rgba(31, 30, 29, 0.06);
+  --window-shadow: 0 1px 2px rgba(31, 30, 29, 0.05), 0 4px 16px rgba(31, 30, 29, 0.04);
 }
 
 :focus-visible {
@@ -521,7 +566,7 @@ select:focus:not(:focus-visible) {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: var(--font-ui);
-  font-weight: 600;
+  font-weight: 500;
   /* line-height: 1 clips descenders (y→v) inside fixed-height controls */
   line-height: 1.25;
   cursor: pointer;
@@ -532,8 +577,7 @@ select:focus:not(:focus-visible) {
 }
 
 .ui-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color));
   background: var(--bg-tertiary);
 }
 
@@ -605,6 +649,10 @@ select:focus:not(:focus-visible) {
   font-weight: 500;
 }
 
+/*
+ * Icon buttons are always borderless (see docs/UI_STYLES.md → 按钮).
+ * `.ui-icon-btn-ghost` is kept as a no-op alias for existing markup.
+ */
 .ui-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -612,20 +660,19 @@ select:focus:not(:focus-visible) {
   width: var(--icon-btn-md, var(--control-h-sm));
   height: var(--icon-btn-md, var(--control-h-sm));
   padding: 0;
-  border: 1px solid var(--border-color);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: color 0.12s, background 0.12s;
   box-sizing: border-box;
   flex-shrink: 0;
 }
 
 .ui-icon-btn:hover:not(:disabled) {
   color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
 }
 
 .ui-icon-btn:disabled {
@@ -639,25 +686,97 @@ select:focus:not(:focus-visible) {
   border-radius: var(--radius-sm);
 }
 
-.ui-icon-btn-ghost {
-  border-color: transparent;
-  background: transparent;
+/* Toggled on (panel open, filter applied): neutral lift, not accent. */
+.ui-icon-btn.active,
+.ui-icon-btn[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
+  border-color: var(--tab-selected-edge);
 }
 
-.ui-icon-btn-ghost:hover:not(:disabled) {
+.ui-icon-btn-close:hover:not(:disabled),
+.ui-icon-btn-danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/*
+ * Grouped controls (stepper `− 14 +`, segmented toggle): the group owns the
+ * single outline; buttons inside stay borderless.
+ */
+.ui-btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  box-sizing: border-box;
+}
+
+.ui-btn-group > .ui-btn,
+.ui-btn-group > .ui-icon-btn {
   border-color: transparent;
-  background: var(--hover-bg);
+  background: transparent;
+  box-shadow: none;
+}
+
+.ui-btn-group > .ui-btn:hover:not(:disabled),
+.ui-btn-group > .ui-icon-btn:hover:not(:disabled) {
+  background: var(--tab-hover-surface);
+}
+
+.ui-btn-group > .active,
+.ui-btn-group > [aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
+}
+
+/*
+ * Segmented choice (a group whose buttons carry .active / aria-pressed): the
+ * group is a recessed track and the chosen option a raised chip, so the
+ * selection reads clearly in every theme. Steppers keep the plain outline.
+ */
+.ui-btn-group:has(> .active, > [aria-pressed]) {
+  border-color: transparent;
+  background: var(--segment-track);
+}
+
+.ui-btn-group:has(> .active, > [aria-pressed]) > .ui-btn,
+.ui-btn-group:has(> .active, > [aria-pressed]) > .ui-icon-btn {
+  color: var(--text-secondary);
+}
+
+.ui-btn-group:has(> .active, > [aria-pressed]) > .ui-btn:hover:not(:disabled),
+.ui-btn-group:has(> .active, > [aria-pressed]) > .ui-icon-btn:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
-.ui-icon-btn-ghost.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+.ui-btn-group > .ui-btn.active,
+.ui-btn-group > .ui-btn[aria-pressed='true'],
+.ui-btn-group > .ui-icon-btn.active,
+.ui-btn-group > .ui-icon-btn[aria-pressed='true'] {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--segment-selected);
+  box-shadow: var(--segment-selected-shadow);
 }
 
-.ui-icon-btn-close:hover:not(:disabled) {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+.ui-btn-group > .ui-btn.active:hover:not(:disabled),
+.ui-btn-group > .ui-btn[aria-pressed='true']:hover:not(:disabled),
+.ui-btn-group > .ui-icon-btn.active:hover:not(:disabled),
+.ui-btn-group > .ui-icon-btn[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--segment-selected);
+}
+
+.ui-btn-group-value {
+  min-width: 2.5em;
+  padding: 0 4px;
+  text-align: center;
+  font-size: var(--font-ui-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 /* Icon buttons: default glyph size follows button scale when AppIcon omits size */
@@ -869,20 +988,20 @@ input:is([type="checkbox"], [type="radio"]) {
   color: var(--text-secondary);
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
 .ui-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color));
+  color: var(--text-primary);
 }
 
 .ui-chip.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-bg);
+  border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color));
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
 }
 
 /* Floating / anchored menus (context + overflow) */
@@ -1139,8 +1258,10 @@ input:is([type="checkbox"], [type="radio"]) {
 }
 
 .ui-empty-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   color: var(--text-primary);
 }
 

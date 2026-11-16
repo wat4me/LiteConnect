@@ -138,13 +138,13 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
     <div class="bk-sidebar-head">
       <span>{{ t('database.nav.title') }}</span>
       <div class="nav-head-actions">
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost nav-head-btn" :title="t('database.nav.import')" @click="emit('import')">
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm nav-head-btn" :title="t('database.nav.import')" :aria-label="t('database.nav.import')" @click="emit('import')">
           <AppIcon name="download" size="sm" />
         </button>
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost nav-head-btn" :title="t('database.nav.export')" @click="emit('export')">
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm nav-head-btn" :title="t('database.nav.export')" :aria-label="t('database.nav.export')" @click="emit('export')">
           <AppIcon name="upload" size="sm" />
         </button>
-        <button type="button" class="ui-icon-btn ui-icon-btn-ghost nav-head-btn" :title="t('database.nav.create')" @click="emit('create')">
+        <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm nav-head-btn" :title="t('database.nav.create')" :aria-label="t('database.nav.create')" @click="emit('create')">
           <AppIcon name="plus" size="sm" />
         </button>
       </div>
@@ -155,6 +155,8 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
         type="button"
         class="ui-icon-btn ui-icon-btn-ghost system-db-toggle"
         :class="{ active: showSystemDbs }"
+        :aria-pressed="showSystemDbs"
+        :aria-label="showSystemDbs ? t('database.nav.hideSystemDbs') : t('database.nav.showSystemDbs')"
         :title="showSystemDbs ? t('database.nav.hideSystemDbs') : t('database.nav.showSystemDbs')"
         @click="showSystemDbs = !showSystemDbs"
       >
@@ -213,10 +215,10 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
             ></span>
           </span>
           <div class="nav-conn-actions" @click.stop>
-            <button type="button" :title="t('database.nav.edit')" @click="emit('edit', conn)">
+            <button type="button" class="ui-icon-btn ui-icon-btn-sm" :title="t('database.nav.edit')" :aria-label="t('database.nav.edit')" @click="emit('edit', conn)">
               <AppIcon name="edit" size="xs" />
             </button>
-            <button type="button" :title="t('database.nav.delete')" class="danger" @click="emit('remove', conn)">
+            <button type="button" :title="t('database.nav.delete')" :aria-label="t('database.nav.delete')" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger danger" @click="emit('remove', conn)">
               <AppIcon name="delete" size="xs" />
             </button>
           </div>
@@ -284,7 +286,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
               >
                 {{ t('database.nav.noTables') }}
               </div>
-              <button type="button" class="bk-reload-tables" @click="emit('reloadTables', conn.id, db)">
+              <button type="button" class="ui-btn ui-btn-ghost ui-btn-xs bk-reload-tables" @click="emit('reloadTables', conn.id, db)">
                 {{ t('database.nav.reloadTables') }}
               </button>
             </div>
@@ -363,11 +365,6 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   padding: 4px 0;
 }
 
-.nav-head-btn {
-  width: 28px;
-  height: 28px;
-}
-
 .nav-muted {
   padding: 10px 12px;
   font-size: 12px;
@@ -420,8 +417,8 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 }
 
 .nav-conn-row.focused {
-  background: var(--accent-bg);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .nav-conn-icon {
@@ -475,26 +472,10 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   pointer-events: auto;
 }
 
+/* Compact size so row actions fit inside the dense tree row height. */
 .nav-conn-actions button {
   width: 22px;
   height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.nav-conn-actions button:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.nav-conn-actions button.danger:hover {
-  color: var(--danger);
 }
 
 .nav-conn-children {
@@ -538,8 +519,8 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 }
 
 .bk-table-row.selected {
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .bk-chevron {
@@ -579,24 +560,17 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   padding-left: 28px;
 }
 
-.bk-tree-empty,
-.bk-reload-tables {
+.bk-tree-empty {
   padding: 2px 10px 4px 28px;
   font-size: 11px;
   color: var(--text-secondary);
 }
 
 .bk-reload-tables {
-  display: block;
-  width: 100%;
-  border: none;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-}
-
-.bk-reload-tables:hover {
-  color: var(--accent);
+  display: flex;
+  width: calc(100% - 22px);
+  margin: 2px 0 2px 22px;
+  justify-content: flex-start;
 }
 
 .bk-spinner {
@@ -627,19 +601,5 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 .bk-sidebar-search input {
   flex: 1;
   min-width: 0;
-}
-
-.system-db-toggle {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.system-db-toggle.active {
-  color: var(--accent) !important;
-  background: var(--accent-bg) !important;
 }
 </style>

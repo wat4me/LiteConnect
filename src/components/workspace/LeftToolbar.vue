@@ -118,7 +118,7 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
 }
 
 .toolbar-icon-btn:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
@@ -127,9 +127,11 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
   outline-offset: 1px;
 }
 
+/* Open tool: neutral lifted chip; the accent stays reserved for live badges. */
 .toolbar-icon-btn.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: var(--text-primary);
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge), var(--tab-selected-shadow);
 }
 
 .toolbar-icon-btn[data-drop-marker]::before {

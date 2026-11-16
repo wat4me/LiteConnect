@@ -190,9 +190,11 @@ watch(
       <p v-if="draft.latencyEnabled" class="settings-hint">{{ t('settingsNetwork.latencyBackgroundHint') }}</p>
       <div v-if="draft.latencyEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.interval') }}</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.latencyIntervalSec = Math.max(1, draft.latencyIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
-        <span class="font-size-value">{{ draft.latencyIntervalSec }}s</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.latencyIntervalSec = Math.min(60, draft.latencyIntervalSec + 1)"><AppIcon name="plus" size="xs" /></button>
+        <div class="ui-btn-group">
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.latencyIntervalSec = Math.max(1, draft.latencyIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
+          <span class="font-size-value ui-btn-group-value">{{ draft.latencyIntervalSec }}s</span>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.latencyIntervalSec = Math.min(60, draft.latencyIntervalSec + 1)"><AppIcon name="plus" size="xs" /></button>
+        </div>
       </div>
 
       <div class="settings-label" style="margin-top: 18px" data-setting="network.usageStats">{{ t('settingsNetwork.usageStats') }}</div>
@@ -224,9 +226,11 @@ watch(
       <p class="settings-hint">{{ t('settingsNetwork.monitorHint') }}</p>
       <div v-if="draft.monitorEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.interval') }}</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.monitorIntervalSec = Math.max(2, draft.monitorIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
-        <span class="font-size-value">{{ draft.monitorIntervalSec }}s</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.monitorIntervalSec = Math.min(30, draft.monitorIntervalSec + 1)"><AppIcon name="plus" size="xs" /></button>
+        <div class="ui-btn-group">
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.monitorIntervalSec = Math.max(2, draft.monitorIntervalSec - 1)"><AppIcon name="minus" size="xs" /></button>
+          <span class="font-size-value ui-btn-group-value">{{ draft.monitorIntervalSec }}s</span>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.monitorIntervalSec = Math.min(30, draft.monitorIntervalSec + 1)"><AppIcon name="plus" size="xs" /></button>
+        </div>
       </div>
 
       <div class="settings-label" style="margin-top: 18px" data-setting="network.autoReconnect">{{ t('settingsNetwork.autoReconnect') }}</div>
@@ -243,9 +247,11 @@ watch(
       </div>
       <div v-if="draft.autoReconnectEnabled" class="interval-row">
         <span>{{ t('settingsNetwork.maxRetries') }}</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.autoReconnectMaxRetries = Math.max(0, draft.autoReconnectMaxRetries - 1)"><AppIcon name="minus" size="xs" /></button>
-        <span class="font-size-value">{{ draft.autoReconnectMaxRetries }}</span>
-        <button type="button" class="ui-icon-btn font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.autoReconnectMaxRetries = Math.min(20, draft.autoReconnectMaxRetries + 1)"><AppIcon name="plus" size="xs" /></button>
+        <div class="ui-btn-group">
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.decrease')" :aria-label="t('common.decrease')" @click="draft.autoReconnectMaxRetries = Math.max(0, draft.autoReconnectMaxRetries - 1)"><AppIcon name="minus" size="xs" /></button>
+          <span class="font-size-value ui-btn-group-value">{{ draft.autoReconnectMaxRetries }}</span>
+          <button type="button" class="ui-icon-btn ui-icon-btn-sm font-size-btn" :title="t('common.increase')" :aria-label="t('common.increase')" @click="draft.autoReconnectMaxRetries = Math.min(20, draft.autoReconnectMaxRetries + 1)"><AppIcon name="plus" size="xs" /></button>
+        </div>
       </div>
       <div class="settings-hint">
         {{ t('settingsNetwork.autoReconnectHint') }}
