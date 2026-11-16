@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { Terminal as HeadlessTerminal } from '@xterm/headless'
 import type { Terminal } from '@xterm/xterm'
 import { useCommandBuffer } from './useCommandBuffer'
 
@@ -6,6 +7,7 @@ function terminalShowing(text: string): Terminal {
   return {
     buffer: {
       active: {
+        length: 1,
         baseY: 0,
         cursorY: 0,
         getLine: () => ({ translateToString: () => text }),
@@ -19,6 +21,7 @@ function terminalRows(rows: Row[], cursor: { y: number; x: number }, type: 'norm
   return {
     buffer: {
       active: {
+        length: rows.length,
         type,
         baseY: 0,
         cursorY: cursor.y,
@@ -93,6 +96,26 @@ describe('history eligibility of submitted lines', () => {
 })
 
 describe('useCommandBuffer', () => {
+  it('stays within the xterm buffer when a single wrapped line fills scrollback', async () => {
+    const terminal = new HeadlessTerminal({ cols: 8, rows: 2, scrollback: 4, allowProposedApi: true })
+    try {
+      await new Promise<void>(resolve => terminal.write('x'.repeat(80), resolve))
+      const active = terminal.buffer.active
+      expect(active.getLine(0)?.isWrapped).toBe(true)
+      // The underlying ring returns a wrapped row even at the end-exclusive index.
+      expect(active.getLine(active.length)?.isWrapped).toBe(true)
+      const getLine = active.getLine.bind(active)
+      const read = vi.spyOn(active, 'getLine').mockImplementation(index => index < active.length ? getLine(index) : undefined)
+      const commands = useCommandBuffer({ getTerminal: () => terminal, onCdCommand: vi.fn() })
+
+      commands.notePromptBeforeInput()
+      expect(commands.getVisibleCommandLine()).toBe('')
+      expect(read).not.toHaveBeenCalledWith(active.length)
+    } finally {
+      terminal.dispose()
+    }
+  })
+
   it('resyncs the command after a remote Tab completion so suggestions can return', () => {
     let visibleLine = 'root@host:~# cd /'
     const buffer = useCommandBuffer({

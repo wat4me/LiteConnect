@@ -34,7 +34,7 @@ export function isShellPromptLike(prefix: string): boolean {
 }
 
 export function useCommandBuffer(deps: {
-  getTerminal: () => Terminal | null
+  getTerminal: () => Pick<Terminal, 'buffer'> | null
   onCdCommand: (cmd: string) => void
   /** Fired after Enter / paste-with-newline submits a line (may be null if empty). */
   onSubmitted?: (cmd: string | null, info: SubmittedCommandInfo) => void
@@ -64,11 +64,16 @@ export function useCommandBuffer(deps: {
    */
   function logicalLineRows(row: number): { start: number; end: number } | null {
     const buffer = deps.getTerminal()?.buffer?.active
-    if (!buffer?.getLine(row)) return null
+    if (!buffer || row < 0 || row >= buffer.length || !buffer.getLine(row)) return null
     let start = row
-    while (start > 0 && buffer.getLine(start)?.isWrapped) start--
+    while (buffer.getLine(start)?.isWrapped) {
+      // The beginning was trimmed from scrollback, so this is only a fragment.
+      if (start === 0) return null
+      start--
+    }
     let end = row
-    while (buffer.getLine(end + 1)?.isWrapped) end++
+    // xterm's circular buffer can return an existing row for an out-of-range index.
+    while (end + 1 < buffer.length && buffer.getLine(end + 1)?.isWrapped) end++
     return { start, end }
   }
 

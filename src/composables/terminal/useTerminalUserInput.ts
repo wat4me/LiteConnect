@@ -42,21 +42,39 @@ function isLocallyEchoable(data: string): boolean {
 export function useTerminalUserInput(deps: TerminalUserInputDeps) {
   let tabCompletionInput: string | null = null
 
+  function sendInput(data: string) {
+    if (data.length > 32 || deps.getWriteQueueLength() > 0) {
+      deps.enqueueWrite(data, deps.sessionId())
+    } else {
+      deps.write(data)
+    }
+  }
+
   function handleTerminalUserInput(data: string) {
     if (deps.readOnly.value) {
       deps.showReadOnlyHintOnce()
       return
     }
-    deps.notePromptBeforeInput?.()
+    const isCancel = data === '\x03' || data === '\x15'
+    if (!isCancel) deps.notePromptBeforeInput?.()
     deps.updatePasteState(data)
     deps.onUserInput?.(data)
+
+    if (isCancel) {
+      // Interrupting output does not require reading the current terminal line.
+      tabCompletionInput = null
+      deps.cancelPendingSubmit()
+      deps.resetCommandBuffer()
+      deps.suggest.hideSuggest()
+      sendInput(data)
+      return
+    }
 
     if (data.length === 1 && isLocallyEchoable(data) && !deps.isPasting()) {
       deps.pulseCursor()
     }
 
     const isSubmit = data === '\r' || data === '\n'
-    const isCancel = data === '\x03' || data === '\x15'
     const isBackspace = data === '\x7f' || data === '\x08'
     const isTab = data === '\t' || data === '\x09'
     const isEscape = data.charCodeAt(0) === 0x1b
@@ -79,10 +97,6 @@ export function useTerminalUserInput(deps: TerminalUserInputDeps) {
       deps.suggest.hideSuggest()
       deps.capturedSubmitLine.value = deps.getVisibleCommandLine().replace(/\[Pasted[^\]]*\]\s*/g, '')
       deps.scheduleSubmit()
-    } else if (isCancel) {
-      deps.cancelPendingSubmit()
-      deps.resetCommandBuffer()
-      deps.suggest.hideSuggest()
     } else if (isBackspace) {
       deps.suggest.suggestDismissed.value = false
       if (deps.commandBuffer.value.length > 0) deps.commandBuffer.value = deps.commandBuffer.value.slice(0, -1)
@@ -124,11 +138,7 @@ export function useTerminalUserInput(deps: TerminalUserInputDeps) {
       deps.scheduleSubmit()
     }
 
-    if (data.length > 32 || deps.getWriteQueueLength() > 0) {
-      deps.enqueueWrite(data, deps.sessionId())
-    } else {
-      deps.write(data)
-    }
+    sendInput(data)
   }
 
   function hasPendingTabCompletion() { return tabCompletionInput !== null }
