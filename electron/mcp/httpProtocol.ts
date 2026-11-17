@@ -2,15 +2,18 @@ import type { SshMcpToolResult } from '../../shared/mcp/types'
 import type { SshMcpRuntime } from './runtime'
 
 export const MCP_PROTOCOL_VERSIONS = [
-  '2024-11-05',
   '2025-03-26',
-  '2025-11-25',
   '2025-06-18',
-  '2026-06-18',
-  '2026-07-28',
+  '2025-11-25',
 ] as const
 
+export type McpProtocolVersion = typeof MCP_PROTOCOL_VERSIONS[number]
 export const MCP_DEFAULT_PROTOCOL_VERSION = '2025-11-25'
+export const MCP_BATCH_PROTOCOL_VERSION = '2025-03-26'
+
+export function isSupportedMcpProtocolVersion(version: string): version is McpProtocolVersion {
+  return (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(version)
+}
 
 export const MCP_SERVER_INSTRUCTIONS =
   'LiteConnect SSH tools operate on hosts and sessions in the LiteConnect app. Call list_connections / list_sessions first. Use connect to open a saved host. To add a host, save_connection with host, username, and password or privateKey or useAgent=true; optionally connect=true. Then exec/read_file/grep/glob/write_file with sessionId. Do not dump whole files: grep to locate lines, then read_file(startLine, limit). Interactive installers and TUIs: pty_open, pty_write, pty_read(mode=screen), pty_close — a dedicated PTY, not the user terminal. Always disconnect when finished. exec is a non-interactive channel; for long tasks use background=true and poll get_job. If exec or service_control returns APPROVAL_REQUIRED, ask the human operator in this client to confirm the exact command, then retry with confirmed=true. Never set confirmed=true unless they agreed. Never echo passwords or private keys in later messages.'
@@ -22,7 +25,7 @@ export type JsonRpcId = string | number | null
 export type ProtocolOutcome =
   | { kind: 'response'; body: Record<string, unknown> }
   | { kind: 'notification' }
-  | { kind: 'initialize'; body: Record<string, unknown> }
+  | { kind: 'initialize'; protocolVersion: McpProtocolVersion; body: Record<string, unknown> }
   | { kind: 'rpc-error'; status: number; body: Record<string, unknown> }
 
 export type McpAuditHook = (event: {
@@ -72,11 +75,12 @@ export async function handleMcpJsonRpc(
   if (rec.method === 'initialize') {
     const params = rec.params && typeof rec.params === 'object' ? (rec.params as Record<string, unknown>) : {}
     const requested = typeof params.protocolVersion === 'string' ? params.protocolVersion : ''
-    const protocolVersion = (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(requested)
+    const protocolVersion = isSupportedMcpProtocolVersion(requested)
       ? requested
       : MCP_DEFAULT_PROTOCOL_VERSION
     return {
       kind: 'initialize',
+      protocolVersion,
       body: {
         jsonrpc: '2.0',
         id,

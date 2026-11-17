@@ -82,7 +82,7 @@ function parseAnthropicResponse(data: any) {
   }
 }
 
-async function readAnthropicStream(_settings: AiResolvedConfig, response: Response, onDelta: (delta: AiProviderDelta) => void): Promise<AiChatMessage> {
+async function readAnthropicStream(_settings: AiResolvedConfig, response: Response, onDelta: (delta: AiProviderDelta, receivedAt: number) => void): Promise<AiChatMessage> {
   const blocks = new Map<number, AiAnthropicContentBlock>()
   const inputs = new Map<number, string>()
   const openBlocks = new Set<number>()
@@ -90,31 +90,31 @@ async function readAnthropicStream(_settings: AiResolvedConfig, response: Respon
   let started = false
   let stopped = false
   let finishReason = ''
-  await readAiStream(response, event => {
+  await readAiStream(response, (event, receivedAt) => {
     if (event?.type === 'error') throw new AiProviderError({ kind: 'provider', detail: event.error?.message || 'Claude stream failed' })
     if (event?.type === 'message_start') {
       started = true
       usage = { ...event.message?.usage }
-      onDelta({ usage: extractAnthropicUsage(usage) })
+      onDelta({ usage: extractAnthropicUsage(usage) }, receivedAt)
     } else if (event?.type === 'message_delta') {
       usage = { ...usage, ...event.usage }
       finishReason = event.delta?.stop_reason || finishReason
-      onDelta({ usage: extractAnthropicUsage(usage) })
+      onDelta({ usage: extractAnthropicUsage(usage) }, receivedAt)
     } else if (event?.type === 'message_stop') stopped = true
     else if (event?.type === 'content_block_start') {
       const block = normalizeAnthropicContent([event.content_block])![0]
       if (!Number.isSafeInteger(event.index) || event.index < 0 || blocks.has(event.index)) throw new Error('Invalid Claude stream block index')
       blocks.set(event.index, block)
       openBlocks.add(event.index)
-      if (block.type === 'text') onDelta({ content: block.text })
-      if (block.type === 'thinking') onDelta({ reasoning: block.thinking })
-      if (block.type === 'tool_use') onDelta({ toolCalls: [{ index: event.index, id: block.id, function: { name: block.name, arguments: '' } }] })
+      if (block.type === 'text') onDelta({ content: block.text }, receivedAt)
+      if (block.type === 'thinking') onDelta({ reasoning: block.thinking }, receivedAt)
+      if (block.type === 'tool_use') onDelta({ toolCalls: [{ index: event.index, id: block.id, function: { name: block.name, arguments: '' } }] }, receivedAt)
     } else if (event?.type === 'content_block_delta') {
       const block = blocks.get(event.index)
       if (!block || !openBlocks.has(event.index)) throw new Error('Invalid Claude stream block delta')
       const delta = event.delta
-      if (block.type === 'text' && delta?.type === 'text_delta') { block.text += delta.text; onDelta({ content: delta.text }) }
-      if (block.type === 'thinking' && delta?.type === 'thinking_delta') { block.thinking += delta.thinking; onDelta({ reasoning: delta.thinking }) }
+      if (block.type === 'text' && delta?.type === 'text_delta') { block.text += delta.text; onDelta({ content: delta.text }, receivedAt) }
+      if (block.type === 'thinking' && delta?.type === 'thinking_delta') { block.thinking += delta.thinking; onDelta({ reasoning: delta.thinking }, receivedAt) }
       if (block.type === 'thinking' && delta?.type === 'signature_delta') block.signature += delta.signature
       if (block.type === 'tool_use' && delta?.type === 'input_json_delta') inputs.set(event.index, (inputs.get(event.index) || '') + delta.partial_json)
     } else if (event?.type === 'content_block_stop') {
@@ -124,7 +124,7 @@ async function readAnthropicStream(_settings: AiResolvedConfig, response: Respon
         const json = inputs.get(event.index)
         if (json !== undefined) block.input = JSON.parse(json)
         if (!block.input || typeof block.input !== 'object' || Array.isArray(block.input)) throw new Error('Invalid Claude tool input')
-        onDelta({ toolCalls: [{ index: event.index, function: { arguments: JSON.stringify(block.input) } }] })
+        onDelta({ toolCalls: [{ index: event.index, function: { arguments: JSON.stringify(block.input) } }] }, receivedAt)
       }
     }
   }, true)

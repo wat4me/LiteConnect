@@ -8,6 +8,7 @@ import {
   shouldReloadSftpListing,
 } from '@/utils/sftp/sftpCwdSync'
 import { setSftpListedCwd } from '@/utils/sftp/sftpListedCwd'
+import { emitAppEvent, type TerminalPwdRequestDetail } from '@/utils/shared/appEvents'
 
 /** Friendlier empty-dir / permission / not-found copy for SFTP readdir failures */
 function formatSftpError(raw: unknown, path: string): string {
@@ -39,13 +40,6 @@ function formatSftpError(raw: unknown, path: string): string {
   return msg
 }
 
-type TerminalPwdRequestDetail = {
-  sessionId: string
-  handled?: boolean
-  resolve: (pwd: string) => void
-  reject: (error: Error) => void
-}
-
 function requestTerminalPwd(sessionId: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const detail: TerminalPwdRequestDetail = {
@@ -53,8 +47,7 @@ function requestTerminalPwd(sessionId: string): Promise<string> {
       resolve,
       reject,
     }
-    const target = typeof window !== 'undefined' ? window : globalThis
-    target.dispatchEvent(new CustomEvent<TerminalPwdRequestDetail>('request-terminal-pwd', { detail }))
+    emitAppEvent('request-terminal-pwd', detail)
     if (!detail.handled) {
       reject(new Error('No active terminal for pwd request'))
     }

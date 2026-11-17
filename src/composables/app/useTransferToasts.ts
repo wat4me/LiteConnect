@@ -1,4 +1,5 @@
 import { onBeforeUnmount, onMounted } from 'vue'
+import { addAppEventListener, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '@/i18n'
 import { ensureTransferListeners, teardownTransferListeners } from '@/composables/sftp/useTransfers'
@@ -47,15 +48,10 @@ function showTransferSummary(d: TransferToastSummary) {
 
 const sftpToastCoalescer = createTransferToastCoalescer(showTransferSummary)
 
-function onTransferFinished(e: Event) {
-  const d = (e as CustomEvent).detail as {
-    fileName?: string
-    direction?: string
-    status?: string
-    error?: string
-  } | undefined
+function onTransferFinished(e: AppEvent<'sftp-transfer-finished'>) {
+  const d = e.detail
   if (!d) return
-  const status = d.status as 'completed' | 'error' | 'skipped' | 'partial' | 'cancelled'
+  const status = d.status
   const direction: TransferToastDirection = d.direction === 'upload' ? 'upload' : 'download'
   sftpToastCoalescer.push({
     direction,
@@ -69,16 +65,8 @@ function onTransferFinished(e: Event) {
   })
 }
 
-function onBatchTransferFinished(e: Event) {
-  const d = (e as CustomEvent).detail as {
-    direction?: string
-    success?: number
-    error?: number
-    skipped?: number
-    partial?: number
-    cancelled?: number
-    total?: number
-  } | undefined
+function onBatchTransferFinished(e: AppEvent<'sftp-batch-transfer-finished'>) {
+  const d = e.detail
   if (!d) return
   sftpToastCoalescer.push({
     direction: d.direction === 'download' ? 'download' : 'upload',
@@ -91,14 +79,8 @@ function onBatchTransferFinished(e: Event) {
   })
 }
 
-function onBatchFinished(e: Event) {
-  const d = (e as CustomEvent).detail as {
-    success?: number
-    error?: number
-    cancelled?: number
-    total?: number
-    cancelledByUser?: boolean
-  } | undefined
+function onBatchFinished(e: AppEvent<'batch-command-finished'>) {
+  const d = e.detail
   if (!d) return
   if (d.cancelledByUser) {
     ElMessage.info(
@@ -121,15 +103,15 @@ function onBatchFinished(e: Event) {
 export function useTransferToasts() {
   onMounted(() => {
     ensureTransferListeners()
-    window.addEventListener('sftp-transfer-finished', onTransferFinished)
-    window.addEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
-    window.addEventListener('batch-command-finished', onBatchFinished)
+    addAppEventListener('sftp-transfer-finished', onTransferFinished)
+    addAppEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
+    addAppEventListener('batch-command-finished', onBatchFinished)
   })
   onBeforeUnmount(() => {
     teardownTransferListeners()
     sftpToastCoalescer.flushAll()
-    window.removeEventListener('sftp-transfer-finished', onTransferFinished)
-    window.removeEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
-    window.removeEventListener('batch-command-finished', onBatchFinished)
+    removeAppEventListener('sftp-transfer-finished', onTransferFinished)
+    removeAppEventListener('sftp-batch-transfer-finished', onBatchTransferFinished)
+    removeAppEventListener('batch-command-finished', onBatchFinished)
   })
 }

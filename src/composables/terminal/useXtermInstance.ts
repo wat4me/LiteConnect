@@ -1,18 +1,16 @@
-import { ref, nextTick, type Ref } from 'vue'
+import { nextTick, type Ref } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { t } from '../../i18n'
-import { getTerminalColors, getTerminalMinimumContrastRatio, type TerminalPaletteId } from '@/composables/app/useTheme'
+import { getTerminalColors, getTerminalMinimumContrastRatio } from '@/composables/app/useTheme'
 import { withWallpaperTerminalTheme } from '@/composables/app/useAppBackground'
 import type { Theme, CustomColors } from '@/composables/app/useTheme'
-import {
-  PASTE_CONFIRM_MAX_CHARS,
-  normalizePasteConfirmMaxChars,
-} from '@/utils/terminal/terminalPaste'
 import { canMeasureTerminal, planTerminalResize } from '@/utils/terminal/terminalResizePolicy'
+import { addAppEventListener, removeAppEventListener } from '@/utils/shared/appEvents'
+import { useTerminalSettings } from './useTerminalSettings'
 
 export function useXtermInstance(deps: {
   terminalRef: Ref<HTMLDivElement | undefined>
@@ -35,15 +33,22 @@ export function useXtermInstance(deps: {
   let lastSentCols = 0
   let lastSentRows = 0
 
-  const fontSize = ref(14)
-  const scrollbackLines = ref(5000)
-  const pasteConfirmEnabled = ref(true)
-  const pasteConfirmMaxChars = ref(PASTE_CONFIRM_MAX_CHARS)
-  const fontFamily = ref('Cascadia Code, Fira Code, Consolas, Courier New, monospace')
-  const terminalPalette = ref<TerminalPaletteId>('auto')
-  let fontVersion = 0, paletteVersion = 0, behaviorVersion = 0
-
   const getTerminal = () => terminal
+  const settings = useTerminalSettings({
+    getTerminal,
+    // Font change changes cell size → PTY cols/rows may change; allow resize.
+    onFontChange: () => scheduleTerminalRefresh(true, { forceSshResize: false }),
+    onPaletteChange: () => applyTerminalTheme(),
+  })
+  const {
+    fontSize,
+    scrollbackLines,
+    pasteConfirmEnabled,
+    pasteConfirmMaxChars,
+    fontFamily,
+    terminalPalette,
+    loadTerminalSettings,
+  } = settings
   const getSearchAddon = () => searchAddon
   const getFitAddon = () => fitAddon
 
@@ -244,96 +249,23 @@ export function useXtermInstance(deps: {
     applyTerminalTheme()
   }
 
-  function onTerminalFontSettingsChange(e: Event) {
-    fontVersion++
-    const detail = (e as CustomEvent).detail || {}
-    if (typeof detail.fontSize === 'number') {
-      fontSize.value = detail.fontSize
-      if (terminal) terminal.options.fontSize = detail.fontSize
-    }
-    if (typeof detail.fontFamily === 'string') {
-      fontFamily.value = detail.fontFamily
-      if (terminal) terminal.options.fontFamily = detail.fontFamily
-    }
-    // Font change changes cell size → PTY cols/rows may change; allow resize.
-    scheduleTerminalRefresh(true, { forceSshResize: false })
-  }
-
-  function onTerminalPaletteChange(e: Event) {
-    const detail = (e as CustomEvent).detail || {}
-    if (typeof detail.palette === 'string') {
-      paletteVersion++
-      terminalPalette.value = detail.palette as TerminalPaletteId
-      applyTerminalTheme()
-    }
-  }
-
-  function onTerminalBehaviorChange(e: Event) {
-    behaviorVersion++
-    const detail = (e as CustomEvent).detail || {}
-    if (typeof detail.scrollback === 'number') {
-      scrollbackLines.value = detail.scrollback
-      if (terminal) terminal.options.scrollback = detail.scrollback
-    }
-    if (typeof detail.pasteConfirmEnabled === 'boolean') {
-      pasteConfirmEnabled.value = detail.pasteConfirmEnabled
-    }
-    if (detail.pasteConfirmMaxChars !== undefined) {
-      pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(detail.pasteConfirmMaxChars)
-    }
-  }
-
   function attachSettingsListeners() {
-    window.addEventListener('terminal-font-settings-change', onTerminalFontSettingsChange)
-    window.addEventListener('terminal-palette-change', onTerminalPaletteChange)
-    window.addEventListener('terminal-behavior-settings-change', onTerminalBehaviorChange)
-    window.addEventListener('app-background-settings-change', onAppBackgroundChange)
+    settings.attachSettingsListeners()
+    addAppEventListener('app-background-settings-change', onAppBackgroundChange)
   }
 
   function detachSettingsListeners() {
-    window.removeEventListener('terminal-font-settings-change', onTerminalFontSettingsChange)
-    window.removeEventListener('terminal-palette-change', onTerminalPaletteChange)
-    window.removeEventListener('terminal-behavior-settings-change', onTerminalBehaviorChange)
-    window.removeEventListener('app-background-settings-change', onAppBackgroundChange)
-  }
-
-  async function loadTerminalSettings() {
-    const versions = { font: fontVersion, palette: paletteVersion, behavior: behaviorVersion }
-    try {
-      const [size, family, palette, scrollback, pasteConfirm, pasteMaxChars] = await Promise.all([
-        window.LiteConnect.getTerminalFontSize(),
-        window.LiteConnect.getTerminalFontFamily(),
-        window.LiteConnect.getTerminalPalette(),
-        window.LiteConnect.getTerminalScrollback(),
-        window.LiteConnect.getTerminalPasteConfirmEnabled(),
-        window.LiteConnect.getTerminalPasteConfirmMaxChars().catch(() => PASTE_CONFIRM_MAX_CHARS),
-      ])
-      if (versions.font === fontVersion) { fontSize.value = size; fontFamily.value = family }
-      if (versions.palette === paletteVersion) terminalPalette.value = (palette as TerminalPaletteId) || 'auto'
-      if (versions.behavior === behaviorVersion) {
-        scrollbackLines.value = scrollback
-        pasteConfirmEnabled.value = pasteConfirm
-        pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(pasteMaxChars)
-      }
-    } catch {
-      if (versions.font === fontVersion) fontSize.value = 14
-    }
+    settings.detachSettingsListeners()
+    removeAppEventListener('app-background-settings-change', onAppBackgroundChange)
   }
 
   function createTerminal(connectionName: string) {
     if (!deps.terminalRef.value) return null
 
     terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      cursorWidth: 2,
-      cursorInactiveStyle: 'bar',
-      fontSize: fontSize.value,
-      fontFamily: fontFamily.value,
+      ...settings.baseTerminalOptions(),
       theme: resolveTerminalTheme(),
       minimumContrastRatio: getTerminalMinimumContrastRatio(deps.theme.value, deps.customColors.value, terminalPalette.value),
-      allowProposedApi: true,
-      scrollback: scrollbackLines.value,
     })
 
     fitAddon = new FitAddon()

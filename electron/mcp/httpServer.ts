@@ -16,7 +16,14 @@ import {
   isAllowedOrigin,
   SlidingWindowLimiter,
 } from './httpAuth'
-import { handleMcpJsonRpc, type McpAuditHook, type McpServerInfo } from './httpProtocol'
+import {
+  handleMcpJsonRpc,
+  isSupportedMcpProtocolVersion,
+  MCP_BATCH_PROTOCOL_VERSION,
+  type McpAuditHook,
+  type McpProtocolVersion,
+  type McpServerInfo,
+} from './httpProtocol'
 import type { SshMcpRuntime } from './runtime'
 
 export type McpHttpServerOptions = {
@@ -39,7 +46,7 @@ const MAX_SESSIONS = 16
 
 export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
   const limiter = new SlidingWindowLimiter(MCP_HTTP_RATE_LIMIT, MCP_HTTP_RATE_WINDOW_MS)
-  const sessions = new Map<string, number>()
+  const sessions = new Map<string, { protocolVersion: McpProtocolVersion; lastUsedAt: number }>()
   const maxBody = opts.maxBodyBytes ?? MCP_HTTP_MAX_BODY_BYTES
   const controller = new AbortController()
   const pending = new Set<Promise<void>>()
@@ -84,13 +91,7 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         return
       }
 
-      if (req.method === 'GET') {
-        res.writeHead(405, { Allow: 'POST, DELETE, OPTIONS' })
-        res.end()
-        return
-      }
-
-      if (!limiter.allow()) {
+      if (req.method !== 'GET' && !limiter.allow()) {
         res.writeHead(429, { 'Retry-After': '60', 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Rate limit exceeded' }, id: null }))
         return
@@ -103,9 +104,23 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         return
       }
 
+      const sessionId = header(req, 'mcp-session-id')
+      pruneSessions()
+      const session = sessions.get(sessionId)
+      if (sessionId && !session) {
+        writeJson(res, 404, { jsonrpc: '2.0', error: { code: -32001, message: 'MCP session not found' }, id: null })
+        return
+      }
+
+      const protocolVersion = header(req, 'mcp-protocol-version')
+      if (req.headers['mcp-protocol-version'] !== undefined && !isSupportedMcpProtocolVersion(protocolVersion)) {
+        // A client offering a newer revision can retry with the initialize lifecycle.
+        writeJson(res, 400, { jsonrpc: '2.0', error: { code: -32600, message: 'Unsupported MCP-Protocol-Version' }, id: null })
+        return
+      }
+
       if (req.method === 'DELETE') {
-        const sid = header(req, 'mcp-session-id')
-        if (sid) sessions.delete(sid)
+        sessions.delete(sessionId)
         res.writeHead(200)
         res.end()
         return
@@ -126,31 +141,22 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         return
       }
 
-      const sessionHeader = header(req, 'mcp-session-id')
-      pruneSessions()
-      if (sessionHeader && !sessions.has(sessionHeader) && !isInitialize(parsed)) {
-        writeJson(res, 400, {
-          jsonrpc: '2.0',
-          error: { code: -32000, message: 'Bad Request: invalid session' },
-          id: null,
-        })
-        return
-      }
-
       if (Array.isArray(parsed)) {
+        const revision = session?.protocolVersion || protocolVersion || MCP_BATCH_PROTOCOL_VERSION
+        if (revision !== MCP_BATCH_PROTOCOL_VERSION || parsed.length === 0 || parsed.some(item => item?.method === 'initialize')) {
+          writeJson(res, 400, { jsonrpc: '2.0', error: { code: -32600, message: 'Invalid JSON-RPC batch' }, id: null })
+          return
+        }
+        if (session) session.lastUsedAt = Date.now()
         const bodies: unknown[] = []
-        let sessionId = sessionHeader
         for (const item of parsed) {
           const out = await handleMcpJsonRpc(item, { ...opts, signal: controller.signal })
-          if (out.kind === 'initialize') {
-            sessionId = randomUUID()
-            sessions.set(sessionId, Date.now())
-            bodies.push(out.body)
-          } else if (out.kind === 'notification') {
-            continue
-          } else {
-            bodies.push(out.body)
-          }
+          if (out.kind !== 'notification') bodies.push(out.body)
+        }
+        if (bodies.length === 0) {
+          res.writeHead(202)
+          res.end()
+          return
         }
         const headers: http.OutgoingHttpHeaders = {}
         if (sessionId) headers['Mcp-Session-Id'] = sessionId
@@ -158,6 +164,7 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         return
       }
 
+      if (session) session.lastUsedAt = Date.now()
       const out = await handleMcpJsonRpc(parsed, { ...opts, signal: controller.signal })
       if (out.kind === 'notification') {
         res.writeHead(202)
@@ -165,16 +172,11 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
         return
       }
       if (out.kind === 'initialize') {
-        const sessionId = randomUUID()
-        sessions.set(sessionId, Date.now())
-        writeJson(res, 200, out.body, { 'Mcp-Session-Id': sessionId })
+        writeJson(res, 200, out.body, { 'Mcp-Session-Id': createSession(out.protocolVersion) })
         return
       }
       const headers: http.OutgoingHttpHeaders = {}
-      if (sessionHeader) {
-        sessions.set(sessionHeader, Date.now())
-        headers['Mcp-Session-Id'] = sessionHeader
-      }
+      if (sessionId) headers['Mcp-Session-Id'] = sessionId
       writeJson(res, out.kind === 'rpc-error' ? out.status : 200, out.body, headers)
     } catch (err) {
       if (res.headersSent || res.destroyed) return
@@ -189,14 +191,17 @@ export function createMcpHttpServer(opts: McpHttpServerOptions): McpHttpHandle {
 
   function pruneSessions() {
     const now = Date.now()
-    for (const [id, ts] of sessions) {
-      if (now - ts > SESSION_TTL_MS) sessions.delete(id)
+    for (const [id, session] of sessions) {
+      if (now - session.lastUsedAt > SESSION_TTL_MS) sessions.delete(id)
     }
-    while (sessions.size > MAX_SESSIONS) {
-      const oldest = sessions.keys().next().value
-      if (!oldest) break
-      sessions.delete(oldest)
-    }
+  }
+
+  function createSession(protocolVersion: McpProtocolVersion) {
+    const oldest = sessions.keys().next().value
+    if (sessions.size >= MAX_SESSIONS && oldest) sessions.delete(oldest)
+    const id = randomUUID()
+    sessions.set(id, { protocolVersion, lastUsedAt: Date.now() })
+    return id
   }
 
   return {
@@ -238,15 +243,11 @@ function header(req: http.IncomingMessage, name: string): string {
   return raw || ''
 }
 
-function isInitialize(message: unknown): boolean {
-  if (!message || typeof message !== 'object' || Array.isArray(message)) return false
-  return (message as { method?: unknown }).method === 'initialize'
-}
-
 function applyCors(res: http.ServerResponse, origin: string) {
   res.setHeader('Access-Control-Allow-Origin', origin)
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version')
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, DELETE, OPTIONS')
+  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id')
   res.setHeader('Vary', 'Origin')
 }
 

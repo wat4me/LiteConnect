@@ -1,4 +1,5 @@
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
+import type { AppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import type { Terminal } from '@xterm/xterm'
 import {
@@ -154,8 +155,8 @@ export function useTerminalShellSuggest(deps: {
     }
   }
 
-  function onTerminalBehaviorSettingsChange(event: Event) {
-    const enabled = (event as CustomEvent).detail?.commandSuggestEnabled
+  function onTerminalBehaviorSettingsChange(event: AppEvent<'terminal-behavior-settings-change'>) {
+    const enabled = event.detail?.commandSuggestEnabled
     if (typeof enabled !== 'boolean') return
     commandSuggestEnabled.value = enabled
     if (enabled) {

@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { appConfirm, appPrompt } from '@/composables/app/useAppDialog'
+import { appConfirm } from '@/composables/app/useAppDialog'
+import { useCommandSnippets } from '@/composables/snippets/useCommandSnippets'
 
 const { t } = useI18n()
 import type { CommandSnippet, SnippetSendMode } from '@/env.d'
@@ -51,8 +52,19 @@ const emit = defineEmits<{
   (e: 'clear-draft'): void
 }>()
 
-const snippets = ref<CommandSnippet[]>([])
-const loading = ref(false)
+const {
+  snippets,
+  loading,
+  loadSnippets,
+  saveSnippets,
+  recordUse,
+  contextForSession,
+  promptSnippetVars,
+  resolveForContext,
+} = useCommandSnippets({
+  sessions: () => props.sessions,
+  snippetContext: () => props.snippetContext,
+})
 const editingId = ref<string | null>(null)
 const formOpen = ref(false)
 const formName = ref('')
@@ -111,15 +123,6 @@ const groupedView = computed(() => {
   }
   return blocks
 })
-
-async function loadSnippets() {
-  loading.value = true
-  try {
-    snippets.value = await window.LiteConnect.getCommandSnippets()
-  } finally {
-    loading.value = false
-  }
-}
 
 function resetForm() {
   editingId.value = null
@@ -187,7 +190,7 @@ async function saveSnippet() {
     })
   }
   const wasEdit = !!editingId.value
-  snippets.value = await window.LiteConnect.setCommandSnippets(next)
+  await saveSnippets(next)
   resetForm()
   ElMessage.success(wasEdit ? t('snippets.updated') : t('snippets.added'))
 }
@@ -205,7 +208,7 @@ async function removeSnippet(id: string) {
     return
   }
   const next = snippets.value.filter((s) => s.id !== id)
-  snippets.value = await window.LiteConnect.setCommandSnippets(next)
+  await saveSnippets(next)
   if (editingId.value === id) resetForm()
   menuOpenId.value = null
   ElMessage.success(t('snippets.deleted'))
@@ -215,61 +218,8 @@ async function togglePin(item: CommandSnippet) {
   const next = snippets.value.map((s) =>
     s.id === item.id ? { ...s, pinned: !s.pinned } : s,
   )
-  snippets.value = await window.LiteConnect.setCommandSnippets(next)
+  await saveSnippets(next)
   menuOpenId.value = null
-}
-
-async function bumpUse(item: CommandSnippet) {
-  const next = snippets.value.map((s) =>
-    s.id === item.id
-      ? {
-          ...s,
-          useCount: (s.useCount || 0) + 1,
-          lastUsedAt: Date.now(),
-        }
-      : s,
-  )
-  try {
-    snippets.value = await window.LiteConnect.setCommandSnippets(next)
-  } catch {
-    // non-fatal
-  }
-}
-
-function contextForSession(sessionId: string | null): SnippetContext | null {
-  if (!sessionId) return props.snippetContext || null
-  const s = props.sessions?.find((x) => x.id === sessionId)
-  if (s && (s.host || s.user)) {
-    return {
-      host: s.host,
-      user: s.user,
-      port: s.port,
-      name: s.name,
-    }
-  }
-  return props.snippetContext || null
-}
-
-/** Prompt for custom vars; built-ins filled from context + dynamic */
-async function resolveForContext(command: string, ctx: SnippetContext | null): Promise<string | null> {
-  const dynamic = await resolveDynamicBuiltins()
-  const mergedCtx: SnippetContext = { ...(ctx || {}), ...dynamic }
-  const pending = pendingSnippetVars(command, mergedCtx)
-  const extra: Record<string, string> = { ...dynamic }
-  for (const name of pending) {
-    try {
-      const value = await appPrompt({
-        title: t('snippets.fillVarTitle'),
-        message: t('snippets.fillVarMessage', { var: name }),
-        inputPlaceholder: name,
-        required: false,
-      })
-      extra[name] = value
-    } catch {
-      return null
-    }
-  }
-  return resolveSnippetCommand(command, mergedCtx, extra)
 }
 
 function targetSessionIds(): string[] {
@@ -290,7 +240,7 @@ async function runSnippet(item: CommandSnippet) {
     const resolved = await resolveForContext(item.command, contextForSession(targets[0]))
     if (resolved === null) return
     window.LiteConnect.sshWrite(targets[0], formatSnippetPayloadForWrite(resolved, mode))
-    await bumpUse(item)
+    await recordUse(item)
     ElMessage.success(mode === 'fill' ? t('snippets.filled', { name: item.name }) : t('snippets.sent', { name: item.name }))
     return
   }
@@ -305,19 +255,7 @@ async function runSnippet(item: CommandSnippet) {
     clipboard: 'x',
   })
   const extra: Record<string, string> = { ...dynamic }
-  for (const name of pendingCustom) {
-    try {
-      const value = await appPrompt({
-        title: t('snippets.fillVarTitle'),
-        message: t('snippets.fillVarMessageMulti', { var: name }),
-        inputPlaceholder: name,
-        required: false,
-      })
-      extra[name] = value
-    } catch {
-      return
-    }
-  }
+  if (!await promptSnippetVars(pendingCustom, extra, 'snippets.fillVarMessageMulti')) return
   for (const sid of targets) {
     const resolved = resolveSnippetCommand(
       item.command,
@@ -326,7 +264,7 @@ async function runSnippet(item: CommandSnippet) {
     )
     window.LiteConnect.sshWrite(sid, formatSnippetPayloadForWrite(resolved, mode))
   }
-  await bumpUse(item)
+  await recordUse(item)
   ElMessage.success(t('snippets.sentToSessions', { count: targets.length, name: item.name }))
 }
 
@@ -354,19 +292,7 @@ async function sendToBatch(item: CommandSnippet) {
     time: dynamic.time,
     clipboard: dynamic.clipboard,
   }
-  for (const name of pendingCustom) {
-    try {
-      const value = await appPrompt({
-        title: t('snippets.fillVarTitle'),
-        message: t('snippets.fillVarMessage', { var: name }),
-        inputPlaceholder: name,
-        required: false,
-      })
-      extra[name] = value
-    } catch {
-      return
-    }
-  }
+  if (!await promptSnippetVars(pendingCustom, extra)) return
   let result = item.command
   for (const [k, v] of Object.entries(extra)) {
     const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -450,7 +376,7 @@ async function onDrop(targetId: string) {
   const [moved] = list.splice(fromIdx, 1)
   list.splice(toIdx, 0, moved)
   const reordered = list.map((s, i) => ({ ...s, sortOrder: i }))
-  snippets.value = await window.LiteConnect.setCommandSnippets(reordered)
+  await saveSnippets(reordered)
 }
 
 function toggleMenu(id: string) {

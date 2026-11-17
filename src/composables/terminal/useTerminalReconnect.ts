@@ -1,4 +1,5 @@
 import { nextTick, ref } from 'vue'
+import type { AppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Terminal } from '@xterm/xterm'
@@ -110,12 +111,8 @@ export function useTerminalReconnect(deps: {
     })
   }
 
-  function onReconnectFailed(event: Event) {
-    const detail = (event as CustomEvent<{
-      sessionId: string
-      message?: string
-      nonRetryable?: boolean
-    }>).detail
+  function onReconnectFailed(event: AppEvent<'ssh-reconnect-failed'>) {
+    const detail = event.detail
     if (!detail || detail.sessionId !== deps.sessionId() || !disconnected.value) return
     reconnectInFlight = false
     if (isSshConnectionCancelled(detail.message)) { cancelAutoReconnect(); return }

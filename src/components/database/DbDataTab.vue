@@ -52,6 +52,7 @@ const emit = defineEmits<{
 const moreOpen = ref(false)
 const moreMenuRef = ref<HTMLElement | null>(null)
 const moreBtnRef = ref<HTMLButtonElement | null>(null)
+const cellMenuRef = ref<HTMLElement | null>(null)
 
 type CellMenuState = {
   x: number
@@ -241,7 +242,7 @@ function onDocPointerDown(e: MouseEvent) {
     }
   }
   if (cellMenu.value) {
-    const menu = document.querySelector('.db-cell-menu')
+    const menu = cellMenuRef.value
     if (menu && !menu.contains(t)) closeCellMenu()
   }
 }
@@ -609,6 +610,7 @@ const cellMenuPreview = computed(() => {
     <Teleport to="body">
       <div
         v-if="cellMenu"
+        ref="cellMenuRef"
         class="db-cell-menu"
         :style="{ left: cellMenu.x + 'px', top: cellMenu.y + 'px' }"
         role="menu"

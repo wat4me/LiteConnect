@@ -323,8 +323,21 @@ versions/dependency declarations; lint and production builds run it automaticall
 Validate clean dependencies in a separate directory instead of replacing a running
 development environment's dependencies.
 
-Future cleanup candidates are shared xterm settings application and command-snippet
-variable resolution. Split other components by responsibility, not total template/style
+Renderer-wide notifications on `window` are declared once in
+`src/utils/shared/appEvents.ts` (`AppEventMap`); emitters and listeners use
+`emitAppEvent` / `addAppEventListener` rather than string literals with `CustomEvent`
+casts. `db-settings-change` stays private to `useDbSettings.ts`, its only emitter and
+listener. `composables/terminal/useTerminalSettings.ts` owns the terminal font, palette,
+scrollback and paste settings for both SSH tabs and Docker exec terminals; hosts keep
+their own resize and theme application. `composables/snippets/useCommandSnippets.ts`
+owns snippet persistence and variable resolution for the panel and the palette, and
+`composables/app/useMcpBridge.ts` adapts MCP connect/close requests for `App.vue`.
+Components restyle another component through a prop on that component (for example
+`TransferList`'s `layout`), not `:deep()` on its internal class names; rendered Markdown
+rules live in `AiMarkdownBlock.css`, scoped to the one component that renders them.
+Dialogs and banners reused by feature components live in `components/common`.
+
+Split other components by responsibility, not total template/style
 line count; keep one AI session store and separate SSH, Docker and DB lifecycles.
 
 Architecture rules and progress stay in this document. User behavior belongs in

@@ -7,13 +7,19 @@ import type { AiUsage } from '@shared/types/ai'
 import { normalizeAiUsage } from '@shared/aiUsage'
 import { useAiInfoPopover } from '@/composables/ai/useAiInfoPopover'
 import { formatCompactTokenCount } from '@/utils/ai/tokenCount'
-import { usageCacheHitRate } from '@/utils/ai/usagePresentation'
+import { usageCacheHitRate, usageOutputRate } from '@/utils/ai/usagePresentation'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{ usage: AiUsage }>()
 const { t, locale } = useI18n()
 const usage = computed(() => normalizeAiUsage(props.usage))
 const partial = computed(() => usage.value?.usageIncomplete || usage.value?.cacheUsageIncomplete)
+const speedLabel = computed(() => {
+  const rate = usage.value && usageOutputRate(usage.value)
+  if (rate === undefined) return ''
+  const n = new Intl.NumberFormat(locale.value, { maximumFractionDigits: rate < 1 ? 2 : 0 }).format(rate)
+  return t('ai.usageRateCompact', { n })
+})
 const compactLabel = computed(() => usage.value?.totalTokens === undefined
   ? t('ai.usageUnavailable')
   : t('ai.usageCompact', { n: formatCompactTokenCount(usage.value.totalTokens) }))
@@ -36,6 +42,7 @@ const rows = computed(() => {
     { label: t('ai.usageDetails.cacheRead'), value: count(value.cachedPromptTokens) },
     ...(value.cacheCreationPromptTokens !== undefined ? [{ label: t('ai.usageDetails.cacheWrite'), value: count(value.cacheCreationPromptTokens) }] : []),
     { label: t('ai.usageDetails.output'), value: count(value.completionTokens) },
+    ...(speedLabel.value ? [{ label: t('ai.usageDetails.outputRate'), value: speedLabel.value }] : []),
     ...(value.reasoningTokens !== undefined ? [{ label: t('ai.usageDetails.reasoning'), value: count(value.reasoningTokens) }] : []),
     ...(value.requestCount ? [{ label: t('ai.usageDetails.requests'), value: numberFormat.value.format(value.requestCount) }] : []),
   ]
@@ -53,12 +60,12 @@ const rows = computed(() => {
       <span class="usage-trigger">
         <button
           ref="triggerRef" type="button" class="ui-btn ui-btn-ghost ui-btn-xs usage-line" :class="{ 'is-open': open }"
-          :aria-label="`${compactLabel}，${t('ai.usageDetails.show')}${partial ? `，${t('ai.usagePartial')}` : ''}`"
+          :aria-label="`${compactLabel}${speedLabel ? `，${speedLabel}` : ''}，${t('ai.usageDetails.show')}${partial ? `，${t('ai.usagePartial')}` : ''}`"
           :aria-expanded="open" :aria-controls="open ? detailId : undefined"
           @mouseenter="show" @mouseleave="hideLater" @click="toggle"
         >
           <AppIcon name="database" size="xs" />
-          <span>{{ compactLabel }}</span>
+          <span>{{ compactLabel }}<template v-if="speedLabel"> · {{ speedLabel }}</template></span>
           <span v-if="partial" class="usage-partial" :aria-label="t('ai.usagePartial')">*</span>
         </button>
       </span>
@@ -74,6 +81,7 @@ const rows = computed(() => {
       <p v-if="usage.usageIncomplete" class="usage-note usage-incomplete">{{ t('ai.usagePartialHint') }}</p>
       <p v-if="usage.cacheUsageIncomplete" class="usage-note usage-incomplete">{{ t('ai.usageCachePartialHint') }}</p>
       <p class="usage-note">{{ t('ai.usageAccountingHint') }}</p>
+      <p v-if="speedLabel" class="usage-note">{{ t('ai.usageRateHint') }}</p>
     </section>
   </ElPopover>
 </template>

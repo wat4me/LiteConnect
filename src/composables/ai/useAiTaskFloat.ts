@@ -1,15 +1,16 @@
-import { computed, nextTick, onScopeDispose, ref, watch, type CSSProperties } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, shallowRef, watch, type CSSProperties } from 'vue'
 import { useAiTaskMorph } from './useAiTaskMorph'
 
 const SIZE = 40
 const TUCKED_SIZE = 28
-/** The icon tucks only when a drag ends this close to an edge. */
+/** A manual drop tucks when it ends this close to an edge. */
 const SNAP = 20
+const IDLE_TUCK_DELAY = 10_000
 const clamp = (value: number, max: number) => Math.max(0, Math.min(value, max))
 type Edge = 'left' | 'right' | 'top' | 'bottom'
 
-/** Coordinates stay inside the chat viewport, above its floating composer. */
-export function useAiTaskFloat(active: () => boolean, layout: () => string) {
+/** Coordinates stay inside the measured floating surface. */
+export function useAiTaskFloat(active: () => boolean, layout: () => string, hasPendingWork: () => boolean) {
   const surface = ref<HTMLElement | null>(null)
   const trigger = ref<HTMLButtonElement | null>(null)
   const panel = ref<HTMLElement | null>(null)
@@ -23,19 +24,22 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
   /** Free position as a fraction of the area the full-size icon can occupy. */
   const xRatio = ref(1)
   const yRatio = ref(1)
-  /** Parked halfway outside an edge, at a smaller size, after a drag ends there. */
-  const tucked = ref(false)
+  const tuckedBy = ref<'drag' | 'idle' | null>(null)
+  const hovered = ref(false)
+  const focusCount = ref(0)
+  const workFinished = ref(false)
   const dragPosition = ref({ x: 0, y: 0 })
   const fits = computed(() => bounds.value.width >= SIZE && bounds.value.height >= SIZE)
-  let gesture: { id: number; x: number; y: number; left: number; top: number } | undefined
+  const gesture = shallowRef<{ id: number; x: number; y: number; left: number; top: number }>()
   let ignoreClick = false
   const storageKey = () => `liteconnect-ai-task-position-${layout()}`
-  const iconSize = computed(() => tucked.value && !dragging.value ? TUCKED_SIZE : SIZE)
+  const visuallyTucked = computed(() => !!tuckedBy.value && !dragging.value)
+  const iconSize = computed(() => visuallyTucked.value ? TUCKED_SIZE : SIZE)
   const position = computed(() => {
     if (dragging.value) return dragPosition.value
     const maxX = Math.max(0, bounds.value.width - iconSize.value)
     const maxY = Math.max(0, bounds.value.height - iconSize.value)
-    if (!tucked.value) return { x: maxX * xRatio.value, y: maxY * yRatio.value }
+    if (!tuckedBy.value) return { x: maxX * xRatio.value, y: maxY * yRatio.value }
     return edge.value === 'left' || edge.value === 'right'
       ? { x: edge.value === 'right' ? maxX : 0, y: maxY * edgeRatio.value }
       : { x: maxX * edgeRatio.value, y: edge.value === 'bottom' ? maxY : 0 }
@@ -70,14 +74,17 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
     edgeRatio.value = 1
     xRatio.value = 1
     yRatio.value = 1
-    tucked.value = false
+    tuckedBy.value = null
+    workFinished.value = false
+    // SSH keeps one position in each live session's cached sidebar.
+    if (layout() === 'ssh') return
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey()) || 'null')
       if (!saved || typeof saved !== 'object') return
       if (saved.tucked === true && ['left', 'right', 'top', 'bottom'].includes(saved.edge) && Number.isFinite(saved.ratio)) {
         edge.value = saved.edge
         edgeRatio.value = clamp(saved.ratio, 1)
-        tucked.value = true
+        tuckedBy.value = 'drag'
         return
       }
       if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
@@ -95,7 +102,7 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
   }, { immediate: true })
 
   watch(surface, (element, _previous, onCleanup) => {
-    if (!element) { close(); return }
+    if (!element) { hovered.value = false; close(); endGesture(false); return }
     const observer = new ResizeObserver(() => {
       // Hidden tabs report zero width; retain their last visible geometry.
       if (element.clientWidth) bounds.value = { width: element.clientWidth, height: element.clientHeight }
@@ -115,8 +122,9 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
     if (active() && !expanded.value && !rendered.value) trigger.value?.focus({ preventScroll: true })
   })
   function persist() {
+    if (layout() === 'ssh') return
     try {
-      const payload = tucked.value
+      const payload = tuckedBy.value === 'drag'
         ? { edge: edge.value, ratio: edgeRatio.value, tucked: true }
         : { x: xRatio.value, y: yRatio.value, tucked: false }
       localStorage.setItem(storageKey(), JSON.stringify(payload))
@@ -124,40 +132,58 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
   }
   /** Something needs a human: bring a tucked icon back inside as a full circle. */
   function untuck() {
-    if (!tucked.value) return
+    if (!tuckedBy.value) return
     placeInsideEdge()
-    tucked.value = false
+    tuckedBy.value = null
     persist()
   }
+  function tuckNearest(x: number, y: number, source: 'drag' | 'idle') {
+    const { width, height } = bounds.value
+    const maxX = Math.max(0, width - SIZE), maxY = Math.max(0, height - SIZE)
+    const distances: [Edge, number][] = [['left', x], ['right', maxX - x], ['top', y], ['bottom', maxY - y]]
+    const [nearest, distance] = distances.reduce((best, candidate) => candidate[1] < best[1] ? candidate : best)
+    if (source === 'drag' && distance > SNAP) return false
+    edge.value = nearest
+    const vertical = nearest === 'left' || nearest === 'right'
+    const available = (vertical ? height : width) - TUCKED_SIZE
+    const offset = (vertical ? y : x) + (SIZE - TUCKED_SIZE) / 2
+    edgeRatio.value = available > 0 ? clamp(offset / available, 1) : 0
+    tuckedBy.value = source
+    return true
+  }
+  watch(hasPendingWork, (pending, wasPending) => {
+    if (pending) {
+      workFinished.value = false
+      if (tuckedBy.value === 'idle') tuckedBy.value = null
+    } else if (wasPending) {
+      workFinished.value = true
+    }
+  })
+  const canTuck = computed(() => active() && workFinished.value && surface.value && fits.value &&
+    !tuckedBy.value && !expanded.value && !rendered.value && !hovered.value && !gesture.value)
+  watch([canTuck, focusCount], ([eligible], _previous, onCleanup) => {
+    if (!eligible) return
+    const timeout = setTimeout(() => {
+      const { x, y } = position.value
+      tuckNearest(x, y, 'idle')
+    }, IDLE_TUCK_DELAY)
+    onCleanup(() => clearTimeout(timeout))
+  }, { flush: 'post' })
+
   function endGesture(save: boolean) {
-    const current = gesture
-    gesture = undefined
-    if (dragging.value) {
-      const { x, y } = dragPosition.value
+    const current = gesture.value
+    gesture.value = undefined
+    if (dragging.value) ignoreClick = true
+    if (dragging.value && save) {
       const { width, height } = bounds.value
       const maxX = Math.max(0, width - SIZE), maxY = Math.max(0, height - SIZE)
-      const distances: Record<Edge, number> = { left: x, right: maxX - x, top: y, bottom: maxY - y }
-      const nearest = Math.min(...Object.values(distances))
-      ignoreClick = true
-      if (nearest <= SNAP) {
-        const next = (Object.keys(distances) as Edge[]).find(candidate => distances[candidate] === nearest)!
-        edge.value = next
-        const tuckedMaxX = Math.max(0, width - TUCKED_SIZE)
-        const tuckedMaxY = Math.max(0, height - TUCKED_SIZE)
-        if (next === 'left' || next === 'right') {
-          const top = clamp(y + SIZE / 2 - TUCKED_SIZE / 2, tuckedMaxY)
-          edgeRatio.value = tuckedMaxY > 0 ? top / tuckedMaxY : 0
-        } else {
-          const left = clamp(x + SIZE / 2 - TUCKED_SIZE / 2, tuckedMaxX)
-          edgeRatio.value = tuckedMaxX > 0 ? left / tuckedMaxX : 0
-        }
-        tucked.value = true
-      } else {
+      const x = clamp(dragPosition.value.x, maxX), y = clamp(dragPosition.value.y, maxY)
+      if (!tuckNearest(x, y, 'drag')) {
         xRatio.value = maxX > 0 ? clamp(x / maxX, 1) : 0
         yRatio.value = maxY > 0 ? clamp(y / maxY, 1) : 0
-        tucked.value = false
+        tuckedBy.value = null
       }
-      if (save) persist()
+      persist()
     }
     dragging.value = false
     if (current && trigger.value?.hasPointerCapture(current.id)) trigger.value.releasePointerCapture(current.id)
@@ -165,32 +191,35 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
   function pointerDown(event: PointerEvent) {
     if (!event.isPrimary || event.button !== 0) return
     ignoreClick = false
-    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, left: position.value.x, top: position.value.y }
+    let { x: left, y: top } = position.value
+    if (visuallyTucked.value && trigger.value && surface.value) {
+      const button = trigger.value.getBoundingClientRect()
+      const area = surface.value.getBoundingClientRect()
+      // Use the drawn center, including the edge transform, when regrowing the circle.
+      left = button.left - area.left + (button.width - SIZE) / 2
+      top = button.top - area.top + (button.height - SIZE) / 2
+    }
+    gesture.value = { id: event.pointerId, x: event.clientX, y: event.clientY, left, top }
     trigger.value?.setPointerCapture(event.pointerId)
   }
   function pointerMove(event: PointerEvent) {
-    if (!gesture || gesture.id !== event.pointerId) return
-    const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y
+    const current = gesture.value
+    if (!current || current.id !== event.pointerId) return
+    const dx = event.clientX - current.x, dy = event.clientY - current.y
     if (!dragging.value && Math.hypot(dx, dy) < 5) return
     if (!dragging.value) {
       close()
-      if (tucked.value) {
-        const grow = (SIZE - TUCKED_SIZE) / 2
-        gesture.left -= grow
-        gesture.top -= grow
-        tucked.value = false
-      }
       dragging.value = true
     }
-    dragPosition.value = { x: clamp(gesture.left + dx, bounds.value.width - SIZE), y: clamp(gesture.top + dy, bounds.value.height - SIZE) }
+    dragPosition.value = { x: clamp(current.left + dx, bounds.value.width - SIZE), y: clamp(current.top + dy, bounds.value.height - SIZE) }
   }
   function pointerUp(event: PointerEvent) {
-    if (gesture?.id === event.pointerId) endGesture(true)
+    if (gesture.value?.id === event.pointerId) endGesture(true)
   }
   async function toggle(event: MouseEvent) {
     if (ignoreClick && event.detail !== 0) { ignoreClick = false; return }
     ignoreClick = false
-    if (tucked.value) untuck()
+    if (tuckedBy.value) untuck()
     expanded.value = !expanded.value
     if (expanded.value) {
       await nextTick()
@@ -198,7 +227,7 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
     }
   }
   watch(active, visible => {
-    if (!visible) { close(); endGesture(false) }
+    if (!visible) { hovered.value = false; close(); endGesture(false) }
   })
   watch([expanded, active], ([open, visible], _previous, onCleanup) => {
     if (!open || !visible) return
@@ -216,5 +245,10 @@ export function useAiTaskFloat(active: () => boolean, layout: () => string) {
     })
   })
   onScopeDispose(() => endGesture(false))
-  return { surface, trigger, panel, expanded, rendered, dragging, fits, edge, tucked, triggerStyle, panelStyle, close, toggle, untuck, pointerDown, pointerMove, pointerUp, cancelDrag: () => endGesture(false) }
+  return {
+    surface, trigger, panel, expanded, rendered, dragging, fits, edge, tucked: visuallyTucked, triggerStyle, panelStyle,
+    close, toggle, untuck, pointerDown, pointerMove, pointerUp, cancelDrag: () => endGesture(false),
+    setHovered: (value: boolean) => { hovered.value = value },
+    onTriggerFocus: () => { focusCount.value++ },
+  }
 }

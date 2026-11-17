@@ -12,6 +12,8 @@ defineProps<{
   direction: 'download' | 'upload'
   emptyText: string
   getSpeed?: (id: string) => number
+  /** `stacked` puts progress and actions under the file name, for narrow hosts such as the AI chat. */
+  layout?: 'row' | 'stacked'
 }>()
 
 const emit = defineEmits<{
@@ -33,7 +35,7 @@ function getProgress(item: TransferItem): number {
   <div v-if="transfers.length === 0" class="sidebar-empty" style="margin-top:40px">
     {{ emptyText }}
   </div>
-  <div class="transfer-list">
+  <div class="transfer-list" :class="{ stacked: layout === 'stacked' }">
     <div
       v-for="[id, item] in transfers"
       :key="id"
@@ -300,5 +302,33 @@ function getProgress(item: TransferItem): number {
 .transfer-action svg {
   width: 12px;
   height: 12px;
+}
+
+.transfer-list.stacked {
+  overflow: visible;
+}
+
+.transfer-list.stacked .transfer-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-inline: 2px;
+}
+
+.transfer-list.stacked .transfer-detail {
+  overflow-wrap: anywhere;
+}
+
+.transfer-list.stacked .transfer-info {
+  grid-column: 1 / -1;
+}
+
+.transfer-list.stacked .transfer-progress-col {
+  grid-column: 1;
+  justify-self: end;
+}
+
+.transfer-list.stacked .transfer-action {
+  grid-column: 2;
+  justify-self: end;
 }
 </style>

@@ -126,6 +126,10 @@ export type SshMcpToolResult<T = unknown> = {
 /** Renderer IPC alias for a tool call result. */
 export type SshMcpToolCallResult = SshMcpToolResult
 
+export type McpClientId = 'claudeCode' | 'codex' | 'cursor' | 'geminiCli' | 'copilot' | 'openCode' | 'generic'
+
+export const MCP_TOKEN_ENV_VAR = 'LITECONNECT_MCP_TOKEN'
+
 export type McpHttpStatus = {
   enabled: boolean
   listening: boolean
@@ -134,7 +138,7 @@ export type McpHttpStatus = {
   url: string
   token: string
   lastError: string | null
-  snippets: { generic: string }
+  snippets: Record<McpClientId, string>
   approvalMode: ApprovalMode
 }
 

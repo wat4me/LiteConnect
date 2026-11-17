@@ -1,4 +1,5 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import type { Connection } from '../../env.d'
 import type {
   ConnectionGroup,
@@ -82,15 +83,11 @@ export function useSessionActions(deps: {
     } catch (err: any) {
       if (!isSshHostKeyConfirmationRequired(err)) console.error('In-place reconnect failed:', err)
       const message = err?.message || String(err)
-      window.dispatchEvent(
-        new CustomEvent('ssh-reconnect-failed', {
-          detail: {
-            sessionId,
-            message,
-            nonRetryable: isNonRetryableSshError(message),
-          },
-        }),
-      )
+      emitAppEvent('ssh-reconnect-failed', {
+        sessionId,
+        message,
+        nonRetryable: isNonRetryableSshError(message),
+      })
       return
     }
     try {

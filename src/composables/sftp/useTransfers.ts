@@ -1,4 +1,5 @@
 import { reactive, computed, shallowRef } from 'vue'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import { t } from '../../i18n'
 import type { TransferItem } from '../../env.d.ts'
 import type { TransferOrigin, UploadConflictRequest } from '@shared/types/sftp'
@@ -119,7 +120,7 @@ function dispatchSingleTransferFinished(detail: {
   failedFiles?: number
   totalFiles?: number
 }) {
-  window.dispatchEvent(new CustomEvent('sftp-transfer-finished', { detail }))
+  emitAppEvent('sftp-transfer-finished', detail)
 }
 
 /** Record one finish; suppress per-file toast until the whole batch is done. */
@@ -168,21 +169,17 @@ function noteTransferFinished(
   if (batch.finishedIds.size < batch.transferIds.size) return
 
   // Entire batch finished → one toast
-  window.dispatchEvent(
-    new CustomEvent('sftp-batch-transfer-finished', {
-      detail: {
-        batchId,
-        sessionId: batch.sessionId,
-        direction: batch.direction,
-        success: batch.success,
-        error: batch.error,
-        skipped: batch.skipped,
-        partial: batch.partial,
-        cancelled: batch.cancelled,
-        total: batch.transferIds.size,
-      },
-    }),
-  )
+  emitAppEvent('sftp-batch-transfer-finished', {
+    batchId,
+    sessionId: batch.sessionId,
+    direction: batch.direction,
+    success: batch.success,
+    error: batch.error,
+    skipped: batch.skipped,
+    partial: batch.partial,
+    cancelled: batch.cancelled,
+    total: batch.transferIds.size,
+  })
   for (const id of batch.transferIds) transferBatchIds.delete(id)
   transferBatches.delete(batch.id)
 }
@@ -294,7 +291,7 @@ export function ensureTransferListeners() {
       const item = transfers.get(transferId)
       markCompleted(sessionId, transferId, status, stats)
       if (item?.direction === 'upload' && status !== 'skipped') {
-        window.dispatchEvent(new CustomEvent('sftp-upload-complete', { detail: { sessionId } }))
+        emitAppEvent('sftp-upload-complete', { sessionId })
       }
       const finishedStatus: 'completed' | 'skipped' | 'partial' =
         status === 'skipped' ? 'skipped' : status === 'partial' ? 'partial' : 'completed'

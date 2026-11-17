@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref, toRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { addAppEventListener, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../components/icons/AppIcon.vue'
@@ -80,8 +81,8 @@ let queuedSortMode: ConnectionSortMode = 'manual'
 let sortSaveRevision = 0
 let sortSaveQueue: Promise<void> = Promise.resolve()
 
-function onUsageStatsSettingsChange(e: Event) {
-  const detail = (e as CustomEvent<{ enabled?: boolean }>).detail
+function onUsageStatsSettingsChange(e: AppEvent<'connection-usage-stats-settings-change'>) {
+  const detail = e.detail
   if (typeof detail?.enabled === 'boolean') {
     usageStatsEnabled.value = detail.enabled
   }
@@ -100,11 +101,11 @@ onMounted(async () => {
   queuedSortMode = persistedSortMode
   sortMode.value = persistedSortMode
   sortModeReady = true
-  window.addEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+  addAppEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+  removeAppEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
 })
 
 watch(usageStatsEnabled, (enabled) => {

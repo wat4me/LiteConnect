@@ -110,6 +110,8 @@ export interface AiUsage {
   totalTokens?: number
   /** Already included in completionTokens. */
   reasoningTokens?: number
+  /** Output tokens and elapsed time from rounds with measurable streamed output. */
+  streamOutput?: { tokens: number; durationMs: number }
   requestCount?: number
   usageIncomplete?: boolean
   cacheUsageIncomplete?: boolean

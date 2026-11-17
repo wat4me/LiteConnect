@@ -25,7 +25,6 @@ export default {
     tabs: {
       groupGeneral: '常规',
       groupFeatures: '功能',
-      groupIntegrations: '集成',
       groupHelp: '帮助',
       appearance: '外观',
       appearanceDesc: '主题、界面大小、背景与光标',
@@ -41,8 +40,6 @@ export default {
       networkDesc: '重连、状态检测与 X11',
       hostKeys: '主机信任',
       hostKeysDesc: '查看和删除已信任的 SSH 指纹',
-      mcp: 'MCP',
-      mcpDesc: '向本机 Agent 开放已打开的 SSH 会话',
       shortcuts: '快捷键',
       shortcutsDesc: '快捷键一览与新手提示',
       about: '关于',

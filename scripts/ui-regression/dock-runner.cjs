@@ -73,6 +73,88 @@ app.whenReady().then(async () => {
   await wait('window.__dock?.snapshot().ready && !!document.querySelector(".xterm-screen")')
   await wait('window.__dock.calls.resizes.length>0')
   assert.equal(await run('window.__dockError || null'), null)
+  if (process.env.LITECONNECT_DOCK_TASK_FLOAT_ONLY === '1') {
+    stage = 'dragging background tasks across the SSH workspace'
+    await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: 0, height: 0, deviceScaleFactor: 1, mobile: false })
+    await run('window.__dock.theme("light", "zh-CN")')
+    const visibleTasks = '.ai-background-tasks[data-layout="ssh"]:not([style*="display: none"])'
+    const trigger = `${visibleTasks} .background-float-trigger`
+    const point = () => run(`(() => {const r=document.querySelector('${trigger}').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`)
+    const mouse = (type, position, buttons) => window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type, ...position, button: 'left', buttons, clickCount: 1 })
+    const at = async (expected) => {
+      const actual = await point()
+      assert.ok(Math.abs(actual.x - expected.x) < 2 && Math.abs(actual.y - expected.y) < 2, JSON.stringify({ actual, expected }))
+    }
+    const setJobs = (status = 'running') => {
+      const jobs = ['one', 'three'].map(sessionId => ({
+        sessionId, jobId: sessionId, command: `fixture-${sessionId}`, startedAt: Date.now(),
+        status: sessionId === 'one' ? status : 'running',
+        finishedAt: sessionId === 'one' && status === 'completed' ? Date.now() : undefined,
+      }))
+      return run(`window.__dock.setBackgroundJobs(${JSON.stringify(jobs)})`)
+    }
+    await setJobs()
+    await click(tool('ai'))
+    await wait(`document.querySelector('${trigger}')?.checkVisibility({visibilityProperty:true})`)
+    const start = await point()
+    const terminal = await run(`(() => {const r=document.querySelector('.workspace-dock-center').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`)
+    await mouse('mousePressed', start, 1)
+    await mouse('mouseMoved', terminal, 1)
+    await mouse('mouseReleased', terminal, 0)
+    await tick()
+    await at(terminal)
+    assert.ok(await run(`document.elementFromPoint(${terminal.x},${terminal.y})?.closest('${trigger}') && !document.querySelector('.background-popover')`), 'A drop over the terminal stays clickable without opening the popover')
+    const glyph = await run(`(() => {const svg=document.querySelector('${trigger} > svg');const width=svg.getBoundingClientRect().width;return {width,stroke:width*parseFloat(getComputedStyle(svg).strokeWidth)/svg.viewBox.baseVal.width}})()`)
+    assert.ok(glyph.width >= 18 && glyph.stroke >= 1.6, `The floating SVG has a readable size and stroke at default density: ${JSON.stringify(glyph)}`)
+    await screenshot('ssh-task-float.png')
+
+    await click(tool('ai'))
+    await wait('!window.__dock.snapshot().panels.ai')
+    await at(terminal)
+    await click(trigger)
+    await wait(`document.querySelector('${visibleTasks} .background-popover')?.textContent.includes('fixture-one')`)
+    await run('window.__dock.session("three")')
+    await wait(`!document.querySelector('${trigger}') && !document.querySelector('.background-popover')`)
+    await click(tool('ai'))
+    await wait(`document.querySelector('${trigger}')?.checkVisibility({visibilityProperty:true})`)
+    await at(start)
+    await click(trigger)
+    await wait(`document.querySelector('${visibleTasks} .background-popover')?.textContent.includes('fixture-three')`)
+    await run('window.__dock.session("one")')
+    await wait(`!!document.querySelector('${trigger}') && !document.querySelector('.background-popover')`)
+    await at(terminal)
+
+    await mouse('mousePressed', terminal, 1)
+    await mouse('mouseMoved', { x: terminal.x - 100, y: terminal.y - 100 }, 1)
+    await wait(`!!document.querySelector('${visibleTasks}.dragging')`)
+    await run('window.__dock.session("three")')
+    await mouse('mouseReleased', terminal, 0)
+    await at(start)
+    await run('window.__dock.session("one")')
+    await at(terminal)
+    const bottom = await run(`document.querySelector('${visibleTasks}').parentElement.getBoundingClientRect().bottom`)
+    await mouse('mousePressed', terminal, 1)
+    await mouse('mouseMoved', { x: terminal.x, y: bottom - 1 }, 1)
+    await mouse('mouseReleased', { x: terminal.x, y: bottom - 1 }, 0)
+    await wait(`document.querySelector('${visibleTasks}[data-edge=bottom] .is-tucked')?.getAnimations().length === 0`)
+    const docked = await point()
+    assert.ok(Math.abs(docked.y - bottom) < 1, 'The SSH semicircle meets the bottom of the workspace')
+    await mouse('mousePressed', { x: docked.x, y: docked.y - 4 }, 1)
+    await mouse('mouseMoved', { x: terminal.x, y: terminal.y - 4 }, 1)
+    await mouse('mouseReleased', { x: terminal.x, y: terminal.y - 4 }, 0)
+    await tick()
+    await at(terminal)
+    await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 8, y: 8 })
+    await setJobs('completed')
+    assert.equal(await run(`!!document.querySelector('${visibleTasks} .is-tucked')`), false, 'Finishing a job does not immediately tuck the icon')
+    await wait(`!!document.querySelector('${visibleTasks} .is-tucked')`)
+    await setJobs()
+    await wait(`!document.querySelector('${visibleTasks} .is-tucked')`)
+    await at(terminal)
+    assert.equal(await run('window.__dockError || null'), null)
+    console.log(JSON.stringify({ passed: true, flow: stage, glyph, artifacts }))
+    clearTimeout(timeout); window.destroy(); runtime.closeAppDatabase(); app.quit(); return
+  }
   if (process.env.LITECONNECT_DOCK_AI_PERMISSION_ONLY === '1') {
     stage = 'changing the idle SSH chat mode while another chat is running'
     const visiblePanel = '.ai-sidebar:not([style*="display: none"])'

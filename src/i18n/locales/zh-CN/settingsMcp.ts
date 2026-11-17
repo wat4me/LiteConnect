@@ -3,6 +3,8 @@ export default {
     title: 'MCP',
     intro: '允许本机 AI 客户端通过 MCP 连接已保存的 SSH 主机或新增连接。',
     service: 'MCP 服务',
+    loading: '正在读取服务状态…',
+    loadFailed: '无法读取 MCP 服务状态。',
     enabled: '已开启',
     disabled: '已关闭',
     hint:
@@ -23,7 +25,7 @@ export default {
     copyToken: '复制 Token',
     copyUrl: '复制地址',
     copyShare: '复制接入说明',
-    copyGeneric: '复制通用 JSON',
+    copyConfig: '复制配置',
     copyAgentPrompt: '复制给 AI 的提示词',
     approval: '命令权限',
     approvalHint:
@@ -71,14 +73,17 @@ export default {
     agentPromptHint:
       '已接到 MCP 的客户端，把下面提示词贴进系统提示或对话，模型就会按流程用工具。只配 JSON、不贴这段也可以，initialize 时服务已下发英文说明。',
     agentPrompt:
-      '你通过 LiteConnect 的 MCP 操作本机已打开或已保存的 SSH 主机。\n\n连接（仅本机，LiteConnect 必须开着且设置里 MCP 已打开）：\n- 传输：MCP Streamable HTTP（JSON-RPC POST）\n- 地址：{url}\n- 请求头：Authorization: Bearer {token}\n\n用法：\n1. 先 list_connections 或 list_sessions。\n2. 没有会话就 connect（已保存主机）；没有主机就 save_connection（host + username + password 或 privateKey 或 useAgent），可带 connect=true。\n3. 之后 exec / read_file / grep / glob / write_file / edit_file / list_dir 都要带 sessionId。\n4. 不要整文件 dump。先 glob 找路径、grep 定位行号，再 read_file(startLine, limit) 读附近几十行。\n5. 改已有文件用 edit_file（oldString 必须逐字来自 read_file，不要带行号前缀）。只有新建或整文件覆盖才用 write_file。\n6. 安装向导、菜单、方向键：pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户正在看的终端。\n7. 超过一分钟的任务用 exec(background=true)，再 get_job / list_jobs；取消用 cancel_job。\n8. 用完 disconnect，不要堆会话。\n9. 若 exec 返回 APPROVAL_REQUIRED：在当前客户端询问用户是否执行这条命令，用户同意后再用同样参数加 confirmed=true 重试。用户没同意不要设 confirmed。rm -rf / 一类高危命令即使 confirmed 也会被拒绝（除非 LiteConnect 里选了自动执行）。不要在回复里写出密码或私钥。\n10. 这些命令不会写入用户正在看的终端。',
+      '你通过 LiteConnect 的 MCP 操作本机已打开或已保存的 SSH 主机。\n\n连接（仅本机，LiteConnect 必须开着且MCP 工作区中的服务已开启）：\n- 传输：MCP Streamable HTTP（JSON-RPC POST）\n- 地址：{url}\n- 请求头：Authorization: Bearer {token}\n\n用法：\n1. 先 list_connections 或 list_sessions。\n2. 没有会话就 connect（已保存主机）；没有主机就 save_connection（host + username + password 或 privateKey 或 useAgent），可带 connect=true。\n3. 之后 exec / read_file / grep / glob / write_file / edit_file / list_dir 都要带 sessionId。\n4. 不要整文件 dump。先 glob 找路径、grep 定位行号，再 read_file(startLine, limit) 读附近几十行。\n5. 改已有文件用 edit_file（oldString 必须逐字来自 read_file，不要带行号前缀）。只有新建或整文件覆盖才用 write_file。\n6. 安装向导、菜单、方向键：pty_open → pty_write → pty_read(mode=screen, waitForIdleMs=300) → pty_close。这是独立 PTY，不是用户正在看的终端。\n7. 超过一分钟的任务用 exec(background=true)，再 get_job / list_jobs；取消用 cancel_job。\n8. 用完 disconnect，不要堆会话。\n9. 若 exec 返回 APPROVAL_REQUIRED：在当前客户端询问用户是否执行这条命令，用户同意后再用同样参数加 confirmed=true 重试。用户没同意不要设 confirmed。rm -rf / 一类高危命令即使 confirmed 也会被拒绝（除非 LiteConnect 里选了自动执行）。不要在回复里写出密码或私钥。\n10. 这些命令不会写入用户正在看的终端。',
     shareCard:
-      'LiteConnect SSH MCP（本机）\n传输：Streamable HTTP（POST）\n地址：{url}\n鉴权请求头：Authorization: Bearer {token}\n健康检查：{health}\n\nLiteConnect 必须开着，并且设置里 MCP 已打开。可以 list/connect 已保存主机，也可以 save_connection 新增。不会把命令写入用户正在看的终端。',
+      'LiteConnect SSH MCP（本机）\n传输：Streamable HTTP（POST）\n地址：{url}\n鉴权请求头：Authorization: Bearer {token}\n健康检查：{health}\n\nLiteConnect 必须开着，并且MCP 工作区中的服务已开启。可以 list/connect 已保存主机，也可以 save_connection 新增。不会把命令写入用户正在看的终端。',
     endpoint: '地址',
     transport: '传输',
     transportValue: 'Streamable HTTP（HTTP POST）',
     authHeader: '鉴权请求头',
-    genericHint: '通用 JSON，多数客户端改字段名后就能用',
+    clientTemplate: '客户端配置',
+    clientConfigHint: '在启动客户端的环境中将 {env} 设为 Bearer Token，再把下方配置合并到 {path}。',
+    genericClient: '通用 HTTP',
+    genericHint: '此模板包含当前 Token。请按客户端要求调整字段，并妥善保管配置。',
     startFailed: '无法监听：{error}',
   },
 } as const

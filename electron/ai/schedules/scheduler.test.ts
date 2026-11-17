@@ -87,9 +87,9 @@ it('serializes execution and prevents changing records while a run is active', a
   execute.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ content: 'done' }) }))
   const plan = service.save(input)
   const running = service.runNow(plan.id)
-  await expect(service.runNow(plan.id)).rejects.toThrow('已有巡检')
-  expect(() => service.save({ ...input, name: 'another' })).toThrow('先中断')
-  expect(() => service.remove(plan.id)).toThrow('先中断')
+  await expect(service.runNow(plan.id)).rejects.toThrow('已有自动化任务正在执行')
+  expect(() => service.save({ ...input, name: 'another' })).toThrow('请先停止')
+  expect(() => service.remove(plan.id)).toThrow('请先停止')
   service.tick()
   expect(execute).toHaveBeenCalledOnce()
   finish(); await running

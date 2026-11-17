@@ -1,4 +1,5 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, type Ref } from 'vue'
+import { addAppEventListener, removeAppEventListener } from '@/utils/shared/appEvents'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Connection, Group } from '@/env.d.ts'
 import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
@@ -662,12 +663,12 @@ export function useConnectionList(options: {
 
   onMounted(() => {
     document.addEventListener('keydown', onListKeydown)
-    window.addEventListener('connections-store-change', onConnectionsStoreChange)
+    addAppEventListener('connections-store-change', onConnectionsStoreChange)
   })
 
   onBeforeUnmount(() => {
     document.removeEventListener('keydown', onListKeydown)
-    window.removeEventListener('connections-store-change', onConnectionsStoreChange)
+    removeAppEventListener('connections-store-change', onConnectionsStoreChange)
     listDragAutoScroll.stop()
   })
 

@@ -11,6 +11,8 @@
   /* Chat text uses its own sizes independently of interface density. */
   --font-ai-content: 13px;
   --font-ai-heading: 14px;
+  /* Tables and code: whole pixels, and no smaller than 12px so CJK strokes stay solid. */
+  --font-ai-detail: 12px;
   /** Left icon rail + TabBar home zone share this so vertical borders line up */
   --left-toolbar-width: calc(40px * var(--ui-scale));
   --icon-xs: calc(12px * var(--ui-scale));

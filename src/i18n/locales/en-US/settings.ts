@@ -25,7 +25,6 @@ export default {
     tabs: {
       groupGeneral: 'General',
       groupFeatures: 'Features',
-      groupIntegrations: 'Integrations',
       groupHelp: 'Help',
       appearance: 'Appearance',
       appearanceDesc: 'Theme, interface sizing, background, and cursor',
@@ -41,8 +40,6 @@ export default {
       networkDesc: 'Reconnect, status checks, and X11',
       hostKeys: 'Host trust',
       hostKeysDesc: 'View and remove trusted SSH fingerprints',
-      mcp: 'MCP',
-      mcpDesc: 'Expose open SSH sessions to local agents',
       shortcuts: 'Shortcuts',
       shortcutsDesc: 'Shortcut list and first-run tips',
       about: 'About',

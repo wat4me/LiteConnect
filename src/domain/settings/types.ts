@@ -6,6 +6,5 @@ export type SettingsTabId =
   | 'database'
   | 'network'
   | 'hostKeys'
-  | 'mcp'
   | 'shortcuts'
   | 'about'

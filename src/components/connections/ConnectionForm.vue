@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '../icons/AppIcon.vue'
-import HostKeyMismatchDialog from '@/components/app/HostKeyMismatchDialog.vue'
+import HostKeyMismatchDialog from '@/components/common/HostKeyMismatchDialog.vue'
 import ConnectionFormBasic from './ConnectionFormBasic.vue'
 import ConnectionFormTunnel from './ConnectionFormTunnel.vue'
 import ConnectionFormAdvanced from './ConnectionFormAdvanced.vue'

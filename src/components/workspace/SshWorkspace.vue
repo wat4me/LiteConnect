@@ -40,6 +40,7 @@ const CommandSnippetPalette = defineAsyncComponent(() => import('@/components/sn
 const DockerWorkspace = defineAsyncComponent(() => import('@/components/docker/DockerWorkspace.vue'))
 
 const props = withDefaults(defineProps<{
+  active?: boolean
   layout: SshWorkspaceLayout
   layoutReady: boolean
   layoutError: boolean
@@ -95,7 +96,7 @@ const props = withDefaults(defineProps<{
   dockerTabOpen?: boolean
   dockerButtonEnabled?: boolean
   disconnectedSessionIds?: Set<string>
-}>(), { monitorEnabled: true })
+}>(), { active: true, monitorEnabled: true })
 
 const { runningCount: aiBackgroundTaskCount, scheduledCount: aiScheduledTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
 watch(() => props.dockerMode, (active) => { if (active) synchronizedInput.stop() })
@@ -440,6 +441,8 @@ function toggleTool(id: WorkspaceTool) {
         :key="sessionId"
         :session-id="sessionId"
         :active="activeSession?.id === sessionId && activeTools.ai"
+        :task-float-target="workspaceRoot"
+        :task-float-active="active && !dockerMode && activeSession?.id === sessionId"
         :open-generation="aiFreshOpenTokens[sessionId] || 0"
         :selection-request="activeSession?.id === sessionId ? aiSelectionRequest : null"
         :class="{ 'ssh-split-ai': isSplit }"
@@ -522,6 +525,7 @@ function toggleTool(id: WorkspaceTool) {
 
 <style scoped>
 .workspace-content {
+  position: relative;
   flex: 1;
   display: flex;
   overflow: hidden;

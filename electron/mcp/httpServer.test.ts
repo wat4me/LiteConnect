@@ -60,17 +60,28 @@ async function startServer() {
 async function rpc(
   url: string,
   body: unknown,
-  extra: { token?: string; host?: string; origin?: string; session?: string } = {},
+  extra: { token?: string; host?: string; origin?: string; session?: string; version?: string; method?: string } = {},
 ) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
     Host: extra.host ?? new URL(url).host,
   }
   if (extra.token !== null) headers.Authorization = `Bearer ${extra.token ?? TOKEN}`
   if (extra.origin) headers.Origin = extra.origin
   if (extra.session) headers['Mcp-Session-Id'] = extra.session
+  if (extra.version !== undefined) headers['MCP-Protocol-Version'] = extra.version
   if (extra.token === '') delete headers.Authorization
-  return fetch(`${url}/mcp`, { method: 'POST', headers, body: JSON.stringify(body) })
+  return fetch(`${url}/mcp`, { method: extra.method ?? 'POST', headers, body: JSON.stringify(body) })
+}
+
+function initialize(url: string, protocolVersion: string) {
+  return rpc(url, {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: { protocolVersion, capabilities: {}, clientInfo: { name: 'vitest', version: '1' } },
+  })
 }
 
 describe('MCP HTTP server', () => {
@@ -166,22 +177,22 @@ describe('MCP HTTP server', () => {
   it('initializes, lists tools, and calls list_sessions', async () => {
     const started = await startServer()
     handle = started.handle
-    const init = await rpc(started.url, {
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'vitest' } },
-    })
+    const init = await initialize(started.url, '2025-11-25')
     expect(init.status).toBe(200)
     const session = init.headers.get('mcp-session-id')
     expect(session).toBeTruthy()
     const initBody = await init.json()
     expect(initBody.result.serverInfo.name).toBe('liteconnect-ssh')
 
+    const headers = { session: session || undefined, version: initBody.result.protocolVersion }
+    const ready = await rpc(started.url, { jsonrpc: '2.0', method: 'notifications/initialized' }, headers)
+    expect(ready.status).toBe(202)
+    expect(await ready.text()).toBe('')
+
     const list = await rpc(
       started.url,
       { jsonrpc: '2.0', id: 2, method: 'tools/list' },
-      { session: session || undefined },
+      headers,
     )
     const listed = await list.json()
     expect(listed.result.tools.some((t: { name: string }) => t.name === 'list_sessions')).toBe(true)
@@ -189,10 +200,70 @@ describe('MCP HTTP server', () => {
     const call = await rpc(
       started.url,
       { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_sessions', arguments: {} } },
-      { session: session || undefined },
+      headers,
     )
     const called = await call.json()
     expect(called.result.isError).toBe(false)
     expect(called.result.structuredContent.sessions[0].sessionId).toBe(SESSION_ID)
+  })
+
+  it('responds to modern discovery with a legacy HTTP error and negotiates a supported revision', async () => {
+    const started = await startServer()
+    handle = started.handle
+    const probe = await rpc(started.url, { jsonrpc: '2.0', id: 1, method: 'server/discover' }, { version: '2026-07-28' })
+    expect(probe.status).toBe(400)
+    expect(await probe.json()).toMatchObject({ error: { code: -32600 } })
+
+    const init = await initialize(started.url, '2026-07-28')
+    expect((await init.json()).result.protocolVersion).toBe('2025-11-25')
+    expect(init.headers.get('mcp-session-id')).toBeTruthy()
+  })
+
+  it('returns 404 for a terminated or expired session and lets the client initialize again', async () => {
+    const started = await startServer()
+    handle = started.handle
+    const version = '2025-11-25'
+    const init = await initialize(started.url, version)
+    const session = init.headers.get('mcp-session-id')!
+    await init.json()
+    const deleted = await rpc(started.url, undefined, { session, version, method: 'DELETE' })
+    expect(deleted.status).toBe(200)
+    const stale = await rpc(started.url, { jsonrpc: '2.0', id: 2, method: 'ping' }, { session, version })
+    expect(stale.status).toBe(404)
+    expect(await stale.json()).toMatchObject({ error: { code: -32001 } })
+
+    const next = await initialize(started.url, version)
+    const nextSession = next.headers.get('mcp-session-id')!
+    expect(next.status).toBe(200)
+    expect(nextSession).not.toBe(session)
+    await next.json()
+
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61 * 60 * 1000)
+    try {
+      const expired = await rpc(started.url, undefined, { session: nextSession, version, method: 'GET' })
+      expect(expired.status).toBe(404)
+      await expired.json()
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('uses the negotiated revision to limit batches to the revision that supported them', async () => {
+    const started = await startServer()
+    handle = started.handle
+    const requests = [{ jsonrpc: '2.0', id: 2, method: 'ping' }]
+    const modern = await initialize(started.url, '2025-06-18')
+    const modernSession = modern.headers.get('mcp-session-id')!
+    await modern.json()
+    const rejected = await rpc(started.url, requests, { session: modernSession })
+    expect(rejected.status).toBe(400)
+    await rejected.json()
+
+    const legacy = await initialize(started.url, '2025-03-26')
+    const legacySession = legacy.headers.get('mcp-session-id')!
+    await legacy.json()
+    const accepted = await rpc(started.url, requests, { session: legacySession })
+    expect(accepted.status).toBe(200)
+    expect(await accepted.json()).toEqual([{ jsonrpc: '2.0', id: 2, result: {} }])
   })
 })

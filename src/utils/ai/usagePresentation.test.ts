@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeAiUsage } from '@shared/aiUsage'
-import { usageCacheHitRate } from './usagePresentation'
+import { usageCacheHitRate, usageOutputRate } from './usagePresentation'
+
+it('shows measured stream throughput using only the tokens from those streams', () => {
+  expect(usageOutputRate({ completionTokens: 731, streamOutput: { tokens: 681, durationMs: 3000 } })).toBe(227)
+  expect(usageOutputRate({ completionTokens: 731 })).toBeUndefined()
+})
 
 describe('usageCacheHitRate', () => {
   it('uses input tokens as the denominator, without adding output or cache writes', () => {

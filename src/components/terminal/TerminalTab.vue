@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick, inject } from 'vue'
+import { addAppEventListener, emitAppEvent, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import '@xterm/xterm/css/xterm.css'
@@ -228,11 +229,7 @@ onCommandSubmitted = (cmd, info) => {
   suggest.suggestDismissed.value = false
   if (cmd?.trim() && isContainerEnterCommand(cmd)) {
     markSftpFollowPausedByContainer(props.sessionId)
-    window.dispatchEvent(
-      new CustomEvent('sftp-pause-follow', {
-        detail: { sessionId: props.sessionId, reason: 'container' },
-      }),
-    )
+    emitAppEvent('sftp-pause-follow', { sessionId: props.sessionId, reason: 'container' })
   }
   // Lines typed into passwords, REPLs, pagers or continuation prompts are never learned.
   if (!cmd || !cmd.trim() || !info.historyEligible) return
@@ -402,8 +399,8 @@ function applyActiveState(isActive: boolean) {
   }
 }
 
-function onTerminalLocalEchoSettingChange(event: Event) {
-  const enabled = (event as CustomEvent).detail?.localEchoEnabled
+function onTerminalLocalEchoSettingChange(event: AppEvent<'terminal-behavior-settings-change'>) {
+  const enabled = event.detail?.localEchoEnabled
   if (typeof enabled === 'boolean') localEcho.setEnabled(enabled)
 }
 
@@ -418,15 +415,8 @@ function clearScreenKeepScrollback() {
   selection.hideSelectionMenu()
 }
 
-type TerminalPwdRequestDetail = {
-  sessionId: string
-  handled?: boolean
-  resolve: (pwd: string) => void
-  reject: (error: Error) => void
-}
-
-function onRequestTerminalPwd(event: Event) {
-  const detail = (event as CustomEvent<TerminalPwdRequestDetail>).detail
+function onRequestTerminalPwd(event: AppEvent<'request-terminal-pwd'>) {
+  const detail = event.detail
   if (!detail || detail.sessionId !== props.sessionId) return
   detail.handled = true
   const terminal = getTerminal()
@@ -508,9 +498,9 @@ onMounted(async () => {
   attachSettingsListeners()
   await loadTerminalSettings()
   await suggest.loadCommandSuggestSetting()
-  window.addEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
-  window.addEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)
-  window.addEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
+  addAppEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
+  addAppEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)
+  addAppEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
 
   const terminal = createTerminal(props.connectionName)
   if (!terminal) return
@@ -576,8 +566,8 @@ onMounted(async () => {
     reconnect.noteDisconnectedAndMaybeReconnect({ message: `Error: ${error}` })
   })
 
-  window.addEventListener('request-terminal-pwd', onRequestTerminalPwd)
-  window.addEventListener('ssh-reconnect-failed', reconnect.onReconnectFailed)
+  addAppEventListener('request-terminal-pwd', onRequestTerminalPwd)
+  addAppEventListener('ssh-reconnect-failed', reconnect.onReconnectFailed)
   window.addEventListener('beforeunload', reconnect.onAppUnloading)
   window.addEventListener('pagehide', reconnect.onAppUnloading)
 
@@ -597,11 +587,11 @@ watch([theme, customColors, terminalPalette], () => {
 
 onBeforeUnmount(() => {
   unregisterTerminalResource(props.sessionId)
-  window.removeEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
-  window.removeEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)
-  window.removeEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
-  window.removeEventListener('request-terminal-pwd', onRequestTerminalPwd)
-  window.removeEventListener('ssh-reconnect-failed', reconnect.onReconnectFailed)
+  removeAppEventListener('terminal-behavior-settings-change', suggest.onTerminalBehaviorSettingsChange)
+  removeAppEventListener('terminal-behavior-settings-change', onTerminalLocalEchoSettingChange)
+  removeAppEventListener('shell-command-history-cleared', suggest.onShellCommandHistoryCleared)
+  removeAppEventListener('request-terminal-pwd', onRequestTerminalPwd)
+  removeAppEventListener('ssh-reconnect-failed', reconnect.onReconnectFailed)
   window.removeEventListener('beforeunload', reconnect.onAppUnloading)
   window.removeEventListener('pagehide', reconnect.onAppUnloading)
   reconnect.dispose()

@@ -274,10 +274,6 @@
     grid-template-columns: 1fr;
   }
 
-  :where(.settings-page) .mcp-facts > div {
-    grid-template-columns: 1fr;
-  }
-
   :where(.settings-page) .x11-install-help,
   :where(.settings-page) .tips-card,
   :where(.settings-page) .known-host-item {

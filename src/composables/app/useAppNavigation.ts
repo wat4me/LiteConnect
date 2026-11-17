@@ -2,10 +2,10 @@ import { computed, ref } from 'vue'
 import type { SettingsTabId } from '@/domain/settings/types'
 
 export type { SettingsTabId }
-export type AppMode = 'ssh' | 'database' | 'ai'
+export type AppMode = 'ssh' | 'database' | 'ai' | 'mcp'
 
 /**
- * Top-level module navigation: SSH / database / AI / settings.
+ * Top-level module navigation and the settings overlay.
  * Keeps App.vue free of shell routing state.
  */
 export function useAppNavigation(deps: { onSelectHome: () => void }) {
@@ -23,6 +23,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
   const isSshMode = computed(() => appMode.value === 'ssh' && !showSettingsPage.value)
   const isDatabaseMode = computed(() => appMode.value === 'database' && !showSettingsPage.value)
   const isAiMode = computed(() => appMode.value === 'ai' && !showSettingsPage.value)
+  const isMcpMode = computed(() => appMode.value === 'mcp' && !showSettingsPage.value)
 
   function closeSettingsPage() {
     showSettingsPage.value = false
@@ -76,7 +77,8 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
       if (appMode.value === mode) return
       if (mode === 'ssh') enterSsh()
       else if (mode === 'database') enterDatabase()
-      else enterAi()
+      else if (mode === 'ai') enterAi()
+      else appMode.value = mode
     } finally { moduleSwitching.value = false }
   }
 
@@ -107,6 +109,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     databaseMounted,
     aiWorkspaceMounted,
     isAiMode,
+    isMcpMode,
     enterAi,
     sshWorkspaceMounted,
     settingsViewRef,

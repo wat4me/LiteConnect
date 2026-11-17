@@ -1,4 +1,5 @@
 import { ref, watch, type Ref } from 'vue'
+import { addAppEventListener, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { useDragDrop, type DropUploadItem } from './useDragDrop'
 import { localBaseName } from '@/utils/sftp/sftpEditable'
 import { beginTransferBatch } from './useTransfers'
@@ -30,9 +31,8 @@ export function useSftpUpload(deps: {
     }
   }
 
-  function onDownloadConflictSettingsChange(e: Event) {
-    const detail = (e as CustomEvent).detail as { strategy?: string } | undefined
-    const v = detail?.strategy
+  function onDownloadConflictSettingsChange(e: AppEvent<'download-conflict-settings-change'>) {
+    const v = e.detail?.strategy
     if (v === 'overwrite' || v === 'skip' || v === 'rename') {
       downloadConflict.value = v
     }
@@ -110,11 +110,11 @@ export function useSftpUpload(deps: {
   }
 
   function bindConflictSettingsListener() {
-    window.addEventListener('download-conflict-settings-change', onDownloadConflictSettingsChange)
+    addAppEventListener('download-conflict-settings-change', onDownloadConflictSettingsChange)
   }
 
   function unbindConflictSettingsListener() {
-    window.removeEventListener('download-conflict-settings-change', onDownloadConflictSettingsChange)
+    removeAppEventListener('download-conflict-settings-change', onDownloadConflictSettingsChange)
   }
 
   return {

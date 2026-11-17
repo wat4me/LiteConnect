@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import TerminalPreview from '../terminal/TerminalPreview.vue'
 import {
@@ -81,7 +82,7 @@ async function clearCommandHistory() {
   }
   try {
     await window.LiteConnect.clearShellCommandHistory()
-    window.dispatchEvent(new CustomEvent('shell-command-history-cleared'))
+    emitAppEvent('shell-command-history-cleared')
     ElMessage.success(t('settingsTerminal.clearHistoryDone'))
   } catch (err: any) {
     ElMessage.error(err?.message || t('settingsTerminal.clearHistoryFailed'))

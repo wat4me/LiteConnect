@@ -16,6 +16,7 @@ import type { AppSettingsChange } from '../../shared/types/settings'
 import type { AiChatResult, AiSessionStore, AiSettings } from '../../shared/types/ai'
 import type { ConnectionGroup, Session } from '../../src/domain/session/types'
 import type { Connection } from '../../shared/types/connection'
+import type { SshMcpJobSummary } from '../../shared/mcp/types'
 
 const backend = (window as any).__dockBackend
 const callbacks = new Map<string, Set<(...args: any[]) => void>>()
@@ -29,6 +30,7 @@ const stores = new Map<string, AiSessionStore>()
 const rendererState = new Map<string, unknown>()
 const settings: AiSettings = { providers: [{ id: 'fixture', name: 'Fixture', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'fixture-model' }] }], activeProviderId: 'fixture', activeModel: 'fixture-model', systemPrompt: '' }
 let finishAiReply: ((reply: AiChatResult) => void) | undefined
+let backgroundJobs: SshMcpJobSummary[] = []
 const api = {
   getAllSettings: () => backend.invoke('get'), setManySettings: (patch: unknown) => backend.invoke('set', patch),
   onSettingsChanged: (fn: (change: AppSettingsChange) => void) => backend.settings(fn),
@@ -43,7 +45,7 @@ const api = {
   aiChatStream: () => new Promise<AiChatResult>(resolve => { finishAiReply = resolve }),
   aiKnowledge: async () => ({ storagePath: '/fixture/knowledge.sqlite', targets: [], groups: [] }),
   aiListExecutions: async () => [], listAiModels: async () => [],
-  mcpListJobs: async () => [], onMcpJobsChanged: (fn: () => void) => listen('jobs', fn),
+  mcpListJobs: async () => backgroundJobs, onMcpJobsChanged: (fn: (jobs: SshMcpJobSummary[]) => void) => listen('jobs', fn),
   onAiChatStream: (fn: () => void) => listen('ai', fn), onAiBackgroundReply: (fn: () => void) => listen('background', fn),
   getTerminalFontSize: async () => 14, getTerminalFontFamily: async () => 'Consolas, monospace', getTerminalPalette: async () => 'auto', getTerminalScrollback: async () => 5000,
   getTerminalPasteConfirmEnabled: async () => true, getTerminalPasteConfirmMaxChars: async () => 500, getTerminalCommandSuggestEnabled: async () => false,
@@ -117,6 +119,7 @@ onMounted(() => {
     async theme(value: 'light' | 'dark' | 'eyecare', locale: 'zh-CN' | 'en-US') { theme.setTheme(value); setAppLocale(locale); await nextTick() },
     async split(value: boolean, mode: Exclude<SplitMode, 'none'> = 'horizontal', crossHost = false) { if (value) commitSplit({ sessionId: crossHost ? 'three' : 'two', mode, side: mode === 'horizontal' ? 'bottom' : 'right' }); else closeSplit(); await nextTick() },
     async session(id: string) { selectSession(id); await nextTick() },
+    setBackgroundJobs(jobs: SshMcpJobSummary[]) { backgroundJobs = jobs; callbacks.get('jobs')?.forEach(fn => fn(jobs)) },
     async reset() { preferences.update({ ...preferences.layout.value, locked: false }); await nextTick() },
     tools: WORKSPACE_TOOLS,
     enableCwdInputEcho() { echoCwdInput = true },

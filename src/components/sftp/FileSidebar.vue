@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, inject } from 'vue'
+import { addAppEventListener, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FileEntry } from '../../env.d.ts'
@@ -48,9 +49,9 @@ async function loadSftpFontSize() {
   }
 }
 
-function onSftpFontSettingsChange(event: Event) {
+function onSftpFontSettingsChange(event: AppEvent<'sftp-font-settings-change'>) {
   fontSettingsVersion++
-  const fontSize = (event as CustomEvent<{ fontSize: number }>).detail?.fontSize
+  const fontSize = event.detail?.fontSize
   sftpFontSize.value = sanitizeSftpFontSize(fontSize)
 }
 
@@ -314,8 +315,8 @@ let unsubClosed: (() => void) | null = null
 let unsubReconnected: (() => void) | null = null
 let unsubError: (() => void) | null = null
 
-function onUploadCompleteEvent(e: Event) {
-  const sessionId = (e as CustomEvent).detail?.sessionId as string | undefined
+function onUploadCompleteEvent(e: AppEvent<'sftp-upload-complete'>) {
+  const sessionId = e.detail?.sessionId
   if (sessionId === props.sessionId) void refresh()
 }
 
@@ -540,8 +541,8 @@ function applyContainerFollowPause(showToast: boolean) {
 }
 
 /** Terminal entered docker/k8s/etc. — SFTP stays on host; stop following cwd. */
-function onPauseFollowEvent(e: Event) {
-  const d = (e as CustomEvent<{ sessionId?: string; reason?: string }>).detail
+function onPauseFollowEvent(e: AppEvent<'sftp-pause-follow'>) {
+  const d = e.detail
   if (!d?.sessionId || d.sessionId !== props.sessionId) return
   applyContainerFollowPause(d.reason === 'container')
 }
@@ -710,7 +711,7 @@ function sftpEntryCount(): number {
 }
 
 onMounted(async () => {
-  window.addEventListener('sftp-font-settings-change', onSftpFontSettingsChange)
+  addAppEventListener('sftp-font-settings-change', onSftpFontSettingsChange)
   window.addEventListener('focus', loadSftpFontSize)
   void loadSftpFontSize()
   void pathBookmarks.ensureLoaded().catch(bookmarkError)
@@ -719,8 +720,8 @@ onMounted(async () => {
   ensureTransferListeners()
   await loadDownloadConflict()
   bindConflictSettingsListener()
-  window.addEventListener('sftp-upload-complete', onUploadCompleteEvent)
-  window.addEventListener('sftp-pause-follow', onPauseFollowEvent)
+  addAppEventListener('sftp-upload-complete', onUploadCompleteEvent)
+  addAppEventListener('sftp-pause-follow', onPauseFollowEvent)
 
   if (!loadSavedState(props.sessionId)) {
     await initSftp()
@@ -736,7 +737,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('sftp-font-settings-change', onSftpFontSettingsChange)
+  removeAppEventListener('sftp-font-settings-change', onSftpFontSettingsChange)
   window.removeEventListener('focus', loadSftpFontSize)
   unregisterSftpResource(props.sessionId)
   saveCurrentState()
@@ -745,8 +746,8 @@ onBeforeUnmount(() => {
   unsubReconnected?.()
   resetDragState()
   unbindConflictSettingsListener()
-  window.removeEventListener('sftp-upload-complete', onUploadCompleteEvent)
-  window.removeEventListener('sftp-pause-follow', onPauseFollowEvent)
+  removeAppEventListener('sftp-upload-complete', onUploadCompleteEvent)
+  removeAppEventListener('sftp-pause-follow', onPauseFollowEvent)
 })
 
 defineExpose({ handleTerminalCd, clearSessionState })

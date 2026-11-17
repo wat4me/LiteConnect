@@ -420,6 +420,18 @@ export default tseslint.config(
   },
 
   {
+    files: ['src/**/*.{ts,vue}'],
+    // useDbSettings keeps one private event with a single emitter and listener.
+    ignores: ['**/*.test.ts', 'src/utils/shared/appEvents.ts', 'src/composables/database/useDbSettings.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "NewExpression[callee.name='CustomEvent']",
+        message: 'Declare renderer events in src/utils/shared/appEvents.ts and use emitAppEvent / addAppEventListener',
+      }],
+    },
+  },
+
+  {
     files: ['src/composables/**/*.ts'],
     rules: {
       'no-restricted-imports': [

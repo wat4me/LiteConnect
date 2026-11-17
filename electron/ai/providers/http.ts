@@ -63,11 +63,12 @@ export async function readHttpErrorMessage(response: Response, fallback: string)
   }
 }
 
-export async function readAiStream(response: Response, onEvent: (event: any) => void, strictJson = false): Promise<boolean> {
+export async function readAiStream(response: Response, onEvent: (event: any, receivedAt: number) => void, strictJson = false): Promise<boolean> {
   if (!response.body) throw new AiProviderError({ kind: 'response', detail: t('ai.noStreamBody') })
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let receivedAt = 0
 
   const processEvent = (event: string): boolean => {
     const dataLines = event
@@ -85,7 +86,7 @@ export async function readAiStream(response: Response, onEvent: (event: any) => 
       // Ignore non-JSON keepalive/provider diagnostics.
       return false
     }
-    onEvent(parsed)
+    onEvent(parsed, receivedAt)
     return false
   }
 
@@ -96,6 +97,8 @@ export async function readAiStream(response: Response, onEvent: (event: any) => 
         buffer += decoder.decode()
         break
       }
+      // Several SSE events can arrive in one network chunk.
+      receivedAt = performance.now()
       buffer += decoder.decode(value, { stream: true })
       const events = buffer.split(/\r?\n\r?\n/)
       buffer = events.pop() || ''

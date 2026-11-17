@@ -15,6 +15,7 @@ const modules = [
   { id: 'ssh', label: 'SSH', name: 'app.modeSsh', icon: 'terminal' },
   { id: 'database', label: 'DB', name: 'app.modeDatabase', icon: 'database' },
   { id: 'ai', label: 'AI', name: 'app.modeAi', icon: 'ai-chat' },
+  { id: 'mcp', label: 'MCP', name: 'settingsMcp.title', icon: 'plug' },
 ] as const
 </script>
 

@@ -274,13 +274,52 @@ it('accumulates request usage across tool rounds, replacing repeated stream usag
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response([
     { choices: [{ delta: { tool_calls: [{ index: 0, id: 'inspect-usage', function: { name: 'exec', arguments: JSON.stringify({ command: 'hostname', risk: 'read', explanation: 'Read hostname' }) } }] } }] },
     { choices: [], usage: firstUsage }, { choices: [], usage: firstUsage },
-  ])).mockResolvedValueOnce(response([{ choices: [{ delta: { content: 'healthy' } }], usage: secondUsage }])))
+  ])).mockResolvedValueOnce(response([
+    { choices: [{ delta: { content: 'healthy' } }] },
+    { choices: [{ delta: { content: '.' } }], usage: secondUsage },
+  ])))
   const events: AiChatStreamPayload[] = []
   const call = vi.fn(async () => ({ isError: false, content: 'host', structuredContent: { sessions: [] } }))
   const result = await runAiChatStream({ emit: event => { events.push(event) }, requestId: 'usage-tool-rounds', settings: { ...settings, toolPermission: 'readonly' },
     messages: [{ role: 'user', content: 'check hostname' }], sessionId: 'ea6f5590-2dfc-404e-8af6-fc65dd9c28c7', sshMcpRuntime: { call } as unknown as SshMcpRuntime })
   expect(result.usage).toEqual({ requestCount: 2, promptTokens: 3000, cachedPromptTokens: 2300, uncachedPromptTokens: 700, completionTokens: 300, totalTokens: 3300, reasoningTokens: 60 })
   expect(events.filter(event => event.type === 'usage').at(-1)).toEqual({ type: 'usage', value: result.usage })
+})
+
+it('measures the first-to-last output window and preserves it in the saved reply', async () => {
+  const encoder = new TextEncoder()
+  const chunks = [
+    [10_000, { choices: [{ delta: { reasoning_content: 'Inspecting' } }] }],
+    [11_000, { choices: [{ delta: { content: 'Healthy' } }] }],
+    [14_000, { choices: [], usage: { prompt_tokens: 100, completion_tokens: 227 } }],
+    [15_000, '[DONE]'],
+  ] as const
+  let index = 0
+  let time = 0
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => time)
+  try {
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const [receivedAt, event] = chunks[index++]
+        time = receivedAt
+        controller.enqueue(encoder.encode(`data: ${event === '[DONE]' ? event : JSON.stringify(event)}\n\n`))
+        if (index === chunks.length) controller.close()
+      },
+    }, { highWaterMark: 0 }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const records: AiHistoryRecord[] = []
+    const result = await runPersistedAiReply({
+      target: { sessionId: 's', threadId: 't', assistantMessageId: 'a', createdAt: 1 },
+      save: async record => { records.push(record) },
+      publish: () => {},
+      run: emit => runAiChatStream({ emit, requestId: 'output-rate', settings, messages: [{ role: 'user', content: 'hello' }] }),
+    })
+    const streamOutput = { tokens: 227, durationMs: 1000 }
+    expect(result.usage?.streamOutput).toEqual(streamOutput)
+    expect(records.at(-1)?.usage?.streamOutput).toEqual(streamOutput)
+  } finally {
+    clock.mockRestore()
+  }
 })
 
 it('marks a completed turn with missing provider usage as unknown instead of zero', async () => {

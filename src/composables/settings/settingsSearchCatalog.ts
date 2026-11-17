@@ -308,40 +308,6 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
   },
 
   {
-    id: 'mcp',
-    tab: 'mcp',
-    titleKey: 'settings.tabs.mcp',
-    hintKey: 'settings.tabs.mcpDesc',
-    keywords: ['agent', 'token'],
-  },
-  {
-    id: 'mcp.service',
-    tab: 'mcp',
-    titleKey: 'settingsMcp.service',
-    hintKey: 'settingsMcp.hint',
-    keywords: ['开关', '监听'],
-  },
-  {
-    id: 'mcp.approval',
-    tab: 'mcp',
-    titleKey: 'settingsMcp.approval',
-    hintKey: 'settingsMcp.approvalHint',
-    keywords: ['审批', '权限', '拒绝', '询问', '自动'],
-  },
-  {
-    id: 'mcp.port',
-    tab: 'mcp',
-    titleKey: 'settingsMcp.port',
-    keywords: ['端口'],
-  },
-  {
-    id: 'mcp.token',
-    tab: 'mcp',
-    titleKey: 'settingsMcp.token',
-    keywords: ['bearer', '密钥', '提示词', 'json'],
-  },
-
-  {
     id: 'shortcuts',
     tab: 'shortcuts',
     titleKey: 'settings.tabs.shortcuts',

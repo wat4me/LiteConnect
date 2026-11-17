@@ -34,7 +34,6 @@ function onToggle(key: string, event: Event) {
   </div>
 </template>
 
-<style scoped src="./AiChatView.css"></style>
 <style scoped>
 .workspace-response-host { margin: 10px 0; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); min-width: 0; }
 .workspace-response-host > summary { display: flex; align-items: center; gap: 8px; padding: 12px; cursor: pointer; list-style: none; font-weight: 600; font-size: 12px; }

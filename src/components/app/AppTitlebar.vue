@@ -5,9 +5,10 @@ import AppIcon from '@/components/icons/AppIcon.vue'
 import SettingsAppResources from '@/components/settings/SettingsAppResources.vue'
 import { placePopupNearAnchor } from '@/utils/shared/popupPosition'
 import { useOutsideDismiss } from '@/composables/shared/useOutsideDismiss'
+import type { AppMode } from '@/composables/app/useAppNavigation'
 
 const props = withDefaults(defineProps<{
-  appMode: 'ssh' | 'database' | 'ai'
+  appMode: AppMode
   showSettingsPage: boolean
   /** The module menu duplicates the module rail; show it only where the rail is absent. */
   moduleMenu?: boolean
@@ -17,6 +18,7 @@ const emit = defineEmits<{
   (e: 'enter-ssh', forceHome?: boolean): void
   (e: 'enter-database'): void
   (e: 'enter-ai'): void
+  (e: 'enter-mcp'): void
   (e: 'toggle-settings'): void
   (e: 'open-shortcuts'): void
 }>()
@@ -31,7 +33,9 @@ const resourceButtonRef = ref<HTMLButtonElement | null>(null)
 const resourcePopupRef = ref<HTMLElement | null>(null)
 const resourceStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
 
-const moduleKey = computed(() => props.appMode === 'ai' ? 'AI' : props.appMode === 'database' ? 'DB' : 'SSH')
+const moduleLabels: Record<AppMode, string> = { ssh: 'SSH', database: 'DB', ai: 'AI', mcp: 'MCP' }
+const menuModes = ['ssh', 'database', 'ai', 'mcp'] as const
+const moduleKey = computed(() => moduleLabels[props.appMode])
 
 async function positionModeMenu() {
   await nextTick()
@@ -52,10 +56,11 @@ function toggleMenu() {
   menuOpen.value = !menuOpen.value
 }
 
-function selectMode(mode: 'ssh' | 'database' | 'ai') {
+function selectMode(mode: AppMode) {
   menuOpen.value = false
   if (mode === 'ssh') emit('enter-ssh')
   else if (mode === 'ai') emit('enter-ai')
+  else if (mode === 'mcp') emit('enter-mcp')
   else emit('enter-database')
 }
 
@@ -159,28 +164,17 @@ watch(
               :style="menuStyle"
             >
               <button
+                v-for="mode in menuModes"
+                :key="mode"
                 type="button"
                 class="titlebar-mode-item"
                 role="menuitemradio"
-                :aria-checked="appMode === 'ssh'"
-                @click="selectMode('ssh')"
+                :data-mode="mode"
+                :aria-checked="appMode === mode"
+                @click="selectMode(mode)"
               >
-                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'ssh'" name="check" size="xs" /></span>
-                <span>SSH</span>
-              </button>
-              <button
-                type="button"
-                class="titlebar-mode-item"
-                role="menuitemradio"
-                :aria-checked="appMode === 'database'"
-                @click="selectMode('database')"
-              >
-                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'database'" name="check" size="xs" /></span>
-                <span>DB</span>
-              </button>
-              <button type="button" class="titlebar-mode-item" role="menuitemradio" :aria-checked="appMode === 'ai'" @click="selectMode('ai')">
-                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === 'ai'" name="check" size="xs" /></span>
-                <span>AI</span>
+                <span class="titlebar-mode-check" aria-hidden="true"><AppIcon v-if="appMode === mode" name="check" size="xs" /></span>
+                <span>{{ moduleLabels[mode] }}</span>
               </button>
             </div>
           </Teleport>

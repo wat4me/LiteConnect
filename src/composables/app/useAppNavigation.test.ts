@@ -61,7 +61,7 @@ it('clears the busy state if the settings close handler fails', async () => {
   expect(nav.appMode.value).toBe('ssh')
 })
 
-it.each(['ssh', 'ai', 'database'] as const)('blocks global jump/notification side effects when leaving settings for %s is cancelled', async mode => {
+it.each(['ssh', 'ai', 'database', 'mcp'] as const)('blocks module actions when leaving settings for %s is cancelled', async mode => {
   const nav = useAppNavigation({ onSelectHome: vi.fn() }), action = vi.fn()
   nav.openSettingsPage()
   nav.settingsViewRef.value = { requestClose: () => {} }

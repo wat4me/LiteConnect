@@ -132,8 +132,8 @@ app.whenReady().then(async () => {
   await run(`window.LiteConnect.aiKnowledgeGroups = input => window.__knowledgeBackend.invoke('groups', { input }); window.LiteConnect.aiGroupKnowledge = (groupId,input) => window.__knowledgeBackend.invoke('group-manage',{groupId,input}); window.LiteConnect.aiExportGroupKnowledge = (groupId,documentId) => window.__knowledgeBackend.invoke('group-export',{groupId,documentId}); window.__uiRegression.setWorkspacePreview(${JSON.stringify(targets.map(server => ({id:server.connectionId,name:server.name,host:server.host,port:server.port,username:server.username,password:'',group:'dev',createdAt:1,updatedAt:1})))}, []); window.__uiRegression.openLiteAi(); true`)
   await wait('!!document.querySelector(".lite-ai-workspace-fixture .titlebar-brand-module")')
   await click('.lite-ai-workspace-fixture .titlebar-brand-module')
-  await wait('document.querySelectorAll(".titlebar-mode-menu .titlebar-mode-item").length===3')
-  await click('.titlebar-mode-menu .titlebar-mode-item:last-child')
+  await wait('!!document.querySelector(".titlebar-mode-item[data-mode=ai]")')
+  await click('.titlebar-mode-item[data-mode=ai]')
   await wait('document.querySelectorAll(".workspace-host-checkbox").length===2')
   if (!knowledgeGroupsEnabled) {
     assert.equal(await run('document.querySelector(".workspace-knowledge-group")'), null, 'LiteAI server list hides knowledge group creation')

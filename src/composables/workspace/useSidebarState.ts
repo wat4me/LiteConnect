@@ -1,6 +1,7 @@
 import { ref, watch, type Ref, type ComputedRef } from 'vue'
 import type { WorkspacePanel } from '@shared/workspaceLayout'
 import type { ConnectionGroup, Session } from '@/domain/session/types'
+import type { AppEvent } from '@/utils/shared/appEvents'
 
 export interface SessionDeps {
   canShowAlongside?: (a: WorkspacePanel, b: WorkspacePanel) => boolean
@@ -124,8 +125,8 @@ export function useSidebarState(deps: SessionDeps) {
     aiSelectionRequest.value = null
   }
 
-  function handleMonitorSettingsChange(e: Event) {
-    const detail = (e as CustomEvent).detail
+  function handleMonitorSettingsChange(e: AppEvent<'monitor-settings-change'>) {
+    const detail = e.detail
     if (detail && detail.enabled !== undefined) {
       monitorEnabled.value = detail.enabled
       if (!detail.enabled) monitorVisible.value = false

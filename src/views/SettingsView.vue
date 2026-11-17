@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import type { SettingsTabId } from '@/domain/settings/types'
@@ -16,7 +17,6 @@ import SettingsFiles from '../components/settings/SettingsFiles.vue'
 import SettingsDatabase from '../components/settings/SettingsDatabase.vue'
 import SettingsNetwork from '../components/settings/SettingsNetwork.vue'
 import SettingsHostKeys from '../components/settings/SettingsHostKeys.vue'
-import SettingsMcp from '../components/settings/SettingsMcp.vue'
 import SettingsShortcuts from '../components/settings/SettingsShortcuts.vue'
 import SettingsAbout from '../components/settings/SettingsAbout.vue'
 
@@ -54,9 +54,9 @@ const {
 
 const activeTab = ref<SettingsTab>(props.initialTab || 'appearance')
 
-/** MCP/快捷键/关于不参与草稿；若其他页仍有未保存修改，页脚继续提供全局保存。 */
+/** 主机信任、快捷键和关于不参与草稿；其他页的草稿仍可通过页脚保存。 */
 const currentTabUsesDraft = computed(
-  () => activeTab.value !== 'hostKeys' && activeTab.value !== 'mcp' && activeTab.value !== 'shortcuts' && activeTab.value !== 'about',
+  () => activeTab.value !== 'hostKeys' && activeTab.value !== 'shortcuts' && activeTab.value !== 'about',
 )
 
 watch(
@@ -82,12 +82,6 @@ const tabGroups = computed<SettingsNavGroup[]>(() => [
       { id: 'database' as const, label: t('settings.tabs.database'), desc: t('settings.tabs.databaseDesc') },
       { id: 'network' as const, label: t('settings.tabs.network'), desc: t('settings.tabs.networkDesc') },
       { id: 'hostKeys' as const, label: t('settings.tabs.hostKeys'), desc: t('settings.tabs.hostKeysDesc') },
-    ],
-  },
-  {
-    label: t('settings.tabs.groupIntegrations'),
-    items: [
-      { id: 'mcp' as const, label: t('settings.tabs.mcp'), desc: t('settings.tabs.mcpDesc') },
     ],
   },
   {
@@ -149,8 +143,10 @@ function clearSearchQuery() {
   searchInputRef.value?.focus()
 }
 
+const settingsMainRef = ref<HTMLElement | null>(null)
+
 function highlightSetting(id: string) {
-  const root = document.querySelector('.settings-main')
+  const root = settingsMainRef.value
   const el = root?.querySelector(`[data-setting="${CSS.escape(id)}"]`) as HTMLElement | null
   if (!el) return
   for (let node: HTMLElement | null = el; node && node !== root; node = node.parentElement) {
@@ -222,24 +218,16 @@ async function handleClose() {
     })
     draft.value = cloneDraft(saved.value)
     // Revert live previews if user discarded
-    window.dispatchEvent(
-      new CustomEvent('fancy-cursor-settings-change', {
-        detail: {
-          enabled: saved.value.fancyCursorEnabled,
-          style: saved.value.fancyCursorStyle,
-        },
-      }),
-    )
+    emitAppEvent('fancy-cursor-settings-change', {
+      enabled: saved.value.fancyCursorEnabled,
+      style: saved.value.fancyCursorStyle,
+    })
     // Re-apply saved wallpaper (import applyAppBackground lazily via event consumed in App)
-    window.dispatchEvent(
-      new CustomEvent('app-background-settings-change', {
-        detail: {
-          imageUrl: saved.value.appBackground.cleared ? '' : saved.value.appBackground.imageUrl,
-          fit: saved.value.appBackground.fit,
-          overlay: saved.value.appBackground.overlay,
-        },
-      }),
-    )
+    emitAppEvent('app-background-settings-change', {
+      imageUrl: saved.value.appBackground.cleared ? '' : saved.value.appBackground.imageUrl,
+      fit: saved.value.appBackground.fit,
+      overlay: saved.value.appBackground.overlay,
+    })
     emit('close')
   } catch {
     // stay on settings
@@ -334,7 +322,7 @@ defineExpose({ requestClose: handleClose })
           <AppIcon name="close" size="sm" />
         </button>
 
-        <main class="settings-main">
+        <main ref="settingsMainRef" class="settings-main">
           <div v-if="loading" class="settings-loading">{{ t('settings.loading') }}</div>
           <div v-else-if="loadError" class="settings-load-error" role="alert">
             <h3>{{ t('settings.loadFailed') }}</h3>
@@ -373,7 +361,6 @@ defineExpose({ requestClose: handleClose })
               :draft="draft"
             />
             <SettingsHostKeys v-else-if="activeTab === 'hostKeys'" />
-            <SettingsMcp v-else-if="activeTab === 'mcp'" />
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsAbout v-else />
           </fieldset>

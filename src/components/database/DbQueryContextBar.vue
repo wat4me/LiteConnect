@@ -145,13 +145,17 @@ function toggleSavedPicker() {
   }
 }
 
+let renameInputEl: HTMLInputElement | null = null
+function setRenameInput(el: unknown) {
+  renameInputEl = el as HTMLInputElement | null
+}
+
 function beginRenameSavedQuery(id: string, currentTitle: string) {
   renamingQueryId.value = id
   renameDraft.value = currentTitle
   void nextTick(() => {
-    const el = document.querySelector('.saved-rename-input') as HTMLInputElement | null
-    el?.focus()
-    el?.select()
+    renameInputEl?.focus()
+    renameInputEl?.select()
   })
 }
 
@@ -338,6 +342,7 @@ defineExpose({
               <div class="saved-picker-meta" @click.stop>
                 <template v-if="renamingQueryId === row.id">
                   <input
+                    :ref="setRenameInput"
                     v-model="renameDraft"
                     class="ui-input ui-input-sm saved-rename-input"
                     type="text"

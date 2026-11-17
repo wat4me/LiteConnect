@@ -19,7 +19,7 @@ app.whenReady().then(async () => {
       await new Promise(resolve => setTimeout(resolve, 30))
     }
   }
-  const source = '# 检查结果\n\n服务 **正常**。\n\n| 服务 | 状态 |\n| --- | --- |\n| app | 正常 |\n\n```bash\necho par'
+  const source = '# 检查结果\n\n服务 **正常**，运行 `echo 中文`。\n\n| 服务 | 状态 |\n| --- | --- |\n| app | 正常 |\n\n```bash\necho par'
   const set = (content, boundary = false, resumed) => run(`window.__uiRegression.aiMarkdown(${JSON.stringify(content)},${boundary},${JSON.stringify(resumed)})`)
   const screenshot = async name => {
     await run(`document.querySelector('.ai-fixture').scrollIntoView({block:'center'})`)
@@ -32,6 +32,13 @@ app.whenReady().then(async () => {
   await set(source)
   await wait(`document.querySelector('.ai-fixture h1')?.textContent==='检查结果' && !!document.querySelector('.ai-fixture table')`)
   assert.equal(await run(`document.querySelector('.ai-fixture strong').textContent`), '正常')
+  const codeFonts = await run(`(() => {
+    const font = selector => getComputedStyle(document.querySelector('.ai-fixture ' + selector)).fontFamily
+    return { block: font('.markdown-code'), nested: font('.markdown-code > code'), inline: font('.markdown-block code') }
+  })()`)
+  assert.equal(codeFonts.nested, codeFonts.block, 'Fenced code uses the container font stack')
+  assert.equal(codeFonts.inline, codeFonts.nested, 'Inline and fenced code use the same font stack')
+  assert.ok(codeFonts.nested.includes('Microsoft YaHei UI'), 'The code stack includes an explicit CJK fallback')
   assert.equal(await run(`document.querySelectorAll('.ai-fixture .code-action-btn').length`), 0, 'A growing code block has no fill/run actions')
   await run(`window.__markdownHeading=document.querySelector('.ai-fixture h1'); window.__markdownTable=document.querySelector('.ai-fixture table')`)
   await set(source + 'tial')
@@ -54,6 +61,18 @@ app.whenReady().then(async () => {
   await wait(`(() => {const el=document.querySelector('.ai-fixture .chat-list');return el.scrollHeight-el.scrollTop-el.clientHeight<3})()`)
   await run(`window.__uiRegression.aiMarkdown('## 长回复\\n\\n'+'流式日志输出。\\n'.repeat(120))`)
   await wait(`(() => {const el=document.querySelector('.ai-fixture .chat-list');return el.textContent.includes('长回复') && el.scrollHeight-el.scrollTop-el.clientHeight<3})()`)
+  for (const [theme, replyColor, pageColor] of [
+    ['eyecare', 'rgb(70, 63, 53)', 'rgb(92, 83, 70)'],
+    ['light', 'rgb(33, 32, 28)', 'rgb(33, 32, 28)'],
+    ['dark', 'rgb(236, 233, 225)', 'rgb(236, 233, 225)'],
+  ]) {
+    await run(`window.__uiRegression.setTheme('${theme}')`)
+    const rendered = await run(`(() => {
+      const reply = getComputedStyle(document.querySelector('.ai-fixture .chat-row.assistant .message-content p'))
+      return [reply.color, getComputedStyle(document.body).color, reply.fontSize, reply.fontWeight]
+    })()`)
+    assert.deepEqual(rendered, [replyColor, pageColor, '13px', '400'], theme)
+  }
   assert.equal(await run('window.__uiError || null'), null)
   clearTimeout(timeout)
   console.log('Markdown UI regression passed', { artifacts })

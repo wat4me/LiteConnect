@@ -282,13 +282,19 @@ export async function runAiChatStream(opts: {
 
       let roundContent = ''
       let roundReasoning = ''
+      let firstOutputAt: number | undefined
+      let lastOutputAt = 0
       lastRoundMessage = { role: 'assistant', content: '' }
       const toolAcc = new Map<number, AccumulatedToolCall>()
-      const roundMessage = await provider.readStream(settings, response, (delta) => {
+      const roundMessage = await provider.readStream(settings, response, (delta, receivedAt) => {
         if (abortController.signal.aborted) return
         const contentDelta = delta.content
         const reasoningDelta = delta.reasoning
         const chunkUsage = delta.usage
+        if (contentDelta || reasoningDelta || delta.toolCalls?.length) {
+          firstOutputAt ??= receivedAt
+          lastOutputAt = receivedAt
+        }
         accumulateToolCallDeltas(toolAcc, delta.toolCalls)
         if (delta.toolCalls?.length) {
           receivedToolCall = true
@@ -309,6 +315,13 @@ export async function runAiChatStream(opts: {
           reportUsage()
         }
       })
+
+      const roundUsage = usageRequests[usageIndex]
+      const durationMs = Math.round(lastOutputAt - (firstOutputAt ?? lastOutputAt))
+      if (!abortController.signal.aborted && roundUsage?.completionTokens && durationMs > 0) {
+        usageRequests[usageIndex] = { ...roundUsage, streamOutput: { tokens: roundUsage.completionTokens, durationMs } }
+        reportUsage()
+      }
 
       lastRoundMessage = roundMessage
       if (roundContent.trim()) contentParts.push(roundContent)

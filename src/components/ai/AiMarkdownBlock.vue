@@ -40,4 +40,4 @@ async function copyText(text: string) {
   <div v-else class="markdown-block" v-html="block.content"></div>
 </template>
 
-<style scoped src="./AiChatView.css"></style>
+<style scoped src="./AiMarkdownBlock.css"></style>

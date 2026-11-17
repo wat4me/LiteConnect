@@ -31,7 +31,7 @@ app.whenReady().then(async () => {
   await run('window.__uiRegression.openLiteAi()')
   await run(`document.querySelector('${root} .titlebar-brand-module').click()`)
   await wait(`!!document.querySelector('.titlebar-mode-menu')`)
-  await run(`document.querySelector('.titlebar-mode-menu .titlebar-mode-item:last-child').click()`)
+  await run(`document.querySelector('.titlebar-mode-item[data-mode=ai]').click()`)
   await wait(`document.querySelectorAll('${root} .workspace-card').length===2`)
   assert.deepEqual(await run(`[...document.querySelectorAll('${root} .workspace-view-switch button')].map(button=>[button.textContent.trim(),button.getAttribute('aria-label'),button.getAttribute('aria-pressed')])`), [['', '卡片', 'false'], ['', '列表', 'true']])
   assert.equal(await run(`document.querySelectorAll('${root} .workspace-disconnect-host').length`), 0, 'Disconnected hosts offer no disconnect action')

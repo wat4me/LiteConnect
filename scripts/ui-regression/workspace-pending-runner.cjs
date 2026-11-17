@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
   await run('window.__uiRegression.openLiteAi()')
   await run(`document.querySelector('${root} .titlebar-brand-module').click()`)
   await wait(`!!document.querySelector('.titlebar-mode-menu')`)
-  await run(`document.querySelector('.titlebar-mode-menu .titlebar-mode-item:last-child').click()`)
+  await run(`document.querySelector('.titlebar-mode-item[data-mode=ai]').click()`)
   await wait(`document.querySelectorAll('${root} .workspace-card').length===2`)
   for (const id of ['one', 'two']) {
     await run(`document.querySelector('${root} .workspace-card[data-connection-id="${id}"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`)

@@ -23,8 +23,12 @@ const editing = ref(false)
 const showNotify = ref(false)
 const showRuntime = ref(false)
 const selectedId = ref('')
+const historyFilter = ref<HTMLSelectElement | null>(null)
 const expandedRunId = ref('')
 const selectedHostId = ref('')
+const templates = ['health', 'disk', 'services'] as const
+type TaskTemplate = typeof templates[number] | ''
+const template = ref<TaskTemplate>('health')
 const form = reactive({
   id: undefined as string | undefined, name: '', connectionId: props.connectionId || '', prompt: '', intervalMinutes: 60, enabled: true,
   kind: 'interval' as 'interval' | 'daily' | 'weekly', time: '09:00', weekday: 1, connectionIds: [] as string[],
@@ -126,6 +130,7 @@ async function act(action: () => Promise<unknown>) {
 }
 function edit(plan?: AiSchedule) {
   showNotify.value = false
+  template.value = 'health'
   Object.assign(form, plan ? {
     ...plan,
     kind: plan.timing?.kind || 'interval',
@@ -134,11 +139,24 @@ function edit(plan?: AiSchedule) {
     modelKey: modelKey(plan.providerId, plan.model),
     concurrency: plan.concurrency && plan.concurrency > 1 ? plan.concurrency : 1,
   } : {
-    id: undefined, name: '', connectionId: props.connectionId || props.connections[0]?.id || '', prompt: t('ai.schedule.defaultPrompt'),
+    id: undefined, name: t('ai.schedule.templates.health.name'), connectionId: props.connectionId || props.connections[0]?.id || '', prompt: t('ai.schedule.templates.health.prompt'),
     intervalMinutes: 60, enabled: true, kind: 'interval', time: '09:00', weekday: 1, modelKey: '', concurrency: 1,
   })
   form.connectionIds = plan ? aiScheduleConnectionIds(plan) : [form.connectionId].filter(Boolean)
   editing.value = true
+}
+function selectTemplate(event: Event) {
+  const selected = (event.target as HTMLSelectElement).value as TaskTemplate
+  const previousName = template.value ? t(`ai.schedule.templates.${template.value}.name`) : ''
+  const previousPrompt = template.value ? t(`ai.schedule.templates.${template.value}.prompt`) : ''
+  if (!form.name.trim() || form.name === previousName) form.name = selected ? t(`ai.schedule.templates.${selected}.name`) : ''
+  if (selected) form.prompt = t(`ai.schedule.templates.${selected}.prompt`)
+  else if (form.prompt === previousPrompt) form.prompt = ''
+  template.value = selected
+}
+function viewHistory(id: string) {
+  selectedId.value = id
+  historyFilter.value?.focus()
 }
 async function save() {
   await act(async () => {
@@ -159,6 +177,7 @@ async function remove(plan: AiSchedule) {
 }
 async function runNow(plan: AiSchedule) {
   if (starting.value || active.value) return
+  if (selectedId.value) selectedId.value = plan.id
   starting.value = true
   error.value = ''
   try {
@@ -172,6 +191,9 @@ function toggle(plan: AiSchedule) { return act(() => window.LiteConnect.aiSaveSc
 function stop(id: string) { return act(() => window.LiteConnect.aiStopScheduleRun(id)) }
 watch(() => form.connectionIds.length, count => {
   if (count <= 1 && form.concurrency !== 1) form.concurrency = 1
+})
+watch(() => state.value.plans, plans => {
+  if (selectedId.value && !plans.some(plan => plan.id === selectedId.value)) selectedId.value = ''
 })
 watch(() => props.createToken, (token, previous) => {
   if (token && token !== previous) edit()
@@ -219,6 +241,13 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
       <span class="schedule-toolbar-meta">{{ t('ai.schedule.planCount', { count: state.plans.length }) }}</span>
     </div>
     <form v-if="editing" class="schedule-form" @submit.prevent="save">
+      <label v-if="!form.id" class="schedule-prompt">
+        {{ t('ai.schedule.template') }}
+        <select class="schedule-template" :value="template" :disabled="working" @change="selectTemplate">
+          <option v-for="id in templates" :key="id" :value="id">{{ t(`ai.schedule.templates.${id}.name`) }}</option>
+          <option value="">{{ t('ai.schedule.customTemplate') }}</option>
+        </select>
+      </label>
       <label>{{ t('ai.schedule.name') }}<input v-model="form.name" required maxlength="100" :disabled="working" /></label>
       <fieldset class="schedule-targets"><legend>{{ t('ai.schedule.hosts', { count: form.connectionIds.length }) }}</legend><div><label v-for="connection in connections" :key="connection.id"><input v-model="form.connectionIds" type="checkbox" :value="connection.id" :disabled="working || (form.connectionIds.length >= 10 && !form.connectionIds.includes(connection.id))" /><span>{{ connection.name }} · {{ connection.host }}</span></label></div></fieldset>
       <label>{{ t('ai.schedule.frequency') }}<select v-model="form.kind" class="schedule-kind" :disabled="working"><option value="interval">{{ t('ai.schedule.byInterval') }}</option><option value="daily">{{ t('ai.schedule.daily') }}</option><option value="weekly">{{ t('ai.schedule.weekly') }}</option></select></label>
@@ -255,12 +284,13 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
         <button type="button" class="ui-btn ui-btn-primary ui-btn-xs schedule-run" :disabled="active || starting || working" @click="runNow(plan)">{{ t('ai.schedule.runNow') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :disabled="active || working" @click="toggle(plan)">{{ t(plan.enabled ? 'ai.schedule.pause' : 'ai.schedule.resume') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :disabled="active || working" @click="edit(plan)">{{ t('ai.schedule.edit') }}</button>
+        <button type="button" class="ui-btn ui-btn-xs schedule-view-history" @click="viewHistory(plan.id)">{{ t('ai.schedule.viewHistory') }}</button>
         <button type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-danger schedule-delete" :disabled="active || working" :title="t('common.delete')" @click="remove(plan)"><AppIcon name="delete" size="xs" /></button>
       </div>
     </article>
     <div class="schedule-history-heading">
       <h3>{{ t('ai.schedule.history') }}</h3>
-      <select v-model="selectedId" :aria-label="t('ai.schedule.filter')"><option value="">{{ t('ai.schedule.allPlans') }}</option><option v-for="plan in state.plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option></select>
+      <select ref="historyFilter" v-model="selectedId" :aria-label="t('ai.schedule.filter')"><option value="">{{ t('ai.schedule.allPlans') }}</option><option v-for="plan in state.plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option></select>
     </div>
     <p v-if="!runs.length" class="schedule-empty">{{ t('ai.schedule.noRuns') }}</p>
     <article v-for="run in runs" :key="run.id" class="schedule-result" :data-status="run.status" :data-open="expandedRunId === run.id">

@@ -248,13 +248,17 @@ onMounted(() => {
 
 onBeforeUnmount(() => stopScriptProgress?.())
 
+let renameInputEl: HTMLInputElement | null = null
+function setRenameInput(el: unknown) {
+  renameInputEl = el as HTMLInputElement | null
+}
+
 function beginRenameQueryTab(tabId: string, currentTitle: string) {
   renamingTabId.value = tabId
   renameDraft.value = currentTitle
   void nextTick(() => {
-    const el = document.querySelector('.bk-tab-rename-input') as HTMLInputElement | null
-    el?.focus()
-    el?.select()
+    renameInputEl?.focus()
+    renameInputEl?.select()
   })
 }
 
@@ -423,6 +427,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
                 </span>
                 <template v-if="tab.kind === 'query' && renamingTabId === tab.id">
                   <input
+                    :ref="setRenameInput"
                     v-model="renameDraft"
                     class="bk-tab-rename-input"
                     type="text"

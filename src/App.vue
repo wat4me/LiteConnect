@@ -14,9 +14,10 @@ import { measureRendererModule, measureRendererLayout, recordRendererTiming } fr
 const SettingsView = defineAsyncComponent(() => measureRendererModule('settings-load', () => import('./views/SettingsView.vue')))
 const DatabaseView = defineAsyncComponent(() => measureRendererModule('database-load', () => import('./views/DatabaseView.vue')))
 const AiWorkspaceView = defineAsyncComponent(() => measureRendererModule('ai-load', () => import('./views/AiWorkspaceView.vue')))
+const McpView = defineAsyncComponent(() => import('./views/McpView.vue'))
 const aiWorkspaceViewRef = ref<{ hasConversation: (sessionId: string) => boolean; revealConversation: (sessionId: string) => boolean } | null>(null)
 const SshWorkspace = defineAsyncComponent(() => measureRendererModule('ssh-load', () => import('@/components/workspace/SshWorkspace.vue')))
-const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/app/HostKeyMismatchDialog.vue'))
+const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/common/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
 const KeyboardInteractiveDialog = defineAsyncComponent(() => import('@/components/app/KeyboardInteractiveDialog.vue'))
 const OnboardingTips = defineAsyncComponent(() => import('@/components/app/OnboardingTips.vue'))
@@ -60,6 +61,8 @@ import { getTerminalLabel } from './utils/session/sessionDisplay'
 import { useSnippetHotkeys } from '@/composables/snippets/useSnippetHotkeys'
 import { useDockerSshBridge } from '@/composables/docker/useDockerSshBridge'
 import { useTransferToasts } from '@/composables/app/useTransferToasts'
+import { useMcpBridge } from '@/composables/app/useMcpBridge'
+import { addAppEventListener, emitAppEvent, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { sshSessionWarnLevel } from '@shared/appResourceStats'
 
 const { t } = useI18n()
@@ -71,8 +74,8 @@ const pwdTracker = useTerminalPwd({
   isDirectory: (sessionId, path) => window.LiteConnect.sftpExists(sessionId, path, true),
 })
 
-function onFancyCursorSettingsChange(e: Event) {
-  const detail = (e as CustomEvent<{ enabled?: boolean; style?: string }>).detail
+function onFancyCursorSettingsChange(e: AppEvent<'fancy-cursor-settings-change'>) {
+  const detail = e.detail
   if (typeof detail?.enabled === 'boolean') {
     fancyCursorEnabled.value = detail.enabled
   }
@@ -108,8 +111,8 @@ async function loadAppBackgroundSettings() {
   }
 }
 
-function onAppBackgroundSettingsChange(e: Event) {
-  const detail = (e as CustomEvent<{ imageUrl?: string; dataUrl?: string; fit?: string; overlay?: number }>).detail
+function onAppBackgroundSettingsChange(e: AppEvent<'app-background-settings-change'>) {
+  const detail = e.detail
   applyAppBackground({
     imageUrl: detail?.imageUrl || detail?.dataUrl || '',
     fit: sanitizeAppBackgroundFit(detail?.fit),
@@ -384,6 +387,7 @@ const {
   databaseMounted,
   aiWorkspaceMounted,
   isAiMode,
+  isMcpMode,
   sshWorkspaceMounted,
   settingsViewRef,
   isSshMode,
@@ -686,9 +690,6 @@ provide('pwdTracker', pwdTracker)
 let unsubReplyComplete: (() => void) | null = null
 let unsubAiApprovalNotification: (() => void) | null = null
 let unsubMonitorAlertClick: (() => void) | null = null
-let unsubMcpConnect: (() => void) | null = null
-let unsubMcpClose: (() => void) | null = null
-let unsubMcpConnections: (() => void) | null = null
 let unsubRuntimeSettings: (() => void) | null = null
 let unsubSettingsChanged: (() => void) | null = null
 
@@ -701,6 +702,17 @@ watch(
 )
 
 useTransferToasts()
+
+useMcpBridge({
+  enterSshWorkspace: async () => {
+    if (!await requestModuleAction('ssh', () => ensureSshWorkspaceMounted())) return false
+    ensureSshWorkspaceMounted()
+    return true
+  },
+  createSession: connectionId => createSession(connectionId),
+  closeSession: sessionId => handleCloseSession(sessionId),
+  reloadConnections: () => loadConnections(),
+})
 
 const {
   launchParams,
@@ -719,7 +731,7 @@ onMounted(async () => {
     applyAppSettings(settings, changed)
   }) || null
   unsubRuntimeSettings = window.LiteConnect.onRuntimeSettingsChanged((settings) => {
-    handleMonitorSettingsChange(new CustomEvent('monitor-settings-change', { detail: { enabled: settings.monitorEnabled } }))
+    emitAppEvent('monitor-settings-change', { enabled: settings.monitorEnabled })
   })
   unsubMonitorAlertClick = window.LiteConnect.onMonitorAlertClick((connectionId) => {
     void requestModuleAction('ssh', () => {
@@ -741,44 +753,13 @@ onMounted(async () => {
     if (sessionId === activeSessionId.value && aiSidebarVisible.value) return
     markUnread(sessionId)
   })
-  if (typeof window.LiteConnect.onMcpCloseSession === 'function') {
-    unsubMcpClose = window.LiteConnect.onMcpCloseSession((sessionId) => {
-      void handleCloseSession(sessionId)
-    })
-  }
-  if (typeof window.LiteConnect.onMcpConnectionsChanged === 'function') {
-    unsubMcpConnections = window.LiteConnect.onMcpConnectionsChanged(() => {
-      void loadConnections()
-      window.dispatchEvent(new CustomEvent('connections-store-change'))
-    })
-  }
-  unsubMcpConnect = window.LiteConnect.onMcpConnectRequest((payload) => {
-    void (async () => {
-      try {
-        if (!await requestModuleAction('ssh', () => ensureSshWorkspaceMounted())) {
-          await window.LiteConnect.mcpReportConnectResult(payload.requestId, { error: 'NAVIGATION_CANCELLED' })
-          return
-        }
-        ensureSshWorkspaceMounted()
-        const sessionId = await createSession(payload.connectionId)
-        await window.LiteConnect.mcpReportConnectResult(payload.requestId, {
-          sessionId: sessionId || undefined,
-          error: sessionId ? undefined : 'CONNECT_FAILED',
-        })
-      } catch (err: any) {
-        await window.LiteConnect.mcpReportConnectResult(payload.requestId, {
-          error: err?.message || 'CONNECT_FAILED',
-        })
-      }
-    })()
-  })
   document.addEventListener('keydown', handleKeydown)
   window.addEventListener('keydown', handlePageZoomKeydown, true)
   window.addEventListener('wheel', handleWheel, { passive: false, capture: true })
-  window.addEventListener('latency-settings-change', handleLatencySettingsChange)
-  window.addEventListener('monitor-settings-change', handleMonitorSettingsChange)
-  window.addEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
-  window.addEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
+  addAppEventListener('latency-settings-change', handleLatencySettingsChange)
+  addAppEventListener('monitor-settings-change', handleMonitorSettingsChange)
+  addAppEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
+  addAppEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
   try {
     const bootstrap = await window.LiteConnect.getAppBootstrap()
     appSettingsSnapshot.value ??= bootstrap.settings
@@ -857,19 +838,13 @@ onBeforeUnmount(() => {
   unsubAiApprovalNotification = null
   unsubReplyComplete?.()
   unsubReplyComplete = null
-  unsubMcpConnect?.()
-  unsubMcpConnect = null
-  unsubMcpClose?.()
-  unsubMcpClose = null
-  unsubMcpConnections?.()
-  unsubMcpConnections = null
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('keydown', handlePageZoomKeydown, true)
   window.removeEventListener('wheel', handleWheel, { capture: true })
-  window.removeEventListener('latency-settings-change', handleLatencySettingsChange)
-  window.removeEventListener('monitor-settings-change', handleMonitorSettingsChange)
-  window.removeEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
-  window.removeEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
+  removeAppEventListener('latency-settings-change', handleLatencySettingsChange)
+  removeAppEventListener('monitor-settings-change', handleMonitorSettingsChange)
+  removeAppEventListener('fancy-cursor-settings-change', onFancyCursorSettingsChange)
+  removeAppEventListener('app-background-settings-change', onAppBackgroundSettingsChange)
 })
 </script>
 
@@ -885,6 +860,7 @@ onBeforeUnmount(() => {
       @enter-ssh="handleEnterSshModule"
       @enter-database="handleEnterDatabaseModule"
       @enter-ai="handleEnterAiModule"
+      @enter-mcp="selectModule('mcp')"
       @toggle-settings="toggleSettingsPage"
       @open-shortcuts="shortcutsHelpVisible = true"
     >
@@ -952,10 +928,14 @@ onBeforeUnmount(() => {
         <div v-show="isAiMode" class="home-module">
           <AiWorkspaceView v-if="aiWorkspaceMounted" ref="aiWorkspaceViewRef" :active="isAiMode" @open-connections="navigateSshHome" />
         </div>
+        <div v-if="isMcpMode" class="home-module">
+          <McpView />
+        </div>
 
         <SshWorkspace
           v-if="sshWorkspaceMounted"
           v-show="isSshMode && !isHomeActive"
+          :active="isSshMode && !isHomeActive"
           :layout="workspaceLayout.layout.value"
           :layout-ready="workspaceLayout.ready.value"
           :layout-error="workspaceLayout.error.value"

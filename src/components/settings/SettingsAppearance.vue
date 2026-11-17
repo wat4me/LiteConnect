@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { customThemeVariables, useTheme, type Theme } from '@/composables/app/useTheme'
 import AppIcon from '@/components/icons/AppIcon.vue'
@@ -116,11 +117,7 @@ function publishAppBackground() {
     overlay: bg.overlay,
   })
   // Live terminals re-apply xterm bg alpha
-  window.dispatchEvent(
-    new CustomEvent('app-background-settings-change', {
-      detail: { imageUrl, fit: bg.fit, overlay: bg.overlay },
-    }),
-  )
+  emitAppEvent('app-background-settings-change', { imageUrl, fit: bg.fit, overlay: bg.overlay })
 }
 
 async function pickBackgroundImage() {
@@ -164,14 +161,10 @@ function selectCursorStyle(id: FancyCursorStyle) {
 
 /** Apply immediately app-wide (still need Save to persist). */
 function publishFancyCursor() {
-  window.dispatchEvent(
-    new CustomEvent('fancy-cursor-settings-change', {
-      detail: {
-        enabled: props.draft.fancyCursorEnabled,
-        style: props.draft.fancyCursorStyle,
-      },
-    }),
-  )
+  emitAppEvent('fancy-cursor-settings-change', {
+    enabled: props.draft.fancyCursorEnabled,
+    style: props.draft.fancyCursorStyle,
+  })
 }
 
 function toggleFancyCursor() {

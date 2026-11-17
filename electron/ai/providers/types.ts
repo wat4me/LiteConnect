@@ -25,7 +25,7 @@ export interface AiProviderAdapter {
   readonly allowsCompletionFallback: boolean
   buildRequest(settings: AiResolvedConfig, messages: AiChatMessage[], options?: AiProviderRequestOptions): AiProviderRequest
   parseResponse(settings: AiResolvedConfig, data: any): AiProviderReply
-  readStream(settings: AiResolvedConfig, response: Response, onDelta: (delta: AiProviderDelta) => void): Promise<AiChatMessage>
+  readStream(settings: AiResolvedConfig, response: Response, onDelta: (delta: AiProviderDelta, receivedAt: number) => void): Promise<AiChatMessage>
   modelsRequest(provider: AiProviderCredentials, cursor?: string): { url: string; headers: Record<string, string> }
   parseModelsPage(data: any): { models: AiDiscoveredModel[]; nextCursor?: string }
 }

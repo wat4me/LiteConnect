@@ -14,10 +14,18 @@ import { ElMessage } from 'element-plus/es/components/message/index'
 import AppIcon from '../icons/AppIcon.vue'
 import AiFileTransfers from './AiFileTransfers.vue'
 
-const props = withDefaults(defineProps<{ sessionId: string; threadId: string; targets?: AiWorkspaceTarget[]; jobIds?: string[]; jobTargets?: Record<string, string>; active?: boolean; layout?: 'sidebar' | 'workspace' }>(), { active: true, layout: 'sidebar' })
+const props = withDefaults(defineProps<{
+  sessionId: string
+  threadId: string
+  targets?: AiWorkspaceTarget[]
+  jobIds?: string[]
+  jobTargets?: Record<string, string>
+  active?: boolean
+  layout?: 'sidebar' | 'workspace' | 'ssh'
+  teleportTarget?: HTMLElement
+}>(), { active: true, layout: 'sidebar' })
 const { t } = useI18n()
 const panelId = useId()
-const { surface, trigger, panel, expanded, rendered, dragging, fits, edge, triggerStyle, panelStyle, close, toggle, pointerDown, pointerMove, pointerUp, cancelDrag, tucked, untuck } = useAiTaskFloat(() => props.active, () => props.layout)
 const { items: transfers, active: activeTransfers, progress: transferProgress } = useAiFileTransfers(() => props.sessionId, () => props.threadId, useTransfers(() => props.sessionId))
 // Keep progress subscribed even while the floating entry is collapsed or empty.
 onMounted(ensureTransferListeners)
@@ -25,6 +33,10 @@ const { sessionJobs } = useAiBackgroundJobs(() => props.targets?.map(target => t
 const runningCount = computed(() => sessionJobs.value.filter(job => job.status === 'running').length)
 const scheduledCount = computed(() => sessionJobs.value.filter(job => job.status === 'scheduled').length)
 const totalRunning = computed(() => runningCount.value + activeTransfers.value.length)
+const {
+  surface, trigger, panel, expanded, rendered, dragging, fits, edge, triggerStyle, panelStyle,
+  close, toggle, pointerDown, pointerMove, pointerUp, cancelDrag, tucked, untuck, setHovered, onTriggerFocus,
+} = useAiTaskFloat(() => props.active, () => props.layout, () => totalRunning.value > 0 || scheduledCount.value > 0)
 const taskIcon = computed(() => sessionJobs.value.length ? (!runningCount.value && scheduledCount.value ? 'scheduled-task' : 'background-tasks') : 'transfer')
 const heading = computed(() => transfers.value.length
   ? sessionJobs.value.length ? t('ai.taskCenterTitle') : t('ai.fileTransfersTitle')
@@ -125,6 +137,7 @@ watch(() => props.sessionId, () => {
   stopping.value = {}
   stopErrors.value = {}
 })
+watch(() => props.threadId, () => close())
 watch(sessionJobs, (jobs, previous) => {
   now.value = Date.now()
   for (const job of jobs) {
@@ -170,11 +183,13 @@ function fullTimeRange(job: SshMcpJobSummary) {
 </script>
 
 <template>
+  <Teleport :to="teleportTarget ?? 'body'" :disabled="!teleportTarget">
   <div v-if="sessionJobs.length || transfers.length" v-show="active" ref="surface" class="ai-background-tasks" :style="{ visibility: fits ? undefined : 'hidden' }" :class="{ running: totalRunning > 0, scheduled: !totalRunning && scheduledCount > 0, attention: failedCount > 0, dragging, tucked, 'is-workspace': layout === 'workspace' }" :data-layout="layout" :data-edge="edge">
     <div class="background-float-anchor" :class="{ 'is-tucked': tucked }" :style="triggerStyle">
     <button ref="trigger" type="button" class="background-float-trigger" :class="{ 'is-morphed': rendered }" :title="`${overview}\n${t(tucked ? 'ai.backgroundFloatTucked' : 'ai.backgroundFloatHint')}`" :aria-label="tucked ? `${overview} · ${t('ai.backgroundFloatTucked')}` : overview" :aria-expanded="expanded" :aria-controls="expanded ? panelId : undefined" :aria-hidden="rendered || undefined" :tabindex="rendered ? -1 : 0" aria-haspopup="dialog"
-      @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag" @click="toggle">
-      <AppIcon :name="taskIcon" :size="tucked ? 'sm' : 'md'" />
+      @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag"
+      @pointerenter="setHovered(true)" @pointerleave="setHovered(false)" @focus="onTriggerFocus" @click="toggle">
+      <AppIcon :name="taskIcon" :size="tucked ? 'sm' : 'xl'" :stroke-width="2.25" />
       <span v-if="totalRunning || scheduledCount" class="background-float-count" :class="{ scheduled: !totalRunning }" aria-hidden="true">{{ (totalRunning || scheduledCount) > 99 ? '99+' : (totalRunning || scheduledCount) }}</span>
       <span v-if="failedCount" class="background-float-attention" aria-hidden="true" />
     </button>
@@ -238,10 +253,26 @@ function fullTimeRange(job: SshMcpJobSummary) {
     </div>
     </section>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
-.ai-background-tasks { position: absolute; z-index: 3; inset: 8px 10px var(--ai-composer-overlay-inset, 150px); pointer-events: none; color: var(--text-secondary); font-size: var(--font-ui-sm); }
+.ai-background-tasks {
+  --task-float-top-gap: 8px;
+  --task-float-side-gap: 10px;
+  --task-float-bottom-gap: var(--ai-composer-overlay-inset, 150px);
+  position: absolute;
+  z-index: 3;
+  inset: var(--task-float-top-gap) var(--task-float-side-gap) var(--task-float-bottom-gap);
+  pointer-events: none;
+  color: var(--text-secondary);
+  font-size: var(--font-ui-sm);
+}
+.ai-background-tasks[data-layout="ssh"] {
+  --task-float-bottom-gap: 8px;
+  --task-float-bottom-tuck-offset: var(--task-float-bottom-gap);
+  z-index: 21;
+}
 .background-float-trigger { position: absolute; display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 100%; padding: 0; border: 1px solid var(--border-color); border-radius: 50%; background: var(--bg-primary); color: var(--text-secondary); box-shadow: var(--shadow-menu); cursor: grab; touch-action: none; user-select: none; pointer-events: auto; -webkit-app-region: no-drag; }
 .background-float-trigger:hover, .background-float-trigger[aria-expanded="true"] { background: var(--bg-tertiary); border-color: color-mix(in srgb, var(--text-primary) 22%, var(--border-color)); color: var(--text-primary); }
 .background-float-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -252,10 +283,10 @@ function fullTimeRange(job: SshMcpJobSummary) {
 .background-float-anchor .background-float-trigger { position: absolute; inset: 0; }
 .background-float-anchor.is-tucked { width: 28px; height: 28px; }
 .background-float-anchor.is-tucked .background-float-trigger { opacity: .92; box-shadow: none; }
-[data-edge="right"] .background-float-anchor.is-tucked { transform: translateX(50%); clip-path: inset(0 50% 0 0 round 14px 0 0 14px); }
-[data-edge="left"] .background-float-anchor.is-tucked { transform: translateX(-50%); clip-path: inset(0 0 0 50% round 0 14px 14px 0); }
-[data-edge="bottom"] .background-float-anchor.is-tucked { transform: translateY(50%); clip-path: inset(0 0 50% 0 round 14px 14px 0 0); }
-[data-edge="top"] .background-float-anchor.is-tucked { transform: translateY(-50%); clip-path: inset(50% 0 0 0 round 0 0 14px 14px); }
+[data-edge="right"] .background-float-anchor.is-tucked { transform: translateX(calc(50% + var(--task-float-side-gap))); clip-path: inset(0 50% 0 0 round 14px 0 0 14px); }
+[data-edge="left"] .background-float-anchor.is-tucked { transform: translateX(calc(-50% - var(--task-float-side-gap))); clip-path: inset(0 0 0 50% round 0 14px 14px 0); }
+[data-edge="bottom"] .background-float-anchor.is-tucked { transform: translateY(calc(50% + var(--task-float-bottom-tuck-offset, 0px))); clip-path: inset(0 0 50% 0 round 14px 14px 0 0); }
+[data-edge="top"] .background-float-anchor.is-tucked { transform: translateY(calc(-50% - var(--task-float-top-gap))); clip-path: inset(50% 0 0 0 round 0 0 14px 14px); }
 @media (prefers-reduced-motion: reduce) { .background-float-anchor { transition: none; } }
 [data-edge="right"] .is-tucked .background-float-count { top: 1px; right: auto; left: 1px; }
 [data-edge="left"] .is-tucked .background-float-count { top: 1px; right: 1px; }
@@ -264,7 +295,7 @@ function fullTimeRange(job: SshMcpJobSummary) {
 [data-edge="left"] .is-tucked .background-float-attention { left: auto; right: 0; }
 [data-edge="bottom"] .is-tucked .background-float-attention { bottom: auto; top: 0; }
 .dragging .background-float-trigger { cursor: grabbing; }
-.running .background-float-trigger { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color)); background: var(--bg-primary); }
+.running .background-float-trigger { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 62%, var(--border-color)); background: var(--bg-primary); }
 .scheduled .background-float-trigger { border-style: dashed; }
 .background-float-count.scheduled { background: var(--text-secondary); }
 .background-job-note { display: block; width: 100%; color: var(--text-secondary); font-size: var(--font-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

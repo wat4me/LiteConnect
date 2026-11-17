@@ -1,6 +1,7 @@
 import { useAiWorkspaceHosts } from './useAiWorkspaceHosts'
 import { useAiWorkspaceRail } from './useAiWorkspaceRail'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { addAppEventListener, removeAppEventListener } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import type { Connection, Group } from '@shared/types/connection'
 import { AI_WORKSPACE_MAX_HOSTS, type AiWorkspaceScope, type AiWorkspaceTarget, type AiWorkspaceConnectionEvent } from '@shared/aiWorkspace'
@@ -528,7 +529,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
 
   onMounted(() => {
     window.addEventListener('focus', refreshWhenActive)
-    window.addEventListener('connections-store-change', refreshWhenActive)
+    addAppEventListener('connections-store-change', refreshWhenActive)
     unsubscribe = window.LiteConnect.onAiWorkspaceConnection(onConnection)
     unsubscribeReply = onReplyComplete(() => {
       sessionTick.value += 1
@@ -539,7 +540,7 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   onBeforeUnmount(() => {
     disposed = true
     window.removeEventListener('focus', refreshWhenActive)
-    window.removeEventListener('connections-store-change', refreshWhenActive)
+    removeAppEventListener('connections-store-change', refreshWhenActive)
     unsubscribe?.()
     unsubscribeReply?.()
     if (connectingId.value) void window.LiteConnect.aiCancelWorkspaceConnection(connectingId.value).catch(() => { })

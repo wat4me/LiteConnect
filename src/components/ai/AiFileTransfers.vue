@@ -39,7 +39,7 @@ function openFolder(path: string) { window.LiteConnect.shellShowItemInFolder(pat
     <div class="ai-transfer-body">
       <div v-for="group in groups" :key="group.key" class="ai-transfer-group">
         <h4 :title="group.name">{{ group.name }} · {{ t(group.direction === 'download' ? 'sftp.download' : 'sftp.upload') }}</h4>
-        <TransferList :transfers="group.entries" :direction="group.direction" empty-text="" :get-speed="getSpeed" @cancel="cancel" @remove="remove" @open-folder="openFolder" />
+        <TransferList :transfers="group.entries" :direction="group.direction" empty-text="" layout="stacked" :get-speed="getSpeed" @cancel="cancel" @remove="remove" @open-folder="openFolder" />
       </div>
       <button v-if="items.length > active.length" type="button" class="ui-btn ui-btn-xs ui-btn-ghost transfer-clear-finished" @click="clearFinished">{{ t('ai.fileTransfersClearFinished') }}</button>
     </div>
@@ -56,10 +56,4 @@ function openFolder(path: string) { window.LiteConnect.shellShowItemInFolder(pat
 .ai-transfer-group { min-width: 0; }
 h4 { margin: 6px 0 2px; font-size: var(--font-caption); font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transfer-clear-finished { margin-top: 4px; }
-.ai-transfer-group :deep(.transfer-list) { overflow: visible; }
-.ai-transfer-group :deep(.transfer-item) { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding-inline: 2px; }
-.ai-transfer-group :deep(.transfer-detail) { overflow-wrap: anywhere; }
-.ai-transfer-group :deep(.transfer-info) { grid-column: 1 / -1; }
-.ai-transfer-group :deep(.transfer-progress-col) { grid-column: 1; justify-self: end; }
-.ai-transfer-group :deep(.transfer-action) { grid-column: 2; justify-self: end; }
 </style>

@@ -1,4 +1,5 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
+import { addAppEventListener, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { Connection } from '../../env.d'
 import { t } from '../../i18n'
@@ -235,13 +236,13 @@ export function useSessionManager(deps: {
     () => schedulePersistWorkspace(),
   )
 
-  function onWorkspaceRestoreSetting(e: Event) {
-    const enabled = (e as CustomEvent<{ enabled?: boolean }>).detail?.enabled === true
+  function onWorkspaceRestoreSetting(e: AppEvent<'workspace-restore-settings-change'>) {
+    const enabled = e.detail?.enabled === true
     if (enabled) void persistWorkspaceTabs()
   }
 
   onMounted(() => {
-    window.addEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+    addAppEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
     unsubProgress = window.LiteConnect.onSshConnectionProgress?.(({ connectionId, stage }) => {
       if (stage === 'connected' || stage === 'connecting') clearConnectionError(connectionId)
       const next = { ...connectionStages.value }
@@ -254,7 +255,7 @@ export function useSessionManager(deps: {
     unsubProgress?.()
     connectionFailureMessages.forEach(message => message.close())
     connectionFailureMessages.clear()
-    window.removeEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
+    removeAppEventListener('workspace-restore-settings-change', onWorkspaceRestoreSetting)
   })
 
   const connectTail = new Map<string, Promise<void>>()

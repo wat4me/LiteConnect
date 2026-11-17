@@ -3,16 +3,13 @@ import AppIcon from '@/components/icons/AppIcon.vue'
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
-import { appPrompt } from '@/composables/app/useAppDialog'
+import { useCommandSnippets } from '@/composables/snippets/useCommandSnippets'
 
 const { t } = useI18n()
 import type { CommandSnippet } from '@/env.d'
 import {
   compareSnippets,
   formatSnippetPayloadForWrite,
-  pendingSnippetVars,
-  resolveDynamicBuiltins,
-  resolveSnippetCommand,
   type SnippetContext,
 } from '@/utils/snippets/commandSnippets'
 
@@ -36,7 +33,10 @@ const emit = defineEmits<{
 }>()
 
 const query = ref('')
-const snippets = ref<CommandSnippet[]>([])
+const { snippets, loadSnippets, recordUse, contextForSession, resolveForContext } = useCommandSnippets({
+  sessions: () => props.sessions,
+  snippetContext: () => props.snippetContext,
+})
 const activeIndex = ref(0)
 const inputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
@@ -57,40 +57,10 @@ const filtered = computed(() => {
 
 async function load() {
   try {
-    snippets.value = await window.LiteConnect.getCommandSnippets()
+    await loadSnippets()
   } catch {
     snippets.value = []
   }
-}
-
-function contextForSession(sessionId: string | null): SnippetContext | null {
-  if (!sessionId) return props.snippetContext || null
-  const s = props.sessions?.find((x) => x.id === sessionId)
-  if (s && (s.host || s.user)) {
-    return { host: s.host, user: s.user, port: s.port, name: s.name }
-  }
-  return props.snippetContext || null
-}
-
-async function resolveForContext(command: string, ctx: SnippetContext | null): Promise<string | null> {
-  const dynamic = await resolveDynamicBuiltins()
-  const mergedCtx: SnippetContext = { ...(ctx || {}), ...dynamic }
-  const pending = pendingSnippetVars(command, mergedCtx)
-  const extra: Record<string, string> = { ...dynamic }
-  for (const name of pending) {
-    try {
-      const value = await appPrompt({
-        title: t('snippets.fillVarTitle'),
-        message: t('snippets.fillVarMessage', { var: name }),
-        inputPlaceholder: name,
-        required: false,
-      })
-      extra[name] = value
-    } catch {
-      return null
-    }
-  }
-  return resolveSnippetCommand(command, mergedCtx, extra)
 }
 
 async function runItem(item: CommandSnippet) {
@@ -102,16 +72,7 @@ async function runItem(item: CommandSnippet) {
   if (resolved === null) return
   const mode = item.sendMode === 'fill' ? 'fill' : 'run'
   window.LiteConnect.sshWrite(props.sessionId, formatSnippetPayloadForWrite(resolved, mode))
-  try {
-    const next = snippets.value.map((s) =>
-      s.id === item.id
-        ? { ...s, useCount: (s.useCount || 0) + 1, lastUsedAt: Date.now() }
-        : s,
-    )
-    snippets.value = await window.LiteConnect.setCommandSnippets(next)
-  } catch {
-    // ignore
-  }
+  await recordUse(item)
   ElMessage.success(mode === 'fill' ? t('snippets.filled', { name: item.name }) : t('snippets.sent', { name: item.name }))
   emit('ran')
   emit('close')

@@ -1,5 +1,6 @@
 import { ref, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
 import type { ConnectionGroup } from './useSessionManager'
+import type { AppEvent } from '@/utils/shared/appEvents'
 
 export function useLatencyState(deps: {
   groups: Ref<ConnectionGroup[]>
@@ -117,8 +118,8 @@ export function useLatencyState(deps: {
     document.removeEventListener('visibilitychange', requestRefresh)
   })
 
-  function handleLatencySettingsChange(e: Event) {
-    const detail = (e as CustomEvent).detail
+  function handleLatencySettingsChange(e: AppEvent<'latency-settings-change'>) {
+    const detail = e.detail
     if (detail && detail.enabled !== undefined) {
       latencyEnabled.value = detail.enabled
     }

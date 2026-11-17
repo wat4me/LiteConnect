@@ -16,11 +16,7 @@ import {
   shouldResetForTarget,
   type ReconcileController,
 } from '../../composables/docker/dockerContainerTerminalReconcile'
-import { useTheme, getTerminalColors, getTerminalMinimumContrastRatio, type TerminalPaletteId } from '@/composables/app/useTheme'
-import {
-  PASTE_CONFIRM_MAX_CHARS,
-  normalizePasteConfirmMaxChars,
-} from '@/utils/terminal/terminalPaste'
+import { useTheme, getTerminalColors, getTerminalMinimumContrastRatio } from '@/composables/app/useTheme'
 import { canMeasureTerminal } from '@/utils/terminal/terminalResizePolicy'
 import {
   isTerminalFontZoomInKey,
@@ -28,6 +24,7 @@ import {
   stepTerminalFontSize,
 } from '@/utils/terminal/terminalFontZoom'
 import { useTerminalPasteConfirm } from '@/composables/terminal/useTerminalPasteConfirm'
+import { useTerminalSettings } from '@/composables/terminal/useTerminalSettings'
 import type { DockerExecShell } from '../../env.d'
 import { DOCKER_EXEC_WRITE_MAX_BYTES } from '@shared/types/docker'
 
@@ -118,15 +115,23 @@ let renderedSessionId: string | null = null
  */
 let reconcileCtl: ReconcileController | null = null
 
-const fontSize = ref(14)
-const scrollbackLines = ref(5000)
-const pasteConfirmEnabled = ref(true)
-const pasteConfirmMaxChars = ref(PASTE_CONFIRM_MAX_CHARS)
-const fontFamily = ref('Cascadia Code, Fira Code, Consolas, Courier New, monospace')
-const terminalPalette = ref<TerminalPaletteId>('auto')
-
 const getTerminal = () => terminal
 const getSearchAddon = () => searchAddon
+
+// Font, palette, scrollback and paste settings are shared with SSH terminals.
+const terminalSettings = useTerminalSettings({
+  getTerminal,
+  onFontChange: () => scheduleRefresh(),
+  onPaletteChange: () => applyTheme(),
+})
+const {
+  fontSize,
+  fontFamily,
+  terminalPalette,
+  scrollbackLines,
+  pasteConfirmEnabled,
+  pasteConfirmMaxChars,
+} = terminalSettings
 
 const {
   searchVisible,
@@ -239,27 +244,6 @@ function onKeyDown(e: KeyboardEvent): void {
   // so browser paste does not double-insert with our clipboard path).
 }
 
-async function loadSettings(): Promise<void> {
-  try {
-    const [size, family, palette, scrollback, pasteConfirm, pasteMaxChars] = await Promise.all([
-      window.LiteConnect.getTerminalFontSize(),
-      window.LiteConnect.getTerminalFontFamily(),
-      window.LiteConnect.getTerminalPalette(),
-      window.LiteConnect.getTerminalScrollback(),
-      window.LiteConnect.getTerminalPasteConfirmEnabled(),
-      window.LiteConnect.getTerminalPasteConfirmMaxChars().catch(() => PASTE_CONFIRM_MAX_CHARS),
-    ])
-    fontSize.value = size
-    fontFamily.value = family
-    terminalPalette.value = (palette as TerminalPaletteId) || 'auto'
-    scrollbackLines.value = scrollback
-    pasteConfirmEnabled.value = pasteConfirm
-    pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(pasteMaxChars)
-  } catch {
-    fontSize.value = 14
-  }
-}
-
 function applyTheme(): void {
   if (!terminal) return
   terminal.options.theme = getTerminalColors(theme.value, customColors.value, terminalPalette.value)
@@ -269,54 +253,12 @@ function applyTheme(): void {
   } catch {}
 }
 
-function onFontSettings(e: Event): void {
-  const detail = (e as CustomEvent).detail || {}
-  if (typeof detail.fontSize === 'number' && terminal) {
-    fontSize.value = detail.fontSize
-    terminal.options.fontSize = detail.fontSize
-  }
-  if (typeof detail.fontFamily === 'string' && terminal) {
-    fontFamily.value = detail.fontFamily
-    terminal.options.fontFamily = detail.fontFamily
-  }
-  scheduleRefresh()
-}
-
-function onPaletteChange(e: Event): void {
-  const detail = (e as CustomEvent).detail || {}
-  if (typeof detail.palette === 'string') {
-    terminalPalette.value = detail.palette as TerminalPaletteId
-    applyTheme()
-  }
-}
-
-function onBehaviorChange(e: Event): void {
-  const detail = (e as CustomEvent).detail || {}
-  if (typeof detail.scrollback === 'number' && terminal) {
-    scrollbackLines.value = detail.scrollback
-    terminal.options.scrollback = detail.scrollback
-  }
-  if (typeof detail.pasteConfirmEnabled === 'boolean') {
-    pasteConfirmEnabled.value = detail.pasteConfirmEnabled
-  }
-  if (detail.pasteConfirmMaxChars !== undefined) {
-    pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(detail.pasteConfirmMaxChars)
-  }
-}
-
 function createXterm(): void {
   if (!terminalHostRef.value || terminal) return
   terminal = new Terminal({
-    cursorBlink: true,
-    cursorStyle: 'bar',
-    cursorWidth: 2,
-    cursorInactiveStyle: 'bar',
-    fontSize: fontSize.value,
-    fontFamily: fontFamily.value,
+    ...terminalSettings.baseTerminalOptions(),
     theme: getTerminalColors(theme.value, customColors.value, terminalPalette.value),
     minimumContrastRatio: getTerminalMinimumContrastRatio(theme.value, customColors.value, terminalPalette.value),
-    allowProposedApi: true,
-    scrollback: scrollbackLines.value,
   })
   fitAddon = new FitAddon()
   searchAddon = new SearchAddon()
@@ -522,12 +464,10 @@ watch(
 )
 
 onMounted(async () => {
-  window.addEventListener('terminal-font-settings-change', onFontSettings)
-  window.addEventListener('terminal-palette-change', onPaletteChange)
-  window.addEventListener('terminal-behavior-settings-change', onBehaviorChange)
+  terminalSettings.attachSettingsListeners()
   // 1. Load settings BEFORE creating xterm so the terminal is born with the
   //    correct font/scrollback/palette (no later re-apply churn).
-  await loadSettings()
+  await terminalSettings.loadTerminalSettings()
   // 2. Create xterm + bind dataHandler. terminalHostRef is now bound (mounted).
   //    dataHandler is registered inside createXterm BEFORE any activate() can
   //    run, so early prompt/bytes are never dropped.
@@ -547,9 +487,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true
-  window.removeEventListener('terminal-font-settings-change', onFontSettings)
-  window.removeEventListener('terminal-palette-change', onPaletteChange)
-  window.removeEventListener('terminal-behavior-settings-change', onBehaviorChange)
+  terminalSettings.detachSettingsListeners()
   void stopSession()
   reconcileCtl?.dispose()
   reconcileCtl = null

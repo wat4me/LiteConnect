@@ -3,6 +3,8 @@ export default {
     title: 'MCP',
     intro: 'Let local AI clients connect to saved SSH hosts, or add new connections, through MCP.',
     service: 'MCP service',
+    loading: 'Loading service status…',
+    loadFailed: 'Could not load MCP service status.',
     enabled: 'On',
     disabled: 'Off',
     hint:
@@ -23,7 +25,7 @@ export default {
     copyToken: 'Copy token',
     copyUrl: 'Copy URL',
     copyShare: 'Copy setup notes',
-    copyGeneric: 'Copy generic JSON',
+    copyConfig: 'Copy configuration',
     copyAgentPrompt: 'Copy prompt for the AI',
     approval: 'Command permissions',
     approvalHint:
@@ -71,14 +73,17 @@ export default {
     agentPromptHint:
       'For a client that is already connected to MCP, paste the prompt below into the system prompt or the conversation so the model follows the workflow. JSON alone also works: the service already sends English instructions during initialize.',
     agentPrompt:
-      'You operate SSH hosts that are open or saved in LiteConnect on this computer through MCP.\n\nConnection (local only; LiteConnect must be open and MCP must be enabled in Settings):\n- Transport: MCP Streamable HTTP (JSON-RPC POST)\n- URL: {url}\n- Header: Authorization: Bearer {token}\n\nUsage:\n1. Call list_connections or list_sessions first.\n2. If there is no session, call connect for a saved host. If the host is not saved, call save_connection (host + username + password, privateKey, or useAgent). You may set connect=true.\n3. After that, exec, read_file, grep, glob, write_file, edit_file, and list_dir all require sessionId.\n4. Do not dump a whole file. Use glob to find the path and grep to find line numbers, then read_file(startLine, limit) for a few dozen nearby lines.\n5. Change an existing file with edit_file (oldString must match read_file exactly, with no line-number prefix). Use write_file only to create a file or replace it entirely.\n6. For installers, menus, and arrow keys: pty_open, then pty_write, then pty_read(mode=screen, waitForIdleMs=300), then pty_close. This is a separate PTY, not the terminal the user is watching.\n7. For tasks longer than a minute, use exec(background=true), then get_job or list_jobs. Cancel with cancel_job.\n8. Call disconnect when finished. Do not leave sessions open.\n9. If exec returns APPROVAL_REQUIRED, ask the user in the current client whether to run that command. If they agree, retry with the same arguments plus confirmed=true. Do not set confirmed unless they agree. High-risk commands such as rm -rf / are still denied even with confirmed, unless Run automatically is selected in LiteConnect. Do not write passwords or private keys in the reply.\n10. These commands are not written into the terminal the user is watching.',
+      'You operate SSH hosts that are open or saved in LiteConnect on this computer through MCP.\n\nConnection (local only; LiteConnect must be open and the service must be on in the MCP workspace):\n- Transport: MCP Streamable HTTP (JSON-RPC POST)\n- URL: {url}\n- Header: Authorization: Bearer {token}\n\nUsage:\n1. Call list_connections or list_sessions first.\n2. If there is no session, call connect for a saved host. If the host is not saved, call save_connection (host + username + password, privateKey, or useAgent). You may set connect=true.\n3. After that, exec, read_file, grep, glob, write_file, edit_file, and list_dir all require sessionId.\n4. Do not dump a whole file. Use glob to find the path and grep to find line numbers, then read_file(startLine, limit) for a few dozen nearby lines.\n5. Change an existing file with edit_file (oldString must match read_file exactly, with no line-number prefix). Use write_file only to create a file or replace it entirely.\n6. For installers, menus, and arrow keys: pty_open, then pty_write, then pty_read(mode=screen, waitForIdleMs=300), then pty_close. This is a separate PTY, not the terminal the user is watching.\n7. For tasks longer than a minute, use exec(background=true), then get_job or list_jobs. Cancel with cancel_job.\n8. Call disconnect when finished. Do not leave sessions open.\n9. If exec returns APPROVAL_REQUIRED, ask the user in the current client whether to run that command. If they agree, retry with the same arguments plus confirmed=true. Do not set confirmed unless they agree. High-risk commands such as rm -rf / are still denied even with confirmed, unless Run automatically is selected in LiteConnect. Do not write passwords or private keys in the reply.\n10. These commands are not written into the terminal the user is watching.',
     shareCard:
-      'LiteConnect SSH MCP (local)\nTransport: Streamable HTTP (POST)\nURL: {url}\nAuth header: Authorization: Bearer {token}\nHealth check: {health}\n\nLiteConnect must be open, and MCP must be enabled in Settings. You can list or connect saved hosts, and you can add hosts with save_connection. Commands are not written into the terminal the user is watching.',
+      'LiteConnect SSH MCP (local)\nTransport: Streamable HTTP (POST)\nURL: {url}\nAuth header: Authorization: Bearer {token}\nHealth check: {health}\n\nLiteConnect must be open, and the service must be on in the MCP workspace. You can list or connect saved hosts, and you can add hosts with save_connection. Commands are not written into the terminal the user is watching.',
     endpoint: 'URL',
     transport: 'Transport',
     transportValue: 'Streamable HTTP (HTTP POST)',
     authHeader: 'Auth header',
-    genericHint: 'Generic JSON. Most clients can use it after renaming fields.',
+    clientTemplate: 'Client configuration',
+    clientConfigHint: 'Set {env} to the Bearer token in the environment that launches the client. Merge this configuration into {path}.',
+    genericClient: 'Generic HTTP',
+    genericHint: 'This template includes the current token. Adapt the fields to your HTTP client and keep the configuration private.',
     startFailed: 'Could not listen: {error}',
   },
 }

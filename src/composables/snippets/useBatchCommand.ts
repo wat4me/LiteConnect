@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import { resolveSnippetCommand } from '@/utils/snippets/commandSnippets'
 import { t } from '@/i18n'
 
@@ -156,15 +157,13 @@ export function useBatchCommand() {
         cancelled: cancelledCount.value,
         total: results.value.length,
       })
-      window.dispatchEvent(new CustomEvent('batch-command-finished', {
-        detail: {
-          command: cmd,
-          success: successCount.value,
-          error: errorCount.value,
-          cancelled: cancelledCount.value,
-          total: results.value.length,
-        },
-      }))
+      emitAppEvent('batch-command-finished', {
+        command: cmd,
+        success: successCount.value,
+        error: errorCount.value,
+        cancelled: cancelledCount.value,
+        total: results.value.length,
+      })
     }
   }
 
@@ -186,16 +185,14 @@ export function useBatchCommand() {
       cancelled: cancelledCount.value,
       total: results.value.length,
     })
-    window.dispatchEvent(new CustomEvent('batch-command-finished', {
-      detail: {
-        command: command.value,
-        success: successCount.value,
-        error: errorCount.value,
-        cancelled: cancelledCount.value,
-        total: results.value.length,
-        cancelledByUser: true,
-      },
-    }))
+    emitAppEvent('batch-command-finished', {
+      command: command.value,
+      success: successCount.value,
+      error: errorCount.value,
+      cancelled: cancelledCount.value,
+      total: results.value.length,
+      cancelledByUser: true,
+    })
   }
 
   function pushHistory(entry: Omit<BatchHistoryItem, 'id' | 'at'>) {

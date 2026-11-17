@@ -1,5 +1,10 @@
 import type { AiUsage } from '@shared/types/ai'
 
+export function usageOutputRate(usage: AiUsage): number | undefined {
+  const output = usage.streamOutput
+  return output ? output.tokens * 1000 / output.durationMs : undefined
+}
+
 /** A partial cache breakdown cannot describe the hit rate for the whole turn. */
 export function usageCacheHitRate(usage: AiUsage): number | undefined {
   if (usage.usageIncomplete || usage.cacheUsageIncomplete) return undefined

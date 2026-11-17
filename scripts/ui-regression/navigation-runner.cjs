@@ -24,9 +24,10 @@ app.whenReady().then(async () => {
   const click = mode => clickSelector(`[data-module="${mode}"]`)
   const menuMode = async mode => {
     await clickSelector('.titlebar-brand-module')
-    await wait('!!document.querySelector(".titlebar-mode-item:nth-child(2)")')
+    const selector = `.titlebar-mode-item[data-mode="${mode}"]`
+    await wait(`!!document.querySelector(${JSON.stringify(selector)})`)
     await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-    await clickSelector(`.titlebar-mode-item:nth-child(${['ssh', 'database', 'ai'].indexOf(mode) + 1})`)
+    await clickSelector(selector)
   }
   const menuDatabase = () => menuMode('database')
   const edit = (mode, value) => run(`(() => { const el=document.querySelector('[data-field="${mode}"]');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event('input',{bubbles:true}));window.__savedFields ||= {};window.__savedFields['${mode}']=el; })()`)
@@ -34,13 +35,63 @@ app.whenReady().then(async () => {
   await wait('!!window.__navigation')
   const titlebarLabel = () => run('document.querySelector(".titlebar-brand").textContent.trim()')
   assert.equal(await titlebarLabel(), 'SSH')
-  assert.equal(await run('document.querySelectorAll("[data-field=database], [data-field=ai]").length'), 0, 'DB/AI stay lazy until first entry')
+  assert.equal(await run('document.querySelectorAll("[data-field=database], [data-field=ai], .mcp-workspace").length'), 0, 'DB, AI and MCP stay lazy until first entry')
   await edit('ssh', 'tail -f /srv/app/current.log')
   await run('document.querySelector(".navigation-scroll").scrollTop=80')
   await click('database'); await wait('window.__navigation.snapshot().mode==="database"')
   await edit('database', 'SELECT * FROM audit_log;')
   await click('ai'); await wait('window.__navigation.snapshot().mode==="ai"')
   await edit('ai', 'Find the update script')
+  stage = 'opening MCP from the module rail and applying a port'
+  await click('mcp')
+  await wait('document.querySelector("#mcp-port")?.value === "18765"')
+  assert.equal(await run('document.querySelector("[data-module=mcp]").getAttribute("aria-current")'), 'page')
+  assert.equal(await run('document.querySelector(".mcp-workspace [role=switch]").getAttribute("aria-checked")'), 'true')
+  await run(`(() => {
+    const select = document.querySelector('#mcp-client-template');
+    select.value = 'geminiCli';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`)
+  await wait('document.querySelector("#mcp-client-config")?.textContent.includes("httpUrl")')
+  await run(`(() => {
+    const input = document.querySelector('#mcp-port');
+    input.value = '18766';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.nextElementSibling.click();
+  })()`)
+  await wait('document.querySelector(".mcp-facts dd")?.textContent.endsWith(":18766/mcp")')
+  const config = await run('document.querySelector("#mcp-client-config").textContent')
+  assert.deepEqual(JSON.parse(config).mcpServers['liteconnect-ssh'], {
+    httpUrl: 'http://127.0.0.1:18766/mcp',
+    headers: { Authorization: 'Bearer ${LITECONNECT_MCP_TOKEN}' },
+  })
+  await run(`(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      async writeText(text) { window.__copiedMcpConfig = text; }
+    } });
+    document.querySelector('#mcp-client-template + button').click();
+  })()`)
+  assert.equal(await run('window.__copiedMcpConfig'), config)
+  stage = 'checking that the applied MCP permission stays visibly selected on hover'
+  const approvalTarget = '[data-approval-mode=ask-destructive]'
+  const approvalPoint = await run(`(() => {
+    const option = document.querySelector('${approvalTarget}')
+    option.scrollIntoView({ block: 'nearest' })
+    const bounds = option.getBoundingClientRect()
+    return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  })()`)
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...approvalPoint })
+  await clickSelector(approvalTarget)
+  await wait(`document.querySelector('${approvalTarget}').matches('[aria-pressed=true]:hover')`)
+  assert.equal(await run('document.querySelectorAll(".mcp-approval-mark svg").length'), 1)
+  const approvalAppearance = () => run(`(() => {
+    const style = getComputedStyle(document.querySelector('${approvalTarget}'))
+    return { background: style.backgroundColor, border: style.borderColor }
+  })()`)
+  const hoveredApproval = await approvalAppearance()
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 })
+  await wait(`!document.querySelector('${approvalTarget}').matches(':hover')`)
+  assert.deepEqual(await approvalAppearance(), hoveredApproval, 'Hover preserves the applied permission colors')
   stage = 'checking keyboard activation'
   window.webContents.focus()
   await run('document.querySelector("[data-module=ssh]").focus()')
@@ -63,7 +114,7 @@ app.whenReady().then(async () => {
   await menuMode('ssh'); await menuMode('ssh')
   assert.equal(await run('window.__navigation.snapshot().homeSelections'), 0, 'Titlebar SSH reselect also keeps the active terminal')
   stage = 'checking settings close decisions'
-  for (const mode of ['ssh', 'database', 'ai']) {
+  for (const mode of ['ssh', 'database', 'ai', 'mcp']) {
     await run('window.__navigation.settings(false)'); await menuMode(mode)
     assert.equal(await run('window.__navigation.snapshot().settings'), true)
     assert.equal(await run('window.__navigation.snapshot().mode'), 'ssh')
@@ -89,6 +140,9 @@ app.whenReady().then(async () => {
     const inactive=getComputedStyle(document.querySelector('[data-module=ssh]'));
     return active.backgroundColor!==inactive.backgroundColor && parseFloat(active.borderRadius)>=8;
   })()`), 'The active module has a rounded selection fill')
+  await click('mcp')
+  await wait('document.querySelector("#mcp-port")?.value === "18766"')
+  assert.equal(await run('document.querySelector(".mcp-approval-option[aria-pressed=true]").dataset.approvalMode'), 'ask-destructive')
   let layouts = 0
   for (const locale of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark', 'eyecare']) for (const width of [700, 1200]) for (const scale of [1, 1.25]) {
     stage = `checking ${locale}/${theme}/${width}/${scale}`
@@ -98,8 +152,13 @@ app.whenReady().then(async () => {
     assert.ok(await run(`(() => {
       const rail=document.querySelector('.app-module-rail'), r=rail.getBoundingClientRect(), workspace=document.querySelector('.workspace'), content=workspace.getBoundingClientRect(), header=document.querySelector('.app-titlebar').getBoundingClientRect();
       const buttons=[...rail.querySelectorAll('button')];
-      return Math.abs(r.width-48*${scale})<1 && r.top>=header.bottom && Math.abs(content.left-r.right)<1 && content.right<=innerWidth+1 && content.bottom<=innerHeight+1 && buttons.length===3
-        && rail.querySelector('[aria-current=page]')?.dataset.module==='ai' && parseFloat(getComputedStyle(workspace).borderRadius)>=12
+      const mcp=document.querySelector('.mcp-workspace'), grid=mcp.querySelector('.mcp-grid');
+      const selected=mcp.querySelector('.mcp-approval-option[aria-pressed=true]');
+      const inactive=mcp.querySelector('.mcp-approval-option[aria-pressed=false]');
+      return Math.abs(r.width-48*${scale})<1 && r.top>=header.bottom && Math.abs(content.left-r.right)<1 && content.right<=innerWidth+1 && content.bottom<=innerHeight+1 && buttons.length===4
+        && rail.querySelector('[aria-current=page]')?.dataset.module==='mcp' && parseFloat(getComputedStyle(workspace).borderRadius)>=12
+        && mcp.scrollWidth<=mcp.clientWidth+1 && getComputedStyle(grid).gridTemplateColumns.split(' ').length===${width >= 1000 ? 2 : 1}
+        && !!selected?.querySelector('.mcp-approval-mark svg') && getComputedStyle(selected).backgroundColor!==getComputedStyle(inactive).backgroundColor
         && buttons.every(el=>{const b=el.getBoundingClientRect();return b.left>=r.left && b.right<=r.right && b.bottom<=r.bottom && el.scrollWidth<=el.clientWidth+1 && el.title.length>0})
         && getComputedStyle(rail).getPropertyValue('-webkit-app-region')==='no-drag';
     })()`), `Persistent rail and content fit: ${locale}/${theme}/${width}/${scale}`)
@@ -107,15 +166,18 @@ app.whenReady().then(async () => {
   }
   await run(`window.__navigation.theme('light','zh-CN',1)`)
   await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-  const rail = await run(`(() => {const r=document.querySelector('.app-module-rail').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:180}})()`)
+  const rail = await run(`(() => {const r=document.querySelector('.app-module-rail').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:212}})()`)
   fs.writeFileSync(path.join(artifacts,'module-rail.png'),(await window.webContents.capturePage(rail)).toPNG())
   await run('window.__navigation.dedicated(true)')
   assert.equal(await run('!!document.querySelector(".app-module-rail")'), false)
+  await menuMode('ai'); await wait('window.__navigation.snapshot().mode==="ai"')
+  await menuMode('mcp'); await wait('document.querySelector("#mcp-port")?.value === "18766"')
+  assert.equal(await titlebarLabel(), 'MCP')
   assert.ok(await run(`(() => {
     const shell = document.querySelector('.app-shell'), content = document.querySelector('.workspace').getBoundingClientRect();
     return Math.abs(content.left-shell.getBoundingClientRect().left-parseFloat(getComputedStyle(shell).paddingLeft))<1;
   })()`), 'Dedicated window layout only reserves the frame inset')
   assert.equal(await run('window.__navigationError || null'), null)
-  console.log(JSON.stringify({ passed: true, layouts, flows: ['in-place module switching', 'all titlebar module entries', 'pointer and keyboard', 'lazy mount', 'draft/DOM/scroll retention', 'current SSH reselect', 'settings cancel/close', 'dedicated window layout'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, flows: ['in-place module switching', 'all titlebar module entries', 'pointer and keyboard', 'lazy mount', 'draft/DOM/scroll retention', 'current SSH reselect', 'settings cancel/close', 'MCP port and permission updates', 'dedicated window layout'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); app.exit(1) })

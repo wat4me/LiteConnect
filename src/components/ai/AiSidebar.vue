@@ -51,6 +51,8 @@ const props = withDefaults(defineProps<{
   workspaceTargets?: AiWorkspaceTarget[]
   executionAvailable?: boolean
   active?: boolean
+  taskFloatTarget?: HTMLElement
+  taskFloatActive?: boolean
   /** Increments only when a previously closed AI panel opens for this SSH session. */
   openGeneration?: number
   selectionRequest?: {
@@ -564,7 +566,17 @@ async function runCodeToTerminal(code: string) {
 
     <AiExecutionHistory v-if="showExecutionHistory && active" :messages="messages" :initial-record-key="executionRecordKey" :fallback-target="workspaceTargets?.length === 1 ? workspaceTargets[0].name : undefined" @close="showExecutionHistory = false" />
     <div v-show="!showSettings && !showHistory" class="ai-body">
-      <AiBackgroundTasks :key="reminderKey" :thread-id="getSessionState(sessionId).activeThreadId" :active="active && !showSettings && !showHistory" :layout="workspace ? 'workspace' : 'sidebar'" :session-id="sessionId" :targets="workspaceTargets" :job-ids="workspaceJobIds" :job-targets="workspaceJobTargets" />
+      <AiBackgroundTasks
+        :key="taskFloatTarget ? sessionId : reminderKey"
+        :thread-id="getSessionState(sessionId).activeThreadId"
+        :active="taskFloatTarget ? taskFloatActive : active && !showSettings && !showHistory"
+        :layout="taskFloatTarget ? 'ssh' : workspace ? 'workspace' : 'sidebar'"
+        :teleport-target="taskFloatTarget"
+        :session-id="sessionId"
+        :targets="workspaceTargets"
+        :job-ids="workspaceJobIds"
+        :job-targets="workspaceJobTargets"
+      />
       <AiChatView
         @view-execution="openExecutionHistory"
         @view-knowledge="openKnowledge"

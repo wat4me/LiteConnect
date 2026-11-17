@@ -17,7 +17,7 @@ export function readWindowLaunchParams(search: string) {
 
 /** Window-specific SSH/DB entry policy around the shared App navigation state. */
 export function useAppWindowRouting(deps: {
-  appMode: Ref<'ssh' | 'database' | 'ai'>
+  appMode: Ref<AppMode>
   enterDatabase: () => void
   selectModule: (mode: AppMode) => Promise<void>
   search?: string

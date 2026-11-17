@@ -22,6 +22,7 @@ import AiImageStrip from './AiImageStrip.vue'
 import AiToolRunRow from './AiToolRun.vue'
 import AiWorkspaceResponse from './AiWorkspaceResponse.vue'
 import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
+import AiMarkdownBlock from './AiMarkdownBlock.vue'
 import AiBackgroundResults from './AiBackgroundResults.vue'
 import AiActivityStatus from './AiActivityStatus.vue'
 import type { AiWorkspaceTarget } from '@shared/aiWorkspace'
@@ -463,23 +464,13 @@ async function copyText(text: string, key: string) {
         </summary>
         <div v-if="isReasoningOpen(message, segIndex)" class="reasoning-content">
           <div v-if="isReasoningLive(message, segIndex)" class="markdown-block markdown-streaming">{{ reasoningText(item) }}</div>
-          <template v-else v-for="(block, index) in parseSegmentMarkdown(message, segIndex, reasoningText(item))" :key="index">
-            <div v-if="block.type === 'code'" class="code-block">
-              <div class="code-block-header">
-                <span class="code-language">{{ block.language || 'text' }}</span>
-                <button
-                  type="button"
-                  class="ui-icon-btn ui-icon-btn-sm copy-btn"
-                  :title="copiedKey === `${message.id}-seg${segIndex}-rcode-${index}` ? t('common.copied') : t('ai.copyCode')"
-                  @click="copyText(block.content, `${message.id}-seg${segIndex}-rcode-${index}`)"
-                >
-                  <AppIcon v-if="copiedKey === `${message.id}-seg${segIndex}-rcode-${index}`" name="check" size="sm" />
-                  <AppIcon v-else name="copy" size="sm" />
-                </button>
-              </div>
-              <pre class="markdown-code"><code>{{ block.content }}</code></pre>
-            </div>
-            <div v-else class="markdown-block" v-html="block.content"></div>
+          <template v-else>
+            <AiMarkdownBlock
+              v-for="(block, index) in parseSegmentMarkdown(message, segIndex, reasoningText(item))"
+              :key="index"
+              :block="block"
+              :terminal-actions="false"
+            />
           </template>
         </div>
       </details>

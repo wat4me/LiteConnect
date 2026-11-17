@@ -35,4 +35,15 @@ describe('AI usage accounting', () => {
     expect(aggregateAiUsage([undefined])).toEqual({ requestCount: 1, usageIncomplete: true, cacheUsageIncomplete: true })
     expect(aggregateAiUsage([])).toBeUndefined()
   })
+
+  it('weights measured output by stream duration and retains it when usage is reloaded', () => {
+    const usage = aggregateAiUsage([
+      { completionTokens: 100, streamOutput: { tokens: 100, durationMs: 1000 } },
+      { completionTokens: 581, streamOutput: { tokens: 581, durationMs: 2000 } },
+      { completionTokens: 50 }, // An untimed completion, such as context compaction.
+    ])
+    expect(usage).toMatchObject({ completionTokens: 731, streamOutput: { tokens: 681, durationMs: 3000 } })
+    expect(normalizeAiUsage(usage)).toEqual(usage)
+    expect(normalizeAiUsage({ completionTokens: 10, streamOutput: { tokens: 10, durationMs: 0 } })).toEqual({ completionTokens: 10 })
+  })
 })

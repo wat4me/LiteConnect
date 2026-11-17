@@ -17,6 +17,11 @@
   gap: 10px;
 }
 
+/* Keep an opaque surface on the scroller so Chromium preserves ClearType at >=150% DPI. */
+html:not(.has-app-bg) .chat-list {
+  background: var(--bg-primary);
+}
+
 .chat-list.has-timeline {
   padding-left: 18px;
 }
@@ -25,7 +30,7 @@
   overflow-anchor: none;
 }
 
-.chat-load-earlier { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 8px; flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-caption); }
+.chat-load-earlier { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 8px; flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-ai-detail); }
 
 .empty-state {
   margin: auto 0;
@@ -86,7 +91,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--warning) 12%, transparent);
   color: var(--warning);
-  font-size: var(--font-caption);
+  font-size: var(--font-ai-detail);
   line-height: 1.35;
   text-align: center;
 }
@@ -226,19 +231,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-caption);
+  font-size: var(--font-ai-detail);
   line-height: 1.35;
   color: var(--text-primary);
 }
 
 .chat-timeline.expanded .chat-timeline-item-preview {
   display: block;
-}
-
-.code-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
 }
 
 .chat-row {
@@ -390,6 +389,15 @@
   line-height: 1.7;
 }
 
+html[data-theme='eyecare'] .chat-list {
+  --text-secondary: #6b6154;
+}
+
+html[data-theme='eyecare'] .chat-row .message-content,
+html[data-theme='eyecare'] .message-edit-input {
+  --text-primary: #463f35;
+}
+
 .chat-failure {
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   border-radius: var(--radius-lg);
@@ -456,196 +464,23 @@
   100% { background-position: -100% 0; }
 }
 
-.markdown-block + .markdown-block,
-.markdown-block + .code-block,
-.code-block + .markdown-block,
-.code-block + .code-block {
-  margin-top: 8px;
-}
-
-.markdown-block :deep(p) {
-  margin: 0;
-}
-
+/* Live reasoning is plain text; rendered Markdown is styled in AiMarkdownBlock.css. */
 .markdown-streaming {
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.markdown-block :deep(h3),
-.markdown-block :deep(h4),
-.markdown-block :deep(h5),
-.markdown-block :deep(h6) {
-  margin: 8px 0 4px;
-  font-size: var(--font-ai-content);
-  line-height: 1.35;
-}
-
-.markdown-block :deep(h1),
-.markdown-block :deep(h2) {
-  margin: 10px 0 6px;
-  font-size: var(--font-ai-heading);
-  line-height: 1.35;
-}
-
-.markdown-block :deep(ul),
-.markdown-block :deep(ol) {
-  margin: 4px 0 4px 16px;
-  padding: 0;
-}
-
-.markdown-block :deep(li) {
-  margin: 2px 0;
-}
-
-.markdown-block :deep(li.md-li-depth-1) { margin-left: 12px; }
-.markdown-block :deep(li.md-li-depth-2) { margin-left: 24px; }
-.markdown-block :deep(li.md-li-depth-3) { margin-left: 36px; }
-.markdown-block :deep(li.md-li-depth-4) { margin-left: 48px; }
-
-.markdown-block :deep(del) {
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
-.markdown-block :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--border-color);
-  margin: 8px 0;
-}
-
-.markdown-block :deep(blockquote) {
-  margin: 4px 0;
-  padding: 4px 8px;
-  border-left: 2px solid var(--accent);
-  color: var(--text-secondary);
-  background: var(--accent-bg);
-}
-
-.markdown-block :deep(code),
-.markdown-code,
-.code-language {
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-}
-
-.markdown-block :deep(code) {
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
-}
-
-.markdown-block :deep(a) {
-  color: var(--accent);
-}
-
-.markdown-block :deep(.md-image-link) {
-  display: inline-flex;
-  max-width: 100%;
-  overflow-wrap: anywhere;
 }
 
 .chat-row.assistant .message-stack {
   gap: var(--space-1);
 }
 
-.markdown-block :deep(.md-table-wrap) {
-  overflow-x: auto;
-  margin: 6px 0;
-}
-
-.markdown-block :deep(.md-table) {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-caption);
-}
-
-.markdown-block :deep(.md-table th),
-.markdown-block :deep(.md-table td) {
-  border: 1px solid var(--border-color);
-  padding: 4px 8px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.markdown-block :deep(.md-table th) {
-  background: var(--bg-tertiary);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.markdown-block :deep(.md-table tr:nth-child(even) td) {
-  background: color-mix(in srgb, var(--bg-tertiary) 35%, transparent);
-}
-
-/* Status chips in model-generated summary tables. */
-.markdown-block :deep(.md-table td.md-status) { white-space: nowrap; }
-.markdown-block :deep(.md-table td.md-row-alert) { border-left: 2px solid var(--danger); }
-.markdown-block :deep(.md-status-chip) {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border-radius: var(--radius-sm);
-  font-size: inherit;
-  font-weight: 600;
-  line-height: inherit;
-}
-.markdown-block :deep(.md-status-chip::before) {
-  content: '';
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: currentColor;
-}
-.markdown-block :deep(.md-status-ok) { color: var(--success); background: color-mix(in srgb, var(--success) 8%, transparent); }
-.markdown-block :deep(.md-status-warning) { color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, transparent); }
-.markdown-block :deep(.md-status-danger) { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
-.markdown-block :deep(.md-status-muted) { color: var(--text-secondary); background: var(--bg-tertiary); }
-
-.markdown-block :deep(p.md-conclusion) {
-  margin: 6px 0 3px;
-  padding: 6px 8px;
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm);
-  background: var(--accent-bg);
-  line-height: var(--line-reading);
-}
-
 .chat-list,
 .message-content,
 .reasoning-content,
-.markdown-block,
-.markdown-code {
+.markdown-streaming {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
-}
-
-.code-block {
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-}
-
-.code-block-header {
-  min-height: 28px;
-  padding: 2px 4px 2px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-secondary);
-}
-
-.code-language {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-caption);
 }
 
 .message-copy-btn {
@@ -658,17 +493,6 @@
 .message-content:hover .message-copy-btn,
 .message-copy-btn:focus-visible {
   opacity: 1;
-}
-
-.markdown-code {
-  margin: 0;
-  padding: var(--space-2);
-  overflow-x: auto;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-caption);
-  line-height: 1.45;
-  white-space: pre;
 }
 
 .tool-runs {
@@ -690,8 +514,8 @@
   border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
-  font-size: var(--font-caption);
-  line-height: 1.4;
+  font-size: var(--font-ai-detail);
+  line-height: 1.45;
 }
 
 .reasoning-box.live {
@@ -723,7 +547,7 @@
 .activity-status {
   padding: var(--space-1);
   color: var(--text-secondary);
-  font-size: var(--font-caption);
+  font-size: var(--font-ai-detail);
   line-height: 20px;
 }
 
@@ -743,7 +567,7 @@
 }
 
 .reasoning-title:not(.ai-think-shimmer) {
-  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+  color: var(--text-secondary);
 }
 
 .reasoning-snippet {
@@ -767,12 +591,8 @@
 }
 
 :deep(.interrupted-line) {
-  font-size: var(--font-caption);
+  font-size: var(--font-ai-detail);
   color: var(--warning, var(--text-secondary));
-}
-
-.code-block {
-  border-radius: var(--radius-md);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -794,7 +614,7 @@
 .process-toggle {
   display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 2px 0;
   border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary);
-  font: inherit; font-size: var(--font-caption); line-height: 1.4; text-align: left; cursor: pointer;
+  font: inherit; font-size: var(--font-ai-detail); line-height: 1.4; text-align: left; cursor: pointer;
 }
 .process-toggle:hover .process-title { color: var(--text-primary); }
 .process-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -141,7 +141,7 @@ export const openaiProvider: AiProviderAdapter = {
   async readStream(_settings, response, onDelta) {
     const message: AiChatMessage = { role: 'assistant', content: '' }
     let finishReason = ''
-    const stopped = await readAiStream(response, chunk => {
+    const stopped = await readAiStream(response, (chunk, receivedAt) => {
       const choice = chunk?.choices?.[0]
       const delta = choice?.delta || {}
       if (chunk?.error) throw new AiProviderError({ kind: 'provider', detail: chunk.error.message || 'AI stream failed' })
@@ -150,7 +150,7 @@ export const openaiProvider: AiProviderAdapter = {
       const reasoning = extractAiReasoningFromChoice(choice)
       message.content += content
       if (reasoning) message.reasoningContent = (message.reasoningContent || '') + reasoning
-      onDelta({ content, reasoning, usage: extractAiUsage(chunk?.usage), toolCalls: delta.tool_calls || choice?.message?.tool_calls })
+      onDelta({ content, reasoning, usage: extractAiUsage(chunk?.usage), toolCalls: delta.tool_calls || choice?.message?.tool_calls }, receivedAt)
     })
     if (!stopped && !finishReason) throw new AiProviderError({ kind: 'response', detail: t('ai.streamIncomplete') })
     if (finishReason === 'length') throw new Error(t('ai.outputLimitReached'))

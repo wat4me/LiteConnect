@@ -33,6 +33,11 @@ export function normalizeAiUsage(value: unknown): AiUsage | undefined {
   if (usage.totalTokens === undefined && usage.promptTokens !== undefined && usage.completionTokens !== undefined) {
     usage.totalTokens = aiTokenCount(usage.promptTokens + usage.completionTokens)
   }
+  const streamTokens = aiTokenCount(raw.streamOutput?.tokens)
+  const durationMs = raw.streamOutput?.durationMs
+  if (streamTokens && durationMs && Number.isSafeInteger(durationMs) && durationMs > 0) {
+    usage.streamOutput = { tokens: streamTokens, durationMs }
+  }
   const requestCount = aiTokenCount(raw.requestCount)
   if (requestCount !== undefined && requestCount > 0) usage.requestCount = requestCount
   if (raw.usageIncomplete === true) usage.usageIncomplete = true
@@ -49,6 +54,13 @@ export function aggregateAiUsage(requests: readonly (AiUsage | undefined)[]): Ai
     const counts = normalized.flatMap(usage => usage?.[key] === undefined ? [] : [usage[key]!])
     if (counts.length) result[key] = counts.reduce((sum, count) => sum + count, 0)
   }
+  const streamOutput = { tokens: 0, durationMs: 0 }
+  for (const usage of normalized) {
+    if (!usage?.streamOutput) continue
+    streamOutput.tokens += usage.streamOutput.tokens
+    streamOutput.durationMs += usage.streamOutput.durationMs
+  }
+  if (streamOutput.durationMs > 0) result.streamOutput = streamOutput
   if (normalized.some(usage => !usage || usage.usageIncomplete || usage.promptTokens === undefined || usage.completionTokens === undefined || usage.totalTokens === undefined)) result.usageIncomplete = true
   if (normalized.some(usage => !usage || usage.cacheUsageIncomplete || usage.cachedPromptTokens === undefined || usage.uncachedPromptTokens === undefined)) result.cacheUsageIncomplete = true
   return result
