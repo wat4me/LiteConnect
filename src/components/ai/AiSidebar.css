@@ -530,9 +530,9 @@
   right: max(18px, calc((100% - 1060px) / 2));
   bottom: 16px;
   --ai-composer-padding: 10px 12px 8px;
-  --ai-composer-border: var(--workspace-line);
+  --ai-composer-border: color-mix(in srgb, var(--text-primary) 12%, var(--border-color));
   --ai-composer-radius: 16px;
-  --ai-composer-background: color-mix(in srgb, var(--bg-secondary) 50%, var(--bg-primary));
+  --ai-composer-background: var(--bg-primary);
   --ai-composer-shadow: 0 4px 18px color-mix(in srgb, var(--overlay-bg) 10%, transparent), var(--workspace-shadow);
   --ai-composer-focus-border: color-mix(in srgb, var(--accent) 55%, var(--border-color));
   --ai-composer-focus-shadow: 0 0 0 3px var(--accent-bg), var(--workspace-shadow);

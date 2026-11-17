@@ -95,8 +95,8 @@ html:not([data-theme]),
 [data-theme="light"] {
   color-scheme: light;
   --bg-primary: #ffffff;
-  --bg-secondary: #f9f9f8;
-  --bg-tertiary: #f1f0ef;
+  --bg-secondary: #f5f4f2;
+  --bg-tertiary: #ecebe8;
   --border-color: #e2e1de;
   --text-primary: #21201c;
   --text-secondary: #63635e;
@@ -116,7 +116,7 @@ html:not([data-theme]),
   --overlay-bg: rgba(33, 32, 28, 0.32);
   --hover-bg: rgba(33, 32, 28, 0.045);
   --selection-bg: rgba(196, 98, 63, 0.18);
-  --titlebar-bg: #f9f9f8;
+  --titlebar-bg: #f5f4f2;
   --titlebar-symbol: #63635e;
   --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2363635e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
 }
@@ -592,6 +592,13 @@ select:focus:not(:focus-visible) {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.ui-btn-primary:disabled {
+  opacity: 1;
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
 }
 
 .ui-btn-primary:hover:not(:disabled) {
