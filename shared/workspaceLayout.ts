@@ -5,7 +5,7 @@ export type WorkspaceTool = typeof WORKSPACE_TOOLS[number]
 export type WorkspacePanel = Exclude<WorkspaceTool, 'docker'>
 export type WorkspacePlacement = { id: WorkspaceTool; edge: WorkspaceEdge; panelEdge: WorkspaceEdge }
 export type SshWorkspaceLayout = { version: 1; locked: boolean; tools: WorkspacePlacement[]; sizes: Record<WorkspaceEdge, number> }
-const defaultPanelEdges: Record<WorkspaceTool, WorkspaceEdge> = { ai: 'left', files: 'left', monitor: 'right', batch: 'right', sync: 'left', snippets: 'right', docker: 'left' }
+const defaultPanelEdges: Record<WorkspaceTool, WorkspaceEdge> = { ai: 'left', files: 'left', monitor: 'left', batch: 'left', sync: 'left', snippets: 'left', docker: 'left' }
 const defaultSizes = { left: 360, right: 320 }
 
 export function defaultWorkspaceLayout(): SshWorkspaceLayout {
@@ -31,15 +31,15 @@ export function normalizeWorkspaceLayout(raw: unknown): SshWorkspaceLayout {
   if (Array.isArray(value.tools)) for (const entry of value.tools.slice(0, 32)) {
     if (!entry || !isWorkspaceTool(entry.id) || seen.has(entry.id)) continue
     seen.add(entry.id)
-    tools.push({ id: entry.id, edge: normalizeEdge(entry.edge, 'left'), panelEdge: normalizeEdge(entry.panelEdge, defaultPanelEdges[entry.id]) })
+    const edge = normalizeEdge(entry.edge, 'left')
+    tools.push({ id: entry.id, edge, panelEdge: edge })
   }
   return { version: 1, locked: value.locked === true, tools: [...tools, ...fallback.tools.filter(entry => !seen.has(entry.id))],
     sizes: { left: workspaceSize('left', value.sizes?.left), right: workspaceSize('right', value.sizes?.right) } }
 }
-export function moveWorkspaceTool(layout: SshWorkspaceLayout, id: WorkspaceTool, edge: WorkspaceEdge, before?: WorkspaceTool, alignPanel = false): SshWorkspaceLayout {
+export function moveWorkspaceTool(layout: SshWorkspaceLayout, id: WorkspaceTool, edge: WorkspaceEdge, before?: WorkspaceTool, _alignPanel = false): SshWorkspaceLayout {
   if (layout.locked || !isWorkspaceTool(id) || !isWorkspaceEdge(edge) || before === id) return layout
-  const previous = layout.tools.find(tool => tool.id === id)!
-  const tools = layout.tools.filter(tool => tool.id !== id), placement = { id, edge, panelEdge: alignPanel || previous.edge !== edge ? edge : previous.panelEdge }
+  const tools = layout.tools.filter(tool => tool.id !== id), placement = { id, edge, panelEdge: edge }
   const index = before ? tools.findIndex(tool => tool.id === before && tool.edge === edge) : -1
   if (index >= 0) tools.splice(index, 0, placement)
   else {

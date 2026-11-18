@@ -15,17 +15,17 @@ it('allows different regions concurrently, resolves collisions and honors progra
     expect(panels.files.value).toBe(true)
     expect(panels.ai.value).toBe(true)
     panels.batch.value = true
-    expect(panels.ai.value).toBe(false)
-    expect(panels.files.value).toBe(true)
+    expect(panels.files.value).toBe(false)
+    expect(panels.ai.value).toBe(true)
     // Dropping an open tool into an occupied region selects the tool being moved.
-    layout.value = moveWorkspaceTool(layout.value, 'files', 'right')
-    expect(panels.files.value).toBe(true)
-    expect(panels.batch.value).toBe(false)
+    layout.value = moveWorkspaceTool(layout.value, 'batch', 'right')
+    expect(panels.batch.value).toBe(true)
+    expect(panels.ai.value).toBe(false)
     single.value = true; panels.monitor.value = true
     expect(panels.batch.value).toBe(false)
     expect(panels.monitor.value).toBe(true)
     single.value = false
-    expect(workspacePanel(layout.value, 'files')).toBe('right')
+    expect(workspacePanel(layout.value, 'batch')).toBe('right')
   } finally { scope.stop() }
 })
 const workspacePanel = (layout: ReturnType<typeof defaultWorkspaceLayout>, id: WorkspacePanel) => layout.tools.find(tool => tool.id === id)?.panelEdge

@@ -591,7 +591,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
 
 .cross-group-hint-inline {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .color-filter {
@@ -618,12 +618,12 @@ defineExpose({ loadData, editConnection: onEditConnection })
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
   background: var(--accent-bg);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: var(--font-caption);
 }
 /* Sits inside the 22px pill; keep the round hit target. */
 .active-tag-clear { --icon-btn-sm: calc(22px * var(--ui-scale)); border-radius: 50%; }
-.tag-filter :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: 12px; }
-.sort-control :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: 12px; }
+.tag-filter :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: var(--font-ui-sm); }
+.sort-control :deep(.dropdown-trigger) { min-height: 30px; padding: 3px 10px; font-size: var(--font-ui-sm); }
 
 .tag-filter-swatch {
   width: 8px;
@@ -636,7 +636,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   flex-shrink: 0;
   margin: 0 0 4px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1.4;
 }
 

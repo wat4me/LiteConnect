@@ -143,19 +143,20 @@ function onKeydown(e: KeyboardEvent) {
   inset: 0;
   z-index: 13000;
   background: var(--overlay-bg);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
   padding-top: min(18vh, 120px);
 }
 
 .jump-panel {
-  width: min(520px, calc(100vw - 24px));
+  width: min(560px, calc(100vw - 24px));
   max-height: min(60vh, 480px);
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg, 12px);
   box-shadow: var(--shadow-dialog);
   overflow: hidden;
 }
@@ -166,7 +167,7 @@ function onKeydown(e: KeyboardEvent) {
   border-bottom: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-section);
   padding: 14px 16px;
   outline: none;
   box-sizing: border-box;
@@ -188,7 +189,7 @@ function onKeydown(e: KeyboardEvent) {
   text-align: left;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   padding: 8px 10px;
   cursor: pointer;
   color: var(--text-primary);
@@ -200,15 +201,16 @@ function onKeydown(e: KeyboardEvent) {
 
 .jump-item.active {
   background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .jump-title {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
 }
 
 .jump-sub {
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
@@ -217,13 +219,13 @@ function onKeydown(e: KeyboardEvent) {
   padding: 16px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .jump-hint {
   padding: 8px 12px;
   border-top: 1px solid var(--border-color);
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
 }
 </style>

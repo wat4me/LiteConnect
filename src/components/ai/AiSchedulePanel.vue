@@ -243,22 +243,22 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
     <form v-if="editing" class="schedule-form" @submit.prevent="save">
       <label v-if="!form.id" class="schedule-prompt">
         {{ t('ai.schedule.template') }}
-        <select class="schedule-template" :value="template" :disabled="working" @change="selectTemplate">
+        <select class="ui-select ui-input-sm schedule-template" :value="template" :disabled="working" @change="selectTemplate">
           <option v-for="id in templates" :key="id" :value="id">{{ t(`ai.schedule.templates.${id}.name`) }}</option>
           <option value="">{{ t('ai.schedule.customTemplate') }}</option>
         </select>
       </label>
-      <label>{{ t('ai.schedule.name') }}<input v-model="form.name" required maxlength="100" :disabled="working" /></label>
+      <label>{{ t('ai.schedule.name') }}<input v-model="form.name" class="ui-input ui-input-sm" required maxlength="100" :disabled="working" /></label>
       <fieldset class="schedule-targets"><legend>{{ t('ai.schedule.hosts', { count: form.connectionIds.length }) }}</legend><div><label v-for="connection in connections" :key="connection.id"><input v-model="form.connectionIds" type="checkbox" :value="connection.id" :disabled="working || (form.connectionIds.length >= 10 && !form.connectionIds.includes(connection.id))" /><span>{{ connection.name }} · {{ connection.host }}</span></label></div></fieldset>
-      <label>{{ t('ai.schedule.frequency') }}<select v-model="form.kind" class="schedule-kind" :disabled="working"><option value="interval">{{ t('ai.schedule.byInterval') }}</option><option value="daily">{{ t('ai.schedule.daily') }}</option><option value="weekly">{{ t('ai.schedule.weekly') }}</option></select></label>
-      <label v-if="form.kind === 'interval'">{{ t('ai.schedule.interval') }}<select v-model="form.intervalMinutes" :disabled="working"><option :value="15">{{ t('ai.schedule.every15') }}</option><option :value="60">{{ t('ai.schedule.everyHour') }}</option><option :value="1440">{{ t('ai.schedule.everyDay') }}</option></select></label>
-      <label v-if="form.kind === 'weekly'">{{ t('ai.schedule.onWeekday') }}<select v-model="form.weekday" class="schedule-weekday" :disabled="working"><option v-for="day in weekdays" :key="day" :value="day">{{ t(`ai.schedule.weekday.${day}`) }}</option></select></label>
-      <label v-if="form.kind !== 'interval'">{{ t('ai.schedule.atTime') }}<input v-model="form.time" type="time" class="schedule-time" step="60" required :disabled="working" /></label>
-      <label>{{ t('ai.schedule.model') }}<select v-model="form.modelKey" :disabled="working"><option value="">{{ t('ai.schedule.modelDefault') }}</option><optgroup v-for="group in modelOptions" :key="group.providerId" :label="group.providerName"><option v-for="model in group.models" :key="model.key" :value="model.key">{{ model.label }}</option></optgroup></select></label>
-      <label>{{ t('ai.schedule.concurrency') }}<select v-model.number="form.concurrency" :disabled="working || form.connectionIds.length <= 1"><option v-for="count in concurrencyOptions" :key="count" :value="count" :disabled="count > 1 && form.connectionIds.length <= 1">{{ count === 1 ? t('ai.schedule.serialHosts', { count: 1 }) : t('ai.schedule.parallelHosts', { count }) }}</option></select></label>
+      <label>{{ t('ai.schedule.frequency') }}<select v-model="form.kind" class="ui-select ui-input-sm schedule-kind" :disabled="working"><option value="interval">{{ t('ai.schedule.byInterval') }}</option><option value="daily">{{ t('ai.schedule.daily') }}</option><option value="weekly">{{ t('ai.schedule.weekly') }}</option></select></label>
+      <label v-if="form.kind === 'interval'">{{ t('ai.schedule.interval') }}<select v-model="form.intervalMinutes" class="ui-select ui-input-sm" :disabled="working"><option :value="15">{{ t('ai.schedule.every15') }}</option><option :value="60">{{ t('ai.schedule.everyHour') }}</option><option :value="1440">{{ t('ai.schedule.everyDay') }}</option></select></label>
+      <label v-if="form.kind === 'weekly'">{{ t('ai.schedule.onWeekday') }}<select v-model="form.weekday" class="ui-select ui-input-sm schedule-weekday" :disabled="working"><option v-for="day in weekdays" :key="day" :value="day">{{ t(`ai.schedule.weekday.${day}`) }}</option></select></label>
+      <label v-if="form.kind !== 'interval'">{{ t('ai.schedule.atTime') }}<input v-model="form.time" type="time" class="ui-input ui-input-sm schedule-time" step="60" required :disabled="working" /></label>
+      <label>{{ t('ai.schedule.model') }}<select v-model="form.modelKey" class="ui-select ui-input-sm" :disabled="working"><option value="">{{ t('ai.schedule.modelDefault') }}</option><optgroup v-for="group in modelOptions" :key="group.providerId" :label="group.providerName"><option v-for="model in group.models" :key="model.key" :value="model.key">{{ model.label }}</option></optgroup></select></label>
+      <label>{{ t('ai.schedule.concurrency') }}<select v-model.number="form.concurrency" class="ui-select ui-input-sm" :disabled="working || form.connectionIds.length <= 1"><option v-for="count in concurrencyOptions" :key="count" :value="count" :disabled="count > 1 && form.connectionIds.length <= 1">{{ count === 1 ? t('ai.schedule.serialHosts', { count: 1 }) : t('ai.schedule.parallelHosts', { count }) }}</option></select></label>
       <p v-if="form.kind !== 'interval'" class="schedule-prompt">{{ t('ai.schedule.timeZoneHint', { zone: timeZone }) }}</p>
       <p class="schedule-prompt">{{ t('ai.schedule.modelHint') }}</p>
-      <label class="schedule-prompt">{{ t('ai.schedule.prompt') }}<textarea v-model="form.prompt" required maxlength="8000" rows="4" :disabled="working" /></label>
+      <label class="schedule-prompt">{{ t('ai.schedule.prompt') }}<textarea v-model="form.prompt" class="ui-textarea ui-input-sm" required maxlength="8000" rows="4" :disabled="working" /></label>
       <div class="schedule-form-actions"><label><input v-model="form.enabled" type="checkbox" :disabled="working" />{{ t('ai.schedule.enable') }}</label><button type="button" class="ui-btn ui-btn-sm" :disabled="working" @click="editing = false">{{ t('common.cancel') }}</button><button type="submit" class="ui-btn ui-btn-primary ui-btn-sm" :disabled="working || active || !form.connectionIds.length">{{ t('common.save') }}</button></div>
     </form>
     <p v-if="!state.plans.length && !editing" class="schedule-empty">{{ t('ai.schedule.empty') }}</p>
@@ -275,13 +275,13 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
           <span>{{ t('ai.schedule.hostCount', { count: targetIds(plan).length }) }}</span>
         </div>
         <div class="schedule-host-chips">
-          <span v-for="name in targetNames(plan).slice(0, 6)" :key="name" class="schedule-chip">{{ name }}</span>
-          <span v-if="targetNames(plan).length > 6" class="schedule-chip muted">{{ t('ai.schedule.moreHosts', { count: targetNames(plan).length - 6 }) }}</span>
+          <span v-for="name in targetNames(plan).slice(0, 6)" :key="name" class="ui-chip schedule-chip">{{ name }}</span>
+          <span v-if="targetNames(plan).length > 6" class="ui-chip schedule-chip muted">{{ t('ai.schedule.moreHosts', { count: targetNames(plan).length - 6 }) }}</span>
         </div>
         <small v-if="plan.enabled" :title="new Date(plan.nextRunAt).toLocaleString()">{{ t('ai.schedule.nextRun', { time: time(plan.nextRunAt) }) }}</small>
       </div>
       <div class="schedule-actions">
-        <button type="button" class="ui-btn ui-btn-primary ui-btn-xs schedule-run" :disabled="active || starting || working" @click="runNow(plan)">{{ t('ai.schedule.runNow') }}</button>
+        <button type="button" class="ui-btn ui-btn-xs schedule-run" :disabled="active || starting || working" @click="runNow(plan)">{{ t('ai.schedule.runNow') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :disabled="active || working" @click="toggle(plan)">{{ t(plan.enabled ? 'ai.schedule.pause' : 'ai.schedule.resume') }}</button>
         <button type="button" class="ui-btn ui-btn-xs" :disabled="active || working" @click="edit(plan)">{{ t('ai.schedule.edit') }}</button>
         <button type="button" class="ui-btn ui-btn-xs schedule-view-history" @click="viewHistory(plan.id)">{{ t('ai.schedule.viewHistory') }}</button>
@@ -290,7 +290,7 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
     </article>
     <div class="schedule-history-heading">
       <h3>{{ t('ai.schedule.history') }}</h3>
-      <select ref="historyFilter" v-model="selectedId" :aria-label="t('ai.schedule.filter')"><option value="">{{ t('ai.schedule.allPlans') }}</option><option v-for="plan in state.plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option></select>
+      <select ref="historyFilter" v-model="selectedId" class="ui-select ui-input-sm schedule-history-select" :aria-label="t('ai.schedule.filter')"><option value="">{{ t('ai.schedule.allPlans') }}</option><option v-for="plan in state.plans" :key="plan.id" :value="plan.id">{{ plan.name }}</option></select>
     </div>
     <p v-if="!runs.length" class="schedule-empty">{{ t('ai.schedule.noRuns') }}</p>
     <article v-for="run in runs" :key="run.id" class="schedule-result" :data-status="run.status" :data-open="expandedRunId === run.id">
@@ -347,26 +347,26 @@ onBeforeUnmount(() => { disposed = true; unsubscribe?.() })
 .schedule-header > div:first-child, .schedule-form-actions > label, .schedule-plan-main { flex: 1; min-width: 0; }
 .schedule-header > div:first-child { flex-basis: 300px; }
 .schedule-plan-main { flex-basis: 280px; }
-h2 { font-size: 18px; margin: 0; } h3, h4 { font-size: 14px; margin: 0; }
-p, small, .schedule-toolbar-meta { font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+h2 { font-size: var(--font-title); margin: 0; } h3, h4 { font-size: var(--font-section); margin: 0; }
+p, small, .schedule-toolbar-meta { font-size: var(--font-ui-sm); line-height: 1.6; color: var(--text-secondary); }
 .schedule-header { flex-wrap: wrap; }
 .schedule-header-actions { flex-shrink: 0; flex-wrap: wrap; }
 .schedule-header-actions .active { background: var(--tab-selected-surface); color: var(--text-primary); }
 .schedule-toolbar { flex-wrap: wrap; margin: 14px 0 16px; }
-.schedule-form, .schedule-plan, .schedule-result { padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; margin-bottom: 10px; background: var(--bg-primary); }
+.schedule-form, .schedule-plan, .schedule-result { padding: 14px; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); margin-bottom: 10px; background: var(--bg-primary); }
 .schedule-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; background: var(--bg-secondary); }
-.schedule-form > label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-.schedule-form input:not([type=checkbox]), select, textarea { box-sizing: border-box; min-width: 0; max-width: 100%; padding: 7px 8px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 5px; font: inherit; font-size: 12px; }
+.schedule-form > label { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-ui-sm); }
+.schedule-history-select { width: auto; min-width: 160px; max-width: 260px; }
 .schedule-prompt, .schedule-form-actions, .schedule-targets { grid-column: 1/-1; }
 .schedule-plan { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
 .schedule-plan-title { margin-bottom: 8px; }
-.schedule-plan-title strong { font-size: 14px; }
-.schedule-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: var(--bg-secondary); color: var(--text-secondary); }
+.schedule-plan-title strong { font-size: var(--font-section); }
+.schedule-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: var(--font-caption); background: var(--bg-secondary); color: var(--text-secondary); }
 .schedule-badge[data-enabled=true] { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
-.schedule-meta { flex-wrap: wrap; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px; }
+.schedule-meta { flex-wrap: wrap; margin-bottom: 8px; color: var(--text-secondary); font-size: var(--font-ui-sm); }
 .schedule-meta > span:not(:last-child)::after { content: '·'; margin-left: 10px; color: var(--border-color); }
 .schedule-host-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.schedule-chip { display: inline-flex; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 8px; border-radius: 999px; background: var(--bg-secondary); border: 1px solid var(--border-color); font-size: 11px; color: var(--text-secondary); }
+.schedule-chip { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; background: var(--bg-secondary); }
 .schedule-chip.muted { opacity: 0.8; }
 .schedule-actions { flex-shrink: 0; flex-wrap: wrap; }
 .schedule-history-heading { margin: 24px 0 12px; justify-content: space-between; }
@@ -374,9 +374,9 @@ p, small, .schedule-toolbar-meta { font-size: 12px; line-height: 1.6; color: var
 .schedule-result-summary { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
 .schedule-result-top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
 .schedule-result-title { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; min-width: 0; }
-.schedule-result-title strong { font-size: 13px; }
+.schedule-result-title strong { font-size: var(--font-ui); }
 .schedule-result-badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--text-secondary); }
-.schedule-preview { margin: 0; color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-preview { margin: 0; color: var(--text-secondary); font-size: var(--font-ui-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-result-stop { padding: 0 14px 10px; }
 .schedule-result[data-status=failed] .schedule-status, .schedule-error { color: var(--danger); }
 .schedule-result[data-status=completed] .schedule-status { color: var(--success); }
@@ -385,15 +385,15 @@ p, small, .schedule-toolbar-meta { font-size: 12px; line-height: 1.6; color: var
 .schedule-report { margin-top: 12px; }
 .schedule-host-panel { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 12px; margin-top: 14px; }
 .schedule-host-list { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
-.schedule-host-tab { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; font: inherit; font-size: 12px; }
+.schedule-host-tab { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md, 8px); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; font: inherit; font-size: var(--font-ui-sm); }
 .schedule-host-tab:hover { background: var(--tab-hover-surface); }
 .schedule-host-tab.active { border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color)); background: var(--tab-selected-surface); }
 .schedule-host-tab[data-status=failed] small { color: var(--danger); }
 .schedule-host-tab[data-status=completed] small { color: var(--success); }
-.schedule-host-detail { min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
-pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-primary); padding: 8px; border-radius: 5px; font-size: 12px; }
-.schedule-tool { margin-top: 10px; font-size: 12px; } .schedule-tool summary { cursor: pointer; }
-.schedule-targets { min-width: 0; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; font-size: 12px; }
+.schedule-host-detail { min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md, 8px); background: var(--bg-secondary); }
+pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-primary); padding: 8px; border-radius: var(--radius-sm, 6px); font-size: var(--font-ui-sm); }
+.schedule-tool { margin-top: 10px; font-size: var(--font-ui-sm); } .schedule-tool summary { cursor: pointer; }
+.schedule-targets { min-width: 0; border: 1px solid var(--border-color); border-radius: var(--radius-sm, 6px); padding: 8px; font-size: var(--font-ui-sm); }
 .schedule-targets > div { max-height: 140px; overflow: auto; }
 .schedule-targets label { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; overflow-wrap: anywhere; }
 .schedule-outcome-hint, .schedule-runtime-hint { padding: 8px 10px; border-radius: 6px; background: var(--bg-secondary); }

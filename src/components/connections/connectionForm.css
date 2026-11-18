@@ -20,7 +20,7 @@
 }
 
 .connection-modal .modal-title {
-  font-size: 18px;
+  font-size: var(--font-title);
   font-weight: 600;
   margin: 0 28px 14px 0;
   color: var(--text-primary);
@@ -41,7 +41,7 @@
   border-radius: 999px;
   background: var(--accent-bg);
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 16px;
   text-align: center;
 }
@@ -97,13 +97,13 @@
 }
 
 .connection-modal .panel-title {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .connection-modal .panel-hint {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -231,7 +231,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--font-ui);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -258,7 +258,7 @@
 }
 
 .connection-modal .hint-text {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.5;
 }

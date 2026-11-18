@@ -319,9 +319,9 @@ app.whenReady().then(async () => {
   await wait('getComputedStyle(document.querySelector(".file-sidebar .tree-row")).fontSize==="15px"')
   await run(`window.dispatchEvent(new CustomEvent('sftp-font-settings-change',{detail:{fontSize:12}}))`)
   stage = 'original icon toggle and region switching'
-  await click(tool('batch')); await wait('window.__dock.snapshot().panels.batch && !window.__dock.snapshot().panels.ai')
+  await click(tool('batch')); await wait('window.__dock.snapshot().panels.batch && !window.__dock.snapshot().panels.files')
   await click(tool('snippets')); await wait('window.__dock.snapshot().panels.snippets && !window.__dock.snapshot().panels.batch')
-  await click(tool('ai')); await wait('window.__dock.snapshot().panels.ai && !window.__dock.snapshot().panels.snippets')
+  await click(tool('files')); await wait('window.__dock.snapshot().panels.files && !window.__dock.snapshot().panels.snippets')
   assert.ok(await run('window.__savedAiInput.checkVisibility() && window.__savedAiInput.value==="Keep this draft while moving"'))
   assert.ok(await run(`(() => {const right=document.querySelector('.dock-right');return !right.innerText.includes('批量执行') && !right.innerText.includes('命令片段') && !right.querySelector('.workspace-dock-tabs')})()`), 'Previously opened tools also stay hidden after switching back to AI')
   stage = 'left and right placement without remounting'
@@ -488,9 +488,11 @@ app.whenReady().then(async () => {
   await click(tool('monitor'))
   await wait('document.querySelector(".dock-right .monitor-header")?.checkVisibility()')
   await click(tool('monitor'))
-  await click(tool('sync'))
-  await wait('document.querySelector(".dock-left .sync-input-bar")?.checkVisibility()')
-  await click(tool('sync'))
+  await run('window.__dock.split(true,"horizontal")')
+  await click('.split-sync-btn')
+  await wait('document.querySelector(".workspace-main .sync-input-bar")?.checkVisibility()')
+  await click('.split-sync-btn')
+  await run('window.__dock.split(false)')
   } else {
     stage = 'side dock composer and split target visibility'
     await move('ai', 'right')

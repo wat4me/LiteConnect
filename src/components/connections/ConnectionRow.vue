@@ -639,7 +639,7 @@ function onMenuAction(action: MenuAction) {
   align-items: center;
   gap: 5px;
   max-width: 100%;
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
@@ -660,7 +660,7 @@ function onMenuAction(action: MenuAction) {
   align-items: baseline;
   gap: 6px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.35;
   white-space: nowrap;
@@ -687,7 +687,7 @@ function onMenuAction(action: MenuAction) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -724,7 +724,7 @@ function onMenuAction(action: MenuAction) {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 28%;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   opacity: 0.85;
   line-height: 1.35;
@@ -739,7 +739,7 @@ function onMenuAction(action: MenuAction) {
   gap: 6px;
   flex-shrink: 0;
 }
-.conn-note { flex: 1 1 0%; max-width: none; color: var(--text-primary); opacity: 1; font-size: 12px; }
+.conn-note { flex: 1 1 0%; max-width: none; color: var(--text-primary); opacity: 1; font-size: var(--font-ui-sm); }
 .conn-meta:has(.conn-note) .conn-addr { max-width: 60%; }
 
 /* 测试结果在非 hover 时也保留可见，避免状态闪失 */
@@ -750,7 +750,7 @@ function onMenuAction(action: MenuAction) {
   max-width: 120px;
   padding: 3px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;

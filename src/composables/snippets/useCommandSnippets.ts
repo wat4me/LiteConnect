@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { t } from '../../i18n'
 import type { CommandSnippet } from '@/env.d'
 import { appPrompt } from '@/composables/app/useAppDialog'
+import { emitAppEvent } from '@/utils/shared/appEvents'
 import {
   pendingSnippetVars,
   resolveDynamicBuiltins,
@@ -41,6 +42,7 @@ export function useCommandSnippets(options: {
   /** Persists the list and adopts the normalized result returned by the store. */
   async function saveSnippets(next: CommandSnippet[]) {
     snippets.value = await window.LiteConnect.setCommandSnippets(next)
+    emitAppEvent('command-snippets-change')
   }
 
   /** Usage statistics are best-effort and never fail the send that triggered them. */

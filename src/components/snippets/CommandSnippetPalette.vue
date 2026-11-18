@@ -184,19 +184,20 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--overlay-bg);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
-  padding-top: min(18vh, 140px);
+  padding-top: min(18vh, 120px);
 }
 
 .palette-box {
-  width: min(560px, 92vw);
+  width: min(560px, calc(100vw - 24px));
   max-height: min(60vh, 480px);
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-dialog);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -207,7 +208,7 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-color, #333);
   background: transparent;
   color: var(--text-primary, #eee);
-  font-size: 14px;
+  font-size: var(--font-section);
   padding: 14px 16px;
   outline: none;
 }
@@ -222,7 +223,7 @@ onBeforeUnmount(() => {
   padding: 24px;
   text-align: center;
   color: var(--text-secondary, #888);
-  font-size: 13px;
+  font-size: var(--font-ui);
 }
 
 .palette-item {
@@ -237,9 +238,13 @@ onBeforeUnmount(() => {
   color: inherit;
 }
 
-.palette-item.active,
 .palette-item:hover {
-  background: var(--hover-bg, rgba(88, 166, 255, 0.15));
+  background: var(--tab-hover-surface, var(--hover-bg));
+}
+
+.palette-item.active {
+  background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .palette-item-top {
@@ -251,11 +256,11 @@ onBeforeUnmount(() => {
 
 .pin {
   color: var(--warning);
-  font-size: 11px;
+  font-size: var(--font-caption);
 }
 
 .name {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary, #eee);
   flex: 1;
@@ -267,7 +272,7 @@ onBeforeUnmount(() => {
 
 .group,
 .mode {
-  font-size: 10px;
+  font-size: var(--font-caption);
   padding: 0 5px;
   border-radius: 4px;
   background: var(--bg-tertiary, #333);
@@ -277,7 +282,7 @@ onBeforeUnmount(() => {
 
 .cmd {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary, #999);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   white-space: nowrap;

@@ -613,7 +613,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   color: var(--text-primary);
   /* Chrome stays on the UI stack (12px tabs / 11px compact controls).
    * Editor, grids, DDL and SQL errors opt into --db-font-size / --db-font-family. */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   --font-mono: var(--db-font-family, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   container-type: inline-size;
   container-name: db-shell;
@@ -627,21 +627,21 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
 
 .welcome-title {
   margin: 8px 0 0;
-  font-size: 15px;
+  font-size: var(--font-section);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .welcome-desc {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   max-width: 280px;
   text-align: center;
   line-height: 1.45;
 }
 
 .bk-engine-badge {
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 7px;
@@ -745,7 +745,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   border-bottom: 1px solid var(--border-color);
   background: var(--accent-bg);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-caption);
 }
 
 .bk-script-status.failed {
@@ -754,12 +754,12 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
 }
 
 .bk-conn-name {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
 }
 
 .bk-top-meta {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -807,14 +807,14 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   border-radius: 6px 6px 0 0;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   cursor: pointer;
 }
 
 .bk-tab:not(.add):hover {
   color: var(--text-primary);
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
 }
 
 .bk-tab.active {
@@ -861,7 +861,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--text-secondary);
   padding: 0 2px;
@@ -887,7 +887,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   border-radius: 4px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   outline: none;
   box-shadow: 0 0 0 2px var(--accent-bg);
 }
@@ -912,7 +912,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   flex-shrink: 0;
   color: var(--warning);
   font-weight: 800;
-  font-size: 14px;
+  font-size: var(--font-section);
   line-height: 1;
   opacity: 0.9;
 }
@@ -939,7 +939,7 @@ function onQueryTabTitleKeydown(e: KeyboardEvent, tabId: string, title: string) 
   align-items: center;
   border-top: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import AppIcon from '@/components/icons/AppIcon.vue'
-import InlineLabel from '@/components/common/InlineLabel.vue'
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { useBatchCommand, type BatchCommandTarget } from '@/composables/snippets/useBatchCommand'
 import type { CommandSnippet } from '@/env.d'
 import { resolveSnippetCommand } from '@/utils/snippets/commandSnippets'
+import { addAppEventListener } from '@/utils/shared/appEvents'
 
 const { t } = useI18n()
 
@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'clear-initial'): void
+  (e: 'save-as-snippet', command: string): void
 }>()
 
 const {
@@ -58,21 +59,6 @@ const selectedList = computed(() =>
 const previewRows = computed(() => {
   if (!commandInput.value.trim() || selectedList.value.length === 0) return []
   return expandForSessions(selectedList.value, commandInput.value)
-})
-
-/** Group open sessions by connection for bulk select */
-const sessionGroups = computed(() => {
-  const map = new Map<string, { key: string; label: string; sessions: BatchCommandTarget[] }>()
-  for (const s of props.sessions) {
-    const key = s.connectionId || s.connectionName
-    let g = map.get(key)
-    if (!g) {
-      g = { key, label: s.connectionName, sessions: [] }
-      map.set(key, g)
-    }
-    g.sessions.push(s)
-  }
-  return [...map.values()]
 })
 
 const snippetOptions = computed(() => {
@@ -149,27 +135,6 @@ function selectNone() {
   selectedSessions.value = new Set()
 }
 
-function toggleGroup(group: { sessions: BatchCommandTarget[] }) {
-  const ids = group.sessions.map((s) => s.id)
-  const allOn = ids.every((id) => selectedSessions.value.has(id))
-  const next = new Set(selectedSessions.value)
-  if (allOn) {
-    for (const id of ids) next.delete(id)
-  } else {
-    for (const id of ids) next.add(id)
-  }
-  selectedSessions.value = next
-}
-
-function groupChecked(group: { sessions: BatchCommandTarget[] }): boolean {
-  return group.sessions.length > 0 && group.sessions.every((s) => selectedSessions.value.has(s.id))
-}
-
-function groupIndeterminate(group: { sessions: BatchCommandTarget[] }): boolean {
-  const n = group.sessions.filter((s) => selectedSessions.value.has(s.id)).length
-  return n > 0 && n < group.sessions.length
-}
-
 async function handleExecute() {
   if (!canExecute.value) return
   showPreview.value = false
@@ -219,7 +184,16 @@ function sampleExpanded(cmd: string): string {
   })
 }
 
-onMounted(loadSnippets)
+let stopSnippetsListener: (() => void) | null = null
+onMounted(() => {
+  void loadSnippets()
+  stopSnippetsListener = addAppEventListener('command-snippets-change', () => {
+    void loadSnippets()
+  })
+})
+onBeforeUnmount(() => {
+  stopSnippetsListener?.()
+})
 </script>
 
 <template>
@@ -238,41 +212,25 @@ onMounted(loadSnippets)
       <div class="sessions-header">
         <span>{{ t('batch.targetSessions', { selected: selectedSessions.size, total: sessions.length }) }}</span>
         <div class="sessions-actions">
-          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="selectAll">{{ t('batch.selectAll') }}</button>
-          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" @click="selectNone">{{ t('batch.selectNone') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :disabled="isRunning" @click="selectAll">{{ t('batch.selectAll') }}</button>
+          <button type="button" class="ui-btn ui-btn-xs ui-btn-ghost" :disabled="isRunning" @click="selectNone">{{ t('batch.selectNone') }}</button>
         </div>
       </div>
-      <div class="sessions-list">
-        <div v-for="group in sessionGroups" :key="group.key" class="session-group">
-          <label class="session-group-head">
-            <input
-              type="checkbox"
-              :checked="groupChecked(group)"
-              :indeterminate.prop="groupIndeterminate(group)"
-              :disabled="isRunning"
-              @change="toggleGroup(group)"
-            />
-            <InlineLabel :text="group.label">
-              <span class="session-group-count">{{ group.sessions.length }}</span>
-            </InlineLabel>
-          </label>
-          <label
-            v-for="session in group.sessions"
-            :key="session.id"
-            class="session-checkbox"
-          >
-            <input
-              type="checkbox"
-              :checked="selectedSessions.has(session.id)"
-              :disabled="isRunning"
-              @change="toggleSession(session.id)"
-            />
-            <span class="session-text">
-              <span class="session-name">{{ session.displayName }}</span>
-              <span class="session-meta">{{ session.sshAddress }}</span>
-            </span>
-          </label>
-        </div>
+      <div class="sessions-pills">
+        <button
+          v-for="session in sessions"
+          :key="session.id"
+          type="button"
+          class="session-pill"
+          :class="{ selected: selectedSessions.has(session.id) }"
+          :title="session.sshAddress"
+          :disabled="isRunning"
+          :aria-pressed="selectedSessions.has(session.id)"
+          @click="toggleSession(session.id)"
+        >
+          <span class="session-pill-dot" aria-hidden="true" />
+          <span class="session-pill-name">{{ session.displayName }}</span>
+        </button>
       </div>
     </div>
 
@@ -282,6 +240,7 @@ onMounted(loadSnippets)
           v-model="snippetSelect"
           class="ui-select ui-input-sm snippet-select"
           :disabled="isRunning || snippetOptions.length === 0"
+          @focus="loadSnippets"
           @change="onSnippetPick"
         >
           <option value="">{{ t('batch.fromSnippet') }}</option>
@@ -312,36 +271,70 @@ onMounted(loadSnippets)
           <span class="history-meta">{{ h.success }}/{{ h.total }} · {{ new Date(h.at).toLocaleString() }}</span>
         </button>
       </div>
-      <textarea
-        v-model="commandInput"
-        class="ui-textarea ui-input-sm ui-input-mono command-textarea"
-        :placeholder="t('batch.commandPlaceholder')"
-        rows="3"
-        @keydown="handleKeydown"
-        :disabled="isRunning"
-      />
-      <div class="input-options">
-        <label class="timeout-label">
-          <span>{{ t('batch.timeoutSec') }}</span>
-          <input
-            type="number"
-            v-model.number="timeoutInput"
-            class="ui-input ui-input-sm timeout-input"
-            min="5"
-            max="300"
-            :disabled="isRunning"
-          />
-        </label>
-        <button
-          type="button"
-          class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
-          :class="{ active: showPreview }"
-          :title="t(showPreview ? 'batch.collapsePreview' : 'batch.expandPreview')"
-          :aria-label="t(showPreview ? 'batch.collapsePreview' : 'batch.expandPreview')"
-          :aria-expanded="showPreview"
-          :disabled="!commandInput.trim() || selectedSessions.size === 0"
-          @click="showPreview = !showPreview"
-        ><AppIcon name="eye" size="sm" /></button>
+      <div class="batch-composer">
+        <textarea
+          v-model="commandInput"
+          class="ui-textarea ui-input-sm ui-input-mono command-textarea"
+          :placeholder="t('batch.commandPlaceholder')"
+          rows="3"
+          @keydown="handleKeydown"
+          :disabled="isRunning"
+        />
+        <div class="composer-bar">
+          <div class="input-options">
+            <label class="timeout-label">
+              <span>{{ t('batch.timeoutSec') }}</span>
+              <input
+                type="number"
+                v-model.number="timeoutInput"
+                class="ui-input ui-input-sm timeout-input"
+                min="5"
+                max="300"
+                :disabled="isRunning"
+              />
+            </label>
+            <button
+              type="button"
+              class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+              :class="{ active: showPreview }"
+              :title="t(showPreview ? 'batch.collapsePreview' : 'batch.expandPreview')"
+              :aria-label="t(showPreview ? 'batch.collapsePreview' : 'batch.expandPreview')"
+              :aria-expanded="showPreview"
+              :disabled="!commandInput.trim() || selectedSessions.size === 0"
+              @click="showPreview = !showPreview"
+            ><AppIcon name="eye" size="sm" /></button>
+            <button
+              type="button"
+              class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
+              :title="t('terminal.saveAsSnippet')"
+              :aria-label="t('terminal.saveAsSnippet')"
+              :disabled="!commandInput.trim()"
+              @click="emit('save-as-snippet', commandInput.trim())"
+            ><AppIcon name="file-terminal" size="sm" /></button>
+          </div>
+          <div class="batch-actions">
+            <button v-if="hasResults && !isRunning" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('batch.copyResults')" :aria-label="t('batch.copyResults')" @click="handleCopyResults"><AppIcon name="copy" size="sm" /></button>
+            <button v-if="hasResults" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('batch.clearResults')" :aria-label="t('batch.clearResults')" :disabled="isRunning" @click="clearResults"><AppIcon name="clear" size="sm" /></button>
+            <button
+              v-if="!isRunning"
+              class="ui-btn ui-btn-sm ui-btn-primary execute-btn"
+              :disabled="!canExecute"
+              @click="handleExecute"
+            >
+              <AppIcon name="play" size="sm" />
+              <span>{{ t('batch.execute') }}</span>
+            </button>
+            <button
+              v-else
+              class="ui-btn ui-btn-sm ui-btn-danger execute-btn"
+              type="button"
+              @click="handleCancel"
+            >
+              <AppIcon name="stop" size="sm" />
+              <span>{{ t('batch.cancel') }}</span>
+            </button>
+          </div>
+        </div>
       </div>
       <div v-if="showPreview && previewRows.length" class="preview-box">
         <div class="preview-title">{{ t('batch.previewTitle', { count: previewRows.length }) }}</div>
@@ -350,29 +343,6 @@ onMounted(loadSnippets)
           <code class="preview-cmd">{{ row.command }}</code>
         </div>
       </div>
-    </div>
-
-    <div class="batch-actions">
-      <button
-        v-if="!isRunning"
-        class="ui-btn ui-btn-primary execute-btn"
-        :disabled="!canExecute"
-        @click="handleExecute"
-      >
-        <AppIcon name="play" size="sm" />
-        <span>{{ t('batch.execute') }}</span>
-      </button>
-      <button
-        v-else
-        class="ui-btn ui-btn-danger execute-btn"
-        type="button"
-        @click="handleCancel"
-      >
-        <AppIcon name="stop" size="sm" />
-        <span>{{ t('batch.cancel') }}</span>
-      </button>
-      <button v-if="hasResults && !isRunning" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('batch.copyResults')" :aria-label="t('batch.copyResults')" @click="handleCopyResults"><AppIcon name="copy" size="sm" /></button>
-      <button v-if="hasResults" type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" :title="t('batch.clearResults')" :aria-label="t('batch.clearResults')" :disabled="isRunning" @click="clearResults"><AppIcon name="clear" size="sm" /></button>
     </div>
 
     <div v-if="hasResults" class="batch-results">
@@ -384,13 +354,15 @@ onMounted(loadSnippets)
       </div>
 
       <div class="results-list">
-        <div
+        <details
           v-for="result in results"
           :key="result.sessionId"
           class="result-item"
           :class="result.status"
+          :open="result.status === 'error' || results.length <= 4"
         >
-          <div class="result-header">
+          <summary class="result-header">
+            <AppIcon name="chevron-right" size="xs" class="result-chevron" />
             <div class="result-title-group">
               <span class="result-name">{{ result.displayName }}</span>
               <span class="result-meta">{{ result.sshAddress }}</span>
@@ -402,17 +374,19 @@ onMounted(loadSnippets)
               <template v-else-if="result.status === 'cancelled'">{{ t('batch.statusCancelled') }}</template>
               <template v-else>{{ t('batch.statusPending') }}</template>
             </span>
+          </summary>
+          <div class="result-body">
+            <div v-if="result.command && result.command !== sampleExpanded(commandInput)" class="result-cmd">
+              <code>{{ result.command }}</code>
+            </div>
+            <div v-if="result.output" class="result-output">
+              <pre>{{ result.output }}</pre>
+            </div>
+            <div v-if="result.error" class="result-error">
+              {{ result.error }}
+            </div>
           </div>
-          <div v-if="result.command && result.command !== sampleExpanded(commandInput)" class="result-cmd">
-            <code>{{ result.command }}</code>
-          </div>
-          <div v-if="result.output" class="result-output">
-            <pre>{{ result.output }}</pre>
-          </div>
-          <div v-if="result.error" class="result-error">
-            {{ result.error }}
-          </div>
-        </div>
+        </details>
       </div>
     </div>
   </div>
@@ -422,14 +396,15 @@ onMounted(loadSnippets)
 .batch-panel {
   width: 100%;
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   overflow: hidden;
 }
 
 .snippet-row {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -441,34 +416,37 @@ onMounted(loadSnippets)
 }
 
 .batch-header {
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
 }
 
 .batch-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .batch-title-badge {
-  padding: 2px 6px;
+  padding: 1px 7px;
   border-radius: 999px;
   background: var(--accent-bg);
   color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .batch-sessions {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 10px 12px 6px;
 }
 
 .sessions-header {
@@ -476,7 +454,7 @@ onMounted(loadSnippets)
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
 }
 
@@ -485,82 +463,114 @@ onMounted(loadSnippets)
   gap: 4px;
 }
 
-.sessions-list {
+.sessions-pills {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 180px;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 112px;
   overflow-y: auto;
 }
 
-.session-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.session-group-head {
-  display: flex;
+.session-pill {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 2px 4px;
-}
-
-.session-group-count {
-  font-weight: 500;
-  opacity: 0.7;
-}
-
-.session-checkbox {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px 6px 22px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  font-size: 11px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.session-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   min-width: 0;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  font: inherit;
+  font-size: var(--font-ai-detail, 12px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-.session-name {
+.session-pill:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-color));
+  color: var(--text-primary);
+}
+
+.session-pill.selected {
+  background: var(--tab-selected-surface);
+  border-color: color-mix(in srgb, var(--text-primary) 24%, var(--border-color));
+  box-shadow: var(--tab-selected-shadow);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
-.session-meta {
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
+.session-pill:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.session-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.session-pill.selected .session-pill-dot {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.session-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .batch-input {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 6px 12px 10px;
+}
+
+.batch-composer {
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, var(--border-color));
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-secondary);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.batch-composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+  box-shadow: 0 0 0 3px var(--accent-bg);
 }
 
 .command-textarea {
   width: 100%;
   resize: vertical;
-  min-height: 64px;
+  min-height: 60px;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+}
+
+.command-textarea:focus {
+  box-shadow: none;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .input-options {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -568,20 +578,20 @@ onMounted(loadSnippets)
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
 }
 
 .timeout-input {
-  width: 64px;
+  width: 60px;
 }
 
 .history-list {
-  max-height: 100px;
+  max-height: 120px;
   overflow-y: auto;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-primary);
 }
 
@@ -591,9 +601,9 @@ onMounted(loadSnippets)
   gap: 2px;
   width: 100%;
   text-align: left;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border: none;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
   background: transparent;
   cursor: pointer;
   color: var(--text-primary);
@@ -609,14 +619,14 @@ onMounted(loadSnippets)
 
 .history-cmd {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .history-meta {
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
 }
 
@@ -625,13 +635,13 @@ onMounted(loadSnippets)
   max-height: 140px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  padding: 8px 10px;
 }
 
 .preview-title {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 6px;
@@ -650,25 +660,24 @@ onMounted(loadSnippets)
 }
 
 .preview-name {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .preview-cmd {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 .batch-actions {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 6px;
+  margin-left: auto;
 }
 
 .batch-results {
@@ -677,13 +686,15 @@ onMounted(loadSnippets)
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
 }
 
 .results-summary {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
+  font-weight: 500;
 }
 
 .result-count.success { color: var(--success); }
@@ -701,10 +712,11 @@ onMounted(loadSnippets)
 }
 
 .result-item {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: var(--radius-lg, 12px);
   background: var(--bg-primary);
-  padding: 8px 10px;
+  box-shadow: inset 0 1px 0 var(--mica-highlight, transparent);
+  padding: 9px 11px;
 }
 
 .result-item.success { border-color: color-mix(in srgb, var(--success) 40%, var(--border-color)); }
@@ -713,56 +725,92 @@ onMounted(loadSnippets)
 
 .result-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.result-header::-webkit-details-marker,
+.result-header::marker {
+  display: none;
+  content: '';
+}
+
+.result-chevron {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  transition: transform 0.12s ease;
+}
+
+.result-item[open] > .result-header .result-chevron {
+  transform: rotate(90deg);
+}
+
+.result-body {
+  margin-top: 6px;
 }
 
 .result-title-group {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
+  flex: 1;
 }
 
 .result-name {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .result-meta {
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .result-status {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
+.result-item.success .result-status { color: var(--success); }
+.result-item.error .result-status { color: var(--danger); }
+
 .result-cmd {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .result-cmd code {
-  font-size: 10px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
 }
 
 .result-output pre {
   margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   font-family: var(--font-mono);
   max-height: 160px;
   overflow: auto;
 }
 
 .result-error {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--danger);
   margin-top: 4px;
 }

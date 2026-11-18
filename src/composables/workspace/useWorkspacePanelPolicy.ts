@@ -4,7 +4,7 @@ import { WORKSPACE_TOOLS, workspacePanelEdge, type SshWorkspaceLayout, type Work
 /** The existing refs remain canonical for shortcuts, Docker snapshots and split restoration. */
 export function useWorkspacePanelPolicy(layout: Ref<SshWorkspaceLayout>, panels: Record<WorkspacePanel, Ref<boolean>>, singlePanel: Ref<boolean>) {
   let latest: WorkspacePanel | undefined
-  const ids = WORKSPACE_TOOLS.filter((id): id is WorkspacePanel => id !== 'docker')
+  const ids = WORKSPACE_TOOLS.filter((id): id is WorkspacePanel => id !== 'docker' && id !== 'sync')
   function reconcile(preferred?: WorkspacePanel) {
     const active = preferred && panels[preferred].value ? preferred : latest && panels[latest].value ? latest : ids.find(id => panels[id].value)
     if (!active) return

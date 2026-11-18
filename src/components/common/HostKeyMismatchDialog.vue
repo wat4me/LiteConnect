@@ -196,14 +196,14 @@ async function copyFingerprint() {
 }
 
 .dialog-title {
-  font-size: 16px;
+  font-size: var(--font-title);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
 }
 
 .dialog-host {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
   color: var(--text-secondary);
   word-break: break-all;
@@ -224,14 +224,14 @@ async function copyFingerprint() {
 }
 
 .dialog-warning {
-  font-size: 14px;
+  font-size: var(--font-section);
   color: var(--text-primary);
   margin: 0 0 8px;
   line-height: 1.55;
 }
 
 .dialog-note {
-  font-size: 12.5px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   margin: 0 0 14px;
   line-height: 1.5;
@@ -243,7 +243,7 @@ async function copyFingerprint() {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: var(--font-ui-sm);
   color: var(--text-primary);
   line-height: 1.55;
 }
@@ -279,13 +279,13 @@ async function copyFingerprint() {
 }
 
 .fingerprint-label {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-secondary);
 }
 
 .fingerprint-algo {
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 6px;
@@ -303,7 +303,7 @@ async function copyFingerprint() {
   flex-wrap: wrap;
   gap: 6px 8px;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 15px;
+  font-size: var(--font-section);
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1.45;
@@ -319,7 +319,7 @@ async function copyFingerprint() {
   color: var(--danger);
   text-decoration: line-through;
   opacity: 0.9;
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 500;
 }
 
@@ -329,7 +329,7 @@ async function copyFingerprint() {
 
 .fingerprint-hint {
   margin: 10px 0 0;
-  font-size: 11.5px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   line-height: 1.4;
 }

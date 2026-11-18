@@ -299,14 +299,25 @@ function onSelectTerminal(sessionId: string) {
   emit('select-session', sessionId)
 }
 
-const availableTools = computed(() => WORKSPACE_TOOLS.filter(id => id !== 'monitor' || props.monitorEnabled !== false))
+const availableTools = computed(() =>
+  WORKSPACE_TOOLS.filter(id => id !== 'sync' && (id !== 'monitor' || props.monitorEnabled !== false)),
+)
+watch(
+  () => props.isSplit,
+  (split) => {
+    if (!split) {
+      synchronizedInput.stop()
+      if (props.syncInputOpen) emit('close-sync')
+    }
+  },
+)
 const activeTools = computed(() => ({
   ai: !props.dockerMode && !!props.activeSession && props.aiSidebarVisible,
   files: !props.dockerMode && !!props.sidebarSessionId && props.sidebarVisible,
   monitor: !props.dockerMode && !!props.activeGroup?.sessions.length && props.monitorVisible && props.monitorEnabled !== false,
   batch: !props.dockerMode && props.batchPanelVisible && props.batchSessions.length > 0,
   snippets: !props.dockerMode && props.snippetsPanelVisible,
-  sync: !props.dockerMode && props.syncInputOpen,
+  sync: false,
 }))
 const toolbar = computed(() => ({
   aiActive: activeTools.value.ai, filesActive: activeTools.value.files, monitorActive: activeTools.value.monitor,
@@ -337,7 +348,22 @@ function toggleTool(id: WorkspaceTool) {
     case 'files': emit('toggle-files'); break
     case 'monitor': emit('toggle-monitor'); break
     case 'batch': emit('toggle-batch'); break
-    case 'sync': emit('toggle-sync'); break
+    case 'sync': {
+      if (!props.syncInputOpen && !synchronizedInput.enabled.value) {
+        const primaryId = props.splitPrimarySessionId || props.activeSessionId
+        const pair = [primaryId, props.secondarySessionId].filter((id): id is string => !!id && synchronizedInput.available(id))
+        const writable = pair.length >= 2 ? pair : props.batchSessions.map(s => s.id).filter(id => synchronizedInput.available(id))
+        if (synchronizedInput.targets.value.length < 2 && writable.length >= 2) {
+          synchronizedInput.select(writable)
+        }
+        synchronizedInput.start()
+        void nextTick(() => terminalWorkspaceRef.value?.focusActiveTerminal())
+      } else if (props.syncInputOpen && synchronizedInput.enabled.value) {
+        synchronizedInput.stop()
+      }
+      emit('toggle-sync')
+      break
+    }
     case 'snippets': emit('toggle-snippets'); break
     case 'docker': emit('toggle-docker'); break
   }
@@ -350,7 +376,7 @@ function toggleTool(id: WorkspaceTool) {
       @toggle="toggleTool" @change="emit('layout-change', $event)" @retry="emit('layout-retry')" @single-panel-mode="emit('single-panel-mode', $event)">
       <template #center>
         <div class="workspace-main">
-          <SynchronizedInputBar v-if="!syncInputOpen" :sessions="batchSessions" :open="false" @close="emit('close-sync')" />
+          <SynchronizedInputBar v-if="!dockerMode" :sessions="batchSessions" :open="syncInputOpen" @close="emit('close-sync')" />
       <div v-if="approvalHint" class="ai-approval-bar">
         <span class="ai-approval-bar-text">
           {{
@@ -390,7 +416,9 @@ function toggleTool(id: WorkspaceTool) {
           :disconnected-session-ids="disconnectedSessionIds"
           :docker-tab-open="!!dockerTabOpen"
           :docker-tab-active="!!dockerMode"
+          :sync-active="synchronizedInput.enabled.value || syncInputOpen"
           @select-session="onSelectTerminal"
+          @toggle-sync="toggleTool('sync')"
           @close-session="emit('close-session', $event)"
           @rename-session="(id, label) => emit('rename-session', id, label)"
           @add-session="emit('add-session', $event)"
@@ -479,7 +507,8 @@ function toggleTool(id: WorkspaceTool) {
           :sessions="batchSessions"
           :initial-command="batchInitialCommand"
           @close="emit('close-batch')"
-          @clear-initial="emit('clear-batch-initial')" />
+          @clear-initial="emit('clear-batch-initial')"
+          @save-as-snippet="emit('save-as-snippet', $event)" />
         </template>
       </template>
       <template #snippets>
@@ -500,9 +529,6 @@ function toggleTool(id: WorkspaceTool) {
           @send-to-batch="emit('send-to-batch', $event)"
           @clear-draft="emit('clear-snippet-draft')" />
         </template>
-      </template>
-      <template #sync>
-        <SynchronizedInputBar :sessions="batchSessions" :open="syncInputOpen && !dockerMode" @close="emit('close-sync')" />
       </template>
     </WorkspaceDock>
     <CommandSnippetPalette
@@ -553,7 +579,7 @@ function toggleTool(id: WorkspaceTool) {
   background: color-mix(in srgb, var(--warning) 16%, var(--bg-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border-color));
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .ai-approval-bar-text {

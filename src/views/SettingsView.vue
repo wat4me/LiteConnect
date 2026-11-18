@@ -445,14 +445,14 @@ defineExpose({ requestClose: handleClose })
 
 .nav-title {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-title);
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .nav-sub {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -521,19 +521,19 @@ defineExpose({ requestClose: handleClose })
 }
 
 .nav-search-hit-title {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   line-height: 1.35;
 }
 
 .nav-search-hit-tab {
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
 }
 
 .nav-search-empty {
   padding: 10px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
 }
 
@@ -554,7 +554,7 @@ defineExpose({ requestClose: handleClose })
 .nav-group-label {
   padding: 0 12px 5px;
   color: var(--text-tertiary, var(--text-secondary));
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1.4;
@@ -587,7 +587,7 @@ defineExpose({ requestClose: handleClose })
 }
 
 .nav-item-label {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -595,7 +595,7 @@ defineExpose({ requestClose: handleClose })
 /* 只有当前分区显示说明，导航保持一行一个分区 */
 .nav-item-desc {
   display: none;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   opacity: 0.9;
   line-height: 1.35;
@@ -630,7 +630,7 @@ defineExpose({ requestClose: handleClose })
 
 .settings-loading {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-ui);
   padding: 24px 0;
 }
 
@@ -647,7 +647,7 @@ defineExpose({ requestClose: handleClose })
 
 .settings-footer-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   line-height: 1.4;
   min-width: 0;

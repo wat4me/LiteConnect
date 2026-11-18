@@ -38,6 +38,7 @@ export interface AppEventMap {
 
   // Stores changed outside the component that displays them.
   'connections-store-change': void
+  'command-snippets-change': void
   'shell-command-history-cleared': void
 
   // Terminal ↔ SFTP and session notifications.

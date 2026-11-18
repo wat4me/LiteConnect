@@ -153,23 +153,25 @@
 .workspace-group-header { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: 12px 2px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; text-align: left; }
 .workspace-group-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-sm); font-weight: 600; color: var(--text-primary); }
 .workspace-group-header span { flex-shrink: 0; font-size: var(--font-caption); }
-.workspace-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); gap: 10px; }
-.workspace-card { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--workspace-line); border-radius: var(--workspace-panel-radius); background: var(--bg-primary); cursor: pointer; text-align: left; min-width: 0; }
+.workspace-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(186px, 100%), 1fr)); gap: 8px; }
+.workspace-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; padding: 9px 11px; border: 1px solid var(--workspace-line); border-radius: var(--workspace-panel-radius); background: var(--bg-primary); cursor: pointer; text-align: left; min-width: 0; }
 .workspace-card:hover { border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-color)); background: var(--workspace-toolbar); }
 .workspace-card.selected { border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color)); background: var(--workspace-selected); }
-.workspace-card-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.workspace-host-icon { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid transparent; border-radius: 9px; color: var(--text-secondary); background: var(--bg-secondary); }
-.workspace-card-grid:not(.is-list) .workspace-host-icon { width: 30px; height: 30px; border-radius: var(--radius-md); }
+.workspace-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.workspace-card-grid:not(.is-list) .workspace-card-top { grid-column: 1 / -1; }
+.workspace-host-icon { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border: 1px solid transparent; border-radius: 8px; color: var(--text-secondary); background: var(--bg-secondary); }
+.workspace-card-grid:not(.is-list) .workspace-host-icon { width: 26px; height: 26px; border-radius: 7px; }
 .workspace-card.connected .workspace-host-icon { color: var(--accent); background: var(--accent-bg); border-color: transparent; }
-.workspace-host-name { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-.workspace-host-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui); font-weight: 600; }
+.workspace-host-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.workspace-host-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-sm); font-weight: 600; }
 .workspace-host-address { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font: var(--font-caption) var(--font-mono); }
 .workspace-card-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: var(--font-caption); }
-.workspace-card-status { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-caption); white-space: nowrap; }
+.workspace-card-status { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-caption); white-space: nowrap; }
+.workspace-card-grid:not(.is-list) .workspace-card-status { justify-self: end; }
 .workspace-card-status.connected { color: var(--success); }
 .workspace-card-status.connecting { color: var(--accent); }
-.workspace-card-grid:not(.is-list) .workspace-disconnect-host { position: absolute; top: var(--space-3); right: var(--space-3); }
-.workspace-card-grid:not(.is-list) .workspace-card.connected .workspace-card-top { padding-right: 36px; }
+.workspace-card-grid:not(.is-list) .workspace-disconnect-host { position: absolute; top: 7px; right: 7px; }
+.workspace-card-grid:not(.is-list) .workspace-card.connected .workspace-card-top { padding-right: 30px; }
 .connection-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--text-secondary); opacity: 0.55; }
 .connection-dot.connected { background: var(--success); opacity: 1; }
 .connection-dot.connecting { background: var(--accent); opacity: 1; }

@@ -214,7 +214,7 @@ async function copyOracleSql() {
 
 .cdb-head h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-title);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -228,7 +228,7 @@ async function copyOracleSql() {
 
 .cdb-hint {
   margin: 0 0 4px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
 }
 
@@ -238,7 +238,7 @@ async function copyOracleSql() {
   border-radius: 6px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary, var(--bg-primary));
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -254,7 +254,7 @@ async function copyOracleSql() {
 }
 
 .cdb-label {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-secondary);
 }

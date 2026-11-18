@@ -319,7 +319,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 
 .nav-group-label {
   padding: 8px 10px 4px;
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -346,7 +346,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px 6px 12px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -367,7 +367,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 
 .nav-muted {
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
 }
 
@@ -379,7 +379,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   padding: 20px 12px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .nav-empty p {
@@ -404,7 +404,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   border-radius: 5px;
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -413,7 +413,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 
 .nav-conn-row:hover,
 .nav-conn-row.connecting {
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
 }
 
 .nav-conn-row.focused {
@@ -505,17 +505,17 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
   color: var(--text-primary);
   text-align: left;
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   cursor: pointer;
 }
 
 .bk-db-row:hover,
 .bk-table-row:hover {
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
 }
 
 .bk-db-block.expanded > .bk-db-row:hover {
-  background: var(--hover-bg);
+  background: var(--tab-hover-surface);
 }
 
 .bk-table-row.selected {
@@ -524,7 +524,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 }
 
 .bk-chevron {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   transition: transform 0.12s;
   flex-shrink: 0;
@@ -548,7 +548,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 }
 
 .bk-rowcount {
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
 }
 
@@ -562,7 +562,7 @@ function dbExpandedForDisplay(connectionId: string, db: string): boolean {
 
 .bk-tree-empty {
   padding: 2px 10px 4px 28px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
 }
 

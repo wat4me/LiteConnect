@@ -5,7 +5,7 @@
   gap: 6px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -41,7 +41,7 @@
 /* .action-btn visuals come from ui-btn (see docs/UI_STYLES.md → 按钮). */
 
 .action-busy {
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -49,7 +49,7 @@
 .detail-loading,
 .detail-error {
   padding: 24px 16px;
-  font-size: 13px;
+  font-size: var(--font-ui);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -61,7 +61,7 @@
 .list-error-detail {
   display: block;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   opacity: 0.85;
   word-break: break-word;
 }

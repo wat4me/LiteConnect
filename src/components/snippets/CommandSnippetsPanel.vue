@@ -311,13 +311,6 @@ function insertVar(token: string) {
   formCommand.value = (formCommand.value || '') + token
 }
 
-function toggleMultiSession(id: string) {
-  const set = new Set(multiSessionIds.value)
-  if (set.has(id)) set.delete(id)
-  else set.add(id)
-  multiSessionIds.value = Array.from(set)
-}
-
 async function exportSnippets() {
   try {
     const ok = await window.LiteConnect.exportCommandSnippets()
@@ -418,33 +411,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="snippets-hint">
-      {{ t('snippets.builtins') }}
-      <code v-pre>{host}</code>
-      <code v-pre>{user}</code>
-      <code v-pre>{port}</code>
-      <code v-pre>{name}</code>
-      <code v-pre>{date}</code>
-      <code v-pre>{time}</code>
-      <code v-pre>{clipboard}</code>
-      {{ t('snippets.hint') }}
-      <span v-if="contextPreview" class="ctx-preview">{{ t('snippets.currentCtx', { ctx: contextPreview }) }}</span>
-    </div>
-
-    <div v-if="sessions && sessions.length > 0" class="multi-session">
-      <div class="multi-label">{{ t('snippets.sendTo') }}</div>
-      <div class="multi-list">
-        <label v-for="s in sessions" :key="s.id" class="multi-item">
-          <input
-            type="checkbox"
-            :checked="multiSessionIds.includes(s.id)"
-            @change="toggleMultiSession(s.id)"
-          />
-          <span>{{ s.label }}</span>
-        </label>
-      </div>
-    </div>
-
     <div class="search-row">
       <input v-model="searchQuery" class="ui-input ui-input-sm" :placeholder="t('snippets.searchPlaceholder')" />
     </div>
@@ -504,6 +470,10 @@ onBeforeUnmount(() => {
         <button type="button" class="ui-chip" @click="insertVar('{clipboard}')">{clipboard}</button>
         <button type="button" class="ui-chip" @click="insertVar(CUSTOM_VAR_TOKEN)">{{ CUSTOM_VAR_TOKEN }}</button>
       </div>
+      <div class="snippets-hint">
+        {{ t('snippets.builtins') }} {{ t('snippets.hint') }}
+        <span v-if="contextPreview" class="ctx-preview">{{ t('snippets.currentCtx', { ctx: contextPreview }) }}</span>
+      </div>
       <div class="form-actions">
         <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" @click="resetForm">{{ t('snippets.cancel') }}</button>
         <button type="button" class="ui-btn ui-btn-sm ui-btn-primary" @click="saveSnippet">
@@ -542,30 +512,30 @@ onBeforeUnmount(() => {
               >
                 <AppIcon :name="item.pinned ? 'star-fill' : 'star'" size="xs" />
               </button>
-              <span class="snippet-name">{{ item.name }}</span>
+              <span class="snippet-name" :title="item.name">{{ item.name }}</span>
               <span v-if="item.sendMode === 'fill'" class="mode-tag">{{ t('snippets.fill') }}</span>
               <span v-if="item.hotkey" class="hotkey-tag">{{ item.hotkey }}</span>
-            </div>
-            <code class="snippet-cmd">{{ item.command }}</code>
-            <div class="snippet-actions">
-              <button type="button" class="ui-btn ui-btn-xs ui-btn-primary" @click="runSnippet(item)">
-                {{ item.sendMode === 'fill' ? t('snippets.fill') : t('snippets.run') }}
-              </button>
-              <div class="more-wrap" @click.stop>
-                <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="toggleMenu(item.id)" :title="t('snippets.more')">
-                  <AppIcon name="more" size="sm" />
+              <div class="snippet-actions">
+                <button type="button" class="ui-btn ui-btn-xs" @click.stop="runSnippet(item)">
+                  {{ item.sendMode === 'fill' ? t('snippets.fill') : t('snippets.run') }}
                 </button>
-                <div v-if="menuOpenId === item.id" class="ui-menu ui-menu-anchored">
-                  <button type="button" class="ui-menu-item" @click="sendToBatch(item)">{{ t('snippets.batch') }}</button>
-                  <button type="button" class="ui-menu-item" @click="copySnippet(item)">{{ t('snippets.copy') }}</button>
-                  <button type="button" class="ui-menu-item" @click="startEdit(item)">{{ t('snippets.edit') }}</button>
-                  <button type="button" class="ui-menu-item" @click="togglePin(item)">
-                    {{ item.pinned ? t('snippets.unpin') : t('snippets.pin') }}
+                <div class="more-wrap" @click.stop>
+                  <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm" @click="toggleMenu(item.id)" :title="t('snippets.more')">
+                    <AppIcon name="more" size="sm" />
                   </button>
-                  <button type="button" class="ui-menu-item danger" @click="removeSnippet(item.id)">{{ t('snippets.delete') }}</button>
+                  <div v-if="menuOpenId === item.id" class="ui-menu ui-menu-anchored">
+                    <button type="button" class="ui-menu-item" @click="sendToBatch(item)">{{ t('snippets.batch') }}</button>
+                    <button type="button" class="ui-menu-item" @click="copySnippet(item)">{{ t('snippets.copy') }}</button>
+                    <button type="button" class="ui-menu-item" @click="startEdit(item)">{{ t('snippets.edit') }}</button>
+                    <button type="button" class="ui-menu-item" @click="togglePin(item)">
+                      {{ item.pinned ? t('snippets.unpin') : t('snippets.pin') }}
+                    </button>
+                    <button type="button" class="ui-menu-item danger" @click="removeSnippet(item.id)">{{ t('snippets.delete') }}</button>
+                  </div>
                 </div>
               </div>
             </div>
+            <code class="snippet-cmd">{{ item.command }}</code>
           </li>
         </ul>
       </div>
@@ -577,20 +547,23 @@ onBeforeUnmount(() => {
 .snippets-panel {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border-color);
-  min-width: 280px;
-  max-width: 380px;
+  min-width: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
 }
 
 .snippets-header {
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  background: var(--bg-secondary);
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .header-actions {
@@ -603,7 +576,7 @@ onBeforeUnmount(() => {
 
 .snippets-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--font-ui);
   color: var(--text-primary);
   flex-shrink: 0;
 }
@@ -613,17 +586,9 @@ onBeforeUnmount(() => {
 }
 
 .snippets-hint {
-  padding: 8px 12px 0;
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
   line-height: 1.5;
-}
-
-.snippets-hint code {
-  font-size: 10px;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: var(--bg-tertiary);
 }
 
 .ctx-preview {
@@ -631,53 +596,70 @@ onBeforeUnmount(() => {
   margin-top: 2px;
   color: var(--accent);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 10px;
+  font-size: var(--font-ai-detail, 12px);
 }
 
 .multi-session {
-  padding: 8px 12px 0;
+  padding: 10px 12px 0;
 }
 
 .multi-label {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .multi-list {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 100px;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 88px;
   overflow-y: auto;
 }
 
 .multi-item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  background: var(--bg-secondary);
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-primary);
   cursor: pointer;
 }
 
+.multi-item.selected {
+  background: var(--tab-selected-surface);
+  border-color: color-mix(in srgb, var(--text-primary) 24%, var(--border-color));
+}
+
+.multi-item input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .search-row {
-  padding: 8px 12px 0;
+  padding: 10px 12px 0;
 }
 
 .group-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 5px;
   padding: 8px 12px 0;
 }
 
 .snippet-form {
-  padding: 10px 12px;
+  margin: 10px 12px 0;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-secondary);
 }
 
 .form-row-inline {
@@ -688,7 +670,7 @@ onBeforeUnmount(() => {
 }
 
 .form-label {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -712,7 +694,7 @@ onBeforeUnmount(() => {
 
 .var-chips .ui-chip {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 10px;
+  font-size: var(--font-caption);
   border-style: dashed;
 }
 
@@ -723,57 +705,66 @@ onBeforeUnmount(() => {
 }
 
 .snippets-empty {
-  padding: 28px 20px;
+  padding: 36px 20px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ai-detail, 12px);
 }
 
 .snippets-empty-title {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 6px;
 }
 
 .snippets-empty-desc {
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--font-ai-detail, 12px);
+  line-height: 1.5;
   max-width: 260px;
   margin: 0 auto;
 }
 
 .snippet-list {
   margin: 0;
-  padding: 8px;
+  padding: 10px 12px 12px;
   overflow-y: auto;
   flex: 1;
 }
 
 .group-block {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .group-block-title {
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   font-weight: 600;
   color: var(--text-secondary);
-  padding: 4px 4px 6px;
+  padding: 2px 4px 6px;
 }
 
 .group-items {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .snippet-item {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: var(--radius-lg, 12px);
+  padding: 9px 11px;
   background: var(--bg-primary);
+  box-shadow: inset 0 1px 0 var(--mica-highlight, transparent);
   cursor: grab;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.snippet-item:hover {
+  background: var(--bg-secondary);
+  border-color: color-mix(in srgb, var(--text-primary) 16%, var(--border-color));
 }
 
 .snippet-item:active {
@@ -784,7 +775,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 /* Compact to sit inline with the snippet name. */
@@ -800,7 +791,7 @@ onBeforeUnmount(() => {
 }
 
 .snippet-name {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-primary);
   flex: 1;
@@ -812,9 +803,9 @@ onBeforeUnmount(() => {
 
 .mode-tag,
 .hotkey-tag {
-  font-size: 10px;
-  padding: 0 5px;
-  border-radius: 4px;
+  font-size: var(--font-caption);
+  padding: 1px 6px;
+  border-radius: 5px;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   flex-shrink: 0;
@@ -822,19 +813,26 @@ onBeforeUnmount(() => {
 
 .snippet-cmd {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-ai-detail, 12px);
   color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
   white-space: pre-wrap;
   word-break: break-all;
-  margin-bottom: 6px;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
 
+.snippet-item:hover .snippet-cmd {
+  background: var(--bg-tertiary);
+}
+
 .snippet-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
   gap: 4px;
   align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .more-wrap {

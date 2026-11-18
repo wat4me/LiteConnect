@@ -600,7 +600,7 @@ onMounted(() => {
 
 .dbeaver-dialog-head h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-title);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -635,7 +635,7 @@ onMounted(() => {
   border: 1px solid color-mix(in srgb, #ed8936 30%, var(--border-color));
   background: linear-gradient(160deg, #f6ad5522, transparent 70%);
   color: #dd6b20;
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-align: center;
@@ -667,7 +667,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
 }
 
@@ -687,7 +687,7 @@ onMounted(() => {
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -733,7 +733,7 @@ onMounted(() => {
 
 .dbeaver-section-title {
   margin: 0 0 10px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -750,7 +750,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   min-width: 0;
 }
@@ -805,7 +805,7 @@ onMounted(() => {
 
 .dbeaver-url-label {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 700;
   color: var(--text-secondary);
   padding-top: 1px;
@@ -814,7 +814,7 @@ onMounted(() => {
 .dbeaver-url {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1.4;
   color: var(--text-primary);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
@@ -837,14 +837,14 @@ onMounted(() => {
 
 .dbeaver-check strong {
   display: block;
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
 }
 
 .dbeaver-check p,
 .dbeaver-hint {
   margin: 4px 0 10px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.45;
 }
@@ -859,7 +859,7 @@ onMounted(() => {
 
 .ssl-ta {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 11px;
+  font-size: var(--font-caption);
   resize: vertical;
   min-height: 48px;
 }
@@ -887,7 +887,7 @@ onMounted(() => {
 .dbeaver-test-hint {
   margin: 0;
   padding: 0 16px 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--danger);
   flex-shrink: 0;
 }

@@ -66,8 +66,9 @@ const props = withDefaults(
     disconnectedSessionIds?: Set<string>
     dockerTabOpen?: boolean
     dockerTabActive?: boolean
+    syncActive?: boolean
   }>(),
-  { workspaceVisible: true, dockerTabOpen: false, dockerTabActive: false },
+  { workspaceVisible: true, dockerTabOpen: false, dockerTabActive: false, syncActive: false },
 )
 
 const emit = defineEmits<{
@@ -88,6 +89,7 @@ const emit = defineEmits<{
   (e: 'select-split'): void
   (e: 'toggle-horizontal'): void
   (e: 'toggle-vertical'): void
+  (e: 'toggle-sync'): void
   (e: 'start-split-resize', event: MouseEvent, container: HTMLElement): void
   (e: 'reset-split-ratio'): void
   (e: 'set-secondary-session', sessionId: string): void
@@ -435,6 +437,17 @@ function onSplitDividerMousedown(e: MouseEvent) {
         <div class="terminal-layout-actions">
           <template v-if="splitHasSecondary">
             <button
+              class="ui-btn ui-btn-xs split-sync-btn"
+              :class="syncActive ? 'ui-btn-primary' : 'ui-btn-ghost'"
+              type="button"
+              :title="t('terminal.syncHint')"
+              :aria-pressed="syncActive"
+              @click="emit('toggle-sync')"
+            >
+              <span v-if="syncActive" class="split-sync-dot" aria-hidden="true" />
+              <span>{{ t('terminal.syncTitle') }}</span>
+            </button>
+            <button
               class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm"
               type="button"
               :title="t('terminal.swapPanes')"
@@ -713,6 +726,20 @@ function onSplitDividerMousedown(e: MouseEvent) {
   background: var(--border-color);
 }
 
+.split-sync-btn {
+  gap: 5px;
+  padding: 0 8px;
+  font-size: var(--font-ai-detail, 12px);
+}
+
+.split-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
 .terminal-container {
   flex: 1;
   position: relative;
@@ -761,7 +788,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-lg);
   box-sizing: border-box;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 600;
   transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
@@ -798,7 +825,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border: 1px dashed var(--border-color);
   border-radius: 8px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 600;
 }
 
@@ -812,7 +839,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   white-space: nowrap;
 }
 
@@ -881,7 +908,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -900,7 +927,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-caption);
   line-height: 20px;
   cursor: pointer;
   white-space: nowrap;
@@ -937,7 +964,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   border-radius: 4px;
   background: var(--accent-bg);
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 600;
   line-height: 18px;
   white-space: nowrap;
@@ -953,7 +980,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
   height: 22px;
   min-height: 22px;
   padding: 0 22px 0 6px;
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 600;
   line-height: 20px;
   color: var(--accent);
@@ -963,7 +990,7 @@ function onSplitDividerMousedown(e: MouseEvent) {
 }
 
 .split-pane-user {
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 20px;
   color: var(--text-secondary);
   overflow: hidden;

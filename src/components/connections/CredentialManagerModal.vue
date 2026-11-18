@@ -348,14 +348,14 @@ function formatTime(value: number): string {
 
 .modal-title {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-title);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .modal-desc {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--font-ui);
   line-height: 1.55;
   color: var(--text-secondary);
   max-width: 48em;
@@ -363,7 +363,7 @@ function formatTime(value: number): string {
 
 .modal-count {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--accent);
   font-weight: 500;
 }
@@ -378,7 +378,7 @@ function formatTime(value: number): string {
 }
 
 .tip-title {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 6px;
@@ -388,13 +388,13 @@ function formatTime(value: number): string {
   margin: 0;
   padding-left: 1.2em;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   line-height: 1.65;
 }
 
 .tip-note {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -417,7 +417,7 @@ function formatTime(value: number): string {
 
 .form-panel-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-section);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -440,13 +440,13 @@ function formatTime(value: number): string {
 }
 
 .field-label {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 500;
   color: var(--text-secondary);
 }
 
 .field-hint {
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   opacity: 0.9;
 }
@@ -468,7 +468,7 @@ function formatTime(value: number): string {
   border-radius: 0 6px 6px 0;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   cursor: pointer;
 }
 
@@ -536,7 +536,7 @@ function formatTime(value: number): string {
   background: var(--accent-bg);
   color: var(--accent);
   font-weight: 700;
-  font-size: 15px;
+  font-size: var(--font-section);
 }
 
 .account-body {
@@ -545,7 +545,7 @@ function formatTime(value: number): string {
 }
 
 .account-name {
-  font-size: 14px;
+  font-size: var(--font-section);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 6px;
@@ -556,7 +556,7 @@ function formatTime(value: number): string {
   align-items: baseline;
   gap: 8px;
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .account-label {
@@ -574,7 +574,7 @@ function formatTime(value: number): string {
 
 .account-time {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
 }
 

@@ -525,7 +525,7 @@ onMounted(() => {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 8px;
   align-items: start;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .mcp-facts dt {
@@ -599,12 +599,12 @@ onMounted(() => {
 }
 
 .mcp-approval-title {
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
 }
 
 .mcp-approval-desc {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -623,7 +623,7 @@ onMounted(() => {
   gap: 8px;
   padding: 10px 12px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   cursor: pointer;
   user-select: none;
@@ -653,7 +653,7 @@ onMounted(() => {
   border-radius: 999px;
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-caption);
   text-align: center;
 }
 
@@ -671,13 +671,13 @@ onMounted(() => {
   border-radius: 7px;
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1.45;
 }
 
 .active-policy strong {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
 }
 
 .active-policy[data-tone='deny'] {
@@ -709,13 +709,13 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
 }
 
 .policy-section-title > span:last-child:not(:first-child) {
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 400;
 }
 
@@ -736,7 +736,7 @@ onMounted(() => {
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 10px;
+  font-size: var(--font-caption);
 }
 
 .command-chip-list code {
@@ -757,7 +757,7 @@ onMounted(() => {
   display: grid;
   gap: 8px;
   align-items: start;
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   color: var(--text-secondary);
 }
@@ -784,7 +784,7 @@ onMounted(() => {
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1.45;
   overflow-x: auto;
   white-space: pre-wrap;

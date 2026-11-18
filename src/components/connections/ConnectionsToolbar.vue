@@ -96,8 +96,8 @@ defineExpose({ searchInputRef })
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .page-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
 .page-heading-icon { flex-shrink: 0; align-self: center; color: var(--text-secondary); }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.page-result-count { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.page-title { margin: 0; font-size: var(--font-title); font-weight: 600; line-height: 1.4; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-result-count { flex-shrink: 0; font-size: var(--font-ui-sm); color: var(--text-secondary); white-space: nowrap; }
 .clear-filters { flex-shrink: 0; }
 .page-toolbar { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .search-box { position: relative; flex: 1 1 220px; min-width: min(200px, 100%); }

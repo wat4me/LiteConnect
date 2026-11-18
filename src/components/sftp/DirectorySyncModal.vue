@@ -63,9 +63,9 @@ watch(() => [props.visible, props.sessionId, props.remotePath] as const, ([visib
 }, { immediate: true })
 </script>
 <template>
-  <div v-if="visible" class="sync-overlay" @click.self="emit('close')">
-    <section ref="modalRef" tabindex="-1" class="sync-modal" @keydown.esc.stop.prevent="emit('close')" role="dialog" aria-modal="true" :aria-label="t('sftp.directorySync')">
-      <h3>{{ t('sftp.directorySync') }}</h3>
+  <div v-if="visible" class="ui-modal-overlay sync-overlay" @click.self="emit('close')">
+    <section ref="modalRef" tabindex="-1" class="ui-modal-card sync-modal" @keydown.esc.stop.prevent="emit('close')" role="dialog" aria-modal="true" :aria-label="t('sftp.directorySync')">
+      <h3 class="sync-title">{{ t('sftp.directorySync') }}</h3>
       <p>{{ t('sftp.directorySyncScope') }}</p>
       <p v-if="preview" class="sync-path">{{ t('sftp.directorySyncTarget', { local: preview.localPath, remote: preview.remotePath }) }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
@@ -89,16 +89,17 @@ watch(() => [props.visible, props.sessionId, props.remotePath] as const, ([visib
   </div>
 </template>
 <style scoped>
-.sync-overlay { position: fixed; inset: 0; z-index: 1100; background: var(--overlay-bg); display: grid; place-items: center; }
-.sync-modal { width: min(720px, 90vw); max-height: 85vh; overflow: auto; padding: 20px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-dialog); box-shadow: var(--shadow-dialog); }
+.sync-overlay { z-index: 1100; }
+.sync-modal { width: min(720px, 90vw); padding: 20px; background: var(--bg-primary); color: var(--text-primary); }
+.sync-title { margin: 0 0 8px; font-size: var(--font-title); font-weight: 600; }
 /* Refresh sits at the far left; Close and the primary action stay right-aligned. */
 .sync-refresh { margin-right: auto; }
 .sync-path { overflow-wrap: anywhere; }
-.sync-modal > p { margin: 8px 0; font-size: 12px; line-height: 1.5; }
-.sync-modal > label { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; }
+.sync-modal > p { margin: 8px 0; font-size: var(--font-ui-sm); line-height: 1.5; }
+.sync-modal > label { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: var(--font-ui-sm); }
 .sync-files { max-height: 40vh; overflow: auto; }
-.sync-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.sync-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: var(--font-ui); }
 .sync-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sync-row > span:last-child { flex-shrink: 0; font-size: 12px; }
+.sync-row > span:last-child { flex-shrink: 0; font-size: var(--font-ui-sm); color: var(--text-secondary); }
 footer { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
 </style>

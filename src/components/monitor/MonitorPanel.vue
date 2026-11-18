@@ -368,7 +368,7 @@ const diskMaxPercent = computed(() => {
 <style scoped>
 .monitor-panel {
   --progress-tick: color-mix(in srgb, var(--text-primary) 55%, transparent);
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-variant-numeric: tabular-nums;
   display: flex;
   flex-direction: column;
@@ -405,12 +405,12 @@ const diskMaxPercent = computed(() => {
 .monitor-title {
   font-weight: 600;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-ui);
   flex-shrink: 0;
 }
 
 .monitor-name {
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -421,7 +421,7 @@ const diskMaxPercent = computed(() => {
 
 .monitor-freshness {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -445,14 +445,14 @@ const diskMaxPercent = computed(() => {
 
 .monitor-error-title {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--font-ui);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .monitor-error-text {
   margin: 0 0 12px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   line-height: 1.45;
   color: var(--danger);
 }
@@ -527,7 +527,7 @@ const diskMaxPercent = computed(() => {
 .section-value {
   margin-left: auto;
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 14px;
+  font-size: var(--font-section);
   line-height: 1;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -556,13 +556,13 @@ const diskMaxPercent = computed(() => {
 
 .info-label {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   flex-shrink: 0;
 }
 
 .info-value {
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: var(--font-caption);
   text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -610,7 +610,7 @@ const diskMaxPercent = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: var(--font-caption);
 }
 
 .bar-label-used {
@@ -642,7 +642,7 @@ const diskMaxPercent = computed(() => {
 
 .disk-mount {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 11px;
+  font-size: var(--font-caption);
   color: var(--text-primary);
   min-width: 0;
   overflow: hidden;
@@ -652,7 +652,7 @@ const diskMaxPercent = computed(() => {
 
 .disk-percent {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 700;
   flex-shrink: 0;
   white-space: nowrap;
@@ -660,7 +660,7 @@ const diskMaxPercent = computed(() => {
 
 .proc-table {
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
-  font-size: 10px;
+  font-size: var(--font-caption);
 }
 
 .proc-header {

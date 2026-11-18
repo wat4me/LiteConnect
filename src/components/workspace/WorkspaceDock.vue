@@ -293,7 +293,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 .workspace-dock-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .workspace-dock-body, .workspace-dock-tool { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-dock-tool > :deep(*) { min-width: 0; max-width: none; width: 100%; min-height: 0; box-sizing: border-box; }
-.workspace-dock-tool > :deep(.snippets-panel), .workspace-dock-tool > :deep(.ai-sidebar), .workspace-dock-tool > :deep(.file-sidebar) { flex: 1; height: 100%; }
+.workspace-dock-tool > :deep(.snippets-panel), .workspace-dock-tool > :deep(.batch-panel), .workspace-dock-tool > :deep(.sync-input-bar.is-panel), .workspace-dock-tool > :deep(.ai-sidebar), .workspace-dock-tool > :deep(.file-sidebar) { flex: 1; height: 100%; }
 .workspace-dock-tool > :deep(.ai-sidebar) { border-right: 0; }
 .workspace-dock-tool > :deep(.sync-input-bar) { overflow: auto; }
 .workspace-dock-resize { position: absolute; z-index: 6; top: 0; bottom: 0; width: 5px; cursor: col-resize; touch-action: none; }

@@ -78,13 +78,13 @@ function onKeydown(event: KeyboardEvent) {
 <style scoped>
 .upload-conflict-overlay { z-index: 11000; }
 .upload-conflict-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 80px); overflow: auto; padding: 20px; color: var(--text-primary); -webkit-app-region: no-drag; }
-h3 { margin: 0 0 10px; font-size: 16px; }
-p { margin: 0 0 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; padding: 12px; margin: 0 0 14px; background: var(--bg-secondary); border-radius: 8px; font-size: 12px; }
+h3 { margin: 0 0 10px; font-size: var(--font-title); }
+p { margin: 0 0 14px; font-size: var(--font-ui); color: var(--text-secondary); line-height: 1.6; }
+dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; padding: 12px; margin: 0 0 14px; background: var(--bg-secondary); border-radius: var(--radius-md, 8px); font-size: var(--font-ui-sm); }
 dt { color: var(--text-secondary); }
 dd { margin: 0; overflow-wrap: anywhere; }
 .upload-conflict-options { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; border-block: 1px solid var(--border-color); }
-label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; line-height: 1.5; }
+label { display: flex; align-items: center; gap: 8px; font-size: var(--font-ui); cursor: pointer; line-height: 1.5; }
 input { flex-shrink: 0; accent-color: var(--accent); }
 .upload-conflict-remember { margin: 14px 0; color: var(--text-secondary); }
 .upload-conflict-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }

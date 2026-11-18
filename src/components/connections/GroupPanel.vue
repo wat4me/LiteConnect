@@ -581,7 +581,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
     <div class="group-search">
       <input
         v-model="groupSearchQuery"
-        class="group-search-input"
+        class="ui-input ui-input-sm group-search-input"
         :placeholder="t('groups.searchPlaceholder')"
         :aria-label="t('groups.searchAria')"
         :title="t('groups.searchHint')"
@@ -976,7 +976,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-panel-title {
   padding: 16px 16px 8px;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -985,27 +985,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-search {
   padding: 0 8px 8px;
-}
-
-.group-search-input {
-  width: 100%;
-  padding: 7px 9px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.group-search-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-bg);
-}
-
-.group-search-input::placeholder {
-  color: var(--text-secondary);
 }
 
 .smart-section {
@@ -1019,7 +998,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 .groups-section-title {
   margin: 0 2px 4px;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: var(--font-caption);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1041,7 +1020,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -1142,7 +1121,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 .group-name {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--font-ui);
   line-height: 20px;
   color: var(--text-primary);
   white-space: nowrap;
@@ -1220,7 +1199,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   border: 1px solid var(--accent);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-ui);
   outline: none;
 }
 
@@ -1321,7 +1300,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 }
 
 .sidebar-conn-name {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
