@@ -1,4 +1,6 @@
 import type { AppSettingsAll, AppSettingsAllPatch } from '@shared/types/settings'
+import { sanitizeAppLocale, sanitizeLocalePreference } from '@shared/appLocale'
+import { setAppLocale } from '@/i18n'
 import { useTheme, type Theme } from '@/composables/app/useTheme'
 import { applyAppBackground } from '@/composables/app/useAppBackground'
 import { applyUiSizes } from '@/composables/app/useUiDensity'
@@ -9,6 +11,10 @@ import { emitAppEvent } from '@/utils/shared/appEvents'
 /** Apply committed settings locally; this function never writes configuration back to IPC. */
 export function applyAppSettings(all: AppSettingsAll, changed?: Array<keyof AppSettingsAllPatch>) {
   const affects = (...keys: Array<keyof AppSettingsAllPatch>) => !changed || keys.some(key => changed.includes(key))
+  if (affects('locale', 'localePreference')) {
+    const resolved = sanitizeAppLocale(all.locale)
+    setAppLocale(resolved, sanitizeLocalePreference(all.localePreference, resolved))
+  }
   if (affects('uiDensity', 'uiFontSize')) applyUiSizes(all)
   if (affects('theme', 'customColors')) {
     const theme = useTheme()

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { SettingsDraft } from '@/composables/settings/useSettingsDraft'
 import { DEFAULT_GLOBAL_HOTKEY, keyEventToAccelerator } from '@shared/globalHotkey'
-import { APP_LOCALES } from '@shared/appLocale'
+import { LOCALE_PREFERENCES, resolveSystemAppLocale } from '@shared/appLocale'
 import AppIcon from '../icons/AppIcon.vue'
 
 const props = defineProps<{
@@ -13,6 +13,20 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const languageSelectId = useId()
+
+const localeOptions = computed(() => {
+  const systemResolved = resolveSystemAppLocale() === 'zh-CN'
+    ? t('settingsApp.languageZh')
+    : t('settingsApp.languageEn')
+  return LOCALE_PREFERENCES.map((value) => ({
+    value,
+    label: value === 'zh-CN'
+      ? t('settingsApp.languageZh')
+      : value === 'en-US'
+        ? t('settingsApp.languageEn')
+        : t('settingsApp.languageSystem', { resolved: systemResolved }),
+  }))
+})
 
 /** Capture mode: the next keydown with a modifier becomes the new accelerator. */
 const capturing = ref(false)
@@ -87,9 +101,9 @@ onBeforeUnmount(() => {
           <label class="settings-option-title" :for="languageSelectId">{{ t('settingsApp.language') }}</label>
           <p class="settings-hint">{{ t('settingsApp.languageHint') }}</p>
         </div>
-        <select :id="languageSelectId" v-model="draft.locale" class="settings-select" :aria-label="t('settingsApp.language')">
-          <option v-for="locale in APP_LOCALES" :key="locale" :value="locale">
-            {{ locale === 'zh-CN' ? t('settingsApp.languageZh') : t('settingsApp.languageEn') }}
+        <select :id="languageSelectId" v-model="draft.localePreference" class="settings-select" :aria-label="t('settingsApp.language')">
+          <option v-for="option in localeOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
           </option>
         </select>
       </div>

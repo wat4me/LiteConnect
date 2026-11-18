@@ -54,7 +54,14 @@ import {
   normalizeGlobalHotkey,
 } from '@shared/globalHotkey'
 import { DEFAULT_SFTP_FONT_SIZE, sanitizeSftpFontSize } from '@shared/sftpFontSize'
-import { DEFAULT_APP_LOCALE, sanitizeAppLocale, type AppLocale } from '@shared/appLocale'
+import {
+  DEFAULT_APP_LOCALE,
+  DEFAULT_LOCALE_PREFERENCE,
+  sanitizeAppLocale,
+  sanitizeLocalePreference,
+  type AppLocale,
+  type LocalePreference,
+} from '@shared/appLocale'
 import { DEFAULT_UI_DENSITY, normalizeUiDensity, type UiDensity } from '@shared/uiDensity'
 
 export interface SettingsDraft {
@@ -113,8 +120,10 @@ export interface SettingsDraft {
   workspaceRestoreEnabled: boolean
   /** Hide to tray on window close instead of quitting. Default off. */
   closeToTrayEnabled: boolean
-  /** Interface language. Saved with the rest of the draft. */
+  /** Effective interface language. Saved with the rest of the draft. */
   locale: AppLocale
+  /** Language mode (`zh-CN`, `en-US`, or `system`). Saved with the rest of the draft. */
+  localePreference: LocalePreference
   /** Global hotkey to show/hide the window. Default off. */
   globalHotkeyEnabled: boolean
   /** Electron accelerator for the global hotkey; user-customizable. */
@@ -173,6 +182,7 @@ export function createEmptyDraft(): SettingsDraft {
     x11AutoStartEnabled: true,
     x11ServerPath: '',
     locale: DEFAULT_APP_LOCALE,
+    localePreference: DEFAULT_LOCALE_PREFERENCE,
   }
 }
 
@@ -236,6 +246,7 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.x11AutoStartEnabled === b.x11AutoStartEnabled
     && a.x11ServerPath === b.x11ServerPath
     && a.locale === b.locale
+    && a.localePreference === b.localePreference
   )
 }
 
@@ -326,6 +337,7 @@ export function useSettingsDraft(options: {
       x11AutoStartEnabled: true,
       x11ServerPath: '',
       locale: DEFAULT_APP_LOCALE,
+      localePreference: DEFAULT_LOCALE_PREFERENCE,
     }
   }
 
@@ -394,7 +406,10 @@ export function useSettingsDraft(options: {
       sessionLogEnabled: all.sessionLogEnabled === true,
       x11AutoStartEnabled: all.x11AutoStartEnabled !== false,
       x11ServerPath: typeof all.x11ServerPath === 'string' ? all.x11ServerPath : '',
-      locale: sanitizeAppLocale(all.localeConfigured ? all.locale : getStoredLocale()),
+      locale: sanitizeAppLocale(all.locale ?? getStoredLocale()),
+      localePreference: sanitizeLocalePreference(
+        all.localePreference ?? (all.localeConfigured ? all.locale : DEFAULT_LOCALE_PREFERENCE),
+      ),
     }
     return next
   }

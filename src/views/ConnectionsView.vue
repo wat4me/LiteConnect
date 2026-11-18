@@ -581,6 +581,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
 }
 
 .cross-group-hint {
@@ -615,8 +617,9 @@ defineExpose({ loadData, editConnection: onEditConnection })
   gap: 5px;
   padding: 2px 4px 2px 8px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
-  background: var(--accent-bg);
+  border: 1px solid var(--border-color);
+  background: var(--tab-selected-surface);
+  box-shadow: var(--tab-selected-shadow);
   color: var(--text-primary);
   font-size: var(--font-caption);
 }
@@ -645,9 +648,9 @@ defineExpose({ loadData, editConnection: onEditConnection })
   min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
-  padding-right: 2px;
+  padding-right: 4px;
   /* Room for insertion line above first row + last-row descenders */
-  padding-top: 6px;
+  padding-top: 10px;
   padding-bottom: 8px;
 }
 

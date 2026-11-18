@@ -1,7 +1,7 @@
 import type { AppSettingsAllPatch } from '@shared/types/settings'
 import type { SettingsDraft } from './useSettingsDraft'
 import { sanitizeDbOpenMode } from '@shared/dbOpenMode'
-import { sanitizeAppLocale } from '@shared/appLocale'
+import { sanitizeLocalePreference } from '@shared/appLocale'
 import { clampQueryMaxRows, clampQueryTimeoutSec, sanitizeDefaultRunScopePref } from '@/utils/database/queryTabOptions'
 
 function writableSettings(d: SettingsDraft): AppSettingsAllPatch {
@@ -48,7 +48,7 @@ function writableSettings(d: SettingsDraft): AppSettingsAllPatch {
     sessionLogEnabled: d.sessionLogEnabled,
     x11AutoStartEnabled: d.x11AutoStartEnabled,
     x11ServerPath: d.x11ServerPath,
-    locale: sanitizeAppLocale(d.locale),
+    localePreference: sanitizeLocalePreference(d.localePreference),
   }
 }
 

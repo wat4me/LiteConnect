@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { AI_WORKSPACE_MAX_HOSTS } from '@shared/aiWorkspace'
@@ -154,6 +154,23 @@ function openHostChat(connectionId: string) {
   lastHostClick = undefined
   void openScope({ connectionIds: [connectionId] })
 }
+
+const refreshingSpin = ref(false)
+let refreshSpinTimer: ReturnType<typeof setTimeout> | undefined
+
+function handleRefresh() {
+  refreshingSpin.value = true
+  if (refreshSpinTimer) clearTimeout(refreshSpinTimer)
+  refreshSpinTimer = setTimeout(() => {
+    refreshingSpin.value = false
+    refreshSpinTimer = undefined
+  }, 420)
+  void refresh()
+}
+
+onBeforeUnmount(() => {
+  if (refreshSpinTimer) clearTimeout(refreshSpinTimer)
+})
 </script>
 
 <template>
@@ -344,7 +361,7 @@ function openHostChat(connectionId: string) {
             </div>
           </div>
           <div class="workspace-toolbar-actions">
-            <button type="button" class="ui-icon-btn ui-icon-btn-ghost" :title="t('ai.workspace.refresh')" :aria-label="t('ai.workspace.refresh')" :disabled="loading" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
+            <button type="button" class="ui-icon-btn ui-icon-btn-ghost workspace-refresh-btn" :class="{ spinning: loading || refreshingSpin }" :aria-busy="loading || undefined" :title="t('ai.workspace.refresh')" :aria-label="t('ai.workspace.refresh')" :disabled="loading" @click="handleRefresh"><AppIcon name="refresh" size="sm" /></button>
             <button ref="modelSettingsButton" type="button" class="ui-btn ui-btn-sm workspace-models-button" :title="t('ai.manageModels')" :aria-label="t('ai.manageModels')" :disabled="loadingModelSettings" @click="openModelSettings"><AppIcon name="models" size="sm" /><span class="workspace-action-label">{{ t('ai.manageModels') }}</span></button>
             <button type="button" class="ui-btn ui-btn-sm workspace-manage-button" :title="t('ai.workspace.manageConnections')" :aria-label="t('ai.workspace.manageConnections')" @click="emit('open-connections')"><AppIcon name="settings" size="sm" /><span class="workspace-action-label">{{ t('ai.workspace.manageConnections') }}</span></button>
           </div>
@@ -356,13 +373,15 @@ function openHostChat(connectionId: string) {
         </div>
         <div class="workspace-host-scroll">
         <p v-if="error" class="workspace-error" role="alert">{{ error }}</p>
-        <p v-if="loading" class="workspace-caption" role="status">{{ t('common.loading') }}</p>
-        <div v-else-if="!visible.length" class="workspace-empty" role="status">
-          <span class="workspace-empty-icon"><AppIcon :name="connections.length ? 'search' : 'server'" size="2xl" /></span>
-          <h3>{{ !connections.length ? t('ai.workspace.noSavedHosts') : hostFilter === 'connected' && !query ? t('ai.workspace.noConnectedHosts') : t('ai.workspace.noConnections') }}</h3>
-          <p>{{ connections.length ? t('ai.workspace.emptyFilterHint') : t('ai.workspace.emptyHostsHint') }}</p>
-          <button v-if="connections.length" type="button" class="ui-btn ui-btn-sm" @click="resetFilters">{{ t('ai.workspace.resetFilters') }}</button>
-          <button v-else type="button" class="ui-btn ui-btn-primary ui-btn-sm" @click="emit('open-connections')">{{ t('ai.workspace.manageConnections') }}</button>
+        <p v-if="loading && !connections.length" class="workspace-caption" role="status">{{ t('common.loading') }}</p>
+        <div v-else-if="!visible.length" class="ui-empty workspace-empty" role="status">
+          <span class="ui-empty-icon workspace-empty-icon"><AppIcon :name="connections.length ? 'search' : 'server'" size="2xl" /></span>
+          <h3 class="ui-empty-title">{{ !connections.length ? t('ai.workspace.noSavedHosts') : hostFilter === 'connected' && !query ? t('ai.workspace.noConnectedHosts') : t('ai.workspace.noConnections') }}</h3>
+          <p class="ui-empty-desc">{{ connections.length ? t('ai.workspace.emptyFilterHint') : t('ai.workspace.emptyHostsHint') }}</p>
+          <div class="ui-empty-actions">
+            <button v-if="connections.length" type="button" class="ui-btn ui-btn-sm" @click="resetFilters">{{ t('ai.workspace.resetFilters') }}</button>
+            <button v-else type="button" class="ui-btn ui-btn-primary ui-btn-sm" @click="emit('open-connections')">{{ t('ai.workspace.manageConnections') }}</button>
+          </div>
         </div>
 
         <section v-for="section in groupedHosts" :key="section.id" class="workspace-group">

@@ -46,12 +46,20 @@ describe('applySettingsPatch', () => {
     expect(settings.connectionSortMode).toBe('manual')
   })
 
-  it('accepts only supported interface locales', () => {
+  it('accepts only supported interface locales and follow-system preference', () => {
     const settings: Record<string, any> = { locale: 'zh-CN' }
     applySettingsPatch(settings, { locale: 'en-US' }, current(settings))
     expect(settings.locale).toBe('en-US')
+    expect(settings.localePreference).toBe('en-US')
     applySettingsPatch(settings, { locale: 'fr-FR' as 'en-US' }, current(settings))
     expect(settings.locale).toBe('en-US')
+    applySettingsPatch(settings, { localePreference: 'system' }, current(settings))
+    expect(settings.localePreference).toBe('system')
+    applySettingsPatch(settings, { localePreference: 'invalid' as 'system' }, current(settings))
+    expect(settings.localePreference).toBe('system')
+    applySettingsPatch(settings, { localePreference: 'zh-CN' }, current(settings))
+    expect(settings.localePreference).toBe('zh-CN')
+    expect(settings.locale).toBe('zh-CN')
   })
 
   it('persists the optional terminal local echo switch', () => {

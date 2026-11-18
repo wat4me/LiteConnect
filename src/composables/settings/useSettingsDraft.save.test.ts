@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AppSettingsAll, AppSettingsAllPatch, AppSettingsChange } from '@shared/types/settings'
 
-const mocks = vi.hoisted(() => ({ setTheme: vi.fn(), setColors: vi.fn(), db: vi.fn(), background: vi.fn(), error: vi.fn(), success: vi.fn(),
+const mocks = vi.hoisted(() => ({ setTheme: vi.fn(), setColors: vi.fn(), setLocale: vi.fn(), db: vi.fn(), background: vi.fn(), error: vi.fn(), success: vi.fn(),
   mount: [] as Array<() => void>, unmount: [] as Array<() => void>, unsubscribe: vi.fn() }))
 vi.mock('vue', async importOriginal => ({ ...await importOriginal<typeof import('vue')>(), onMounted: (fn: () => void) => mocks.mount.push(fn), onBeforeUnmount: (fn: () => void) => mocks.unmount.push(fn) }))
-vi.mock('@/i18n', () => ({ getStoredLocale: () => 'zh-CN', t: (key: string) => key }))
+vi.mock('@/i18n', () => ({ getStoredLocale: () => 'zh-CN', setAppLocale: mocks.setLocale, t: (key: string) => key }))
 vi.mock('@/composables/app/useAppDialog', () => ({ appConfirm: async () => {} }))
 vi.mock('@/composables/app/useTheme', () => ({
   pickInstalledFontFamily: (value?: string) => value || 'monospace',
@@ -224,4 +224,17 @@ it('makes a stalled first read retryable and ignores its late result', async () 
   finish(original)
   await Promise.resolve()
   expect(state.draft.value.terminalFontSize).toBe(18)
+})
+
+it('saves follow-system language preference and applies the resolved locale', async () => {
+  stored.localePreference = 'zh-CN'
+  const state = useSettingsDraft()
+  await state.loadSettings()
+  state.draft.value.localePreference = 'system'
+  save.mockResolvedValueOnce({ ...structuredClone(stored), localePreference: 'system', locale: 'en-US' })
+  await state.handleSave()
+  expect(save.mock.calls[0][0]).toEqual({ localePreference: 'system' })
+  expect(mocks.setLocale).toHaveBeenCalledWith('en-US', 'system')
+  expect(state.draft.value.localePreference).toBe('system')
+  expect(state.draft.value.locale).toBe('en-US')
 })

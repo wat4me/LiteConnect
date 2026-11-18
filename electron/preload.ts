@@ -622,6 +622,8 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     return () => ipcRenderer.removeListener('app:localeChanged', listener)
   },
 
+  syncSystemLocale: () => ipcRenderer.invoke('app:syncSystemLocale'),
+
   updateTitleBar: (theme: string, colors?: { color: string; symbolColor: string }) => ipcRenderer.send('titlebar:theme', theme, colors),
 
   // Database (MySQL / PostgreSQL; optional SSH tunnel)

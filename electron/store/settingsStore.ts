@@ -14,7 +14,14 @@ import { decryptSettingsSecretOrEmpty, encryptSettingsSecret, settingsEncryption
 import { appBackgroundImageUrl, sanitizeWallpaperFileName } from '../window/appBackgroundProtocol'
 import { resolveStoredAiSystemPrompt } from '../utils/constants'
 import { setMainLocale, t } from '../i18n'
-import { isAppLocale, type AppLocale } from '../../shared/appLocale'
+import {
+  DEFAULT_LOCALE_PREFERENCE,
+  isAppLocale,
+  isLocalePreference,
+  resolveAppLocale,
+  type AppLocale,
+  type LocalePreference,
+} from '../../shared/appLocale'
 import { sanitizeMcpHttpPort } from '../../shared/mcp/limits'
 import { sanitizeMcpApprovalMode } from '../../shared/mcp/policy'
 import type { ApprovalMode } from '../../shared/mcp/types'
@@ -66,6 +73,18 @@ function normalizeWorkspaceSessionLabels(raw: unknown, ids?: string[]): Record<s
     return label ? [[id, label]] : []
   })
   return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+export function getElectronSystemLocaleCandidates(): string[] {
+  try {
+    const preferred = typeof app?.getPreferredSystemLanguages === 'function'
+      ? app.getPreferredSystemLanguages()
+      : []
+    const appLocale = typeof app?.getLocale === 'function' ? app.getLocale() : ''
+    return [...(Array.isArray(preferred) ? preferred : []), ...(appLocale ? [appLocale] : [])]
+  } catch {
+    return []
+  }
 }
 
 export class SettingsStore {
@@ -791,13 +810,20 @@ export class SettingsStore {
     return this.settings.workspaceRestoreEnabled === true
   }
 
-  /** Interface language. Missing or unknown values stay on Simplified Chinese. */
+  /** Preferred language setting (`system`, `zh-CN`, or `en-US`). Defaults to follow system. */
+  getLocalePreference(): LocalePreference {
+    if (isLocalePreference(this.settings.localePreference)) return this.settings.localePreference
+    if (isAppLocale(this.settings.locale)) return this.settings.locale
+    return DEFAULT_LOCALE_PREFERENCE
+  }
+
+  /** Effective interface language (`system` resolves from OS language, falling back to `zh-CN`). */
   getLocale(): AppLocale {
-    return isAppLocale(this.settings.locale) ? this.settings.locale : 'zh-CN'
+    return resolveAppLocale(this.getLocalePreference(), getElectronSystemLocaleCandidates())
   }
 
   isLocaleConfigured(): boolean {
-    return isAppLocale(this.settings.locale)
+    return isLocalePreference(this.settings.localePreference) || isAppLocale(this.settings.locale)
   }
 
   /** Hide to tray on window close instead of quitting. Default off. */
@@ -1057,6 +1083,7 @@ export class SettingsStore {
       x11ServerPath: this.getX11ServerPath(),
       recentDownloadPaths: this.getRecentDownloadPaths(),
       locale: this.getLocale(),
+      localePreference: this.getLocalePreference(),
       localeConfigured: this.isLocaleConfigured(),
     }
   }

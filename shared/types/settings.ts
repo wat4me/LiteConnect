@@ -1,7 +1,7 @@
 import type { Connection, Group } from './connection'
 import type { ConnectionSortMode } from '../connectionSort'
 import type { DbOpenMode } from '../dbOpenMode'
-import type { AppLocale } from '../appLocale'
+import type { AppLocale, LocalePreference } from '../appLocale'
 import type { SshWorkspaceLayout } from '../workspaceLayout'
 import type { UiDensity } from '../uiDensity'
 
@@ -84,6 +84,8 @@ export type AppSettingsAll = {
   x11ServerPath: string
   recentDownloadPaths: string[]
   locale: AppLocale
+  /** Selected language preference (`system` tracks the OS language dynamically). */
+  localePreference?: LocalePreference
   /** False until a locale has been written. Not a stored field. */
   localeConfigured: boolean
 }

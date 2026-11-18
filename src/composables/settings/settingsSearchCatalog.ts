@@ -63,7 +63,7 @@ export const SETTINGS_SEARCH_CATALOG: SettingsSearchEntry[] = [
     tab: 'app',
     titleKey: 'settingsApp.language',
     hintKey: 'settingsApp.languageHint',
-    keywords: ['语言', 'language', 'english', 'locale', '中文'],
+    keywords: ['语言', 'language', 'english', 'locale', '中文', '跟随系统', 'system', 'auto'],
   },
   {
     id: 'app.closeToTray',

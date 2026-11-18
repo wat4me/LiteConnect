@@ -703,7 +703,7 @@ onBeforeUnmount(() => {
 }
 
 .tab-disconnected {
-  font-size: 10px;
+  font-size: var(--font-caption);
   font-weight: 600;
   color: var(--danger);
   margin-left: 2px;
@@ -744,6 +744,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+  transition: color 0.15s, background 0.15s;
 }
 .tab-add-session:hover {
   color: var(--text-primary);

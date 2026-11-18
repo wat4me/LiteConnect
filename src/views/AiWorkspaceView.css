@@ -1,5 +1,5 @@
-.workspace-host-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.workspace-selection-guide { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-shrink: 0; margin: 0 0 12px; color: var(--text-secondary); font-size: var(--font-caption); }
+.workspace-host-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 4px 4px 8px 0; }
+.workspace-selection-guide { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-shrink: 0; margin: 0 0 8px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent); color: var(--text-secondary); font-size: var(--font-caption); }
 .workspace-selection-guide > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .workspace-text-action { flex-shrink: 0; }
 .workspace-host-checkbox { width: 16px; height: 16px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
@@ -133,28 +133,28 @@
 .lite-ai-chat :deep(.ai-sidebar) { width: 100%; max-width: none; min-width: 0; border-left: 0; flex: 1; }
 .workspace-browser { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; padding: 16px clamp(16px, 2.5vw, 32px); overflow: hidden; container-type: inline-size; }
 .workspace-toolbar-actions { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; margin-left: auto; }
+.workspace-refresh-btn.spinning :deep(svg) { animation: workspace-refresh-spin 0.65s linear infinite; }
+@keyframes workspace-refresh-spin { to { transform: rotate(360deg); } }
 .workspace-models-button { white-space: nowrap; }
 .workspace-model-settings { flex: 1; min-width: 0; min-height: 0; }
 .workspace-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; min-width: 0; gap: var(--space-3); align-items: center; justify-content: space-between; padding: 0 0 var(--space-3); margin-bottom: var(--space-3); border-bottom: 1px solid var(--workspace-line); }
 .workspace-toolbar-controls { display: flex; flex: 1 1 300px; min-width: min(240px, 100%); gap: 10px; align-items: center; }
 .workspace-filter-tabs { flex-shrink: 0; }
 .workspace-filter-tabs button span { padding: 0 5px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-caption); font-weight: 400; }
-.workspace-search-field { display: flex; align-items: center; flex: 1; min-width: 0; height: 34px; padding: 0 10px; gap: 7px; border: 1px solid transparent; border-radius: var(--workspace-radius); color: var(--text-secondary); background: var(--workspace-surface); }
+.workspace-search-field { display: flex; align-items: center; flex: 1; min-width: 0; height: var(--control-h-sm); padding: 0 10px; gap: 7px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-primary); transition: border-color 0.15s, box-shadow 0.15s; }
 .workspace-search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
 .workspace-search-field > .workspace-search { width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; outline: none; }
 .workspace-search-clear { width: 20px; height: 20px; }
 .workspace-search { width: min(260px, 100%); box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); background: var(--bg-secondary); font: inherit; font-size: var(--font-ui-sm); }
 .workspace-caption { color: var(--text-secondary); font-size: var(--font-ui-sm); }
-.workspace-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: 64px 16px; text-align: center; color: var(--text-secondary); font-size: var(--font-ui-sm); }
-.workspace-empty-icon { display: grid; place-items: center; width: 60px; height: 60px; margin-bottom: 4px; border-radius: 18px; background: var(--bg-secondary); }
-.workspace-empty h3 { color: var(--text-primary); font-size: var(--font-section); font-weight: 600; }
-.workspace-empty p { max-width: 340px; line-height: 1.7; }
+.workspace-empty { padding: 56px 16px; }
+.workspace-empty-icon { width: 56px; height: 56px; border-radius: 16px; }
 .workspace-group { margin-bottom: 24px; }
 .workspace-group-header { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: 12px 2px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; text-align: left; }
 .workspace-group-header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-sm); font-weight: 600; color: var(--text-primary); }
 .workspace-group-header span { flex-shrink: 0; font-size: var(--font-caption); }
 .workspace-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(186px, 100%), 1fr)); gap: 8px; }
-.workspace-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; padding: 9px 11px; border: 1px solid var(--workspace-line); border-radius: var(--workspace-panel-radius); background: var(--bg-primary); cursor: pointer; text-align: left; min-width: 0; }
+.workspace-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; padding: 9px 11px; border: 1px solid var(--workspace-line); border-radius: var(--workspace-panel-radius); background: var(--bg-primary); cursor: pointer; text-align: left; min-width: 0; transition: background 0.12s ease, border-color 0.12s ease; }
 .workspace-card:hover { border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-color)); background: var(--workspace-toolbar); }
 .workspace-card.selected { border-color: color-mix(in srgb, var(--text-primary) 28%, var(--border-color)); background: var(--workspace-selected); }
 .workspace-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }

@@ -15,7 +15,7 @@
  *
  * See ARCHITECTURE.md.
  */
-import { t } from './i18n'
+import { getMainLocale, setMainLocale, t } from './i18n'
 import { app, BrowserWindow, dialog } from 'electron'
 import { windowAppId } from './window/appIcon'
 import { registerDevelopmentTaskbarShortcut } from './window/developmentTaskbar'
@@ -108,6 +108,7 @@ const deferredServices = new DeferredServices({
 })
 let bootstrap: Promise<void> | undefined
 let initialStores: Promise<unknown> | undefined
+let mainSettingsReady = false
 const shutdown = createShutdown({
   stopServices: () => {
     const services = deferredServices.stop()
@@ -231,6 +232,7 @@ async function initializeMain(): Promise<void> {
     const peeked = await themeReady
     theme = peeked.theme
     customColors = peeked.customColors
+    mainSettingsReady = true
   } catch (err) {
     console.error('[Main Settings Init]', err)
   }
@@ -279,6 +281,17 @@ async function initializeMain(): Promise<void> {
     }
   })
 }
+
+app.on('browser-window-focus', () => {
+  if (!mainSettingsReady || shutdown.stopping) return
+  if (settingsStore.getLocalePreference() !== 'system') return
+  const next = settingsStore.getLocale()
+  if (next === getMainLocale()) return
+  setMainLocale(next)
+  syncTrayFromSettings(settingsStore)
+  broadcast('app:localeChanged', next)
+  broadcast('settings:changed', { settings: settingsStore.getAll(), changed: ['locale'] })
+})
 
 app.on('browser-window-blur', () => {
   credentialStore.clearDecryptedCache()

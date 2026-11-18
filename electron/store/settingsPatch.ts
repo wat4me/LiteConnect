@@ -1,5 +1,5 @@
 import type { AppSettingsAllPatch } from '../../shared/types/settings'
-import { isAppLocale } from '../../shared/appLocale'
+import { isAppLocale, isLocalePreference } from '../../shared/appLocale'
 import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
 import { normalizeConnectionSortMode } from '../../shared/connectionSort'
 import { normalizeUiDensity } from '../../shared/uiDensity'
@@ -162,8 +162,17 @@ export function applySettingsPatch(
   if (patch.autoReconnectMaxRetries !== undefined) {
     settings.autoReconnectMaxRetries = Math.max(0, Math.min(20, Math.round(patch.autoReconnectMaxRetries)))
   }
+  if (patch.localePreference !== undefined && isLocalePreference(patch.localePreference)) {
+    settings.localePreference = patch.localePreference
+    if (patch.localePreference !== 'system') {
+      settings.locale = patch.localePreference
+    }
+  }
   if (patch.locale !== undefined && isAppLocale(patch.locale)) {
     settings.locale = patch.locale
+    if (patch.localePreference === undefined) {
+      settings.localePreference = patch.locale
+    }
   }
   if (patch.x11AutoStartEnabled !== undefined) {
     settings.x11AutoStartEnabled = !!patch.x11AutoStartEnabled

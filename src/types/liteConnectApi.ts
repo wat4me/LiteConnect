@@ -469,6 +469,7 @@ export interface LiteConnectApi extends SftpApi {
   /** Fired when the global hotkey could not be registered (another app owns it). */
   onGlobalHotkeyFailed: (callback: (accelerator: string) => void) => () => void
   onLocaleChanged: (callback: (locale: string) => void) => () => void
+  syncSystemLocale?: () => Promise<string>
 
   dockerProbe: (sessionId: string) => Promise<DockerAvailability>
   dockerListContainers: (sessionId: string) => Promise<DockerContainerSummary[]>

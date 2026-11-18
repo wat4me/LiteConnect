@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { setAppLocale, type AppLocale } from '@/i18n'
 import { markTipSeen, ONBOARDING_TIPS_KEY, shouldShowTip } from '@/utils/shared/featureTips'
 import { clampPopupToViewport } from '@/utils/shared/popupPosition'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 type TipPlacement = 'bottom' | 'right' | 'left' | 'top'
 
@@ -214,6 +215,20 @@ function next() {
   }
   index.value += 1
 }
+
+async function switchLocale(nextLocale: AppLocale) {
+  if (locale.value === nextLocale) return
+  setAppLocale(nextLocale, nextLocale)
+  schedulePosition()
+  try {
+    await window.LiteConnect?.setManySettings?.({
+      locale: nextLocale,
+      localePreference: nextLocale,
+    })
+  } catch {
+    // Keep local selection even if IPC is unavailable.
+  }
+}
 </script>
 
 <template>
@@ -227,7 +242,29 @@ function next() {
     :aria-label="t('connections.onboardingAria')"
   >
     <div class="onboarding-card">
-      <div class="onboarding-kicker">{{ t('connections.onboardingWelcome', { current: index + 1, total: tips.length }) }}</div>
+      <div class="onboarding-head">
+        <div class="onboarding-kicker">{{ t('connections.onboardingWelcome', { current: index + 1, total: tips.length }) }}</div>
+        <div class="ui-btn-group onboarding-lang-switch" role="group" :aria-label="t('settingsApp.language')">
+          <button
+            type="button"
+            class="ui-btn ui-btn-xs"
+            :class="{ active: locale === 'zh-CN' }"
+            :aria-pressed="locale === 'zh-CN'"
+            @click="switchLocale('zh-CN')"
+          >
+            {{ t('settingsApp.languageZh') }}
+          </button>
+          <button
+            type="button"
+            class="ui-btn ui-btn-xs"
+            :class="{ active: locale === 'en-US' }"
+            :aria-pressed="locale === 'en-US'"
+            @click="switchLocale('en-US')"
+          >
+            {{ t('settingsApp.languageEn') }}
+          </button>
+        </div>
+      </div>
       <div class="onboarding-title">{{ tips[index].title }}</div>
       <div class="onboarding-body">{{ tips[index].body }}</div>
       <div class="onboarding-actions">
@@ -299,22 +336,34 @@ function next() {
   display: none;
 }
 
-.onboarding-kicker {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-secondary);
+.onboarding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
 }
 
+.onboarding-kicker {
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.onboarding-lang-switch {
+  flex-shrink: 0;
+}
+
 .onboarding-title {
-  font-size: 14px;
+  font-size: var(--font-section);
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 6px;
 }
 
 .onboarding-body {
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
   line-height: 1.5;
   color: var(--text-secondary);
 }

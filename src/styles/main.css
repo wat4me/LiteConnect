@@ -413,9 +413,11 @@ pre.ddl,
 
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -1561,4 +1563,15 @@ html.fancy-cursor-on .xterm-helper-textarea {
   height: 16px;
   margin: -8px 0 0 -8px;
   opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

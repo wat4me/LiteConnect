@@ -50,7 +50,7 @@ const modules = [
 }
 .app-shell.with-module-rail { padding-inline-start: 0; }
 .app-module-rail { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 0 0 calc(48px * var(--ui-scale)); width: calc(48px * var(--ui-scale)); min-height: 0; box-sizing: border-box; padding: 4px 5px; -webkit-app-region: no-drag; }
-.app-module-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+.app-module-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease; }
 .app-module-button > span { font-size: max(10px, calc(10px * var(--ui-font-scale))); line-height: 1.2; font-weight: 600; letter-spacing: .2px; }
 .app-module-button:hover:not(:disabled):not(.active) { background: var(--tab-hover-surface); color: var(--text-primary); }
 .app-module-button.active { color: var(--text-primary); background: var(--tab-selected-surface); border-color: var(--tab-selected-edge); box-shadow: var(--tab-selected-shadow); }

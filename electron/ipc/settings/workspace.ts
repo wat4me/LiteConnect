@@ -31,7 +31,12 @@ export function registerWorkspaceSettingsHandlers(ctx: SettingsIpcCtx): void {
     if (patch.monitorEnabled !== undefined || patch.autoReconnectEnabled !== undefined || patch.autoReconnectMaxRetries !== undefined) {
       ctx.notifyRuntimeSettingsChanged()
     }
-    ctx.notifySettingsChanged(Object.keys(patch) as (keyof SettingsAllPatch)[], _event.sender?.id)
+    ctx.notifySettingsChanged(
+      saved.locale !== previousLocale
+        ? Array.from(new Set([...(Object.keys(patch) as (keyof SettingsAllPatch)[]), 'locale' as const]))
+        : (Object.keys(patch) as (keyof SettingsAllPatch)[]),
+      _event.sender?.id,
+    )
     if (saved.locale !== previousLocale) {
       const { setMainLocale } = await import('../../i18n')
       const { syncTrayFromSettings } = await import('../../window/tray')
@@ -64,6 +69,23 @@ export function registerWorkspaceSettingsHandlers(ctx: SettingsIpcCtx): void {
     electron: process.versions.electron || '',
     platform: `${process.platform}-${process.arch}`,
   }))
+
+  ipcMain.handle('app:syncSystemLocale', async () => {
+    await ensureSettingsStoreReady()
+    await settingsStore.initMigrations()
+    const resolved = settingsStore.getLocale()
+    const { getMainLocale, setMainLocale } = await import('../../i18n')
+    if (settingsStore.getLocalePreference() === 'system' && resolved !== getMainLocale()) {
+      setMainLocale(resolved)
+      const { syncTrayFromSettings } = await import('../../window/tray')
+      syncTrayFromSettings(settingsStore)
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('app:localeChanged', resolved)
+      }
+      ctx.notifySettingsChanged(['locale'])
+    }
+    return resolved
+  })
 
   ipcMain.handle('sessionLog:openDir', async () => {
     const { SessionLogManager } = await import('../../ssh/sessionLog')
