@@ -88,6 +88,13 @@ html:not([data-theme]),
   --titlebar-symbol: #a19e95;
   /* native <select> chevron (matches --text-secondary) */
   --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a19e95' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  /* Arc / Mica translucent material tokens: neutral luminance light-to-shadow (no red cast) */
+  --mica-backdrop: radial-gradient(circle at 10% 10%, rgba(255, 255, 255, 0.06), transparent 46%),
+                   radial-gradient(circle at 90% 88%, rgba(175, 190, 210, 0.045), transparent 50%),
+                   linear-gradient(155deg, #1d1c1b 0%, #171716 55%, #141517 100%);
+  --mica-chrome-bg: rgba(31, 30, 29, 0.42);
+  --mica-composer-bg: rgba(42, 41, 39, 0.78);
+  --mica-highlight: rgba(255, 255, 255, 0.08);
 }
 
 /* Light: Radix Colors "sand" scale, the gray Radix pairs with orange/brown accents.
@@ -119,6 +126,12 @@ html:not([data-theme]),
   --titlebar-bg: #f5f4f2;
   --titlebar-symbol: #63635e;
   --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2363635e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  --mica-backdrop: radial-gradient(circle at 10% 10%, rgba(255, 255, 255, 0.92), transparent 48%),
+                   radial-gradient(circle at 90% 88%, rgba(205, 210, 218, 0.45), transparent 52%),
+                   linear-gradient(155deg, #f3f2ef 0%, #ebe9e4 52%, #e4e6ea 100%);
+  --mica-chrome-bg: rgba(246, 245, 243, 0.42);
+  --mica-composer-bg: rgba(255, 255, 255, 0.78);
+  --mica-highlight: rgba(255, 255, 255, 0.85);
 }
 
 [data-theme="eyecare"] {
@@ -148,6 +161,12 @@ html:not([data-theme]),
   --titlebar-bg: #ece5d8;
   --titlebar-symbol: #8a7f70;
   --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238a7f70' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  --mica-backdrop: radial-gradient(circle at 10% 10%, rgba(255, 252, 245, 0.78), transparent 48%),
+                   radial-gradient(circle at 90% 88%, rgba(202, 190, 168, 0.42), transparent 52%),
+                   linear-gradient(155deg, #eee8dc 0%, #e6dfd0 54%, #dfd7c5 100%);
+  --mica-chrome-bg: rgba(238, 231, 218, 0.42);
+  --mica-composer-bg: rgba(249, 245, 237, 0.80);
+  --mica-highlight: rgba(255, 253, 248, 0.75);
 }
 
 * {
@@ -186,6 +205,44 @@ body {
   /* 桌面端 UI：默认禁止划选文字，避免鼠标经过时出现「选中/变粗变大」感 */
   user-select: none;
   -webkit-user-select: none;
+}
+
+/*
+ * Arc / macOS Mica chrome layer (when custom wallpaper is off).
+ * Chrome rails and sidebars gently let the ambient backdrop bleed through,
+ * while reading canvases keep solid --bg-primary for crisp ClearType text.
+ */
+html:not(.has-app-bg) body {
+  background: var(--mica-backdrop);
+}
+
+html:not(.has-app-bg) .app-shell,
+html:not(.has-app-bg) .app-titlebar,
+html:not(.has-app-bg) .app-module-rail,
+html:not(.has-app-bg) .ai-workspace,
+html:not(.has-app-bg) .settings-page {
+  background: transparent;
+}
+
+html:not(.has-app-bg) .left-toolbar,
+html:not(.has-app-bg) .group-panel,
+html:not(.has-app-bg) .ai-workspace-rail,
+html:not(.has-app-bg) .settings-nav {
+  background: var(--mica-chrome-bg);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-right-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+
+html:not(.has-app-bg) .workspace {
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--overlay-bg) 14%, transparent), inset 0 1px 0 var(--mica-highlight);
+}
+
+html:not(.has-app-bg) .connections-main,
+html:not(.has-app-bg) .ai-workspace-main,
+html:not(.has-app-bg) .settings-main,
+html:not(.has-app-bg) .ai-page {
+  background: var(--bg-primary);
 }
 
 /*

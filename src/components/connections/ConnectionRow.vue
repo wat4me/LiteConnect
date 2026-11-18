@@ -554,6 +554,7 @@ function onMenuAction(action: MenuAction) {
   border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
   margin-bottom: 0;
   background: var(--bg-primary);
+  box-shadow: inset 0 1px 0 var(--mica-highlight, transparent);
   user-select: none;
 }
 
