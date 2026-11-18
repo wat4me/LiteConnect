@@ -992,7 +992,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   padding: 7px 9px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 12px;
   outline: none;
@@ -1037,7 +1037,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   width: 100%;
   padding: 7px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-primary);
   font: inherit;
@@ -1082,7 +1082,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 
 .group-block {
   min-width: 168px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   margin-bottom: 2px;
   transition: background 0.12s ease, box-shadow 0.12s ease;
 }
@@ -1105,7 +1105,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background 0.12s ease;
   margin-bottom: 1px;

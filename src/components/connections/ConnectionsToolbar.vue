@@ -92,7 +92,7 @@ defineExpose({ searchInputRef })
 </template>
 
 <style scoped>
-.page-header { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); min-width: 0; }
+.page-header { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; padding-bottom: 4px; min-width: 0; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .page-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
 .page-heading-icon { flex-shrink: 0; align-self: center; color: var(--text-secondary); }

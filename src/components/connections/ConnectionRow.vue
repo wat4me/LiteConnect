@@ -542,8 +542,8 @@ function onMenuAction(action: MenuAction) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 9px 12px 9px 8px;
-  border-radius: 8px;
+  padding: 10px 14px 10px 10px;
+  border-radius: var(--radius-lg, 12px);
   cursor: grab;
   transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   /*
@@ -572,10 +572,10 @@ function onMenuAction(action: MenuAction) {
   flex-shrink: 0;
 }
 
-/* 轻量 hover：抬升一层背景，保留边框骨架 */
+/* 轻量 hover：抬升一层背景与边框，保持卡片轮廓利落 */
 .connection-row:hover {
   background: var(--bg-secondary);
-  border-right-color: color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 16%, var(--border-color));
 }
 
 .connection-row.pinned:hover {
@@ -822,7 +822,7 @@ function onMenuAction(action: MenuAction) {
 
 }
 
-.connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: var(--radius-sm); box-shadow: none; }
+.connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: var(--radius-md); box-shadow: none; }
 .connection-row.compact .row-main { gap: 8px; }
 .connection-row.compact .row-info { flex-direction: row; align-items: center; gap: 12px; }
 .connection-row.compact .row-heading { flex: 0 1 34%; min-width: 0; }
