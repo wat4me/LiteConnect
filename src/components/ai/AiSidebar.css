@@ -19,9 +19,37 @@
   overflow: hidden;
   background: var(--bg-primary);
 }
+.ai-settings-page > div {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
 .ai-settings-page :deep(.settings-box) {
   flex: 1;
   min-height: 0;
+}
+.ai-settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vh, 32px);
+  background: var(--overlay-bg, rgba(0, 0, 0, 0.42));
+}
+.ai-settings-modal {
+  width: min(900px, 100%);
+  height: min(680px, 100%);
+  min-height: 0;
+  border-radius: var(--radius-xl, 14px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-dialog, 0 20px 56px rgba(0, 0, 0, 0.28));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .ai-history-search {
   display: flex;

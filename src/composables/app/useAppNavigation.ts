@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import type { SettingsTabId } from '@/domain/settings/types'
 
 export type { SettingsTabId }
-export type AppMode = 'ssh' | 'database' | 'ai' | 'mcp'
+export type AppMode = 'ssh' | 'database' | 'mcp'
 
 /**
  * Top-level module navigation and the settings overlay.
@@ -14,7 +14,6 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
   const settingsInitialTab = ref<SettingsTabId | undefined>(undefined)
   const appMode = ref<AppMode>('ssh')
   const moduleSwitching = ref(false)
-  const aiWorkspaceMounted = ref(false)
   const databaseMounted = ref(false)
   /** Lazy: mount terminal workspace only after first host session is needed. */
   const sshWorkspaceMounted = ref(false)
@@ -22,7 +21,6 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
 
   const isSshMode = computed(() => appMode.value === 'ssh' && !showSettingsPage.value)
   const isDatabaseMode = computed(() => appMode.value === 'database' && !showSettingsPage.value)
-  const isAiMode = computed(() => appMode.value === 'ai' && !showSettingsPage.value)
   const isMcpMode = computed(() => appMode.value === 'mcp' && !showSettingsPage.value)
 
   function closeSettingsPage() {
@@ -57,13 +55,6 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     databaseMounted.value = true
   }
 
-  function enterAi() {
-    showSettingsPage.value = false
-    settingsInitialTab.value = undefined
-    appMode.value = 'ai'
-    aiWorkspaceMounted.value = true
-  }
-
   /** Main-window quick switching keeps mounted workspaces and their drafts alive. */
   async function selectModule(mode: AppMode) {
     if (moduleSwitching.value || (appMode.value === mode && !showSettingsPage.value)) return
@@ -77,7 +68,6 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
       if (appMode.value === mode) return
       if (mode === 'ssh') enterSsh()
       else if (mode === 'database') enterDatabase()
-      else if (mode === 'ai') enterAi()
       else appMode.value = mode
     } finally { moduleSwitching.value = false }
   }
@@ -107,10 +97,7 @@ export function useAppNavigation(deps: { onSelectHome: () => void }) {
     selectModule,
     requestModuleAction,
     databaseMounted,
-    aiWorkspaceMounted,
-    isAiMode,
     isMcpMode,
-    enterAi,
     sshWorkspaceMounted,
     settingsViewRef,
     isSshMode,

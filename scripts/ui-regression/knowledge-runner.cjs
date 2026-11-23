@@ -130,38 +130,14 @@ app.whenReady().then(async () => {
     await wait('!!window.__uiRegression')
   stage = 'checking the LiteAI server-list group entry'
   await run(`window.LiteConnect.aiKnowledgeGroups = input => window.__knowledgeBackend.invoke('groups', { input }); window.LiteConnect.aiGroupKnowledge = (groupId,input) => window.__knowledgeBackend.invoke('group-manage',{groupId,input}); window.LiteConnect.aiExportGroupKnowledge = (groupId,documentId) => window.__knowledgeBackend.invoke('group-export',{groupId,documentId}); window.__uiRegression.setWorkspacePreview(${JSON.stringify(targets.map(server => ({id:server.connectionId,name:server.name,host:server.host,port:server.port,username:server.username,password:'',group:'dev',createdAt:1,updatedAt:1})))}, []); window.__uiRegression.openLiteAi(); true`)
-  await wait('!!document.querySelector(".lite-ai-workspace-fixture .titlebar-brand-module")')
-  await click('.lite-ai-workspace-fixture .titlebar-brand-module')
-  await wait('!!document.querySelector(".titlebar-mode-item[data-mode=ai]")')
-  await click('.titlebar-mode-item[data-mode=ai]')
-  await wait('document.querySelectorAll(".workspace-host-checkbox").length===2')
-  if (!knowledgeGroupsEnabled) {
-    assert.equal(await run('document.querySelector(".workspace-knowledge-group")'), null, 'LiteAI server list hides knowledge group creation')
+  // The LiteAI server browser is gone: hosts are chosen in the picker, and knowledge groups are
+  // created from the connections page (covered by connections-layout-runner.cjs).
+  await wait('!!document.querySelector(".lite-ai-workspace-fixture .connections-ai-workspace .ai-rail-new:not(:disabled)")')
+  await click('.lite-ai-workspace-fixture .ai-rail-new')
+  await wait('document.querySelectorAll(".lite-ai-workspace-fixture .host-picker-item").length===2')
+  assert.equal(await run('document.querySelector(".lite-ai-workspace-fixture :is(.workspace-knowledge-group, .knowledge-select-toggle, .knowledge-create-selected)")'), null, 'The LiteAI workspace and its host picker offer no knowledge group creation')
+  assert.equal(await run('window.__uiRegression.workspaceOpens.length'), 0, 'Choosing hosts never opens remote sessions')
     return 0
-  }
-  await click('.workspace-host-checkbox'); await click('.workspace-card:nth-child(2) .workspace-host-checkbox')
-  const openedBeforeGroup = await run('window.__uiRegression.workspaceOpens.length')
-  await click('.workspace-knowledge-group'); await wait('document.querySelectorAll(".knowledge-group-members input:checked").length===2')
-  await edit('.knowledge-group-field input','从服务器列表创建的组')
-  await click('.knowledge-group-save'); await wait('!document.querySelector(".knowledge-group-dialog")')
-  assert.equal(service.groups.list().length,1)
-  await wait('!!document.querySelector(".knowledge-panel main textarea")')
-  await edit('.knowledge-panel main input:not([type="checkbox"])','公共发布流程')
-  await edit('.knowledge-panel main textarea','离线维护的发布步骤：检查目标机器后运行已确认的发布脚本。')
-  await action(1); await wait('!document.querySelector(".knowledge-panel main textarea") && !!document.querySelector(".knowledge-panel h3")')
-  await action(2); await wait('!document.querySelector(".knowledge-actions button:nth-child(2)").disabled')
-  assert.ok(fs.readFileSync(exportPath,'utf8').includes('离线维护的发布步骤'),'Groups can be edited and exported without an SSH conversation')
-  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-  fs.writeFileSync(path.join(artifacts,'knowledge-group-offline.png'),(await window.webContents.capturePage()).toPNG())
-  await click('.knowledge-panel header button'); await wait('!document.querySelector(".knowledge-panel")')
-  assert.equal(await run('window.__uiRegression.workspaceOpens.length'),openedBeforeGroup,'Creating a group never opens remote sessions or expands the operation scope')
-  let groupEntryLayouts = 0
-  for (const width of [720,1100]) {
-    window.setSize(width,900); await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-    assert.ok(await run(`(() => { const panel=document.querySelector('.workspace-browser').getBoundingClientRect(),button=document.querySelector('.workspace-knowledge-group').getBoundingClientRect();return button.left>=panel.left-1&&button.right<=panel.right+1&&button.bottom<=panel.bottom+1 })()`),'Knowledge group entry fits the server browser')
-    groupEntryLayouts++
-  }
-    return groupEntryLayouts
   }
   async function checkSystem() {
     if (!knowledgeGroupsEnabled) {

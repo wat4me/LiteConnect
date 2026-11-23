@@ -56,9 +56,5 @@ export function useAppWindowRouting(deps: {
     await deps.selectModule('ssh')
   }
 
-  async function handleEnterAiModule(): Promise<void> {
-    await deps.selectModule('ai')
-  }
-
-  return { launchParams, isDetachedWindow, isDbWindow, handleEnterDatabaseModule, handleEnterSshModule, handleEnterAiModule }
+  return { launchParams, isDetachedWindow, isDbWindow, handleEnterDatabaseModule, handleEnterSshModule }
 }

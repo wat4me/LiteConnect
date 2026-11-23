@@ -92,7 +92,7 @@ defineExpose({ searchInputRef })
 </template>
 
 <style scoped>
-.page-header { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; padding-bottom: 4px; min-width: 0; }
+.page-header { container-type: inline-size; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; margin-bottom: 0; padding-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent); min-width: 0; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .page-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
 .page-heading-icon { flex-shrink: 0; align-self: center; color: var(--text-secondary); }
@@ -105,9 +105,9 @@ defineExpose({ searchInputRef })
 .search-box .search-input { padding-left: 36px; padding-right: 32px; }
 .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 24px !important; height: 24px !important; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-@media (max-width: 760px) {
+@container (max-width: 600px) {
   .page-heading { flex-wrap: wrap; }
   .page-title-row { flex-basis: 100%; }
-  .toolbar-actions { margin-left: auto; }
+  .toolbar-actions { margin-left: auto; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
 }
 </style>

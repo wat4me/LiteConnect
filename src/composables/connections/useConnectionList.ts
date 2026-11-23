@@ -30,6 +30,8 @@ export function useConnectionList(options: {
   getSearchInput: () => HTMLInputElement | null
   isModalOpen: () => boolean
   onConnect: (connectionId: string) => void
+  onToggleSelect?: (connectionId: string) => void
+  onClearSelection?: () => boolean
   revealConnection?: (index: number) => void
 }) {
   const connections = ref<Connection[]>([])
@@ -47,6 +49,8 @@ export function useConnectionList(options: {
   const importing = ref(false)
   const initialized = ref(false)
   const listKeyboardIndex = ref(-1)
+  // Pointer navigation supplies a shortcut target without rendering the list on each row entry.
+  let lastPointedIndex = -1
 
   const dragConnId = ref<string | null>(null)
   const dropInsertIndex = ref<number | null>(null)
@@ -570,13 +574,22 @@ export function useConnectionList(options: {
     })
   }
 
+  function onRowMouseEnter(index: number) {
+    lastPointedIndex = index
+    listKeyboardIndex.value = -1
+  }
+
+  function shortcutIndex() {
+    return listKeyboardIndex.value >= 0 ? listKeyboardIndex.value : lastPointedIndex
+  }
+
   function moveListKeyboard(delta: number) {
     const len = filteredConnections.value.length
     if (len === 0) {
       listKeyboardIndex.value = -1
       return
     }
-    let next = listKeyboardIndex.value
+    let next = shortcutIndex()
     if (next < 0) next = delta > 0 ? 0 : len - 1
     else next = (next + delta + len) % len
     listKeyboardIndex.value = next
@@ -624,11 +637,20 @@ export function useConnectionList(options: {
       moveListKeyboard(-1)
       return
     }
+    if (e.key === ' ' && !inSearch) {
+      if (e.repeat || listKeyboardIndex.value < 0) return
+      const conn = filteredConnections.value[listKeyboardIndex.value]
+      if (!conn || !options.onToggleSelect) return
+      e.preventDefault()
+      options.onToggleSelect(conn.id)
+      return
+    }
     if (e.key === 'Enter') {
       if (e.repeat) return
-      const index = listKeyboardIndex.value < 0 && inSearch && searchQuery.value.trim()
+      const current = shortcutIndex()
+      const index = current < 0 && inSearch && searchQuery.value.trim()
         ? 0
-        : listKeyboardIndex.value
+        : current
       if (index < 0) return
       const conn = filteredConnections.value[index]
       if (!conn) return
@@ -636,23 +658,31 @@ export function useConnectionList(options: {
       options.onConnect(conn.id)
       return
     }
-    if (e.key === 'Escape' && inSearch) {
-      if (searchQuery.value) {
+    if (e.key === 'Escape') {
+      if (inSearch) {
+        if (searchQuery.value) {
+          e.preventDefault()
+          searchQuery.value = ''
+        } else {
+          searchInput?.blur()
+        }
+        return
+      }
+      if (options.onClearSelection?.()) {
         e.preventDefault()
-        searchQuery.value = ''
-      } else {
-        searchInput?.blur()
       }
     }
   }
 
   watch(filteredConnections, (list) => {
+    lastPointedIndex = Math.min(lastPointedIndex, list.length - 1)
     if (listKeyboardIndex.value >= list.length) {
       listKeyboardIndex.value = list.length > 0 ? list.length - 1 : -1
     }
   })
 
   watch([activeGroupId, smartView, searchQuery, searchScope, colorTagFilter, sortMode], () => {
+    lastPointedIndex = -1
     listKeyboardIndex.value = -1
   })
 
@@ -686,6 +716,7 @@ export function useConnectionList(options: {
     sortMode,
     importing,
     listKeyboardIndex,
+    onRowMouseEnter,
     dragConnId,
     dropInsertIndex,
     connectionCounts,

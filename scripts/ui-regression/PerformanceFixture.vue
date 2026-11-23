@@ -6,6 +6,7 @@ import { useFancyCursor } from '../../src/composables/app/useFancyCursor'
 import { recordRendererTiming } from '../../src/composables/app/rendererPerformance'
 import { setAppLocale } from '../../src/i18n'
 import type { Connection, Group } from '../../src/env'
+import type { AiSessionStore } from '../../shared/types/ai'
 
 const data = ref<{ connections: Connection[]; groups: Group[] } | null>(null)
 const mountKey = ref(0)
@@ -14,6 +15,9 @@ const showDiagnostics = ref(false)
 const cursorEnabled = ref(false)
 useFancyCursor(cursorEnabled, ref('trail'))
 const connects: string[] = []
+const aiConnects: string[] = []
+const aiChats: { sessionId: string; text: string }[] = []
+const aiStores = new Map<string, AiSessionStore>()
 const reorders: string[][] = []
 const groupReorders: string[][] = []
 const moves: string[][] = []
@@ -37,13 +41,40 @@ window.requestAnimationFrame = callback => {
 window.cancelAnimationFrame = id => { if (id < 0) pendingFakeFrames.delete(id); else nativeCancel(id) }
 window.addEventListener('error', event => { (window as any).__perfError = String(event.error || event.message) })
 
-;(window as any).LiteConnect = {
+const liteConnect: Record<string, unknown> = {
   getConnectionUsageStatsEnabled: async () => true,
   getAllSettings: async () => savedSettings,
   setManySettings: async (settings: Record<string, unknown>) => { savedSettings = { ...savedSettings, ...settings } },
   getSavedCredentials: async () => [],
   getConnections: async () => data.value!.connections,
   getGroups: async () => data.value!.groups,
+  onAiWorkspaceConnection: () => () => {},
+  aiListWorkspaceConversations: async () => [],
+  aiOpenWorkspaceConnection: async (id: string) => {
+    aiConnects.push(id)
+    return `ai-${id}`
+  },
+  aiCloseWorkspaceConnection: async () => {},
+  getAiSettings: async () => ({ providers: [{ id: 'fixture', name: 'Fixture', baseUrl: 'https://ai.invalid/v1', apiKey: 'fixture-key', models: [{ id: 'fixture-model' }] }], activeProviderId: 'fixture', activeModel: 'fixture-model', systemPrompt: '' }),
+  onAiChatStream: () => () => {},
+  appendAiSessionHistory: async () => {},
+  aiKnowledge: async () => ({ storagePath: '/fixture/knowledge.sqlite', targets: [], groups: [] }),
+  mcpListJobs: async () => [],
+  aiChatStream: async (_requestId: string, messages: { role: string; content: string }[], options: { sessionId: string }) => {
+    aiChats.push({ sessionId: options.sessionId, text: messages.at(-1)?.content || '' })
+    return { content: 'fixture reply' }
+  },
+  getAiSessionStore: async (id: string) => aiStores.get(id),
+  aiCreateConversation: async (id: string) => {
+    const store: AiSessionStore = {
+      version: 1,
+      activeThreadId: `thread-${id}`,
+      threads: [{ id: `thread-${id}`, title: '', messages: [], createdAt: 1, updatedAt: 1, contextFiles: [] }],
+      defaultContextFiles: [],
+    }
+    aiStores.set(id, store)
+    return store
+  },
   reorderGroups: async (ids: string[]) => {
     groupReorders.push(ids)
     data.value!.groups = data.value!.groups.map(group => ({ ...group, order: ids.indexOf(group.id) }))
@@ -58,10 +89,19 @@ window.addEventListener('error', event => { (window as any).__perfError = String
     data.value!.connections = data.value!.connections.map(connection => ({ ...connection, order: order.get(connection.id) ?? connection.order }))
   },
 }
+// The mounted AI chat calls many main-process APIs; unlisted ones are inert here.
+const missingCalls = new Set<string>()
+;(window as any).LiteConnect = new Proxy(liteConnect, {
+  get: (target, key) => {
+    if (typeof key !== 'string' || key in target) return target[key as string]
+    missingCalls.add(key)
+    return /^on[A-Z]/.test(key) ? () => () => {} : undefined
+  },
+})
 
 onMounted(() => {
   ;(window as any).__perf = {
-    connects, reorders, groupReorders, moves,
+    connects, aiConnects, aiChats, missingCalls: () => [...missingCalls], reorders, groupReorders, moves,
     settings: () => savedSettings,
     async mountAppearance() {
       data.value = null

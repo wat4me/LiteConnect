@@ -5,7 +5,6 @@ export default {
     modulesAria: 'App modules',
     modeSsh: 'SSH',
     modeDatabase: 'Database',
-    modeAi: 'AI workspace',
     switchModuleAria: 'Switch module, currently {module}',
     connectionManage: 'Connections',
     settings: 'Settings',

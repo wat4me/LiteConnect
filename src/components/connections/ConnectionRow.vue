@@ -27,6 +27,8 @@ const props = withDefaults(defineProps<{
   reorderDisabled?: boolean
   /** Keyboard focus highlight from parent list */
   keyboardActive?: boolean
+  /** Selection highlight from parent list (click, or Ctrl/Shift-click for several) */
+  selected?: boolean
   /** Show secondary usage stats (settings). Default on. */
   showUsageStats?: boolean
   connecting?: boolean
@@ -34,15 +36,23 @@ const props = withDefaults(defineProps<{
   connectionError?: string
   groupName?: string
   compact?: boolean
+  /** At least one host is checked: plain row clicks toggle selection instead of opening a connection. */
+  multiSelecting?: boolean
+  /** Size of the multi-selection this row belongs to (0 when not part of one); the AI action then covers all of them. */
+  aiSelectionCount?: number
 }>(), {
   reorderDisabled: false,
   keyboardActive: false,
   showUsageStats: true,
   connecting: false,
+  multiSelecting: false,
+  aiSelectionCount: 0,
 })
 
 const emit = defineEmits<{
+  (e: 'select', connectionId: string, modifiers: { ctrl: boolean; shift: boolean }): void
   (e: 'connect', connectionId: string): void
+  (e: 'ai', connectionId: string): void
   (e: 'cancel-connect', connectionId: string): void
   (e: 'test', connectionId: string): void
   (e: 'edit', connection: Connection): void
@@ -121,8 +131,31 @@ const tagTitle = computed(() => {
   return note ? `${tagText} · ${note}` : tagText
 })
 
-function onDoubleClick() {
-  requestConnect()
+const hasSelectModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey || e.shiftKey
+
+const aiForSelection = computed(() => props.aiSelectionCount > 1)
+const aiLabel = computed(() => aiForSelection.value ? t('connections.aiChatSelected', { count: props.aiSelectionCount }) : t('connections.aiChat'))
+const aiTitle = computed(() => aiForSelection.value ? t('connections.aiChatSelectedTooltip', { count: props.aiSelectionCount }) : t('connections.aiChatRowTooltip'))
+
+/** Checkbox toggles membership like Ctrl+click; Shift still extends a range. */
+function onSelectToggle(e: MouseEvent) {
+  emit('select', props.connection.id, { ctrl: !e.shiftKey, shift: e.shiftKey })
+}
+
+function onRowClick(e: MouseEvent) {
+  // Ignore the second click of a double-click so it doesn't undo the first toggle.
+  if (e.detail > 1) return
+  const el = e.target as HTMLElement | null
+  if (el?.closest('button, a, input, [role="menuitem"]')) return
+  if (!props.multiSelecting && !hasSelectModifier(e)) return
+  emit('select', props.connection.id, {
+    ctrl: e.ctrlKey || e.metaKey || (props.multiSelecting && !e.shiftKey),
+    shift: e.shiftKey,
+  })
+}
+
+function onDoubleClick(e: MouseEvent) {
+  if (!props.multiSelecting && !hasSelectModifier(e)) requestConnect()
 }
 
 function requestConnect() {
@@ -280,7 +313,7 @@ useOutsideDismiss(
   () => [menuRef.value, moreBtnRef.value],
 )
 
-type MenuAction = 'connect' | 'window' | 'test' | 'copy' | 'edit' | 'pin' | 'delete'
+type MenuAction = 'connect' | 'ai' | 'window' | 'test' | 'copy' | 'edit' | 'pin' | 'delete'
 
 function onMenuAction(action: MenuAction) {
   closeMenu()
@@ -288,6 +321,9 @@ function onMenuAction(action: MenuAction) {
   switch (action) {
     case 'connect':
       requestConnect()
+      break
+    case 'ai':
+      emit('ai', c.id)
       break
     case 'window':
       emit('open-window', c.id)
@@ -321,29 +357,35 @@ function onMenuAction(action: MenuAction) {
       dragging: isDragging,
       'menu-open': menuOpen,
       'keyboard-active': keyboardActive,
+      selected,
       pinned: connection.pinned,
       'has-color-tag': hasColorTag,
       connecting,
       compact,
+      'multi-selecting': multiSelecting,
     }"
-    :style="{ '--tag-color': tagColor }"
     @pointerdown="dragGuard.pointerDown"
     @dragstart="onDragStart"
     @dragend="onDragEnd"
+    @click="onRowClick"
     @dblclick="onDoubleClick"
     @contextmenu="onContextMenu"
   >
     <div class="row-main">
-      <span class="color-tag-slot">
-        <span
-          v-if="hasColorTag"
-          class="color-tag"
-          :style="{ background: tagColor }"
-          :title="tagTitle"
-          :aria-label="tagTitle"
-          role="img"
-        ></span>
-      </span>
+      <button
+        type="button"
+        class="select-check"
+        role="checkbox"
+        :aria-checked="selected"
+        :aria-label="t('connections.selectToggle', { name: connection.name })"
+        :title="t('connections.selectToggleHint')"
+        @click.stop="onSelectToggle"
+        @dblclick.stop
+      >
+        <span class="select-check-box" aria-hidden="true">
+          <AppIcon v-if="selected" name="check" size="xs" />
+        </span>
+      </button>
       <div class="row-info">
         <div class="row-heading">
           <span class="conn-name">
@@ -355,8 +397,15 @@ function onMenuAction(action: MenuAction) {
               :title="t('connections.pinned')"
             />
             <span class="conn-name-text" :title="connection.name">{{ connection.name }}</span>
+            <span
+              v-if="hasColorTag"
+              class="color-tag"
+              :style="{ background: tagColor }"
+              :title="tagTitle"
+              :aria-label="tagTitle"
+              role="img"
+            ></span>
           </span>
-          <span v-if="statsInline && !compact" class="conn-stats" :title="statsTitle" :aria-label="statsTitle">{{ statsInline }}</span>
         </div>
         <span class="conn-meta" :title="metaTitle">
           <span class="conn-addr">{{ connection.username }}@{{ connection.host }}:{{ connection.port }}</span>
@@ -364,11 +413,9 @@ function onMenuAction(action: MenuAction) {
             <span class="meta-sep" aria-hidden="true">·</span>
             <span class="conn-group" :title="groupName">{{ t('connections.resultGroup', { name: groupName }) }}</span>
           </template>
-          <template v-if="connection.note && !compact">
-            <span class="meta-sep" aria-hidden="true">·</span>
-            <span class="conn-note" :title="connection.note">{{ connection.note }}</span>
-          </template>
         </span>
+        <span v-if="connection.note && !compact" class="conn-note" :title="connection.note">{{ connection.note }}</span>
+        <span v-if="statsInline && !compact" class="conn-stats" :title="statsTitle" :aria-label="statsTitle">{{ statsInline }}</span>
         <span v-if="connectionError && !connecting" class="conn-error" role="alert"><AppIcon name="alert-circle" size="xs" />{{ connectionError }}</span>
       </div>
     </div>
@@ -419,40 +466,18 @@ function onMenuAction(action: MenuAction) {
         </button>
       </el-tooltip>
 
-      <el-tooltip :content="t('connections.copyConnection')" placement="bottom">
-        <button
-          class="action-btn secondary-action ui-icon-btn ui-icon-btn-sm"
-          type="button"
-          :aria-label="t('connections.copyConnection')"
-          @click.stop="emit('copy', connection)"
-        >
-          <AppIcon name="copy" size="sm" />
-        </button>
-      </el-tooltip>
-
-      <el-tooltip :content="t('connections.edit')" placement="bottom">
-        <button
-          class="action-btn secondary-action ui-icon-btn ui-icon-btn-sm"
-          type="button"
-          :aria-label="t('connections.edit')"
-          @click.stop="emit('edit', connection)"
-        >
-          <AppIcon name="edit" size="sm" />
-        </button>
-      </el-tooltip>
-
-      <el-tooltip :content="connection.pinned ? t('connections.unpin') : t('connections.pin')" placement="bottom">
-        <button
-          class="action-btn secondary-action pin-action ui-icon-btn ui-icon-btn-sm"
-          type="button"
-          :class="{ active: connection.pinned }"
-          :aria-label="connection.pinned ? t('connections.unpin') : t('connections.pin')"
-          :aria-pressed="connection.pinned === true"
-          @click.stop="emit('pin', connection.id)"
-        >
-          <AppIcon :name="connection.pinned ? 'pin-fill' : 'pin'" size="sm" />
-        </button>
-      </el-tooltip>
+      <!-- Always visible; inside a multi-selection it starts one chat for all selected hosts. -->
+      <button
+        class="action-btn ai ui-btn ui-btn-ghost ui-btn-xs"
+        type="button"
+        :title="aiTitle"
+        :aria-label="aiForSelection ? aiTitle : t('connections.aiChatNamed', { name: connection.name })"
+        @click.stop="emit('ai', connection.id)"
+        @dblclick.stop
+      >
+        <AppIcon name="ai-chat" size="sm" />
+        <span class="ai-label">{{ aiLabel }}</span>
+      </button>
 
       <div class="more-wrap secondary-action">
         <el-tooltip :content="t('connections.more')" placement="bottom" :disabled="menuOpen">
@@ -490,6 +515,10 @@ function onMenuAction(action: MenuAction) {
               <AppIcon name="plug" size="sm" class="more-item-icon" />
               {{ connecting ? t('connections.connecting') : t('connections.connect') }}
             </button>
+            <button type="button" class="ui-menu-item" role="menuitem" data-action="ai" @click="onMenuAction('ai')">
+              <AppIcon name="ai-chat" size="sm" class="more-item-icon" />
+              {{ aiLabel }}
+            </button>
             <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('window')">
               <AppIcon name="external-link" size="sm" class="more-item-icon" />
               {{ t('connections.openInNewWindow') }}
@@ -504,17 +533,16 @@ function onMenuAction(action: MenuAction) {
               <AppIcon name="connection-test" size="sm" class="more-item-icon" />
               {{ t('connections.testConnection') }}
             </button>
-            <div v-if="menuMode === 'context' || compact" class="ui-menu-sep" role="separator"></div>
-            <button v-if="menuMode === 'context' || compact" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
+            <div class="ui-menu-sep" role="separator"></div>
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('copy')">
               <AppIcon name="copy" size="sm" class="more-item-icon" />
               {{ t('connections.copyConnection') }}
             </button>
-            <button v-if="menuMode === 'context' || compact" type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
+            <button type="button" class="ui-menu-item" role="menuitem" @click="onMenuAction('edit')">
               <AppIcon name="edit" size="sm" class="more-item-icon" />
               {{ t('connections.edit') }}
             </button>
             <button
-              v-if="menuMode === 'context' || compact"
               type="button"
               class="ui-menu-item"
               role="menuitem"
@@ -537,35 +565,44 @@ function onMenuAction(action: MenuAction) {
 
 <style scoped>
 .connection-row {
-  --tag-color: var(--text-secondary);
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 14px 10px 10px;
-  border-radius: var(--radius-lg, 12px);
-  cursor: grab;
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
-  /*
-   * Each row is its own rounded card.
-   * Left accent + outer border; dividers on the wrap still meet the left strip.
-   */
-  /* Rows sit on the content surface; a tinted fill on white read as dirty gray. */
-  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
-  margin-bottom: 0;
-  background: var(--bg-primary);
-  box-shadow: inset 0 1px 0 var(--mica-highlight, transparent);
+  padding: 7px 10px 7px 6px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: default;
+  border: 1px solid transparent;
+  background: transparent;
   user-select: none;
+  transition: background 0.1s ease;
 }
 
-/* The tag shows once, as the labelled dot; a colored left bar repeated it. */
+.connection-row::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -2px;
+  height: 1px;
+  background: color-mix(in srgb, var(--border-color) 42%, transparent);
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.connection-row:hover::after,
+.connection-row.selected::after,
+.connection-row.keyboard-active::after,
+.connection-row.menu-open::after,
+.connection-row.connecting::after {
+  opacity: 0;
+}
+
 .connection-row.connecting {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-color));
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
   cursor: wait;
-}
-
-.connection-row.pinned {
-  background: color-mix(in srgb, var(--warning) 8%, var(--bg-secondary));
 }
 
 .pin-icon {
@@ -573,25 +610,41 @@ function onMenuAction(action: MenuAction) {
   flex-shrink: 0;
 }
 
-/* 轻量 hover：抬升一层背景与边框，保持卡片轮廓利落 */
-.connection-row:hover {
-  background: var(--bg-secondary);
-  border-color: color-mix(in srgb, var(--text-primary) 16%, var(--border-color));
-}
-
-.connection-row.pinned:hover {
-  background: color-mix(in srgb, var(--warning) 12%, var(--hover-bg));
-}
-
+.connection-row:hover,
 .connection-row.menu-open,
 .connection-row:focus-within {
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary));
 }
 
-/* Selection is a quiet fill; keyboard focus has its own crisp boundary. */
+/* Keyboard navigation keeps the neutral selection surface (docs/UI_STYLES.md). */
 .connection-row.keyboard-active,
 .connection-row.keyboard-active:hover {
   background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
+}
+
+.connection-row.selected,
+.connection-row.selected.keyboard-active {
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-primary));
+}
+
+.connection-row.selected:hover {
+  background: color-mix(in srgb, var(--accent) 19%, var(--bg-primary));
+}
+
+.connection-row.selected::before {
+  content: '';
+  position: absolute;
+  inset-block: 5px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.connection-row.selected .conn-name-text {
+  color: color-mix(in srgb, var(--accent) 76%, var(--text-primary));
 }
 
 .connection-row:has(:focus-visible) {
@@ -617,13 +670,16 @@ function onMenuAction(action: MenuAction) {
 
 .row-info {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  grid-template-areas: "name note" "address stats";
+  align-items: baseline;
+  gap: 2px 16px;
   min-width: 0;
 }
 
 .conn-error {
+  grid-column: 1 / -1;
   display: flex;
   align-items: flex-start;
   gap: var(--space-1);
@@ -653,9 +709,10 @@ function onMenuAction(action: MenuAction) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.row-heading { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.row-heading { grid-area: name; display: flex; align-items: baseline; min-width: 0; }
 
 .conn-meta {
+  grid-area: address;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -681,56 +738,71 @@ function onMenuAction(action: MenuAction) {
   opacity: 0.45;
 }
 
-.conn-stats {
-  flex: 0 2 auto;
-  max-width: 45%;
+.conn-note,
+.conn-stats,
+.conn-group {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--font-caption);
-  color: var(--text-secondary);
   white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
 }
-.color-tag-slot { display: inline-flex; align-items: center; width: 10px; height: 10px; flex-shrink: 0; }
+.conn-note { grid-area: note; font-size: var(--font-ui-sm); }
+.conn-stats { grid-area: stats; font-variant-numeric: tabular-nums; }
+.row-info:not(:has(.conn-note)):not(:has(.conn-error)) .conn-stats {
+  grid-row: 1 / -1;
+  align-self: center;
+}
+.conn-group { max-width: 40%; }
 
+/* Generous hit target around the 15px visual checkbox so users don't have to aim precisely. */
+.select-check {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin: -4px -2px -4px -2px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  cursor: pointer;
+}
+.select-check-box {
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--text-secondary) 38%, transparent);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: #fff;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.connection-row:hover .select-check-box {
+  border-color: var(--text-secondary);
+}
+.select-check:hover .select-check-box {
+  border-color: var(--accent);
+}
+.select-check[aria-checked="true"] .select-check-box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.select-check:focus-visible {
+  outline: none;
+}
+.select-check:focus-visible .select-check-box {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .color-tag {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
-  /* Single crisp outline — avoid multi soft rings + scale() blur */
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tag-color) 35%, var(--border-color));
-  transition: box-shadow 0.12s ease;
-}
-
-.connection-row:hover .color-tag,
-.connection-row.keyboard-active .color-tag,
-.connection-row.menu-open .color-tag {
-  box-shadow: 0 0 0 1px var(--tag-color);
-}
-
-.connection-row.has-color-tag .color-tag {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tag-color) 55%, var(--border-color));
-}
-
-.connection-row.has-color-tag:hover .color-tag,
-.connection-row.has-color-tag.keyboard-active .color-tag,
-.connection-row.has-color-tag.menu-open .color-tag {
-  box-shadow: 0 0 0 1px var(--tag-color);
-}
-
-.conn-group,
-.conn-note {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 28%;
-  font-size: var(--font-caption);
-  color: var(--text-secondary);
-  opacity: 0.85;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .row-actions {
@@ -739,9 +811,6 @@ function onMenuAction(action: MenuAction) {
   gap: 6px;
   flex-shrink: 0;
 }
-.conn-note { flex: 1 1 0%; max-width: none; color: var(--text-primary); opacity: 1; font-size: var(--font-ui-sm); }
-.conn-meta:has(.conn-note) .conn-addr { max-width: 60%; }
-
 /* 测试结果在非 hover 时也保留可见，避免状态闪失 */
 .test-badge {
   display: inline-flex;
@@ -785,11 +854,41 @@ function onMenuAction(action: MenuAction) {
   outline-offset: 1px;
 }
 
-/* Repeated on every row, so it stays neutral; accent appears only on the pointed row. */
+/* Repeated on every row, so it stays quiet at rest and lights up on the pointed row. */
 .action-btn.connect {
-  color: var(--text-primary);
+  color: color-mix(in srgb, var(--text-primary) 72%, transparent);
+}
+.connection-row:hover .action-btn.connect:not(:disabled),
+.connection-row.keyboard-active .action-btn.connect:not(:disabled),
+.connection-row.selected .action-btn.connect:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .action-btn.connect:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* Secondary row actions stay softer at rest to reduce right-side visual noise. */
+.action-btn.ai,
+.action-btn.more {
+  color: var(--text-secondary);
+  opacity: 0.68;
+}
+.connection-row:hover .action-btn.ai,
+.connection-row:hover .action-btn.more,
+.connection-row.keyboard-active .action-btn.ai,
+.connection-row.keyboard-active .action-btn.more,
+.connection-row.menu-open .action-btn.ai,
+.connection-row.menu-open .action-btn.more,
+.connection-row.selected .action-btn.ai,
+.connection-row.selected .action-btn.more,
+.action-btn.ai:focus-visible,
+.action-btn.more:focus-visible {
+  opacity: 1;
+}
+.connection-row.selected .action-btn.ai,
+.action-btn.ai:hover:not(:disabled) {
   color: var(--accent);
 }
 
@@ -812,26 +911,30 @@ function onMenuAction(action: MenuAction) {
 }
 
 @media (max-width: 900px) {
-  .connect-label {
+  .connect-label,
+  .ai-label {
     display: none;
   }
 
-  .action-btn.connect {
+  .action-btn.connect,
+  .action-btn.ai {
     width: 28px;
     padding-inline: 0;
   }
 
 }
 
-.connection-row.compact { min-height: 36px; padding: 3px 8px 3px 4px; border-radius: var(--radius-md); box-shadow: none; }
+.connection-row.compact { min-height: 32px; padding: 1px 10px 1px 6px; }
+.connection-row.compact::after { bottom: -1px; }
+.connection-row.compact.selected::before { top: 5px; bottom: 5px; }
 .connection-row.compact .row-main { gap: 8px; }
-.connection-row.compact .row-info { flex-direction: row; align-items: center; gap: 12px; }
+.connection-row.compact .select-check { height: 26px; margin-block: -2px; }
+.connection-row.compact .row-info { display: flex; align-items: center; gap: 12px; }
 .connection-row.compact .row-heading { flex: 0 1 34%; min-width: 0; }
 .connection-row.compact .conn-meta { flex: 1; }
 .connection-row.compact .row-info:has(.conn-error) { flex-wrap: wrap; row-gap: 2px; }
 .connection-row.compact .conn-error { flex: 1 0 100%; }
-.connection-row.compact .secondary-action:not(.more-wrap) { display: none; }
 .connection-row.compact .row-actions { gap: 2px; }
-.connection-row.compact .connect-label { display: none; }
-.connection-row.compact .action-btn.connect { width: 28px; padding-inline: 0; }
+.connection-row.compact :is(.connect-label, .ai-label) { display: none; }
+.connection-row.compact .action-btn:is(.connect, .ai) { width: 28px; padding-inline: 0; }
 </style>

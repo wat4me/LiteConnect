@@ -1,5 +1,4 @@
 import { useAiWorkspaceHosts } from './useAiWorkspaceHosts'
-import { useAiWorkspaceRail } from './useAiWorkspaceRail'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { addAppEventListener, removeAppEventListener } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
@@ -54,7 +53,6 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   const historyExpanded = ref(false)
   const historyList = ref<HTMLElement | null>(null)
   const browsing = ref(true)
-  const { workspaceElement, railCollapsed } = useAiWorkspaceRail(() => !browsing.value && !showSchedules.value)
   const scheduleCreateToken = ref(0)
   const pendingThreadId = ref('')
   const pendingNewConversation = ref(false)
@@ -187,7 +185,8 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     try {
       await loadHistory(id)
       if (!current()) return
-      if (wantNew) await startNewConversation(id, () => { })
+      // An empty active thread already is a new conversation; skip the "already new" notice.
+      if (wantNew) { if (getSessionState(id).messages.length) await startNewConversation(id, () => { }) }
       else await switchConversation(id, threadId, () => { })
       if (!current()) return
       sessionTick.value += 1
@@ -552,7 +551,6 @@ export function useAiWorkspace(options: { active: () => boolean }) {
   })
 
   return {
-    workspaceElement,
     connections,
     query,
     selectedId,
@@ -570,7 +568,6 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     loading,
     closing,
     showSchedules,
-    railCollapsed,
     HISTORY_PREVIEW_COUNT,
     historyExpanded,
     historyList,

@@ -1,5 +1,6 @@
 import { ref, watch, type Ref, type ComputedRef } from 'vue'
 import type { WorkspacePanel } from '@shared/workspaceLayout'
+import type { Connection } from '@shared/types/connection'
 import type { ConnectionGroup, Session } from '@/domain/session/types'
 import type { AppEvent } from '@/utils/shared/appEvents'
 
@@ -27,7 +28,12 @@ export function useSidebarState(deps: SessionDeps) {
     mode: 'send' | 'insert'
   } | null>(null)
 
-  const connectionsViewRef = ref<any>(null)
+  const connectionsViewRef = ref<{
+    loadData: () => Promise<void>
+    editConnection: (connection: Connection) => void
+    hasAiConversation: (sessionId: string) => boolean
+    revealAiConversation: (sessionId: string) => void
+  } | null>(null)
   const fileSidebarRef = ref<any>(null)
 
   function setSidebarTarget(groupId: string | null, sessionId: string | null) {

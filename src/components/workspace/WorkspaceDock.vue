@@ -13,6 +13,7 @@ const props = defineProps<{
   active: Record<WorkspacePanel, boolean>; available: WorkspaceTool[]
   toolbar: InstanceType<typeof LeftToolbar>['$props']
   splitMode?: SplitMode
+  focusedPanel?: WorkspacePanel
 }>()
 const emit = defineEmits<{
   (event: 'toggle', id: WorkspaceTool): void
@@ -50,9 +51,9 @@ const singlePanel = computed(() => width.value < 900 || height.value < 520)
 const railTools = (edge: WorkspaceEdge) => props.layout.tools.filter(tool => tool.edge === edge && props.available.includes(tool.id)).map(tool => tool.id)
 const controlEdge = computed(() => WORKSPACE_EDGES.find(edge => railTools(edge).length))
 const edgePanels = (edge: WorkspaceEdge) => props.layout.tools.filter(tool => isWorkspacePanel(tool.id) && tool.panelEdge === edge && props.available.includes(tool.id)).map(tool => tool.id as WorkspacePanel)
-const activeAt = (edge: WorkspaceEdge) => edgePanels(edge).find(id => props.active[id])
+const activeAt = (edge: WorkspaceEdge) => edgePanels(edge).find(id => props.active[id] && (!props.focusedPanel || props.focusedPanel === id))
 const railStyle = computed(() => ({
-  gridTemplateColumns: WORKSPACE_EDGES.map(edge => railTools(edge).length ? 'var(--left-toolbar-width, 40px)' : '0px').join(' minmax(0,1fr) '),
+  gridTemplateColumns: WORKSPACE_EDGES.map(edge => !props.focusedPanel && railTools(edge).length ? 'var(--left-toolbar-width, 40px)' : '0px').join(' minmax(0,1fr) '),
 }))
 function preferredSize(edge: WorkspaceEdge) { return resizeDraft.value?.edge === edge ? resizeDraft.value.size : props.layout.sizes[edge] }
 const areaSizes = computed(() => {
@@ -68,9 +69,10 @@ const areaSizes = computed(() => {
   return { left: Math.floor(minimums[0] + extras[0] * scale), right: Math.floor(minimums[1] + extras[1] * scale) }
 })
 const canvasStyle = computed(() => ({
-  gridTemplateColumns: singlePanel.value ? '0 minmax(0,1fr) 0' : `${areaSizes.value.left}px minmax(0,1fr) ${areaSizes.value.right}px`,
+  gridTemplateColumns: props.focusedPanel || singlePanel.value ? '0 minmax(0,1fr) 0' : `${areaSizes.value.left}px minmax(0,1fr) ${areaSizes.value.right}px`,
 }))
 function regionStyle(edge: WorkspaceEdge): CSSProperties {
+  if (props.focusedPanel) return { gridArea: 'center' }
   if (!singlePanel.value) return { gridArea: edge }
   return { position: 'absolute', [edge]: 0, top: 0, bottom: 0, width: `${areaSizes.value[edge]}px` }
 }
@@ -222,23 +224,23 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 </script>
 
 <template>
-  <div ref="root" class="workspace-dock" :class="{ 'is-single-panel': singlePanel }" :style="railStyle" @dragover="dragOver" @drop="drop" @dragleave="event => { if (!root?.contains(event.relatedTarget as Node)) dropTarget = undefined }">
-    <LeftToolbar v-for="edge in WORKSPACE_EDGES" v-show="railTools(edge).length" :key="edge" v-bind="toolbar" class="workspace-tool-rail" :style="{ gridArea: `rail-${edge}` }" :edge="edge" :tool-ids="railTools(edge)" :drop-marker="dropTarget?.edge === edge ? dropTarget.marker : undefined" rearrange :locked="layout.locked || !ready"
+  <div ref="root" class="workspace-dock" :class="{ 'is-single-panel': singlePanel && !focusedPanel, 'is-panel-focused': focusedPanel }" :style="railStyle" @dragover="dragOver" @drop="drop" @dragleave="event => { if (!root?.contains(event.relatedTarget as Node)) dropTarget = undefined }">
+    <LeftToolbar v-for="edge in WORKSPACE_EDGES" v-show="!focusedPanel && railTools(edge).length" :key="edge" v-bind="toolbar" class="workspace-tool-rail" :style="{ gridArea: `rail-${edge}` }" :edge="edge" :tool-ids="railTools(edge)" :drop-marker="dropTarget?.edge === edge ? dropTarget.marker : undefined" rearrange :locked="layout.locked || !ready"
       @toggle-ai="emit('toggle', 'ai')" @toggle-files="emit('toggle', 'files')" @toggle-monitor="emit('toggle', 'monitor')" @toggle-batch="emit('toggle', 'batch')" @toggle-sync="emit('toggle', 'sync')" @toggle-snippets="emit('toggle', 'snippets')" @toggle-docker="emit('toggle', 'docker')"
       @tool-menu="openMenu" @tool-drag="startDrag" @tool-drag-end="endDrag">
       <button v-if="edge === controlEdge" class="dock-layout-button ui-icon-btn ui-icon-btn-sm" type="button" :title="t('toolbar.layout.customize')" :aria-label="t('toolbar.layout.customize')" @click="openMenu(undefined, $event)"><AppIcon name="settings" size="sm" /></button>
     </LeftToolbar>
     <div ref="canvas" class="workspace-dock-canvas" :style="canvasStyle">
-      <div class="workspace-dock-center"><slot name="center" /></div>
+      <div v-show="!focusedPanel" class="workspace-dock-center"><slot name="center" /></div>
       <div v-if="error" class="dock-layout-error" role="alert"><span>{{ t('toolbar.layout.saveError') }}</span><button class="ui-btn ui-btn-xs" type="button" @click="emit('retry')">{{ t('toolbar.layout.retry') }}</button></div>
-      <div v-if="singlePanel && panelIds.some(id => active[id])" class="dock-backdrop" @click="panelIds.filter(id => active[id]).forEach(id => emit('toggle', id))"></div>
+      <div v-if="!focusedPanel && singlePanel && panelIds.some(id => active[id])" class="dock-backdrop" @click="panelIds.filter(id => active[id]).forEach(id => emit('toggle', id))"></div>
       <section v-for="edge in WORKSPACE_EDGES" v-show="activeAt(edge)" :key="edge" class="workspace-dock-region" :class="`dock-${edge}`" :data-dock-edge="edge" :style="regionStyle(edge)" :aria-label="t(`toolbar.layout.${edge}`)">
         <div :ref="element => bindBody(edge, element)" class="workspace-dock-body"></div>
-        <div class="workspace-dock-resize" :class="`resize-${edge}`" role="separator" :aria-label="t('toolbar.layout.resize', { name: t(`toolbar.layout.${edge}`) })" aria-orientation="vertical" :aria-valuenow="areaSizes[edge]" aria-valuemin="240" aria-valuemax="720" :aria-disabled="layout.locked || !ready" :tabindex="layout.locked || !ready ? -1 : 0" @pointerdown.prevent="resize(edge, $event)" @keydown="resizeKey(edge, $event)"></div>
+        <div v-show="!focusedPanel" class="workspace-dock-resize" :class="`resize-${edge}`" role="separator" :aria-label="t('toolbar.layout.resize', { name: t(`toolbar.layout.${edge}`) })" aria-orientation="vertical" :aria-valuenow="areaSizes[edge]" aria-valuemin="240" aria-valuemax="720" :aria-disabled="layout.locked || !ready" :tabindex="layout.locked || !ready ? -1 : 0" @pointerdown.prevent="resize(edge, $event)" @keydown="resizeKey(edge, $event)"></div>
       </section>
       <template v-if="mounted && WORKSPACE_EDGES.every(edge => bodies[edge])">
         <Teleport v-for="id in panelIds" :key="id" :to="bodies[workspacePanelEdge(layout, id)]!">
-          <div v-show="active[id] && available.includes(id)" :id="`dock-content-${id}`" class="workspace-dock-tool" :data-dock-panel="id" role="region" :aria-label="t(labels[id])"><slot :name="id" /></div>
+          <div v-show="active[id] && available.includes(id) && (!focusedPanel || focusedPanel === id)" :id="`dock-content-${id}`" class="workspace-dock-tool" :data-dock-panel="id" role="region" :aria-label="t(labels[id])"><slot :name="id" /></div>
         </Teleport>
       </template>
       <div v-if="dragging" class="workspace-dock-targets" aria-hidden="true">
@@ -285,6 +287,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 /* 融合式分区：只在朝向终端的一侧留 1px 贴边线，不做四边闭合的卡片轮廓 */
 .workspace-dock-region.dock-left { border-right: 1px solid var(--dock-divider); }
 .workspace-dock-region.dock-right { border-left: 1px solid var(--dock-divider); }
+.is-panel-focused .workspace-dock-region { border: 0; }
 .workspace-dock-region:has(.workspace-dock-resize:hover:not([aria-disabled=true])),
 .workspace-dock-region:has(.workspace-dock-resize:focus-visible) { --dock-divider: var(--accent); }
 /* 内容滚动条平时压淡，避免 6px 灰条被读成中间分割线；悬停滚动时恢复 */

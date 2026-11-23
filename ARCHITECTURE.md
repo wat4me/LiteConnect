@@ -102,7 +102,7 @@ An imported file may contain obsolete exports or test-only copies of production 
 | Database | `components/database`, `composables/database`, `domain/database`, `utils/database` | SQL workspace |
 | Monitor | `components/monitor`, `composables/monitor` | Host metrics dock |
 | Snippets / batch | `components/snippets`, `composables/snippets`, `utils/snippets` | Command snippets, broadcast, snippet hotkeys |
-| AI | `views/AiWorkspaceView.vue`, `components/ai`, `composables/ai` | Standalone LiteAI workspace and SSH chat sidebar |
+| AI | `components/connections/ConnectionsAiWorkspace.vue`, `components/ai`, `composables/ai` | LiteAI workspace on the connections page and SSH chat sidebar |
 | Settings | `components/settings`, `composables/settings` | Settings panels |
 | Shared UI | `composables/shared`, `utils/shared` | Cross-cutting pure/UI helpers |
 
@@ -163,13 +163,14 @@ resolution still uses the public chat facade. `useAiSidebarHistory.ts` captures
 confirmation targets, rejects stale search responses and serializes thread switches.
 `useAiChatViewport.ts` owns follow-scroll, KeepAlive reading-position restoration,
 timeline sizing and navigation; deactivation/disposal cancels pending viewport work.
-`AiWorkspaceView.vue` renders the workspace; its composable owns event subscriptions,
+`components/connections/ConnectionsAiWorkspace.vue` renders the workspace as an
+overlay of the connections page; `useAiWorkspace.ts` owns event subscriptions,
 connection lifetime, selection and navigation. Workspace host grouping lives in a
-pure helper used by both the browser and picker. Scoped styles remain beside the view.
+pure helper used by the picker. Shared styles live in `components/ai/aiWorkspaceShared.css`.
 `workspace/useAiWorkspaceHosts.ts` owns browsing filters, selections and the host
 picker, consuming the workspace's single connection map and operation lock.
-`workspace/useAiWorkspaceRail.ts` observes the actual workspace width and defaults
-narrow chats to a collapsed rail; an explicit saved user preference takes priority.
+The workspace docks its session rail beside the chat and floats it below 760px;
+`ConnectionsAiDraft.vue` holds an unsent conversation that connects on first send.
 
 These directions are enforced in `eslint.config.mjs`, including the prohibition on
 private chat modules importing their public facade or IPC adapters being imported
@@ -257,7 +258,7 @@ MySQL streaming row caps and connection discard behavior live in `electron/db/dr
 
 AI sidebar context-file availability checks live in `src/composables/ai/useAiContextFileStatus.ts`; its scoped presentation rules live in `src/components/ai/AiSidebar.css`.
 AI sidebar history filtering and mutations live in `src/composables/ai/useAiSidebarHistory.ts`.
-`src/views/AiWorkspaceView.vue` reuses the chat sidebar in the standalone LiteAI module. `electron/ai/workspace/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
+`src/components/connections/ConnectionsAiWorkspace.vue` reuses the chat sidebar (through `AiWorkspaceChatPane.vue`) inside the connections page. `electron/ai/workspace/workspaceConnections.ts` owns dedicated SSH transports per window and saved connection, while `registerSshConnectHandlers.ts` adapts saved credentials, host verification and keyboard authentication. Module switching retains connections; explicit disconnect and window destruction release only the workspace-owned transports.
 `electron/ai/schedules/scheduler.ts` owns persisted interval/daily/weekly local plans and bounded, serialized inspection runs. `shared/aiSchedules.ts` validates timing and calculates the next local-calendar occurrence, including DST and timezone changes. `electron/ipc/aiScheduleExecutor.ts` creates a dedicated saved-profile SSH transport and temporary history for each read-only execution. `electron/application/aiSchedules.ts` binds persistence, notification and execution ports; `registerAiScheduleHandlers.ts` registers IPC against the constructed scheduler/notifier. `components/ai/AiSchedulePanel.vue` configures plans and shows reports. The scheduler runs while the app is alive, skips catch-up bursts and aborts work at shutdown.
 `electron/ai/schedules/orchestrator.ts` runs selected-host inspections serially or with bounded parallelism and synthesizes reports through ports; each host retains its own context and transport. Plans may pin a provider/model or fall back to the active pair. `electron/ai/schedules/notifications.ts` handles opt-in generic JSON Webhooks with encrypted endpoint/token storage, bounded requests and delivery state independent of inspection results. Notification settings never enter model context. Windows window/taskbar icon lookup lives in `electron/window/appIcon.ts`; development shortcut registration and legacy Electron shortcut conflict handling live in `electron/window/developmentTaskbar.ts`.
 AI chat message footer display and controls live in `src/components/ai/AiMessageFooter.vue`; `AiChatView.vue` keeps scroll and timeline coordination, with scoped rules in `AiChatView.css`.

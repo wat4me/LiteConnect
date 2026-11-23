@@ -30,7 +30,7 @@ function sanitizeExternalUrl(value: string): string | null {
   }
 }
 
-function renderInlineMarkdown(value: string): string {
+function renderInlineMarkdown(value: string, tableCell = false): string {
   let rendered = escapeHtml(value)
   // Keep protected HTML out of later URL detection, including URLs inside code labels.
   const codeFragments: string[] = []
@@ -39,6 +39,8 @@ function renderInlineMarkdown(value: string): string {
     const index = codeFragments.push(`<code>${content}</code>`) - 1
     return `\x00C${index}\x01`
   })
+  // Model-generated tables use <br> (sometimes escaped) for line breaks within a cell.
+  if (tableCell) rendered = rendered.replace(/(?<!\\)\\?&lt;br[ \t]*\/?&gt;/gi, '<br>')
   // Bold: ** or __
   rendered = rendered.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
   rendered = rendered.replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
@@ -217,7 +219,7 @@ export function useMarkdownRenderer() {
     const flushParagraph = () => {
       if (paragraph.length === 0) return
       const cls = isConclusionParagraph(paragraph[0]) ? ' class="md-conclusion"' : ''
-      blocks.push({ type: 'html', content: `<p${cls}>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>` })
+      blocks.push({ type: 'html', content: `<p${cls}>${paragraph.map(line => renderInlineMarkdown(line)).join('<br>')}</p>` })
       paragraph = []
     }
 
@@ -255,7 +257,7 @@ export function useMarkdownRenderer() {
             openTag = tag
           }
           index++
-          html += `<li>${item.text.split('\n').map(renderInlineMarkdown).join('<br>')}`
+          html += `<li>${item.text.split('\n').map(line => renderInlineMarkdown(line)).join('<br>')}`
           if (index < listItems.length && listItems[index].depth > depth) html += renderLevel(listItems[index].depth)
           html += '</li>'
         }
@@ -278,18 +280,17 @@ export function useMarkdownRenderer() {
         rows.push(splitTableRow(line))
         i++
       }
-      const headHtml = header.map((c) => `<th>${renderInlineMarkdown(c)}</th>`).join('')
+      const headHtml = header.map((c) => `<th>${renderInlineMarkdown(c, true)}</th>`).join('')
       const bodyHtml = rows
         .map((row) => {
           const statuses = header.map((_, idx) => statusClass(row[idx] ?? ''))
           const alert = statuses.includes('danger')
           const cells = header
             .map((_, idx) => {
-              const raw = row[idx] ?? ''
-              const status = statuses[idx]
-              const content = status
-                ? `<span class="md-status-chip md-status-${status}">${renderInlineMarkdown(raw)}</span>`
-                : renderInlineMarkdown(raw)
+              const html = renderInlineMarkdown(row[idx] ?? '', true)
+              // The inline-flex status chip is only suitable for single-line cells.
+              const status = html.includes('<br>') ? null : statuses[idx]
+              const content = status ? `<span class="md-status-chip md-status-${status}">${html}</span>` : html
               const classes: string[] = []
               if (status) classes.push('md-status')
               if (idx === 0 && alert) classes.push('md-row-alert')
@@ -404,7 +405,7 @@ export function useMarkdownRenderer() {
         }
         blocks.push({
           type: 'html',
-          content: `<blockquote>${quoteLines.map(renderInlineMarkdown).join('<br>')}</blockquote>`,
+          content: `<blockquote>${quoteLines.map(line => renderInlineMarkdown(line)).join('<br>')}</blockquote>`,
         })
         continue
       }

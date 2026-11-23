@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { useMarkdownRenderer } from './useMarkdownRenderer'
 
 const { parseMarkdown } = useMarkdownRenderer()
+const TABLE_BREAK_SAMPLE = [
+  '| 宿主机 `/home/v5-automation-servers/hotfix/ApacheJetspeed/bin/`\\<br>容器内 `/home/v5/ApacheJetspeed/bin/` | **16 台共用一份**（启动时从 hotfix 覆盖进容器）<br>说明\\<br>下一行 |',
+  '| :--- | :--- |',
+  '| 宿主机<br />容器内 | 第一行<BR/>第二行 |',
+].join('\n')
 
 describe('incremental Markdown', () => {
   const samples = [
     '标题\n\n```bash\necho hi\n```\n\n后面的说明。',
     '3. first\n\n4. second\n\n   - nested\n\n   explanation\n\nConclusion\n\n1. new list',
     '| 服务 | 状态 |\n| --- | --- |\n| app | **正常** |\n| db | 正常 |\n\n结束。',
+    TABLE_BREAK_SAMPLE,
     '# header | value\n---|---\n1|2\n\nnext',
     '> one\n> **two**\n\nparagraph\nnext\n\n~~~sh\na\n\n~~~\n# end',
     '```markdown\n建议的下一步\n\n```bash\nls /tmp\n```\n\n后面的说明\n```',
@@ -270,5 +276,31 @@ describe('status and conclusion emphasis', () => {
     expect(blocks.some((b) => b.content.startsWith('<p class="md-conclusion">结论：'))).toBe(true)
     expect(blocks.some((b) => b.content.startsWith('<p class="md-conclusion">优先处理'))).toBe(true)
     expect(parseMarkdown('Conclusion')[0].content).toBe('<p>Conclusion</p>')
+  })
+})
+
+describe('line breaks in table cells', () => {
+  it('renders plain and backslash-prefixed breaks in headings and rows', () => {
+    const html = parseMarkdown(TABLE_BREAK_SAMPLE)[0].content
+    expect(html).toContain('<th>宿主机 <code>/home/v5-automation-servers/hotfix/ApacheJetspeed/bin/</code><br>容器内 <code>/home/v5/ApacheJetspeed/bin/</code></th>')
+    expect(html).toContain('<th><strong>16 台共用一份</strong>（启动时从 hotfix 覆盖进容器）<br>说明<br>下一行</th>')
+    expect(html).toContain('<tr><td>宿主机<br>容器内</td><td>第一行<br>第二行</td></tr>')
+  })
+
+  it('keeps inline code, escaped entities, and other HTML literal', () => {
+    const blocks = parseMarkdown([
+      '正文<br>保留',
+      '',
+      '| 示例 |',
+      '| --- |',
+      '| `<br>` `\\<br>` &lt;br&gt; <br class="custom"> <strong>原文</strong> |',
+    ].join('\n'))
+    expect(blocks[0].content).toBe('<p>正文&lt;br&gt;保留</p>')
+    expect(blocks[1].content).toContain('<td><code>&lt;br&gt;</code> <code>\\&lt;br&gt;</code> &amp;lt;br&amp;gt; &lt;br class=&quot;custom&quot;&gt; &lt;strong&gt;原文&lt;/strong&gt;</td>')
+  })
+
+  it('renders multiline status details outside the inline status chip', () => {
+    const html = parseMarkdown('| 状态 |\n| --- |\n| 异常（磁盘已满<br>等待处理） |')[0].content
+    expect(html).toContain('<td class="md-row-alert">异常（磁盘已满<br>等待处理）</td>')
   })
 })

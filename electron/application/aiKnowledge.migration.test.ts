@@ -129,3 +129,18 @@ it('does not inherit old attachments into a new conversation and retains raw sna
   expect(result.threads.find(thread => thread.id === result.activeThreadId)?.contextFiles).toEqual([])
   expect(result.defaultContextFiles).toEqual(raw.defaultContextFiles)
 })
+
+it('resolves draft: session ids directly from saved connection profiles without an active SSH session', async () => {
+  const profiles = [
+    { id: 'c1', name: 'Web 1', host: '10.0.0.1', port: 22, username: 'root' },
+    { id: 'c2', name: 'Web 2', host: '10.0.0.2', port: 22, username: 'ops' },
+  ]
+  const ssh = { getSessionSnapshot: () => undefined } as unknown as Parameters<typeof createAiKnowledgeService>[0]
+  const credentials = {
+    getConnections: () => profiles,
+    getConnection: (id: string) => profiles.find(profile => profile.id === id),
+  } as unknown as Parameters<typeof createAiKnowledgeService>[1]
+  const service = createAiKnowledgeService(ssh, credentials)
+  const overview = await service.access('draft:c1,c2,missing,c1', 1).manage({ action: 'overview' })
+  expect(overview.targets.map(target => target.connectionId)).toEqual(['c1', 'c2'])
+})

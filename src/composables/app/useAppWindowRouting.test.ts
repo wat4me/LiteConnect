@@ -12,12 +12,12 @@ describe('app window routing', () => {
     })
   })
 
-  it.each(['ssh', 'ai', 'database'] as const)('switches the main-window DB menu in place from %s despite a saved new-window preference', async mode => {
+  it.each(['ssh', 'mcp', 'database'] as const)('switches the main-window DB menu in place from %s despite a saved new-window preference', async mode => {
     const openDatabaseWindow = vi.fn()
     const getAllSettings = vi.fn(async () => ({ dbOpenMode: 'newWindow' }))
     vi.stubGlobal('window', { LiteConnect: { openDatabaseWindow, getAllSettings } })
     const nav = useAppNavigation({ onSelectHome: vi.fn() })
-    if (mode === 'ai') nav.enterAi()
+    if (mode === 'mcp') await nav.selectModule('mcp')
     if (mode === 'database') nav.enterDatabase()
     const routing = useAppWindowRouting({ ...nav, search: '' })
     await routing.handleEnterDatabaseModule()
@@ -27,12 +27,12 @@ describe('app window routing', () => {
     expect(openDatabaseWindow).not.toHaveBeenCalled()
   })
 
-  it.each(['ssh', 'database', 'ai'] as const)('honors cancellation of unsaved settings before switching the %s menu', async mode => {
+  it.each(['ssh', 'database'] as const)('honors cancellation of unsaved settings before switching the %s menu', async mode => {
     const nav = useAppNavigation({ onSelectHome: vi.fn() })
     nav.openSettingsPage()
     nav.settingsViewRef.value = { requestClose: vi.fn() }
     const routing = useAppWindowRouting({ ...nav, search: '' })
-    const handlers = { ssh: routing.handleEnterSshModule, database: routing.handleEnterDatabaseModule, ai: routing.handleEnterAiModule }
+    const handlers = { ssh: routing.handleEnterSshModule, database: routing.handleEnterDatabaseModule }
     await handlers[mode]()
     expect(nav.showSettingsPage.value).toBe(true)
     expect(nav.appMode.value).toBe('ssh')
@@ -46,7 +46,7 @@ describe('app window routing', () => {
   it('preserves the active terminal when reselecting SSH through the title menu', async () => {
     const home = vi.fn(), nav = useAppNavigation({ onSelectHome: home })
     const routing = useAppWindowRouting({ ...nav, search: '' })
-    await routing.handleEnterAiModule()
+    await routing.handleEnterDatabaseModule()
     await routing.handleEnterSshModule()
     await routing.handleEnterSshModule()
     expect(nav.appMode.value).toBe('ssh')

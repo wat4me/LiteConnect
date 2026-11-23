@@ -4,6 +4,7 @@ import SynchronizedInputBar from '@/components/terminal/SynchronizedInputBar.vue
 import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useI18n } from 'vue-i18n'
 import WorkspaceDock from '@/components/workspace/WorkspaceDock.vue'
+import AppIcon from '@/components/icons/AppIcon.vue'
 import { WORKSPACE_TOOLS, type SshWorkspaceLayout, type WorkspaceTool } from '@shared/workspaceLayout'
 const synchronizedInput = createSynchronizedInput()
 provide(synchronizedInputKey, synchronizedInput)
@@ -167,6 +168,17 @@ const workspaceCacheKeys = reactive<Record<WorkspacePane, string[]>>({
 const aiFreshOpenTokens = reactive<Record<string, number>>({})
 let aiFreshOpenCounter = 0
 const dockerCacheSessionIds = reactive(new Map<string, string>())
+const aiOnlySessions = reactive(new Set<string>())
+const aiOnly = computed(() => !props.dockerMode && props.aiSidebarVisible && !!props.activeSession && aiOnlySessions.has(props.activeSession.id))
+const terminalVisible = computed(() => !props.dockerMode && !aiOnly.value)
+
+function toggleTerminalVisibility(sessionId: string) {
+  if (!aiOnlySessions.delete(sessionId)) aiOnlySessions.add(sessionId)
+}
+
+watch(() => props.aiSidebarVisible, visible => {
+  if (!visible && props.activeSession) aiOnlySessions.delete(props.activeSession.id)
+})
 
 function rememberOpenedKey(list: string[], key: string): string[] {
   return list.includes(key) ? list : [...list, key]
@@ -184,6 +196,9 @@ watch(
     const liveConnections = new Set(props.allSessions.map((session) => session.connectionId))
     for (const feature of ['ai', 'sftp'] as const) {
       workspaceCacheKeys[feature] = workspaceCacheKeys[feature].filter((key) => live.has(key))
+    }
+    for (const id of aiOnlySessions) {
+      if (!live.has(id)) aiOnlySessions.delete(id)
     }
     workspaceCacheKeys.docker = workspaceCacheKeys.docker.filter((key) => liveConnections.has(key))
     for (const key of [...dockerCacheSessionIds.keys()]) {
@@ -275,22 +290,19 @@ const monitorExecSessionId = computed(() => {
 /** Declared before onBeforeUnmount so unmount can cancel stale rAF focus. */
 let cancelPendingTerminalFocus: (() => void) | null = null
 
-/** After Docker→terminal, restore xterm keyboard focus (toolbar button steals focus). */
+/** Restore xterm focus once the terminal is visible again. */
 watch(
-  () => props.dockerMode,
-  async (docker, wasDocker) => {
+  terminalVisible,
+  async (visible) => {
     cancelPendingTerminalFocus?.()
     cancelPendingTerminalFocus = null
-    if (wasDocker && !docker) {
-      await nextTick()
-      // If user already re-entered Docker, skip stale focus.
-      if (props.dockerMode) return
-      cancelPendingTerminalFocus = scheduleAfterTerminalVisible(() => {
-        cancelPendingTerminalFocus = null
-        if (props.dockerMode) return
-        terminalWorkspaceRef.value?.focusActiveTerminal()
-      })
-    }
+    if (!visible) return
+    await nextTick()
+    if (!terminalVisible.value) return
+    cancelPendingTerminalFocus = scheduleAfterTerminalVisible(() => {
+      cancelPendingTerminalFocus = null
+      if (terminalVisible.value && workspaceRoot.value?.checkVisibility()) terminalWorkspaceRef.value?.focusActiveTerminal()
+    })
   },
 )
 
@@ -372,7 +384,7 @@ function toggleTool(id: WorkspaceTool) {
 
 <template>
   <div ref="workspaceRoot" class="workspace-content">
-    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :split-mode="isSplit ? splitMode : 'none'"
+    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :split-mode="isSplit ? splitMode : 'none'" :focused-panel="aiOnly ? 'ai' : undefined"
       @toggle="toggleTool" @change="emit('layout-change', $event)" @retry="emit('layout-retry')" @single-panel-mode="emit('single-panel-mode', $event)">
       <template #center>
         <div class="workspace-main">
@@ -412,7 +424,7 @@ function toggleTool(id: WorkspaceTool) {
           :split-primary-session-id="splitPrimarySessionId"
           :secondary-session-id="secondarySessionId"
           :secondary-side="secondarySide"
-          :workspace-visible="!dockerMode"
+          :workspace-visible="terminalVisible"
           :disconnected-session-ids="disconnectedSessionIds"
           :docker-tab-open="!!dockerTabOpen"
           :docker-tab-active="!!dockerMode"
@@ -477,6 +489,18 @@ function toggleTool(id: WorkspaceTool) {
         @close="emit('close-ai')"
         @selection-consumed="emit('ai-selection-consumed', $event)"
       >
+        <template #header-leading>
+          <button
+            type="button"
+            class="ui-btn ui-btn-sm ssh-ai-terminal-toggle"
+            :title="t(aiOnly ? 'toolbar.showTerminal' : 'toolbar.showOnlyAi')"
+            :aria-label="t(aiOnly ? 'toolbar.showTerminal' : 'toolbar.showOnlyAi')"
+            @click="toggleTerminalVisibility(sessionId)"
+          >
+            <AppIcon :name="aiOnly ? 'terminal' : 'maximize'" size="sm" />
+            <span>{{ t(aiOnly ? 'toolbar.showTerminal' : 'toolbar.showOnlyAi') }}</span>
+          </button>
+        </template>
         <template v-if="isSplit" #header-trailing>
           <div class="ssh-ai-target" :title="t('toolbar.aiSplitTargetHint')">
             {{ t('toolbar.aiSplitTarget', { name: connectionNameForSession(sessionId), terminal: terminalLabelForSession(sessionId) }) }}
@@ -559,6 +583,10 @@ function toggleTool(id: WorkspaceTool) {
 }
 
 .ssh-split-ai :deep(.ai-header) { flex-wrap: wrap; }
+.ssh-ai-terminal-toggle { flex-shrink: 0; white-space: nowrap; }
+@container ai-sidebar (max-width: 320px) {
+  .ssh-ai-terminal-toggle span { display: none; }
+}
 .ssh-ai-target { flex: 0 0 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: var(--font-caption); }
 
 .workspace-main {

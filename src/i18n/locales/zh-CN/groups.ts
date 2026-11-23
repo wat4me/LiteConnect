@@ -19,6 +19,8 @@ export default {
     noMatch: '未找到匹配内容',
     newGroup: '新建分组',
     newSubgroup: '新建子分组',
+    aiChatGroup: '与整组 AI 对话（{count} 台）',
+    aiChatGroupEmpty: '与整组 AI 对话',
     moveTo: '移动分组到…',
     topLevel: '顶层分组',
     moveFailed: '移动分组失败',

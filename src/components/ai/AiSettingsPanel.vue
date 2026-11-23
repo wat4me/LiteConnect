@@ -28,7 +28,7 @@ const { t, locale } = useI18n()
 
 const props = defineProps<{
   modelValue?: AiSettings
-  layout?: 'page' | 'panel'
+  layout?: 'page' | 'panel' | 'modal'
 }>()
 
 const emit = defineEmits<{
@@ -133,6 +133,7 @@ watch(editingProviderId, () => { showApiKey.value = false })
 type SettingsSection = 'providers' | 'conversation' | 'permissions' | 'notifications'
 const section = ref<SettingsSection>('providers')
 const isPanel = computed(() => props.layout === 'panel')
+const isModal = computed(() => props.layout === 'modal')
 const panelOverview = ref(true)
 const showingOverview = computed(() => isPanel.value && panelOverview.value && !editingProvider.value)
 const settingsRoot = ref<HTMLElement | null>(null)
@@ -424,15 +425,16 @@ function applyExternal(settings: AiSettings) {
   draftSettings.value = cloneSettings(settings)
 }
 
-defineExpose({ applyExternal })
+defineExpose({ applyExternal, goBack })
 </script>
 
 <template>
   <div ref="settingsRoot" class="settings-box" :class="{ 'is-panel': isPanel }">
     <header class="settings-panel-header">
-      <button type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('common.back')" :title="t('common.back')" :disabled="saving || testingProvider" @click="goBack"><AppIcon name="chevron-left" size="sm" /></button>
+      <button v-if="!isModal || editingProvider" type="button" class="ui-icon-btn ui-icon-btn-sm" :aria-label="t('common.back')" :title="t('common.back')" :disabled="saving || testingProvider" @click="goBack"><AppIcon name="chevron-left" size="sm" /></button>
       <span class="settings-panel-title">{{ editingProvider ? t(editingProviderId === newProviderId ? 'ai.addProvider' : 'ai.editProvider') : isPanel && !showingOverview ? sections.find(item => item.id === section)?.label : t('ai.settings') }}</span>
       <span class="settings-save-state" :class="{ dirty: anyChanges }" role="status">{{ t(anyChanges ? 'ai.settingsUi.unsaved' : 'ai.settingsUi.noChanges') }}</span>
+      <button v-if="isModal && !editingProvider" type="button" class="ui-icon-btn ui-icon-btn-sm ui-icon-btn-close" :aria-label="t('common.close')" :title="t('common.close')" :disabled="saving || testingProvider" @click="goBack"><AppIcon name="close" size="sm" /></button>
     </header>
     <div class="settings-layout" :class="{ 'is-editing': editingProvider }">
       <nav v-if="!editingProvider && !isPanel" class="settings-nav" :aria-label="t('ai.settingsUi.categories')">

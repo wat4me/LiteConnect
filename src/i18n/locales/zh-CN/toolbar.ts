@@ -22,6 +22,8 @@ export default {
     aria: '工作区工具',
     ai: 'AI 助手',
     aiShortcut: 'AI 助手 (Ctrl+Shift+A)',
+    showOnlyAi: '只显示 AI',
+    showTerminal: '显示终端',
     aiSplitTarget: 'AI 目标：{name} / {terminal}',
     aiSplitTargetHint: 'AI 绑定分屏中的主终端。点击另一窗格不会切换 AI；交换分屏或切换主终端后，AI 跟随更新。',
     aiUnread: '有未读 AI 回复',

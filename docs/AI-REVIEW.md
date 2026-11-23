@@ -6,7 +6,7 @@
 
 | 层级 | 入口 / 模块 | 职责 |
 | --- | --- | --- |
-| 工作区 | `src/views/AiWorkspaceView.vue` | 服务器浏览、多选、已打开会话、历史与巡检入口 |
+| 工作区 | `src/components/connections/ConnectionsAiWorkspace.vue` | 服务器浏览、多选、已打开会话、历史与巡检入口 |
 | 聊天 UI | `src/components/ai/AiSidebar.vue`、`AiChatView.vue` | 输入、模型与权限、审批、提问、流式消息与时间线 |
 | 前端编排 | `src/composables/ai/workspace/useAiWorkspace.ts`、`useAiChat.ts` | 连接映射、会话切换、草稿和消息投影 |
 | 前端状态 | `src/composables/ai/chat/` | 会话状态、历史与设置；不另建一套消息存储 |

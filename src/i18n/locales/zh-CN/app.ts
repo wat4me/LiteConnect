@@ -5,7 +5,6 @@ export default {
     modulesAria: '应用模块',
     modeSsh: 'SSH',
     modeDatabase: '数据库',
-    modeAi: 'AI 工作区',
     switchModuleAria: '切换模块，当前为 {module}',
     connectionManage: '连接管理',
     settings: '设置',

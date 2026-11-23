@@ -35,13 +35,12 @@ app.whenReady().then(async () => {
   await wait('!!window.__navigation')
   const titlebarLabel = () => run('document.querySelector(".titlebar-brand").textContent.trim()')
   assert.equal(await titlebarLabel(), 'SSH')
-  assert.equal(await run('document.querySelectorAll("[data-field=database], [data-field=ai], .mcp-workspace").length'), 0, 'DB, AI and MCP stay lazy until first entry')
+  assert.equal(await run('document.querySelectorAll("[data-field=database], .mcp-workspace").length'), 0, 'DB and MCP stay lazy until first entry')
   await edit('ssh', 'tail -f /srv/app/current.log')
   await run('document.querySelector(".navigation-scroll").scrollTop=80')
   await click('database'); await wait('window.__navigation.snapshot().mode==="database"')
   await edit('database', 'SELECT * FROM audit_log;')
-  await click('ai'); await wait('window.__navigation.snapshot().mode==="ai"')
-  await edit('ai', 'Find the update script')
+  assert.equal(await run('document.querySelector("[data-module=ai]")'), null, 'AI chats live on the SSH page, not in the module rail')
   stage = 'opening MCP from the module rail and applying a port'
   await click('mcp')
   await wait('document.querySelector("#mcp-port")?.value === "18765"')
@@ -103,7 +102,7 @@ app.whenReady().then(async () => {
   await click('ssh')
   assert.equal(await run('window.__navigation.snapshot().homeSelections'), 0, 'Returning to or reselecting SSH keeps the active terminal view')
   assert.equal(await run('document.querySelector(".navigation-scroll").scrollTop'), 80)
-  for (const [mode, text] of [['ssh', 'tail -f /srv/app/current.log'], ['database', 'SELECT * FROM audit_log;'], ['ai', 'Find the update script']]) {
+  for (const [mode, text] of [['ssh', 'tail -f /srv/app/current.log'], ['database', 'SELECT * FROM audit_log;']]) {
     assert.ok(await run(`document.querySelector('[data-field="${mode}"]')===window.__savedFields['${mode}']`), 'Switching does not recreate the workspace DOM')
     assert.equal(await run(`document.querySelector('[data-field="${mode}"]').value`), text)
   }
@@ -114,7 +113,7 @@ app.whenReady().then(async () => {
   await menuMode('ssh'); await menuMode('ssh')
   assert.equal(await run('window.__navigation.snapshot().homeSelections'), 0, 'Titlebar SSH reselect also keeps the active terminal')
   stage = 'checking settings close decisions'
-  for (const mode of ['ssh', 'database', 'ai', 'mcp']) {
+  for (const mode of ['ssh', 'database', 'mcp']) {
     await run('window.__navigation.settings(false)'); await menuMode(mode)
     assert.equal(await run('window.__navigation.snapshot().settings'), true)
     assert.equal(await run('window.__navigation.snapshot().mode'), 'ssh')
@@ -133,15 +132,15 @@ app.whenReady().then(async () => {
   await wait('!!document.querySelector(".jump-item")')
   await run('document.querySelector(".jump-item:nth-child(4)").click()')
   await wait('window.__navigation.actions().length===1')
-  await run('window.__navigation.settings(true)'); await menuMode('ai'); await wait('window.__navigation.snapshot().mode==="ai" && !window.__navigation.snapshot().settings')
-  assert.equal(await titlebarLabel(), 'AI')
+  await run('window.__navigation.settings(true)'); await menuMode('ssh'); await wait('window.__navigation.snapshot().mode==="ssh" && !window.__navigation.snapshot().settings')
+  assert.equal(await titlebarLabel(), 'SSH')
+  await click('mcp')
+  await wait('document.querySelector("#mcp-port")?.value === "18766"')
   assert.ok(await run(`(() => {
-    const active=getComputedStyle(document.querySelector('[data-module=ai]'));
+    const active=getComputedStyle(document.querySelector('[data-module=mcp]'));
     const inactive=getComputedStyle(document.querySelector('[data-module=ssh]'));
     return active.backgroundColor!==inactive.backgroundColor && parseFloat(active.borderRadius)>=8;
   })()`), 'The active module has a rounded selection fill')
-  await click('mcp')
-  await wait('document.querySelector("#mcp-port")?.value === "18766"')
   assert.equal(await run('document.querySelector(".mcp-approval-option[aria-pressed=true]").dataset.approvalMode'), 'ask-destructive')
   let layouts = 0
   for (const locale of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark', 'eyecare']) for (const width of [700, 1200]) for (const scale of [1, 1.25]) {
@@ -155,7 +154,7 @@ app.whenReady().then(async () => {
       const mcp=document.querySelector('.mcp-workspace'), grid=mcp.querySelector('.mcp-grid');
       const selected=mcp.querySelector('.mcp-approval-option[aria-pressed=true]');
       const inactive=mcp.querySelector('.mcp-approval-option[aria-pressed=false]');
-      return Math.abs(r.width-48*${scale})<1 && r.top>=header.bottom && Math.abs(content.left-r.right)<1 && content.right<=innerWidth+1 && content.bottom<=innerHeight+1 && buttons.length===4
+      return Math.abs(r.width-48*${scale})<1 && r.top>=header.bottom && Math.abs(content.left-r.right)<1 && content.right<=innerWidth+1 && content.bottom<=innerHeight+1 && buttons.length===3
         && rail.querySelector('[aria-current=page]')?.dataset.module==='mcp' && parseFloat(getComputedStyle(workspace).borderRadius)>=12
         && mcp.scrollWidth<=mcp.clientWidth+1 && getComputedStyle(grid).gridTemplateColumns.split(' ').length===${width >= 1000 ? 2 : 1}
         && !!selected?.querySelector('.mcp-approval-mark svg') && getComputedStyle(selected).backgroundColor!==getComputedStyle(inactive).backgroundColor
@@ -170,7 +169,10 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.join(artifacts,'module-rail.png'),(await window.webContents.capturePage(rail)).toPNG())
   await run('window.__navigation.dedicated(true)')
   assert.equal(await run('!!document.querySelector(".app-module-rail")'), false)
-  await menuMode('ai'); await wait('window.__navigation.snapshot().mode==="ai"')
+  await clickSelector('.titlebar-brand-module')
+  await wait('!!document.querySelector(".titlebar-mode-item[data-mode=mcp]")')
+  assert.equal(await run('document.querySelector(".titlebar-mode-item[data-mode=ai]")'), null, 'The titlebar menu has no separate AI module')
+  await clickSelector('.titlebar-brand-module')
   await menuMode('mcp'); await wait('document.querySelector("#mcp-port")?.value === "18766"')
   assert.equal(await titlebarLabel(), 'MCP')
   assert.ok(await run(`(() => {

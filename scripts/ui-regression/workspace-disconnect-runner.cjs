@@ -5,10 +5,11 @@ const path = require('node:path')
 const os = require('node:os')
 const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-workspace-disconnect-'))
 app.setPath('userData', path.join(artifacts, 'profile'))
-const timeout = setTimeout(() => { console.error('Workspace disconnect UI timed out', { artifacts }); app.exit(1) }, 150_000)
+let action = 'load'
+const timeout = setTimeout(() => { console.error('Workspace disconnect UI timed out', { action, artifacts }); app.exit(1) }, 150_000)
 app.whenReady().then(async () => {
   const window = new BrowserWindow({ show: false, width: 1320, height: 1000, webPreferences: { contextIsolation: true, backgroundThrottling: false } })
-  const run = code => window.webContents.executeJavaScript(code)
+  const run = code => { action = code.slice(0, 200); return window.webContents.executeJavaScript(code) }
   const wait = async expression => {
     const start = Date.now()
     while (!await run(expression)) {
@@ -17,94 +18,93 @@ app.whenReady().then(async () => {
     }
   }
   const root = '.lite-ai-workspace-fixture'
-  const card = id => `${root} .workspace-card[data-connection-id="${id}"]`
-  const button = id => `${card(id)} .workspace-disconnect-host`
-  const selectedIds = () => run(`Array.from(document.querySelectorAll('${root} .workspace-host-checkbox:checked')).map(input=>input.closest('.workspace-card').dataset.connectionId)`)
+  const row = id => `${root} .ai-rail-row[data-session-id="${id}"]`
+  const rowIds = () => run(`[...document.querySelectorAll('${root} .ai-rail-row[data-session-id]')].map(node=>node.dataset.sessionId)`)
   const frames = () => run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
   const screenshot = async name => {
     await frames()
     const rect = await run(`(() => {const r=document.querySelector('${root}').getBoundingClientRect();return {x:Math.max(0,Math.floor(r.x)),y:Math.max(0,Math.floor(r.y)),width:Math.floor(r.width),height:Math.floor(r.height)}})()`)
     fs.writeFileSync(path.join(artifacts, name), (await window.webContents.capturePage(rect)).toPNG())
   }
+  /** Starts a conversation the way the connections page does: draft first, connect on send. */
+  const startChat = async ids => {
+    const before = await rowIds()
+    const requests = await run('window.__uiRegression.calls.aiRequests.length')
+    await run(`window.__uiRegression.openAiHosts(${JSON.stringify(ids)})`)
+    await wait(`!!document.querySelector('${root} .ai-draft-input')`)
+    await run(`(()=>{const input=document.querySelector('${root} .ai-draft-input');input.value='检查服务状态';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+    await wait(`!document.querySelector('${root} .ai-draft-send').disabled`)
+    await run(`document.querySelector('${root} .ai-draft-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}))`)
+    await wait(`!document.querySelector('${root} .ai-draft') && !!document.querySelector('${root} .lite-ai-chat .composer-input')`)
+    await wait(`window.__uiRegression.calls.aiRequests.length===${requests + 1}`)
+    await wait(`document.querySelectorAll('${root} .ai-rail-row[data-session-id]').length===${before.length + 1}`)
+    await wait(`!document.querySelector('${root} .lite-ai-chat .message.streaming, ${root} .lite-ai-chat .composer-stop')`)
+    return (await rowIds()).find(id => !before.includes(id))
+  }
+  const openDisconnect = async () => {
+    await run(`document.querySelector('${root} .ai-conversation-menu-trigger').click()`)
+    await wait(`!!document.querySelector('.ai-conversation-menu [data-action="disconnect"]:not(:disabled)')`)
+    await run(`document.querySelector('.ai-conversation-menu [data-action="disconnect"]').click()`)
+    await wait(`!!document.querySelector('.app-dialog')`)
+  }
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   await wait('!!window.__uiRegression')
   await run('window.__uiRegression.openLiteAi()')
-  await run(`document.querySelector('${root} .titlebar-brand-module').click()`)
-  await wait(`!!document.querySelector('.titlebar-mode-menu')`)
-  await run(`document.querySelector('.titlebar-mode-item[data-mode=ai]').click()`)
-  await wait(`document.querySelectorAll('${root} .workspace-card').length===2`)
-  assert.deepEqual(await run(`[...document.querySelectorAll('${root} .workspace-view-switch button')].map(button=>[button.textContent.trim(),button.getAttribute('aria-label'),button.getAttribute('aria-pressed')])`), [['', '卡片', 'false'], ['', '列表', 'true']])
-  assert.equal(await run(`document.querySelectorAll('${root} .workspace-disconnect-host').length`), 0, 'Disconnected hosts offer no disconnect action')
-  const firstSession = await run(`window.LiteConnect.aiOpenWorkspaceConnection('one')`)
-  await wait(`!!document.querySelector('${button('one')}')`)
-  assert.equal(await run(`document.querySelectorAll('${root} .workspace-disconnect-host').length`), 1, 'Only the connected host has an action')
-  assert.ok(await run(`document.querySelector('${button('one')}').getAttribute('aria-label').includes('应用服务器')`), 'The action names its own server')
-  await run(`document.querySelector('${card('one')} .workspace-host-checkbox').click()`)
-  const beforeSelection = await selectedIds()
-  await run(`document.querySelector('${button('one')}').click();document.querySelector('${button('one')}').dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}))`)
-  await wait(`!!document.querySelector('.app-dialog')`)
-  assert.equal(await run('window.__uiRegression.workspaceScopes.length'), 0, 'Clicking or double-clicking disconnect never starts a conversation')
-  assert.deepEqual(await selectedIds(), beforeSelection, 'The disconnect action does not toggle server selection')
-  assert.ok(await run(`document.querySelector('.app-dialog-message').textContent.includes('应用服务器') && !document.querySelector('.app-dialog-message').textContent.includes('数据库服务器')`), 'Confirmation identifies only the clicked host')
-  await run(`document.querySelector('.app-dialog-actions button').click()`)
-  await wait(`!document.querySelector('.app-dialog') && !document.querySelector('${button('one')}').disabled`)
-  assert.equal(await run('window.__uiRegression.workspaceCloses.length'), 0, 'Cancel preserves the live connection')
-  const secondSession = await run(`window.LiteConnect.aiOpenWorkspaceConnection('two')`)
-  await wait(`document.querySelectorAll('${root} .workspace-disconnect-host').length===2`)
+  await wait(`!!document.querySelector('${root} .connections-ai-workspace')`)
+  assert.equal(await run(`document.querySelectorAll('${root} .ai-rail-row').length`), 0, 'No conversation exists before a first message')
+  assert.equal(await run('window.__uiRegression.workspaceCloses.length'), 0)
 
-  let layoutCases = 0
-  for (const theme of ['light', 'dark', 'eyecare']) {
-    await run(`window.__uiRegression.setTheme('${theme}')`)
-    for (const view of ['cards', 'list']) {
-      await run(`document.querySelector('${root} [data-view="${view}"]').click()`)
-      for (const width of [520, 780, 1150]) {
-        await run(`Object.assign(document.querySelector('${root}').style,{width:'${width}px',height:'760px'});document.querySelector('${root}').scrollIntoView({block:'center'})`)
-        await frames()
-        assert.ok(await run(`(() => {const pane=document.querySelector('${root} .workspace-host-scroll');return pane.scrollWidth<=pane.clientWidth+1 && [...pane.querySelectorAll('.workspace-disconnect-host')].every(node=>{const r=node.getBoundingClientRect(),card=node.closest('.workspace-card').getBoundingClientRect();return r.left>=card.left && r.right<=card.right+1 && r.top>=card.top && r.bottom<=card.bottom+1 && node.scrollWidth<=node.clientWidth+1 && document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.workspace-disconnect-host')===node})})()`), `${theme}/${view}/${width}: actions remain visible and clickable without hovering`)
-        assert.ok(await run(`[...document.querySelectorAll('${root} .workspace-action-label')].every(label=>label.checkVisibility()===${width !== 520} && label.closest('button').title===label.textContent.trim())`), `${theme}/${width}: management labels collapse together`)
-        assert.ok(await run(`(() => {
-          const controls = document.querySelector('${root} .workspace-toolbar-controls');
-          const search = controls.querySelector('.workspace-search-field').getBoundingClientRect();
-          const views = controls.querySelector('.workspace-view-switch').getBoundingClientRect();
-          return search.right <= views.left && views.top < search.bottom && views.bottom > search.top;
-        })()`), `${theme}/${width}: the view icons share the search row`)
-        if (view === 'list' && width === 1150) assert.equal(await run(`document.querySelector('${root} .workspace-list-heading').children.length`), 4, 'Desktop lists have an explicit actions column')
-        await screenshot(`disconnect-${theme}-${view}-${width}.png`)
-        layoutCases++
-      }
-    }
-  }
-  await run(`window.__uiRegression.setTheme('light');document.querySelector('${button('one')}').click()`)
-  await wait(`!!document.querySelector('.app-dialog')`)
+  const secondSession = await startChat(['two'])
+  const firstSession = await startChat(['one'])
+  assert.equal(await run(`document.querySelectorAll('${root} .ai-rail-dot.connected').length`), 2)
+  assert.ok(await run(`document.querySelector('${row(firstSession)}').classList.contains('active')`), 'The newest conversation is the one on screen')
+  await openDisconnect()
+  assert.ok(await run(`document.querySelector('.app-dialog-message').textContent.includes('应用服务器') && !document.querySelector('.app-dialog-message').textContent.includes('数据库服务器')`), 'Confirmation identifies only the host of this conversation')
+  await run(`document.querySelector('.app-dialog-actions button').click()`)
+  await wait(`!document.querySelector('.app-dialog')`)
+  assert.equal(await run('window.__uiRegression.workspaceCloses.length'), 0, 'Cancel preserves the live connection')
+  assert.deepEqual((await rowIds()).sort(), [firstSession, secondSession].sort(), 'Cancel keeps both conversations')
+  await openDisconnect()
   await run(`document.querySelector('.app-dialog-actions .ui-btn-danger-solid').click()`)
-  await wait(`!document.querySelector('${button('one')}') && !!document.querySelector('${button('two')}')`)
+  await wait(`!document.querySelector('.app-dialog') && !document.querySelector('${row(firstSession)}')`)
   assert.deepEqual(await run('window.__uiRegression.workspaceCloses'), [firstSession], 'Only the reviewed AI connection is closed')
-  assert.equal(await run(`document.querySelectorAll('${root} .workspace-card').length`), 2, 'The browser remains open after disconnecting')
-  assert.deepEqual(await selectedIds(), beforeSelection, 'Disconnecting preserves the chosen server list')
-  await run(`document.querySelector('${root} [data-filter="connected"]').click()`)
-  await wait(`document.querySelectorAll('${root} .workspace-card').length===1 && !!document.querySelector('${card('two')}')`)
-  await run(`document.querySelector('${button('two')}').click()`)
-  await wait(`!!document.querySelector('.app-dialog')`)
-  await run(`document.querySelector('.app-dialog-actions .ui-btn-danger-solid').click()`)
-  await wait(`!!document.querySelector('${root} .workspace-empty') && !document.querySelector('.app-dialog')`)
-  assert.deepEqual(await run('window.__uiRegression.workspaceCloses'), [firstSession, secondSession])
-  await run(`document.querySelector('${root} [data-filter="all"]').click()`)
-  await wait(`document.querySelectorAll('${root} .workspace-host-checkbox').length===2`)
-  await run(`document.querySelector('${root} .workspace-select-results').click()`)
-  await wait(`document.querySelectorAll('${root} .workspace-host-checkbox:checked').length===2`)
-  await run(`document.querySelector('${root} .workspace-start-scope').click()`)
+  assert.ok(await run(`!!document.querySelector('${row(secondSession)} .ai-rail-dot.connected') && document.querySelector('${root} .ai-rail').checkVisibility()`), 'The other conversation stays connected and reachable')
+
+  const scopeId = await startChat(['one', 'two'])
   const scopeHeader = `${root} .workspace-scope-details summary`
   await wait(`document.querySelector('${scopeHeader}')?.textContent.trim()==='已连接 2/2'`)
   assert.equal(await run(`document.querySelector('${scopeHeader}').parentElement.open`), false)
+  assert.ok(await run(`document.querySelector('${row(scopeId)}').classList.contains('active') && !!document.querySelector('${row(scopeId)} .ai-rail-badge')`), 'The rail marks the collaborative conversation')
   await run('window.__uiRegression.disconnectScopedHost()')
   await wait(`document.querySelector('${scopeHeader}')?.textContent.trim()==='已连接 1/2'`)
   const disconnectedNotice = await run(`document.querySelector('${root} .workspace-error').textContent`)
   assert.ok(disconnectedNotice.includes('应用服务器') && !disconnectedNotice.includes('数据库服务器'), 'The closed header identifies the offline host in its warning')
+  assert.ok(await run(`!document.querySelector('${row(scopeId)} .ai-rail-dot.connected')`), 'The rail shows the conversation as partly offline')
+
+  let layoutCases = 0
+  for (const theme of ['light', 'dark', 'eyecare']) {
+    await run(`window.__uiRegression.setTheme('${theme}')`)
+    for (const width of [520, 780, 1050]) {
+      await run(`Object.assign(document.querySelector('${root}').style,{width:'${width}px',height:'760px'});document.querySelector('${root}').scrollIntoView({block:'center'})`)
+      await frames()
+      await wait(`document.querySelector('${root} .ai-rail').checkVisibility()===${width >= 760}`)
+      assert.ok(await run(`(() => {
+        const box = document.querySelector('${root}').getBoundingClientRect()
+        return ['${scopeHeader}', '${root} .workspace-error', '${root} .workspace-retry'].every(selector => {
+          const node = document.querySelector(selector), r = node?.getBoundingClientRect()
+          return !!r && r.width > 0 && r.left >= box.left - 1 && r.right <= box.right + 1
+        })
+      })()`), `${theme}/${width}: scope status, warning and retry stay inside the workspace`)
+      await screenshot(`disconnect-${theme}-${width}.png`)
+      layoutCases++
+    }
+  }
+  await run(`window.__uiRegression.setTheme('light')`)
   await run(`document.querySelector('${scopeHeader}').click()`)
   assert.deepEqual(await run(`[...document.querySelectorAll('${root} .workspace-scope-status')].map(node=>node.textContent.trim())`), ['未连接', '已连接'])
   await run(`document.querySelector('${root} .workspace-retry').click()`)
   await wait(`document.querySelector('${scopeHeader}')?.textContent.trim()==='已连接 2/2' && !document.querySelector('${root} .workspace-error')`)
   assert.equal(await run('window.__uiError || null'), null)
-  console.log(JSON.stringify({ passed: true, layoutCases, flows: ['visible connected-only action', 'confirmation and cancel', 'selection and double-click isolation', 'single-host disconnect', 'browser retention', 'connected filter', 'scope connection ratio and named offline hosts'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layoutCases, flows: ['connect on first message', 'confirmation and cancel', 'single-host disconnect', 'other conversation retention', 'scope connection ratio and named offline hosts', 'scope retry'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()
-}).catch(error => { console.error(error, { artifacts }); clearTimeout(timeout); app.exit(1) })
+}).catch(error => { console.error(error, { action, artifacts }); clearTimeout(timeout); app.exit(1) })

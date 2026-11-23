@@ -9,11 +9,10 @@ import AiChatView from '../../src/components/ai/AiChatView.vue'
 import AiUserQuestion from '../../src/components/ai/AiUserQuestion.vue'
 import type { AiUserAnswer } from '../../shared/aiQuestions'
 import AiSidebar from '../../src/components/ai/AiSidebar.vue'
-import AiWorkspaceView from '../../src/views/AiWorkspaceView.vue'
+import ConnectionsAiWorkspace from '../../src/components/connections/ConnectionsAiWorkspace.vue'
 import SettingsFiles from '../../src/components/settings/SettingsFiles.vue'
 import FileTypeIcon from '../../src/components/sftp/FileTypeIcon.vue'
 import type { SettingsDraft } from '../../src/composables/settings/useSettingsDraft'
-import AppTitlebar from '../../src/components/app/AppTitlebar.vue'
 import LeftToolbar from '../../src/components/workspace/LeftToolbar.vue'
 import { useAiBackgroundJobs } from '../../src/composables/ai/useAiBackgroundJobs'
 import type { SshMcpJobSummary } from '../../shared/mcp/types'
@@ -340,7 +339,7 @@ const aiConversationKey = ref('fixture-thread')
 const imageComposerOpen = ref(false)
 const liteAiOpen = ref(false)
 const liteAiActive = ref(true)
-const liteAiMode = ref<'ssh' | 'ai'>('ssh')
+const liteAiRef = ref<InstanceType<typeof ConnectionsAiWorkspace> | null>(null)
 const imageComposerSession = ref('image-fixture')
 const imageComposerWorkspace = ref(false)
 const imageComposerActive = ref(true)
@@ -500,6 +499,11 @@ onMounted(() => {
       imageComposerOpen.value = false
       connections = connections.map((connection, index) => ({ ...connection, name: index === 0 ? '应用服务器' : '数据库服务器' }))
       liteAiOpen.value = true
+      await nextTick()
+    },
+    /** Same entry as the connections page: open the chat for the chosen hosts. */
+    async openAiHosts(ids: string[]) {
+      await liteAiRef.value?.openForConnections(ids.map(id => connections.find(host => host.id === id)!))
       await nextTick()
     },
     synchronizedWrites,
@@ -782,8 +786,7 @@ onMounted(() => {
     <AppDialogHost />
     <UploadConflictDialog />
     <section v-if="liteAiOpen" class="lite-ai-workspace-fixture">
-      <AppTitlebar :app-mode="liteAiMode" :show-settings-page="false" @enter-ai="liteAiMode = 'ai'" @enter-ssh="liteAiMode = 'ssh'" />
-      <AiWorkspaceView v-if="liteAiMode === 'ai'" :active="liteAiActive" />
+      <ConnectionsAiWorkspace ref="liteAiRef" :active="liteAiActive" :open="true" />
     </section>
     <section v-if="stylePreviewOpen" class="style-system-fixture settings-page">
       <SettingsFiles :draft="styleDraft" :recent-download-paths="[]" system-default-download-path="D:/Downloads" />
@@ -806,8 +809,7 @@ onMounted(() => {
 .fixture-count { font-size: 10px; }
 .ai-fixture { display: flex; width: 440px; height: 280px; margin-top: 12px; }
 .ai-image-composer-fixture { position: relative; display: flex; width: 440px; height: 620px; margin-top: 12px; }
-.lite-ai-workspace-fixture { width: min(1050px, 100%); height: 680px; display: flex; flex-direction: column; margin-top: 12px; }
-.lite-ai-workspace-fixture > .ai-workspace { flex: 1; height: auto; }
+.lite-ai-workspace-fixture { position: relative; width: min(1050px, 100%); height: 680px; margin-top: 12px; }
 .style-system-fixture { width: 600px; margin-top: 16px; padding: var(--space-4); background: var(--bg-primary); }
 .style-file-colors { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
 .style-file-colors > span { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-ui-sm); }

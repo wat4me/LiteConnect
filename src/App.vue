@@ -13,9 +13,7 @@ import { measureRendererModule, measureRendererLayout, recordRendererTiming } fr
 
 const SettingsView = defineAsyncComponent(() => measureRendererModule('settings-load', () => import('./views/SettingsView.vue')))
 const DatabaseView = defineAsyncComponent(() => measureRendererModule('database-load', () => import('./views/DatabaseView.vue')))
-const AiWorkspaceView = defineAsyncComponent(() => measureRendererModule('ai-load', () => import('./views/AiWorkspaceView.vue')))
 const McpView = defineAsyncComponent(() => import('./views/McpView.vue'))
-const aiWorkspaceViewRef = ref<{ hasConversation: (sessionId: string) => boolean; revealConversation: (sessionId: string) => boolean } | null>(null)
 const SshWorkspace = defineAsyncComponent(() => measureRendererModule('ssh-load', () => import('@/components/workspace/SshWorkspace.vue')))
 const HostKeyMismatchDialog = defineAsyncComponent(() => import('@/components/common/HostKeyMismatchDialog.vue'))
 const DecryptionFailedDialog = defineAsyncComponent(() => import('@/components/app/DecryptionFailedDialog.vue'))
@@ -385,8 +383,6 @@ const {
   selectModule,
   requestModuleAction,
   databaseMounted,
-  aiWorkspaceMounted,
-  isAiMode,
   isMcpMode,
   sshWorkspaceMounted,
   settingsViewRef,
@@ -475,8 +471,11 @@ async function navigateQuickConnect(connectionId: string) {
 }
 
 async function jumpToAiApproval(sessionId: string) {
-  if (aiWorkspaceViewRef.value?.hasConversation(sessionId)) {
-    await requestModuleAction('ai', () => aiWorkspaceViewRef.value?.revealConversation(sessionId))
+  if (connectionsViewRef.value?.hasAiConversation(sessionId)) {
+    await requestModuleAction('ssh', () => {
+      onSelectHome()
+      connectionsViewRef.value?.revealAiConversation(sessionId)
+    })
     return
   }
   const group = groups.value.find((g) => g.sessions.some((s) => s.id === sessionId))
@@ -720,7 +719,6 @@ const {
   isDbWindow,
   handleEnterDatabaseModule,
   handleEnterSshModule,
-  handleEnterAiModule,
 } = useAppWindowRouting({ appMode, enterDatabase, selectModule })
 
 onMounted(async () => {
@@ -859,7 +857,6 @@ onBeforeUnmount(() => {
       :module-menu="isDetachedWindow || isDbWindow"
       @enter-ssh="handleEnterSshModule"
       @enter-database="handleEnterDatabaseModule"
-      @enter-ai="handleEnterAiModule"
       @enter-mcp="selectModule('mcp')"
       @toggle-settings="toggleSettingsPage"
       @open-shortcuts="shortcutsHelpVisible = true"
@@ -924,9 +921,6 @@ onBeforeUnmount(() => {
 
         <div v-show="isDatabaseMode" class="home-module">
           <DatabaseView v-if="databaseMounted" />
-        </div>
-        <div v-show="isAiMode" class="home-module">
-          <AiWorkspaceView v-if="aiWorkspaceMounted" ref="aiWorkspaceViewRef" :active="isAiMode" @open-connections="navigateSshHome" />
         </div>
         <div v-if="isMcpMode" class="home-module">
           <McpView />

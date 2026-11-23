@@ -19,6 +19,8 @@ export default {
     noMatch: 'No matches',
     newGroup: 'New group',
     newSubgroup: 'New subgroup',
+    aiChatGroup: 'AI chat with whole group ({count})',
+    aiChatGroupEmpty: 'AI chat with whole group',
     moveTo: 'Move group to…',
     topLevel: 'Top level',
     moveFailed: 'Could not move the group',

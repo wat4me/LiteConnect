@@ -231,6 +231,21 @@ app.whenReady().then(async () => {
   assert.equal(await run('getComputedStyle(window.__savedAiInput).fontSize'), '13px', 'AI input keeps its content font at the compact UI scale')
   assert.ok(await run('document.querySelector(".ai-sidebar .composer textarea")===window.__savedAiInput'))
   assert.equal(await run('window.__savedAiInput.value'), 'Keep this draft while moving')
+  stage = 'hiding and restoring the terminal without remounting AI or xterm'
+  await click('.ssh-ai-terminal-toggle')
+  await wait('!!document.querySelector(".workspace-dock.is-panel-focused")')
+  assert.ok(await run(`(() => {
+    const dock = document.querySelector('.workspace-dock').getBoundingClientRect()
+    const ai = document.querySelector('.ai-sidebar').getBoundingClientRect()
+    return ai.width === dock.width && !window.__savedTerminal.checkVisibility()
+      && window.__savedAiInput === document.querySelector('.ai-sidebar textarea')
+      && window.__savedAiInput.value === 'Keep this draft while moving'
+  })()`), 'AI fills the workspace while the same terminal and composer stay mounted')
+  await click('.ssh-ai-terminal-toggle')
+  await wait('!document.querySelector(".workspace-dock.is-panel-focused") && window.__savedTerminal.checkVisibility()')
+  assert.equal(await run('document.querySelector(".terminal-host .xterm-screen")===window.__savedTerminal'), true)
+  assert.equal(await run('window.__dock.calls.dataSubscriptions'), subscriptions, 'Layout changes do not reconnect the terminal')
+  assert.equal(await run('window.__savedAiInput.value'), 'Keep this draft while moving')
   stage = 'simultaneous file and AI panels'
   await click(tool('files')); await wait('!!document.querySelector(".dock-left .file-sidebar")')
   await wait('window.__dock.calls.fileLoads.length>0')

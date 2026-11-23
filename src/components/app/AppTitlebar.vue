@@ -17,7 +17,6 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'enter-ssh', forceHome?: boolean): void
   (e: 'enter-database'): void
-  (e: 'enter-ai'): void
   (e: 'enter-mcp'): void
   (e: 'toggle-settings'): void
   (e: 'open-shortcuts'): void
@@ -33,8 +32,8 @@ const resourceButtonRef = ref<HTMLButtonElement | null>(null)
 const resourcePopupRef = ref<HTMLElement | null>(null)
 const resourceStyle = ref<Record<string, string>>({ left: '0px', top: '0px' })
 
-const moduleLabels: Record<AppMode, string> = { ssh: 'SSH', database: 'DB', ai: 'AI', mcp: 'MCP' }
-const menuModes = ['ssh', 'database', 'ai', 'mcp'] as const
+const moduleLabels: Record<AppMode, string> = { ssh: 'SSH', database: 'DB', mcp: 'MCP' }
+const menuModes = ['ssh', 'database', 'mcp'] as const
 const moduleKey = computed(() => moduleLabels[props.appMode])
 
 async function positionModeMenu() {
@@ -59,7 +58,6 @@ function toggleMenu() {
 function selectMode(mode: AppMode) {
   menuOpen.value = false
   if (mode === 'ssh') emit('enter-ssh')
-  else if (mode === 'ai') emit('enter-ai')
   else if (mode === 'mcp') emit('enter-mcp')
   else emit('enter-database')
 }

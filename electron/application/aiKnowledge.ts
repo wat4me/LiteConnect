@@ -51,6 +51,9 @@ export function createAiKnowledgeService(ssh: Pick<SSHManager, 'getSessionSnapsh
   return new AiKnowledgeService((sessionId, owner) => {
     let ids: string[]
     if (sessionId.startsWith('workspace:')) ids = workspaceScopes.owned(sessionId, owner).connectionIds
+    else if (sessionId.startsWith('draft:')) {
+      ids = [...new Set(sessionId.slice('draft:'.length).split(',').map(id => id.trim()).filter(Boolean))]
+    }
     else {
       const id = ssh.getSessionSnapshot(sessionId)?.connectionId || remembered.get(sessionId)
       if (!id) return []

@@ -720,20 +720,27 @@ async function runCodeToTerminal(code: string) {
       ></div>
     </Teleport>
 
-    <div
-      v-if="showSettings"
-      class="ai-page ai-settings-page"
-      role="region"
-      :aria-label="t('ai.settings')"
-    >
-      <AiSettingsPanel
-        ref="settingsPanelRef"
-        :model-value="settings"
-        :layout="workspace ? 'page' : 'panel'"
-        @saved="onSettingsSaved"
-        @close="closeSettingsPanel"
-      />
-    </div>
+    <Teleport to="body" :disabled="!workspace">
+      <div
+        v-if="showSettings"
+        :class="workspace ? 'ai-settings-modal-overlay' : 'ai-page ai-settings-page'"
+        :role="workspace ? 'dialog' : 'region'"
+        :aria-modal="workspace ? 'true' : undefined"
+        :aria-label="t('ai.settings')"
+        @click.self="workspace && (settingsPanelRef ? void settingsPanelRef.goBack() : closeSettingsPanel())"
+        @keydown.esc.stop.prevent="workspace && (settingsPanelRef ? void settingsPanelRef.goBack() : closeSettingsPanel())"
+      >
+        <div :class="{ 'ai-settings-modal': workspace }">
+          <AiSettingsPanel
+            ref="settingsPanelRef"
+            :model-value="settings"
+            :layout="workspace ? 'modal' : 'panel'"
+            @saved="onSettingsSaved"
+            @close="closeSettingsPanel"
+          />
+        </div>
+      </div>
+    </Teleport>
 
     <section
       v-if="showHistory"

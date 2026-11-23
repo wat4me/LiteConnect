@@ -7,8 +7,8 @@ it('switches in place, mounts each workspace once and restores SSH without selec
   await nav.selectModule('database')
   expect(nav.appMode.value).toBe('database')
   expect(nav.databaseMounted.value).toBe(true)
-  await nav.selectModule('ai')
-  expect(nav.aiWorkspaceMounted.value).toBe(true)
+  await nav.selectModule('mcp')
+  expect(nav.appMode.value).toBe('mcp')
   expect(nav.databaseMounted.value).toBe(true)
   await nav.selectModule('ssh')
   await nav.selectModule('ssh')
@@ -43,11 +43,11 @@ it('ignores repeated navigation while a settings close decision is pending', asy
   nav.openSettingsPage()
   let close!: () => void
   nav.settingsViewRef.value = { requestClose: () => new Promise<void>(resolve => { close = () => { nav.closeSettingsPage(); resolve() } }) }
-  const pending = nav.selectModule('ai')
+  const pending = nav.selectModule('mcp')
   await nav.selectModule('database')
   expect(nav.moduleSwitching.value).toBe(true)
   close(); await pending
-  expect(nav.appMode.value).toBe('ai')
+  expect(nav.appMode.value).toBe('mcp')
   expect(nav.databaseMounted.value).toBe(false)
   expect(nav.moduleSwitching.value).toBe(false)
 })
@@ -56,12 +56,12 @@ it('clears the busy state if the settings close handler fails', async () => {
   const nav = useAppNavigation({ onSelectHome: vi.fn() })
   nav.openSettingsPage()
   nav.settingsViewRef.value = { requestClose: () => Promise.reject(new Error('close failed')) }
-  await expect(nav.selectModule('ai')).rejects.toThrow('close failed')
+  await expect(nav.selectModule('mcp')).rejects.toThrow('close failed')
   expect(nav.moduleSwitching.value).toBe(false)
   expect(nav.appMode.value).toBe('ssh')
 })
 
-it.each(['ssh', 'ai', 'database', 'mcp'] as const)('blocks module actions when leaving settings for %s is cancelled', async mode => {
+it.each(['ssh', 'database', 'mcp'] as const)('blocks module actions when leaving settings for %s is cancelled', async mode => {
   const nav = useAppNavigation({ onSelectHome: vi.fn() }), action = vi.fn()
   nav.openSettingsPage()
   nav.settingsViewRef.value = { requestClose: () => {} }
@@ -77,7 +77,7 @@ it('does not start a second global navigation action while a leave decision is p
   nav.openSettingsPage()
   let finish!: () => void
   nav.settingsViewRef.value = { requestClose: () => new Promise<void>(resolve => { finish = () => { nav.closeSettingsPage(); resolve() } }) }
-  const pending = nav.requestModuleAction('ai', action)
+  const pending = nav.requestModuleAction('mcp', action)
   expect(await nav.requestModuleAction('ssh', action)).toBe(false)
   finish(); await pending
   expect(action).toHaveBeenCalledOnce()

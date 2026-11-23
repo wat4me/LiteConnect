@@ -22,6 +22,8 @@ export default {
     aria: 'Workspace tools',
     ai: 'AI assistant',
     aiShortcut: 'AI assistant (Ctrl+Shift+A)',
+    showOnlyAi: 'Show only AI',
+    showTerminal: 'Show terminal',
     aiSplitTarget: 'AI target: {name} / {terminal}',
     aiSplitTargetHint: 'AI is bound to the primary terminal. Focusing another pane does not change its target. Swapping panes or changing the primary terminal updates AI.',
     aiUnread: 'Unread AI reply',

@@ -35,6 +35,9 @@ const props = defineProps<{
   connections: Connection[]
   connectingConnectionIds?: Set<string>
   connectionErrors?: Record<string, string>
+  /** Open AI conversations on this page, and how many wait for the user. */
+  aiConversationCount?: number
+  aiPendingCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -51,6 +54,8 @@ const emit = defineEmits<{
   (e: 'cancel-connect', connectionId: string): void
   (e: 'pin', connectionId: string): void
   (e: 'moveConnection', connectionId: string, groupId: string | null): void
+  (e: 'open-ai'): void
+  (e: 'ai-group', connectionIds: string[]): void
 }>()
 
 const GROUP_PANEL_WIDTH_KEY = 'liteconnect-group-panel-width'
@@ -287,6 +292,23 @@ function moveGroupTo(parentId: string | null) {
   const groupId = ctxMenu.value.group.id
   closeCtxMenu()
   emit('moveGroup', groupId, parentId)
+}
+
+/** Connections of the group and its subgroups, in list order. */
+function groupSubtreeConnectionIds(groupId: string) {
+  const ids = groupTree.value.getSubtreeIds(groupId)
+  return props.connections
+    .filter((c) => ids.has(c.group || ''))
+    .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))
+    .map((c) => c.id)
+}
+const ctxGroupConnectionIds = computed(() =>
+  ctxMenu.value?.kind === 'group' ? groupSubtreeConnectionIds(ctxMenu.value.group.id) : [],
+)
+function aiChatWithGroup() {
+  const ids = ctxGroupConnectionIds.value
+  closeCtxMenu()
+  if (ids.length) emit('ai-group', ids)
 }
 
 // Search reveals matches, but users can still collapse results for this query.
@@ -577,6 +599,17 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
       @click.stop
       @contextmenu.stop.prevent
     ></div>
+    <!-- AI is a standalone feature, not a connection filter: it opens its own workspace,
+         so it sits above the navigation filters and stays visible while searching groups. -->
+    <div class="ai-entry-wrap">
+      <button type="button" class="ai-entry" data-view="ai-chats" :title="aiPendingCount ? t('ai.workspace.pendingCount', { count: aiPendingCount }) : t('connections.aiChatTooltip')" @click="emit('open-ai')">
+        <span class="ai-entry-icon"><AppIcon name="ai-chat" size="sm" /></span>
+        <span class="ai-entry-name">{{ t('connections.aiWorkspaceTitle') }}</span>
+        <span v-if="aiPendingCount" class="ai-nav-pending" role="img" :aria-label="t('ai.workspace.pendingCount', { count: aiPendingCount })"><AppIcon name="bell" size="xs" />{{ aiPendingCount }}</span>
+        <span v-else-if="aiConversationCount" class="group-count">{{ aiConversationCount }}</span>
+        <AppIcon name="chevron-right" size="xs" class="ai-entry-arrow" />
+      </button>
+    </div>
     <div class="group-panel-title">{{ t('groups.navigation') }}</div>
     <div class="group-search">
       <input
@@ -829,6 +862,18 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
             <AppIcon name="folder" size="sm" class="group-ctx-icon" />
             {{ t('groups.openGroup') }}
           </button>
+          <button
+            type="button"
+            class="ui-menu-item"
+            role="menuitem"
+            data-action="ai-group"
+            :disabled="!ctxGroupConnectionIds.length"
+            @click="aiChatWithGroup"
+          >
+            <AppIcon name="ai-chat" size="sm" class="group-ctx-icon" />
+            {{ ctxGroupConnectionIds.length ? t('groups.aiChatGroup', { count: ctxGroupConnectionIds.length }) : t('groups.aiChatGroupEmpty') }}
+          </button>
+          <div class="ui-menu-sep" role="separator"></div>
           <button type="button" class="ui-menu-item" role="menuitem" @click="onGroupMenuAction('add', ctxMenu.group)">
             <AppIcon name="plus" size="sm" class="group-ctx-icon" />
             {{ t('groups.newSubgroup') }}
@@ -974,8 +1019,54 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
 .group-panel-resizer:focus-visible { box-shadow: 0 0 0 2px var(--accent-bg); }
 .group-panel.resizing { cursor: col-resize; }
 
+.ai-entry-wrap {
+  padding: 12px 8px 4px;
+}
+
+.ai-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-color));
+  border-radius: var(--radius-md);
+  background: var(--accent-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-ui-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.ai-entry:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.ai-entry:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.ai-entry-icon {
+  display: inline-flex;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.ai-entry-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-entry-arrow {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
 .group-panel-title {
-  padding: 16px 16px 8px;
+  padding: 12px 16px 8px;
   font-size: var(--font-ui-sm);
   font-weight: 600;
   color: var(--text-secondary);
@@ -1086,7 +1177,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   padding: 8px 10px;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.12s ease;
   margin-bottom: 1px;
 }
 
@@ -1115,7 +1205,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   flex: 1;
 }
 
-.group-item[draggable="true"] { cursor: grab; }
 .group-item.dragging { cursor: grabbing; }
 
 .group-name {
@@ -1127,6 +1216,20 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ai-nav-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+  font-size: var(--font-caption);
+  font-weight: 600;
 }
 
 .group-count {
@@ -1177,7 +1280,6 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   background: linear-gradient(var(--hover-bg), var(--hover-bg)), var(--bg-secondary);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s;
 }
 
 .group-item:hover .group-actions,
@@ -1246,8 +1348,7 @@ function onGroupDropConn(e: DragEvent, groupId: string) {
   gap: 4px;
   padding: 5px 8px 5px 16px;
   border-radius: 4px;
-  cursor: grab;
-  transition: background 0.12s ease, color 0.12s ease;
+  cursor: pointer;
 }
 
 .sidebar-conn:hover {

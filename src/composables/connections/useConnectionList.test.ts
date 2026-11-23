@@ -50,6 +50,8 @@ let modal: boolean
 let search: ElementDouble
 let root: ElementDouble
 let connect: ReturnType<typeof vi.fn>
+let toggleSelect: ReturnType<typeof vi.fn>
+let clearSelection: ReturnType<typeof vi.fn>
 let reorder: ReturnType<typeof vi.fn>
 let moveGroup: ReturnType<typeof vi.fn>
 
@@ -61,6 +63,8 @@ function setup() {
     getSearchInput: () => search as unknown as HTMLInputElement,
     isModalOpen: () => modal,
     onConnect: connect,
+    onToggleSelect: toggleSelect,
+    onClearSelection: clearSelection,
   }))!
 }
 
@@ -77,6 +81,8 @@ beforeEach(() => {
   search = new ElementDouble()
   search.tagName = 'INPUT'
   connect = vi.fn()
+  toggleSelect = vi.fn()
+  clearSelection = vi.fn().mockReturnValue(false)
   reorder = vi.fn().mockResolvedValue(undefined)
   moveGroup = vi.fn().mockResolvedValue(undefined)
   vi.stubGlobal('HTMLElement', ElementDouble)
@@ -243,6 +249,25 @@ describe('connection search scope', () => {
 })
 
 describe('connection keyboard quick connect', () => {
+  it('uses the pointed row for shortcuts without leaving a keyboard highlight', async () => {
+    const list = setup()
+    list.searchScope.value = 'all'
+    await nextTick()
+    const rows = list.filteredConnections.value
+    list.onRowMouseEnter(1)
+    expect(list.listKeyboardIndex.value).toBe(-1)
+    press('Enter')
+    expect(connect).toHaveBeenLastCalledWith(rows[1].id)
+    press('ArrowDown')
+    expect(list.listKeyboardIndex.value).toBe(2)
+    list.onRowMouseEnter(0)
+    expect(list.listKeyboardIndex.value).toBe(-1)
+    list.searchQuery.value = 'database'
+    await nextTick()
+    press('Enter')
+    expect(connect).toHaveBeenLastCalledWith('three')
+  })
+
   it('connects the first match with Enter and navigates results across groups', async () => {
     const list = setup()
     list.searchScope.value = 'all'
@@ -314,5 +339,29 @@ describe('connection keyboard quick connect', () => {
     press('/', root)
     expect(search.focus).toHaveBeenCalled()
     expect(search.select).toHaveBeenCalled()
+  })
+
+  it('toggles keyboard-focused row with Space and clears selection with Escape outside search', () => {
+    const list = setup()
+    // Space without keyboard focus does nothing (only pointer hover should not hijack Space)
+    list.onRowMouseEnter(0)
+    expect(press(' ', root)).not.toHaveBeenCalled()
+    expect(toggleSelect).not.toHaveBeenCalled()
+
+    // ArrowDown establishes keyboard focus, then Space toggles selection
+    press('ArrowDown', root)
+    const spacePrevent = press(' ', root)
+    expect(spacePrevent).toHaveBeenCalled()
+    expect(toggleSelect).toHaveBeenCalledWith(list.filteredConnections.value[1].id)
+
+    // Space inside search input is never hijacked
+    toggleSelect.mockClear()
+    expect(press(' ', search)).not.toHaveBeenCalled()
+    expect(toggleSelect).not.toHaveBeenCalled()
+
+    // Escape outside search clears active selection
+    clearSelection.mockReturnValueOnce(true)
+    expect(press('Escape', root)).toHaveBeenCalled()
+    expect(clearSelection).toHaveBeenCalledTimes(1)
   })
 })

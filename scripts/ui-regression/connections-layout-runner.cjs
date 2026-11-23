@@ -13,7 +13,10 @@ app.whenReady().then(async () => {
   const wait = async source => {
     const until = Date.now() + 10000
     while (!await run(source)) {
-      if (Date.now() > until) throw new Error('Timeout: ' + source + '; ' + await run('window.__perfError || ""'))
+      if (Date.now() > until) {
+        const state = await run(`JSON.stringify({ chats: window.__perf?.aiChats, missing: window.__perf?.missingCalls?.(), error: window.__perfError, aiConnects: window.__perf?.aiConnects, workspace: document.querySelector('.connections-ai-workspace')?.innerText.slice(0, 500) })`)
+        throw new Error(`Timeout: ${source}; ${state}`)
+      }
       await new Promise(resolve => setTimeout(resolve, 35))
     }
   }
@@ -40,9 +43,126 @@ app.whenReady().then(async () => {
   assert.equal(await run('document.querySelector(".conn-meta .conn-stats")'), null)
   assert.ok(await run('document.querySelector(".conn-stats").title.includes("2026") && !document.querySelector(".conn-stats").textContent.includes("14:31")'), 'Full timestamps stay available in the usage tooltip')
   assert.ok(await run('document.querySelector(".conn-stats").textContent.includes("最近连接")'), 'The short date explains what it represents')
-  assert.ok(await run('(()=>{const row=document.querySelector(".connection-row"),name=row.querySelector(".conn-name").getBoundingClientRect(),stats=row.querySelector(".conn-stats").getBoundingClientRect(),actions=row.querySelector(".row-actions").getBoundingClientRect();return stats.left-name.right<=16 && stats.right<actions.left-40})()'), 'Usage information stays beside the name in the left information area')
+  assert.ok(await run(`(() => {
+    const row = document.querySelector('.connection-row')
+    const bounds = selector => row.querySelector(selector).getBoundingClientRect()
+    return bounds('.conn-note').left === bounds('.conn-stats').left
+      && bounds('.conn-meta').right < bounds('.conn-note').left
+      && bounds('.conn-stats').right < bounds('.row-actions').left
+  })()`), 'Notes and usage align in a separate column from the host and its address')
   assert.ok(await run('document.querySelector(".conn-note").textContent.includes("测试备注")'))
   const initialMainCount = await run('document.querySelectorAll(".connection-row").length')
+  // AI entries: one fixed navigation item, the row menu, and a bar that exists only for several hosts.
+  const ctrlClick = index => run(`document.querySelectorAll('.connection-row')[${index}].dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true, detail: 1 }))`)
+  const rowAi = index => run(`document.querySelectorAll('.connection-row')[${index}].querySelector('.action-btn.ai').click()`)
+  const rowAiOpacity = () => run(`Array.from(document.querySelectorAll('.connection-row'), row => getComputedStyle(row.querySelector('.action-btn.ai')).opacity)`)
+  assert.equal(await run('document.querySelectorAll(".smart-item[data-view^=ai-]").length'), 1, 'Navigation has a single AI entry')
+  assert.equal(await run('document.querySelector(".smart-item[data-view=ai-chats] .group-count")'), null, 'The AI entry shows no count without open chats')
+  assert.equal(await run('document.querySelector(".toolbar-actions .toolbar-multi-btn, .toolbar-actions .toolbar-ai-btn, .row-select-checkbox")'), null, 'The toolbar carries no AI button and rows no checkbox')
+  assert.ok((await rowAiOpacity()).every(opacity => opacity === '0'), 'Resting rows keep the AI action out of sight')
+  await click('.connection-row')
+  assert.ok(await run('document.querySelector(".connection-row").classList.contains("selected")'))
+  assert.deepEqual((await rowAiOpacity()).slice(0, 2), ['1', '0'], 'Only the selected row reveals its AI action')
+  assert.ok(await run(`(() => {
+    const row = document.querySelector('.connection-row'), ai = row.querySelector('.action-btn.ai').getBoundingClientRect()
+    return ai.width > 0 && ai.left >= row.querySelector('.action-btn.connect').getBoundingClientRect().right && ai.right <= row.querySelector('.more').getBoundingClientRect().left
+      && row.querySelector('.ai-label').textContent.trim() === 'AI 对话' && row.querySelector('.action-btn.ai').getAttribute('aria-label').includes('10.2.178.163')
+  })()`), 'The AI action sits between Connect and More and names its host')
+  assert.equal(await run('document.querySelector(".selection-action-bar")'), null, 'Selecting one host does not raise an action bar')
+  await ctrlClick(1)
+  assert.equal(await run('document.querySelectorAll(".selection-chip").length'), 2, 'Ctrl-click adds a host to the selection')
+  await run(`const row = document.querySelectorAll('.connection-row')[2]
+    for (const [type, detail] of [['click', 1], ['click', 2], ['dblclick', 2]]) {
+      row.dispatchEvent(new MouseEvent(type, { bubbles: true, ctrlKey: true, detail }))
+    }`)
+  assert.equal(await run('document.querySelectorAll(".connection-row.selected").length'), 3)
+  assert.equal(await run('window.__perf.connects.length'), 0, 'Ctrl-double-clicking while picking hosts does not open a terminal')
+  await ctrlClick(2)
+  await click('.group-block[data-group-id=archive] > .group-item')
+  await ctrlClick(0)
+  assert.equal(await run('document.querySelectorAll(".selection-chip").length'), 3, 'The selection keeps hosts across groups')
+  await click('.selection-chip')
+  assert.equal(await run('document.querySelectorAll(".selection-chip").length'), 2, 'A chip removes its host')
+  await click('.selection-action-bar .ui-btn-primary')
+  await wait('!!document.querySelector(".connections-ai-workspace .ai-draft")?.textContent.includes("协同")')
+  assert.equal(await run('document.querySelectorAll(".ai-draft-host-chip").length'), 2, 'The selection starts one collaborative draft')
+  assert.deepEqual(await run('window.__perf.aiConnects'), [], 'A collaborative draft does not connect before the first message')
+  await click('.ai-rail-row:has(.ai-rail-draft) .ai-rail-close')
+  await wait('!document.querySelector(".ai-rail-draft")')
+  await click('.ai-back-to-connections')
+  await wait('!document.querySelector(".connections-main").inert')
+  await click('.selection-action-bar .ui-icon-btn-close')
+  assert.equal(await run('document.querySelector(".selection-action-bar, .connection-row.selected")'), null, 'Clearing removes the selection and its bar')
+  await click('.group-block[data-group-id=servers] > .group-item')
+
+  await click('.connection-row')
+  assert.deepEqual(await run('window.__perf.aiConnects'), [], 'Selecting a host does not open an AI connection')
+  await rowAi(0)
+  await wait('!!document.querySelector(".connections-ai-workspace .ai-draft")?.textContent.includes("10.2.178.163")')
+  assert.ok(await run(`(() => {
+    const page = document.querySelector('.connections-page').getBoundingClientRect()
+    const chat = document.querySelector('.connections-ai-workspace').getBoundingClientRect()
+    return ['left', 'right', 'top', 'bottom'].every(edge => Math.abs(page[edge] - chat[edge]) <= 1)
+      && document.querySelector('.group-panel').inert && document.querySelector('.connections-main').inert
+      && !!document.elementFromPoint(page.left + 12, page.top + page.height / 2)?.closest('.connections-ai-workspace')
+  })()`), 'The AI workspace covers the list and navigation, which are inert underneath it')
+  assert.deepEqual(await run('window.__perf.aiConnects'), [], 'Opening a chat does not connect before the first message')
+  assert.ok(await run('document.activeElement === document.querySelector(".ai-draft-input")'), 'The draft composer takes focus')
+  assert.ok(await run('!!document.querySelector(".ai-rail .ai-rail-draft")'), 'The rail lists the unsent draft')
+  await screenshot('connections-ai-draft.png')
+  await input('.ai-draft-input', '看看磁盘还剩多少')
+  await wait('!document.querySelector(".ai-draft-send").disabled')
+  await run('document.querySelector(".ai-draft-input").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))')
+  await wait('window.__perf.aiConnects.length === 1')
+  assert.deepEqual(await run('window.__perf.aiConnects'), ['host-0'], 'The first message opens the connection')
+  await wait('document.querySelector(".connections-ai-workspace .workspace-target-host")?.textContent.includes("10.2.178.163")')
+  await wait('window.__perf.aiChats.some(chat => chat.sessionId === "ai-host-0" && JSON.stringify(chat.text).includes("看看磁盘还剩多少"))')
+  assert.equal(await run('document.querySelector(".ai-draft")'), null, 'The draft becomes the live conversation')
+  await wait('!!document.querySelector(".ai-rail-row.active:not(:has(.ai-rail-draft))")')
+  await screenshot('connections-ai-chat.png')
+  await click('.ai-back-to-connections')
+  await wait('!document.querySelector(".connections-main").inert')
+  assert.ok(await run('document.querySelector(".connection-row").classList.contains("selected")'), 'Returning preserves the selected host')
+  assert.ok(await run('!document.querySelector(".connections-ai-workspace").checkVisibility()'))
+  await rowAi(1)
+  await wait('!!document.querySelector(".connections-ai-workspace .ai-draft")?.textContent.includes("生产发布机")')
+  assert.deepEqual(await run('window.__perf.aiConnects'), ['host-0'], 'A second host stays disconnected until its first message')
+  assert.equal(await run('document.querySelectorAll(".ai-rail-row").length'), 2, 'The rail shows the draft beside the open conversation')
+  await click('.ai-rail-row:not(:has(.ai-rail-draft)) .ai-rail-item')
+  await wait('!document.querySelector(".ai-draft") && document.querySelector(".connections-ai-workspace .workspace-target-host")?.checkVisibility()')
+  await click('.ai-rail-draft')
+  await wait('!!document.querySelector(".ai-draft")?.textContent.includes("生产发布机")')
+  await click('.ai-rail-row:has(.ai-rail-draft) .ai-rail-close')
+  await wait('!document.querySelector(".ai-rail-draft")')
+  win.setContentSize(700, 900)
+  await wait('!document.querySelector(".ai-rail").checkVisibility() && !!document.querySelector(".ai-rail-toggle")?.checkVisibility()')
+  await click('.ai-rail-toggle')
+  await wait('document.querySelector(".ai-rail").checkVisibility()')
+  await screenshot('connections-ai-narrow-rail.png')
+  await click('.ai-rail-backdrop')
+  await wait('!document.querySelector(".ai-rail").checkVisibility()')
+  win.setContentSize(1280, 900)
+  await wait('document.querySelector(".ai-rail").checkVisibility()')
+  await click('.ai-back-to-connections')
+  await wait('!document.querySelector(".connections-main").inert')
+  assert.equal(await run('document.querySelector(".smart-item[data-view=ai-chats] .group-count")?.textContent.trim()'), '1', 'Navigation shows the open AI chat after leaving it')
+  await click('.smart-item[data-view=ai-chats]')
+  await wait('document.querySelector(".connections-ai-workspace").checkVisibility() && document.querySelector(".connections-ai-workspace .workspace-target-host")?.checkVisibility()')
+  assert.deepEqual(await run('window.__perf.aiConnects'), ['host-0'], 'The navigation entry reopens chats without connecting')
+  await click('.ai-rail-nav')
+  await wait('!!document.querySelector(".connections-ai-workspace .ai-schedules")?.checkVisibility() && !!document.querySelector(".ai-rail-nav.active")')
+  await click('.ai-rail-row .ai-rail-item')
+  await wait('!document.querySelector(".ai-schedules") && document.querySelector(".connections-ai-workspace .workspace-target-host")?.checkVisibility()')
+  await click('.ai-back-to-connections')
+  await wait('!document.querySelector(".connections-main").inert')
+
+  await click('.connection-row .more')
+  await wait('!!document.querySelector(".ui-menu [data-action=ai]")')
+  const moreItems =await run(`Array.from(document.querySelectorAll('.ui-menu [role=menuitem]'), item => item.textContent.trim())`)
+  for (const label of ['复制连接', '编辑', '置顶']) {
+    assert.ok(moreItems.some(item => item.includes(label)), 'More menu includes ' + label)
+  }
+  await run('document.body.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))')
   await input('.group-search-input', '备份')
   assert.equal(await run('document.querySelectorAll(".connection-row").length'), initialMainCount, 'Navigation search does not filter the right list')
   await input('.group-search-input', '')
@@ -110,17 +230,30 @@ app.whenReady().then(async () => {
   await click('.credential-modal .ui-modal-close')
   await wait('!document.querySelector(".credential-modal")')
 
+  await click('.connection-row')
   const layoutCases = []
   for (const theme of ['light', 'dark', 'eyecare']) {
     await run('document.documentElement.dataset.theme=' + JSON.stringify(theme))
     for (const compact of [false, true]) {
       await run('document.querySelectorAll(".density-switch button")[' + Number(compact) + '].click()')
+      const surfaces = await run(`(() => {
+        const selected = document.querySelector('.connection-row.selected')
+        const resting = document.querySelectorAll('.connection-row:not(.selected, :hover, :focus-within, .keyboard-active)')
+        return {
+          resting: Array.from(resting, row => getComputedStyle(row).backgroundColor),
+          selected: getComputedStyle(selected).backgroundColor,
+          marker: getComputedStyle(selected, '::before').width,
+        }
+      })()`)
+      assert.ok(surfaces.resting.length >= 2 && surfaces.resting.every(color => color === 'rgba(0, 0, 0, 0)'), 'Resting rows have a uniform transparent background')
+      assert.notEqual(surfaces.selected, surfaces.resting[0], 'Selection has a distinct background')
+      assert.equal(surfaces.marker, '3px', 'Selection also has a leading marker')
       for (const width of [1280, 960, 720]) {
         win.setContentSize(width, 900)
         await settle()
         const state = await run('(()=>{const row=document.querySelector(".connection-row"),r=row.getBoundingClientRect();return {pageOverflow:document.documentElement.scrollWidth>innerWidth,overflow:row.scrollWidth>row.clientWidth+1,actions:[...row.querySelectorAll(".secondary-action")].filter(e=>getComputedStyle(e).display!=="none").map(e=>({opacity:getComputedStyle(e).opacity,events:getComputedStyle(e).pointerEvents,right:e.getBoundingClientRect().right})),hintGone:!document.querySelector(".list-keyboard-hint") && !!(document.querySelector(".search-input")?.title||"").length,rowRight:r.right,nameWidth:row.querySelector(".conn-name-text").getBoundingClientRect().width}})()')
         assert.ok(!state.pageOverflow && !state.overflow && state.hintGone && state.nameWidth > 10, JSON.stringify({ theme, width, compact, state }))
-        assert.equal(state.actions.length, compact ? 1 : 4, 'Each density keeps its existing always-visible actions')
+        assert.equal(state.actions.length, 1, 'Both densities keep the More menu visible')
         assert.ok(state.actions.every(e => e.opacity === '1' && e.events !== 'none' && e.right <= state.rowRight + 1))
         if (!compact && width === 1280) {
           assert.ok(await run('(()=>{const a=[...document.querySelectorAll(".conn-addr")].at(-1);return a.scrollWidth<=a.clientWidth+1})()'), 'Long notes do not squeeze the host address')

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, ref, toRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { defineAsyncComponent, nextTick, ref, toRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { addAppEventListener, removeAppEventListener, type AppEvent } from '@/utils/shared/appEvents'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -10,12 +10,15 @@ import VirtualList from '@/components/common/VirtualList.vue'
 import ConnectionsToolbar from '../components/connections/ConnectionsToolbar.vue'
 import ToolbarDropdown from '../components/common/ToolbarDropdown.vue'
 import type { Connection, Group } from '../env.d.ts'
-import { CONNECTION_COLOR_TAGS } from '@/utils/connections/connectionTags'
+import { CONNECTION_COLOR_TAGS, getConnectionTagColor, hasConnectionColorTag } from '@/utils/connections/connectionTags'
+import { selectConnectionRange, toggleConnectionSelection } from '@/utils/connections/connectionSelection'
 import { appConfirm } from '@/composables/app/useAppDialog'
 import { useConnectionList } from '@/composables/connections/useConnectionList'
 import { useBatchTest } from '@/composables/connections/useBatchTest'
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '@shared/connectionSort'
 import { KNOWLEDGE_GROUPS_ENABLED, type KnowledgeGroup } from '@shared/aiKnowledgeGroups'
+import { AI_WORKSPACE_MAX_HOSTS } from '@shared/aiWorkspace'
+import { measureRendererModule } from '@/composables/app/rendererPerformance'
 
 const AiKnowledgeGroupDialog = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupDialog.vue'))
 const AiKnowledgeGroupEditor = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupEditor.vue'))
@@ -27,6 +30,14 @@ function knowledgeGroupSaved(group?: KnowledgeGroup) {
 }
 const ConnectionForm = defineAsyncComponent(() => import('../components/connections/ConnectionForm.vue'))
 const CredentialManagerModal = defineAsyncComponent(() => import('../components/connections/CredentialManagerModal.vue'))
+// One shared promise so idle prefetch and the first click never import twice.
+let aiWorkspaceModule: Promise<typeof import('../components/connections/ConnectionsAiWorkspace.vue')> | null = null
+function loadAiWorkspaceModule() {
+  aiWorkspaceModule ??= measureRendererModule('ai-load', () => import('../components/connections/ConnectionsAiWorkspace.vue'))
+    .catch((error) => { aiWorkspaceModule = null; throw error })
+  return aiWorkspaceModule
+}
+const ConnectionsAiWorkspace = defineAsyncComponent(loadAiWorkspaceModule)
 
 const { t } = useI18n()
 
@@ -66,6 +77,121 @@ const toolbarRef = ref<InstanceType<typeof ConnectionsToolbar> | null>(null)
 const virtualListRef = ref<{ scrollToIndex: (index: number) => void; resetScroll: () => void } | null>(null)
 const connectionKey = (connection: Connection) => connection.id
 
+const selectedConnectionIds = ref<string[]>([])
+const lastSelectedId = ref<string | null>(null)
+const aiWorkspaceMounted = ref(false)
+const aiWorkspaceOpen = ref(false)
+const aiWorkspaceRef = ref<InstanceType<typeof ConnectionsAiWorkspace> | null>(null)
+const aiWorkspaceRefreshToken = ref(0)
+const pendingAiConnections = ref<Connection[] | null>(null)
+let aiReturnFocus: HTMLElement | null = null
+
+const selectedIdSet = computed(() => new Set(selectedConnectionIds.value))
+const selectedConnections = computed(() =>
+  selectedConnectionIds.value.flatMap((id) => connections.value.find((c) => c.id === id) || []),
+)
+function removeSelectedConnection(connectionId: string) {
+  selectedConnectionIds.value = selectedConnectionIds.value.filter((id) => id !== connectionId)
+  if (selectedConnectionIds.value.length === 0) {
+    lastSelectedId.value = null
+  }
+}
+
+function clearSelection(): boolean {
+  if (selectedConnectionIds.value.length === 0) return false
+  selectedConnectionIds.value = []
+  lastSelectedId.value = null
+  return true
+}
+
+function applySelectionResult(result: { ids: string[]; lastSelectedId: string | null; limitExceeded: boolean }) {
+  if (result.limitExceeded) {
+    ElMessage.warning(t('ai.workspace.selectionLimit', { count: AI_WORKSPACE_MAX_HOSTS }))
+  }
+  selectedConnectionIds.value = result.ids
+  lastSelectedId.value = result.lastSelectedId
+}
+
+/** Checkbox, Ctrl/Shift-click, or clicking any row while selection is active updates the checked set. */
+function onSelectConnection(connectionId: string, modifiers: { ctrl: boolean; shift: boolean }) {
+  if (!modifiers.ctrl && !modifiers.shift && selectedConnectionIds.value.length === 0) return
+
+  if (modifiers.shift) {
+    const visibleIds = filteredConnections.value.map((c) => c.id)
+    applySelectionResult(
+      selectConnectionRange(selectedConnectionIds.value, visibleIds, lastSelectedId.value, connectionId, AI_WORKSPACE_MAX_HOSTS),
+    )
+    return
+  }
+
+  applySelectionResult(
+    toggleConnectionSelection(selectedConnectionIds.value, connectionId, AI_WORKSPACE_MAX_HOSTS),
+  )
+}
+
+function showAiWorkspace() {
+  if (!aiWorkspaceOpen.value && document.activeElement instanceof HTMLElement && pageRootRef.value?.contains(document.activeElement)) {
+    aiReturnFocus = document.activeElement
+  }
+  aiWorkspaceMounted.value = true
+  aiWorkspaceOpen.value = true
+}
+
+function closeAiWorkspace() {
+  aiWorkspaceOpen.value = false
+  pendingAiConnections.value = null
+  const focusTarget = aiReturnFocus
+  aiReturnFocus = null
+  void nextTick(() => {
+    if (aiWorkspaceOpen.value) return
+    const target = focusTarget?.checkVisibility() ? focusTarget : pageRootRef.value?.querySelector<HTMLElement>('.ai-entry[data-view=ai-chats]')
+    target?.focus({ preventScroll: true })
+  })
+}
+
+function openAiChatForConnections(hosts: Connection[]) {
+  if (hosts.length) pendingAiConnections.value = hosts
+  else aiWorkspaceRef.value?.showSessions()
+  showAiWorkspace()
+}
+
+/** A row inside the multi-selection speaks for the whole selection; any other row stays single-host. */
+function onAiFromRow(connectionId: string) {
+  if (selectedConnections.value.length > 1 && selectedIdSet.value.has(connectionId)) {
+    openAiChatForConnections(selectedConnections.value)
+    return
+  }
+  const conn = connections.value.find((c) => c.id === connectionId)
+  if (conn) openAiChatForConnections([conn])
+}
+
+/** Group context menu: the whole subtree, capped to what one AI session can manage. */
+function onAiForGroup(connectionIds: string[]) {
+  const hosts = connectionIds.flatMap((id) => connections.value.find((c) => c.id === id) || [])
+  if (!hosts.length) return
+  if (hosts.length > AI_WORKSPACE_MAX_HOSTS) {
+    ElMessage.warning(t('ai.workspace.selectionLimit', { count: AI_WORKSPACE_MAX_HOSTS }))
+  }
+  openAiChatForConnections(hosts.slice(0, AI_WORKSPACE_MAX_HOSTS))
+}
+
+watch([aiWorkspaceRef, () => aiWorkspaceRef.value?.busy, aiWorkspaceOpen, pendingAiConnections], ([workspace, busy, open, targets]) => {
+  if (open && workspace && !busy && targets?.length) {
+    pendingAiConnections.value = null
+    void workspace.openForConnections(targets)
+  }
+}, { flush: 'post' })
+
+function hasAiConversation(sessionId: string) {
+  return !!aiWorkspaceRef.value?.hasConversation(sessionId)
+}
+
+function revealAiConversation(sessionId: string) {
+  if (!aiWorkspaceRef.value?.revealConversation(sessionId)) return
+  pendingAiConnections.value = null
+  showAiWorkspace()
+}
+
 const DENSITY_KEY = 'LiteConnect.connections.density'
 const compactList = ref(false)
 try { compactList.value = localStorage.getItem(DENSITY_KEY) === 'compact' } catch { /* Keep the standard view if storage is unavailable. */ }
@@ -102,9 +228,24 @@ onMounted(async () => {
   sortMode.value = persistedSortMode
   sortModeReady = true
   addAppEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
+  scheduleAiWorkspacePrefetch()
 })
 
+// The AI workspace chunk is large (chat pane, markdown, styles); warming it while idle keeps
+// the first "AI 会话" click from stalling on download + parse.
+let aiPrefetchHandle: number | null = null
+function scheduleAiWorkspacePrefetch() {
+  const run = () => { aiPrefetchHandle = null; void loadAiWorkspaceModule().catch(() => { /* retried on click */ }) }
+  aiPrefetchHandle = typeof window.requestIdleCallback === 'function'
+    ? window.requestIdleCallback(run, { timeout: 5000 })
+    : window.setTimeout(run, 1500)
+}
+
 onBeforeUnmount(() => {
+  if (aiPrefetchHandle !== null) {
+    if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(aiPrefetchHandle)
+    else window.clearTimeout(aiPrefetchHandle)
+  }
   removeAppEventListener('connection-usage-stats-settings-change', onUsageStatsSettingsChange)
 })
 
@@ -156,8 +297,10 @@ const list = useConnectionList({
   pageRootRef,
   connectionsListRef,
   getSearchInput: () => toolbarRef.value?.searchInputRef ?? null,
-  isModalOpen: () => showForm.value || showCredentialManager.value,
+  isModalOpen: () => aiWorkspaceOpen.value || showForm.value || showCredentialManager.value,
   onConnect: onConnectFromRow,
+  onToggleSelect: (connectionId) => onSelectConnection(connectionId, { ctrl: true, shift: false }),
+  onClearSelection: clearSelection,
   revealConnection: index => virtualListRef.value?.scrollToIndex(index),
 })
 
@@ -175,6 +318,7 @@ const {
   sortMode,
   importing,
   listKeyboardIndex,
+  onRowMouseEnter,
   dragConnId,
   dropInsertIndex,
   connectionCounts,
@@ -286,8 +430,12 @@ async function onDeleteConnection(connectionId: string) {
       tone: 'danger',
     })
     await window.LiteConnect.deleteConnection(connectionId)
+    if (selectedIdSet.value.has(connectionId)) {
+      removeSelectedConnection(connectionId)
+    }
     ElMessage.success(t('connections.deleted'))
     await loadData()
+    aiWorkspaceRefreshToken.value++
   } catch {}
 }
 
@@ -296,6 +444,7 @@ async function onFormSaved(
   meta?: { continueCreating?: boolean },
 ) {
   await loadData()
+  aiWorkspaceRefreshToken.value++
   const refreshed = connections.value.find((conn) => conn.id === savedConnection.id) || savedConnection
   emit('connection-saved', refreshed)
   if (meta?.continueCreating) {
@@ -327,12 +476,21 @@ const colorFilterItems = computed(() => CONNECTION_COLOR_TAGS.map(tag => ({
 })))
 const activeColorTag = computed(() => CONNECTION_COLOR_TAGS.find(tag => tag.id && tag.id === colorTagFilter.value))
 
-defineExpose({ loadData, editConnection: onEditConnection })
+defineExpose({
+  loadData,
+  editConnection(connection: Connection) {
+    if (aiWorkspaceOpen.value) closeAiWorkspace()
+    onEditConnection(connection)
+  },
+  hasAiConversation,
+  revealAiConversation,
+})
 </script>
 
 <template>
   <div ref="pageRootRef" class="connections-page">
     <GroupPanel
+      :inert="aiWorkspaceOpen"
       :groups="groups"
       :active-group-id="activeGroupId"
       :smart-view="smartView"
@@ -343,6 +501,10 @@ defineExpose({ loadData, editConnection: onEditConnection })
       :connections="connections"
       :connecting-connection-ids="connectingConnectionIds"
       :connection-errors="connectionErrors"
+      :ai-conversation-count="aiWorkspaceRef?.openCount || 0"
+      :ai-pending-count="aiWorkspaceRef?.pendingCount || 0"
+      @open-ai="openAiChatForConnections([])"
+      @ai-group="onAiForGroup"
       @cancel-connect="emit('cancel-connect', $event)"
       @select="onSelectGroup"
       @select-smart="onSelectSmartView"
@@ -358,7 +520,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
       @pin="togglePin"
     />
 
-    <div class="connections-main">
+    <div class="connections-main" :inert="aiWorkspaceOpen">
       <ConnectionsToolbar
         ref="toolbarRef"
         :active-group-name="activeGroupName"
@@ -437,8 +599,8 @@ defineExpose({ loadData, editConnection: onEditConnection })
           ref="virtualListRef"
           :items="filteredConnections"
           :item-key="connectionKey"
-          :estimated-size="compactList ? 36 : 60"
-          :gap="compactList ? 3 : 8"
+          :estimated-size="compactList ? 32 : 46"
+          :gap="compactList ? 2 : 4"
           :scroll-container="connectionsListRef"
           :pinned-key="dragConnId"
           v-slot="{ item: conn, index }"
@@ -449,12 +611,11 @@ defineExpose({ loadData, editConnection: onEditConnection })
           :class="{
             'drop-before': !reorderDisabled && dropInsertIndex === index && dragConnId && dragConnId !== conn.id,
             'is-dragging-source': dragConnId === conn.id,
-            'keyboard-active': listKeyboardIndex === index,
             'knowledge-selectable': selectingKnowledge,
           }"
           @dragover="!reorderDisabled && onConnRowDragOver($event, index)"
           @drop="onConnRowDrop"
-          @mouseenter="listKeyboardIndex = index"
+          @mouseenter="onRowMouseEnter(index)"
         >
           <input v-if="selectingKnowledge" v-model="knowledgeSelection" type="checkbox" class="connection-knowledge-checkbox" :value="conn.id" :aria-label="t('ai.workspace.selectNamed', { name: conn.name })" />
           <ConnectionRow
@@ -464,10 +625,15 @@ defineExpose({ loadData, editConnection: onEditConnection })
             :reorder-disabled="reorderDisabled"
             :group-name="searchScope === 'all' || inSmartView || conn.group !== activeGroupId ? getConnectionGroupName(conn) : undefined"
             :keyboard-active="listKeyboardIndex === index"
+            :selected="selectedIdSet.has(conn.id)"
+            :multi-selecting="selectedConnections.length > 0"
+            :ai-selection-count="selectedConnections.length > 1 && selectedIdSet.has(conn.id) ? selectedConnections.length : 0"
             :show-usage-stats="usageStatsEnabled"
             :connecting="connectingConnectionIds.has(conn.id)"
             :connection-stage="connectionStages?.[conn.id]"
             :connection-error="connectionErrors?.[conn.id]"
+            @select="onSelectConnection"
+            @ai="onAiFromRow"
             @cancel-connect="emit('cancel-connect', $event)"
             @connect="onConnectFromRow"
             @test="onTestConnection"
@@ -538,7 +704,65 @@ defineExpose({ loadData, editConnection: onEditConnection })
           </template>
         </div>
       </div>
+
+      <div
+        v-if="selectedConnections.length > 0"
+        class="selection-action-bar"
+        role="region"
+        :aria-label="t('connections.selectedHostsCount', { count: selectedConnections.length })"
+      >
+        <strong class="selection-count">{{ t('connections.selectedHostsCount', { count: selectedConnections.length }) }}</strong>
+        <div class="selection-chips">
+          <button
+            v-for="host in selectedConnections"
+            :key="host.id"
+            type="button"
+            class="selection-chip"
+            :title="t('ai.workspace.removeSelected', { name: host.name })"
+            :aria-label="t('ai.workspace.removeSelected', { name: host.name })"
+            @click="removeSelectedConnection(host.id)"
+          >
+            <span
+              class="selection-bar-dot"
+              :style="hasConnectionColorTag(host.colorTag) ? { background: getConnectionTagColor(host.colorTag) } : undefined"
+              aria-hidden="true"
+            />
+            <span>{{ host.name }}</span>
+            <AppIcon name="close" size="xs" />
+          </button>
+        </div>
+        <div class="selection-bar-actions">
+          <button
+            type="button"
+            class="ui-btn ui-btn-primary ui-btn-sm"
+            @click="openAiChatForConnections(selectedConnections)"
+          >
+            <AppIcon name="ai-chat" size="sm" />
+            <span>{{ selectedConnections.length > 1 ? t('connections.aiStartSelected', { count: selectedConnections.length }) : t('connections.aiChat') }}</span>
+          </button>
+          <button
+            type="button"
+            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close"
+            :title="t('connections.clearSelection')"
+            :aria-label="t('connections.clearSelection')"
+            @click="clearSelection"
+          >
+            <AppIcon name="close" size="xs" />
+          </button>
+        </div>
+      </div>
     </div>
+
+    <ConnectionsAiWorkspace
+      v-if="aiWorkspaceMounted"
+      v-show="aiWorkspaceOpen"
+      ref="aiWorkspaceRef"
+      :active="active"
+      :open="aiWorkspaceOpen"
+      :refresh-token="aiWorkspaceRefreshToken"
+      @close="closeAiWorkspace"
+      @connect="onConnectFromRow"
+    />
 
     <AiKnowledgeGroupDialog v-if="KNOWLEDGE_GROUPS_ENABLED && showKnowledgeGroup && active" :initial-ids="knowledgeSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
     <AiKnowledgeGroupEditor v-if="KNOWLEDGE_GROUPS_ENABLED && knowledgeGroupId && active" :group-id="knowledgeGroupId" :active="active" @close="knowledgeGroupId = undefined" />
@@ -557,6 +781,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
 
 <style scoped>
 .connections-page {
+  position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
@@ -574,6 +799,76 @@ defineExpose({ loadData, editConnection: onEditConnection })
   min-height: 0;
 }
 
+/* Appears only while several hosts are selected (Ctrl/Shift-click). */
+.selection-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.selection-count {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-size: var(--font-ui-sm);
+}
+
+.selection-chips {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-height: 58px;
+  overflow: auto;
+}
+
+.selection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 170px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-caption);
+  cursor: pointer;
+}
+
+.selection-chip > span:not(.selection-bar-dot) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selection-chip:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.selection-bar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+
+.selection-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -581,8 +876,6 @@ defineExpose({ loadData, editConnection: onEditConnection })
   gap: 8px;
   min-width: 0;
   max-width: 100%;
-  padding-bottom: 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
 }
 
 .cross-group-hint {
@@ -643,6 +936,10 @@ defineExpose({ loadData, editConnection: onEditConnection })
   line-height: 1.4;
 }
 
+.connections-page :deep(:is(.ui-btn, .ui-icon-btn):hover) {
+  transition-duration: 0s;
+}
+
 .connections-list {
   flex: 1;
   min-height: 0;
@@ -650,7 +947,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   overflow-anchor: none;
   padding-right: 4px;
   /* Room for insertion line above first row + last-row descenders */
-  padding-top: 10px;
+  padding-top: 6px;
   padding-bottom: 8px;
 }
 
@@ -662,8 +959,6 @@ defineExpose({ loadData, editConnection: onEditConnection })
   position: relative;
 }
 
-/* Independent rounded cards: light gap between rows (drop line sits in this gap) */
-
 /*
  * Insertion indicator: full-width accent line + end caps (VS Code / Finder style).
  * Positioned in the gap above the target row.
@@ -673,7 +968,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   position: absolute;
   left: 0;
   right: 0;
-  top: -5px;
+  top: -2px;
   height: 2px;
   background: var(--accent);
   border-radius: 1px;
@@ -688,7 +983,7 @@ defineExpose({ loadData, editConnection: onEditConnection })
   position: absolute;
   left: -1px;
   right: -1px;
-  top: -8px;
+  top: -5px;
   height: 8px;
   z-index: 4;
   pointer-events: none;
@@ -697,13 +992,13 @@ defineExpose({ loadData, editConnection: onEditConnection })
     radial-gradient(circle at calc(100% - 3px) 50%, var(--accent) 0 3px, transparent 3.5px);
 }
 
-/* First row: line sits just above the card (list has padding-top) */
+/* First row: line sits just above the row (list has padding-top) */
 .connection-row-wrap[data-conn-index='0'].drop-before::before {
-  top: -4px;
+  top: -2px;
 }
 
 .connection-row-wrap[data-conn-index='0'].drop-before::after {
-  top: -7px;
+  top: -5px;
 }
 
 .connection-row-wrap.drop-tail {
