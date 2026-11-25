@@ -143,9 +143,8 @@ app.whenReady().then(async () => {
   ]) {
     const swatch = `.theme-swatch[data-theme="${theme}"]`
     await click(`.theme-option:has(${swatch})`)
-    await wait(`document.querySelector('.ui-preview')?.dataset.theme === '${theme}'`)
+    await wait(`document.querySelector('.ui-preview')?.dataset.theme === '${theme}' && getComputedStyle(document.querySelector('.ui-preview .ui-preview-meta')).fontSize === '${metaSize}'`)
     assert.equal(await run(`getComputedStyle(document.querySelector('${swatch}')).backgroundColor`), background)
-    assert.equal(await run(`getComputedStyle(document.querySelector('.ui-preview .ui-preview-meta')).fontSize`), metaSize)
     assert.notEqual(await run('document.documentElement.dataset.theme'), theme, 'The preview shows the pending theme before saving')
     await click('.settings-footer .ui-btn-primary')
     await wait(`document.documentElement.dataset.theme === '${theme}' && !document.querySelector('.settings-fields').disabled`)
