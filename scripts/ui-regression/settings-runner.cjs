@@ -45,11 +45,13 @@ app.whenReady().then(async () => {
   stage = 'independent interface text and icon sizes'
   await click('.nav-list .nav-item')
   await wait('!!document.querySelector("#appearance-ui-font-size")')
-  const uiSizes = () => run(`(() => {
+  const uiSizeExpression = `(() => {
     const label = document.querySelector('label[for="appearance-ui-font-size"]');
     const icon = document.querySelector('.left-toolbar .toolbar-icon-btn .app-icon');
     return { font: parseFloat(getComputedStyle(label).fontSize), icon: icon.getBoundingClientRect().width };
-  })()`)
+  })()`
+  const uiSizes = () => run(uiSizeExpression)
+  const settingsSaved = '!document.querySelector(".settings-fields").disabled'
   const chooseSize = (id, value) => run(`(() => {
     const field = document.getElementById('${id}');
     field.value = '${value}';
@@ -60,16 +62,14 @@ app.whenReady().then(async () => {
   await chooseSize('appearance-ui-font-size', 'comfortable')
   assert.deepEqual(await uiSizes(), defaultSizes, 'Draft sizes apply when saved')
   await click('.settings-footer .ui-btn-primary')
-  await wait('document.documentElement.dataset.uiFontSize==="comfortable" && !document.querySelector(".settings-fields").disabled')
+  await wait(`${settingsSaved} && document.documentElement.dataset.uiFontSize === 'comfortable' && ${uiSizeExpression}.font > ${defaultSizes.font}`)
   const largerText = await uiSizes()
-  assert.ok(largerText.font > defaultSizes.font)
   assert.equal(largerText.icon, defaultSizes.icon)
   assert.deepEqual(await run('window.__settings.patches().at(-1)'), { uiFontSize: 'comfortable' })
   await chooseSize('appearance-ui-density', 'compact')
   await click('.settings-footer .ui-btn-primary')
-  await wait('document.documentElement.dataset.uiDensity==="compact" && !document.querySelector(".settings-fields").disabled')
+  await wait(`${settingsSaved} && document.documentElement.dataset.uiDensity === 'compact' && ${uiSizeExpression}.icon < ${largerText.icon}`)
   const smallerIcons = await uiSizes()
-  assert.ok(smallerIcons.icon < largerText.icon)
   assert.equal(smallerIcons.font, largerText.font)
   assert.deepEqual(await run('window.__settings.patches().at(-1)'), { uiDensity: 'compact' })
   await run('window.__settings.theme("light","zh-CN")')
