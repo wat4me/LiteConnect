@@ -144,7 +144,7 @@ it('routes approvals and aborts by session after recreating the sidebar', async 
   listeners.get(ids.get('approval-a')!)!({ type: 'model-status', value: 'waiting' })
   expect(original.getSessionState('approval-a').messages.at(-1)?.activity?.phase).toBe('waiting')
   listeners.get(ids.get('approval-a')!)!({ type: 'reasoning', value: 'actual reasoning' })
-  expect(original.getSessionState('approval-a').messages.at(-1)?.activity?.phase).toBe('reasoning')
+  await vi.waitFor(() => expect(original.getSessionState('approval-a').messages.at(-1)?.activity?.phase).toBe('reasoning'))
   for (const id of ids.values()) listeners.get(id)!({ type: 'tool', value: { id: 'same-call', name: 'exec', phase: 'ask' } })
   for (const session of sessions) {
     expect(original.getSessionState(session).messages.at(-1)?.activity?.phase).toBe('approval')
