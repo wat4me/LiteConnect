@@ -37,6 +37,37 @@ jobs:
       - name: Main process load check (TDZ guard)
         run: node scripts/check-main-load.mjs
 
+  desktop-ui:
+    name: Desktop UI smoke (${{ matrix.suite }})
+    runs-on: windows-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ai-terminal, settings]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run mocked desktop regression
+        run: npm run test:ui -- --${{ matrix.suite }}
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ui-${{ matrix.suite }}
+          path: |
+            ${{ runner.temp }}/liteconnect-dock-ui-*/*.png
+            ${{ runner.temp }}/liteconnect-settings-ui-*/*.png
+          if-no-files-found: ignore
+
   package-smoke:
     runs-on: windows-latest
     steps:

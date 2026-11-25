@@ -6,6 +6,7 @@ const execution = { selectConversation: vi.fn() } as unknown as AiExecutionServi
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
   readStore: vi.fn(async () => ({ activeThreadId: 'thread', threads: [] })),
+  readSummaries: vi.fn(() => []),
   previewPrune: vi.fn(async () => ({ conversations: 2, messages: 12 })),
 }))
 
@@ -21,6 +22,7 @@ vi.mock('../ai/history/historyStore', () => ({
   normalizeSessionStore: vi.fn((store) => store),
   pruneAllAiHistoryStores: vi.fn(),
   previewAiHistoryPrune: mocks.previewPrune,
+  readAiConversationSummaries: mocks.readSummaries,
   readAiSessionStore: vi.fn(),
   readAiSessionStoreAndGc: mocks.readStore,
   upsertAiHistoryRecord: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock('../ai/history/historyStore', () => ({
 beforeEach(() => {
   mocks.handlers.clear()
   mocks.readStore.mockClear()
+  mocks.readSummaries.mockClear()
   mocks.previewPrune.mockClear()
 })
 
@@ -59,7 +62,10 @@ it('loads two runtime terminals from the same stable host history', async () => 
   const load = mocks.handlers.get('ai:getSessionStore')!
   await load({}, 'runtime-session-a')
   await load({}, 'runtime-session-b')
+  const summaries = mocks.handlers.get('ai:getConversationSummaries')!
+  await expect(summaries({ sender: { id: 1 } }, 'runtime-session-b')).resolves.toEqual([])
 
   expect(mocks.readStore).toHaveBeenNthCalledWith(1, 'host-v1:22:server.example', expect.anything())
   expect(mocks.readStore).toHaveBeenNthCalledWith(2, 'host-v1:22:server.example', expect.anything())
+  expect(mocks.readSummaries).toHaveBeenCalledWith('host-v1:22:server.example')
 })

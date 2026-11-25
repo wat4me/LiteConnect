@@ -12,6 +12,7 @@ export function createSynchronizedInput() {
   const terminals = shallowReactive(new Map<string, SynchronizedTerminal>())
   let forwarding = false
   const available = (id: string) => terminals.get(id)?.writable() === true
+  const supportsBracketedPaste = (id: string) => terminals.get(id)?.supportsBracketedPaste?.() === true
   const targets = computed(() => selected.value.filter(available))
   function stop() { enabled.value = false }
   function removeTarget(id: string) {
@@ -55,7 +56,7 @@ export function createSynchronizedInput() {
       }
     } finally { forwarding = false }
   }
-  return { enabled, selected, targets, available, start, stop, select, register, removeTarget, forward }
+  return { enabled, selected, targets, available, supportsBracketedPaste, start, stop, select, register, removeTarget, forward }
 }
 export type SynchronizedInput = ReturnType<typeof createSynchronizedInput>
 export const synchronizedInputKey: InjectionKey<SynchronizedInput> = Symbol('synchronized-input')

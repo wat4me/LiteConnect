@@ -141,6 +141,7 @@ contextBridge.exposeInMainWorld('LiteConnect', {
     ipcRenderer.invoke('ai:answerQuestion', requestId, callId, answer),
   getAiSessionHistory: (sessionId: string) => ipcRenderer.invoke('ai:getSessionHistory', sessionId),
   getAiSessionStore: (sessionId: string) => ipcRenderer.invoke('ai:getSessionStore', sessionId),
+  getAiConversationSummaries: (sessionId: string) => ipcRenderer.invoke('ai:getConversationSummaries', sessionId),
   aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => ipcRenderer.invoke('ai:suppressBackgroundReplies', sessionId, threadId),
   onAiBackgroundReply: (callback: (event: import('../shared/types/ai').AiBackgroundReplyEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, event: import('../shared/types/ai').AiBackgroundReplyEvent) => callback(event)

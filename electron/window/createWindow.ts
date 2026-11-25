@@ -3,11 +3,15 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { registerWindow } from './windowRegistry'
 import { resolveAppIcon, windowAppId } from './appIcon'
+import { isAppTheme, type PresetAppTheme } from '../../shared/appTheme'
 
-const titleBarThemes: Record<string, { color: string; symbolColor: string }> = {
-  dark: { color: '#1f1e1d', symbolColor: '#a19e95' },
+const titleBarThemes: Record<PresetAppTheme, { color: string; symbolColor: string }> = {
+  dark: { color: '#1f1e1d', symbolColor: '#d2cfc6' },
   light: { color: '#f9f9f8', symbolColor: '#63635e' },
   eyecare: { color: '#ece5d8', symbolColor: '#8a7f70' },
+  nord: { color: '#272d38', symbolColor: '#d8dee9' },
+  'catppuccin-mocha': { color: '#181825', symbolColor: '#bac2de' },
+  'solarized-light': { color: '#eee8d5', symbolColor: '#4c646c' },
 }
 
 export { titleBarThemes }
@@ -51,8 +55,7 @@ function resolveTitleBarColors(
   theme: string,
   customColors: { fontColor: string; bgColor: string } | null,
 ): { color: string; symbolColor: string } {
-  const preset = titleBarThemes[theme as keyof typeof titleBarThemes]
-  if (preset) return preset
+  if (isAppTheme(theme) && theme !== 'custom') return titleBarThemes[theme]
   if (theme === 'custom' && customColors) {
     return { color: customColors.bgColor, symbolColor: customColors.fontColor }
   }

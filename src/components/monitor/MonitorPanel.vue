@@ -534,7 +534,7 @@ const diskMaxPercent = computed(() => {
 }
 
 .section-toggle {
-  font-size: 9px;
+  font-size: calc(9px + var(--small-text-adjustment));
   color: var(--text-secondary);
   flex-shrink: 0;
   opacity: 0.6;

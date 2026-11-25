@@ -59,7 +59,7 @@ provide('theme', theme.theme)
 provide('customColors', theme.customColors)
 
 const sessionManager = useSessionManager({ pwdTracker })
-const { groups, activeGroupId, isHomeActive, activeGroup, activeSession, onSelectGroup, onSelectSession, createSession } = sessionManager
+const { groups, activeGroupId, isHomeActive, activeGroup, activeSession, onSelectHome, onSelectGroup, onSelectSession, createSession } = sessionManager
 sessionManager.hydrateConnectionData({ connections, recentConnections: [] })
 sessionManager.connectSidebar({
   sidebarVisible: ref(false),
@@ -85,9 +85,23 @@ onSelectGroup('host-13')
 const allSessions = computed(() => groups.value.flatMap(group => group.sessions))
 const liveSessionIds = computed(() => allSessions.value.map(session => session.id))
 const unreadSessions = new Set<string>()
+const aiTabVisible = ref(false)
+const aiTabActive = ref(false)
+const latencyMap = { 'host-0': 66, 'host-1': 185, 'host-13': 238, 'host-14': 66 }
 
 ;(window as any).__tabs = {
-  setActive: onSelectGroup,
+  setActive(id: string) {
+    aiTabActive.value = false
+    onSelectGroup(id)
+  },
+  showAiTab: () => { aiTabVisible.value = true },
+  clearHosts() {
+    aiTabVisible.value = false
+    aiTabActive.value = false
+    groups.value = []
+    onSelectHome()
+  },
+  setTheme: theme.setTheme,
   connect: createSession,
   state: () => ({ active: activeGroupId.value, session: activeSession.value?.id, count: groups.value.length }),
 }
@@ -99,10 +113,13 @@ const unreadSessions = new Set<string>()
       :groups="groups"
       :active-group-id="activeGroupId"
       :recent-connections="[]"
-      :latency-map="null"
-      :latency-enabled="false"
+      :latency-map="latencyMap"
+      latency-enabled
       :home-active="isHomeActive"
+      :ai-tab-visible="aiTabVisible"
+      :ai-tab-active="aiTabActive"
       @select="onSelectGroup"
+      @select-ai="aiTabActive = true"
     />
     <TerminalWorkspace
       :active-group="activeGroup"

@@ -5,6 +5,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import type { CustomColors, TerminalPaletteId, Theme } from '@/composables/app/useTheme'
 import { getTerminalColors, getTerminalMinimumContrastRatio } from '@/composables/app/useTheme'
+import type { TerminalHighlightRule } from '@shared/terminalHighlight'
+import { highlightTerminalText } from '@/utils/terminal/terminalHighlighter'
 
 const props = defineProps<{
   theme: Theme
@@ -12,6 +14,8 @@ const props = defineProps<{
   palette: TerminalPaletteId
   fontSize: number
   fontFamily: string
+  highlightEnabled?: boolean
+  highlightRules?: TerminalHighlightRule[]
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
@@ -21,20 +25,23 @@ let resizeObserver: ResizeObserver | null = null
 // The padded frame uses the same color as the xterm canvas, like the live terminal.
 const previewBackground = computed(() => getTerminalColors(props.theme, props.customColors, props.palette).background)
 
-// Glyphs that differ clearly across mono fonts (0O / l1I / brackets).
+// Glyphs that differ clearly across mono fonts (0O / l1I / brackets) + plain log lines for highlight preview.
 const SAMPLE = [
   '\x1b[32muser@host\x1b[0m:\x1b[34m~/proj\x1b[0m$ ls -la',
   '\x1b[36mdrwxr-xr-x\x1b[0m  5 user staff  160 Jul  9 10:00 src',
-  '\x1b[33m-rw-r--r--\x1b[0m  1 user staff 1204 Jul  9 10:00 README.md',
   '  0O l1I | [] {} <> == !==  =>  /* font sample */',
-  '\x1b[1;34;42m shared-777 \x1b[0m  \x1b[1;32mdeploy.sh\x1b[0m',
+  '10:01:02 WARN  slow query on 10.2.178.163:5432 (429)',
+  '10:01:03 ERROR connection failed, fallback status: OK',
   '\x1b[32muser@host\x1b[0m:\x1b[34m~/proj\x1b[0m$ ',
 ].join('\r\n')
 
 function writeSample() {
   if (!terminal) return
   terminal.reset()
-  terminal.write(SAMPLE)
+  const rendered = props.highlightRules
+    ? highlightTerminalText(SAMPLE, props.highlightRules, props.highlightEnabled !== false)
+    : SAMPLE
+  terminal.write(rendered)
 }
 
 function applyOptions() {
@@ -81,6 +88,12 @@ onMounted(() => {
 watch(
   () => [props.theme, props.customColors.bgColor, props.customColors.fontColor, props.palette, props.fontSize, props.fontFamily] as const,
   () => applyOptions(),
+)
+
+watch(
+  () => [props.highlightEnabled, props.highlightRules] as const,
+  () => writeSample(),
+  { deep: true },
 )
 
 onBeforeUnmount(() => {

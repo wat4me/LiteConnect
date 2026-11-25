@@ -123,6 +123,37 @@ export function useAiChatViewport(deps: {
 
   const timelineTurns = computed(() => collectChatTimelineTurns(deps.messages()))
   const timelineTurnIds = computed(() => new Set(timelineTurns.value.map(turn => turn.id)))
+  let measuredTurns: Array<{ id: string; top: number }> | undefined
+  let observingTimelineLayout = false
+  function invalidateTimelineLayout() {
+    measuredTurns = undefined
+    if (!followLatest.value) scheduleActiveTurn()
+  }
+  watch(timelineTurnIds, invalidateTimelineLayout, { flush: 'post' })
+  watch(listRef, (el, _previous, onCleanup) => {
+    invalidateTimelineLayout()
+    if (!el || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return
+    observingTimelineLayout = true
+    const resize = new ResizeObserver(invalidateTimelineLayout)
+    const observeRows = () => {
+      resize.disconnect()
+      resize.observe(el)
+      const rows = Array.from(el.children)
+      let lastUser = rows.length - 1
+      while (lastUser >= 0 && rows[lastUser].getAttribute('data-role') !== 'user') lastUser--
+      // Growth in the last reply cannot move any user-turn anchor.
+      for (const row of rows.slice(0, Math.max(0, lastUser))) resize.observe(row)
+      invalidateTimelineLayout()
+    }
+    const mutation = new MutationObserver(observeRows)
+    mutation.observe(el, { childList: true })
+    observeRows()
+    onCleanup(() => {
+      observingTimelineLayout = false
+      resize.disconnect()
+      mutation.disconnect()
+    })
+  }, { flush: 'post' })
   const showTimeline = computed(() => timelineTurns.value.length > 0 && deps.messages().length > 1)
   const activeTurnId = ref('')
   const timelineRef = ref<HTMLElement | null>(null)
@@ -208,10 +239,11 @@ export function useAiChatViewport(deps: {
       activeTurnId.value = turns[turns.length - 1]?.id || ''
       return
     }
-    const measured = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).flatMap(row => {
+    const measured = measuredTurns ?? Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).flatMap(row => {
       const id = row.dataset.messageId
       return id && timelineTurnIds.value.has(id) ? [{ id, top: row.offsetTop }] : []
     })
+    if (observingTimelineLayout) measuredTurns = measured
     activeTurnId.value = activeTimelineTurnId(measured, el.scrollTop)
   }
 
@@ -325,6 +357,7 @@ export function useAiChatViewport(deps: {
     frames.clear()
     scrollRaf = 0
     timelineRaf = 0
+    measuredTurns = undefined
     isProgrammaticScroll = false
     if (jumpScrollTimer) clearTimeout(jumpScrollTimer)
     jumpScrollTimer = null

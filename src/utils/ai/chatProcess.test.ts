@@ -54,6 +54,16 @@ describe('chat process layout', () => {
     expect(layout.stats).toEqual({ steps: 7, changes: 1, failed: 1, blocked: 2 })
   })
 
+  it('pins completed knowledge_save runs so changes stay visible for review and undo', () => {
+    const layout = chatProcessLayout({ items: [
+      tool(run({ id: 'inspect' })),
+      tool(run({ id: 'saved', name: 'knowledge_save', risk: 'write', content: '{"saved":true,"documentId":"doc","revision":1,"created":true}' })),
+      tool(run({ id: 'failed-save', name: 'knowledge_save', risk: 'write', isError: true, status: 'blocked', content: 'blocked' })),
+      text('Updated server knowledge.'),
+    ], status: 'completed' }).get(0)!
+    expect([...layout.pinnedRunIds]).toEqual(['saved'])
+  })
+
   it('does not wrap turns that only think before answering', () => {
     expect(chatProcessLayout({ items: [think('hmm'), text('answer')] }).size).toBe(0)
   })

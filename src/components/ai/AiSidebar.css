@@ -362,7 +362,7 @@
   border: none;
   border-radius: var(--radius-md);
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-foreground);
   display: flex;
   align-items: center;
   justify-content: center;

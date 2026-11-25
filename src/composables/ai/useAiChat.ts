@@ -1,7 +1,7 @@
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type {
   AiChatStreamPayload, AiConversationThread, AiConversationContextFile,
-  AiSaveConversationResult, AiSessionStore, AiToolRun, AiImageAttachment,
+  AiSessionStore, AiToolRun, AiImageAttachment,
 } from '@shared/types/ai'
 import type { AiSessionState, ChatItem } from '@/domain/ai/chat'
 import { t } from '@/i18n'
@@ -34,14 +34,15 @@ import {
 export { disposeAiSessionState, listAiResourceUsage } from './chat/sessionState'
 
 const backgroundSubscriptions = new WeakSet<object>()
+const STREAM_TEXT_BATCH_MS = 32
 const resolvingToolApprovals = new Set<string>()
 const resolvingQuestions = new Set<string>()
 
 /** Public command facade; session ownership, persistence and IPC projection live below it. */
-export function useAiChat() {
+export function useAiChat(options?: { cwd?: (sessionId: string) => string | undefined }) {
   const { activeProvider, displayModelName, activeContextWindowTokens } = useAiModelSelection()
   function cwdForSession(sessionId: string): string | undefined {
-    const cwd = getSftpListedCwd(sessionId).trim()
+    const cwd = (options?.cwd?.(sessionId) ?? getSftpListedCwd(sessionId)).trim()
     if (!cwd.startsWith('/') || cwd.length > 4096 || /[\0\r\n]/.test(cwd)) return undefined
     return cwd
   }
@@ -189,7 +190,9 @@ export function useAiChat() {
 
   async function ensureAssistantReply(
     sessionId: string,
-    onUpdate: (messages: ChatItem[]) => void
+    onUpdate: (messages: ChatItem[]) => void,
+    cwd: string | undefined,
+    requestOptions?: { knowledgeWriteOnce?: boolean },
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
     if (state.loading) {
@@ -222,21 +225,43 @@ export function useAiChat() {
       if (patch.toolRuns) refreshApprovalPending(sessionId)
     }
 
+    type TextPayload = Extract<AiChatStreamPayload, { type: 'content' | 'reasoning' }>
+    let pendingText: TextPayload | undefined
+    let lastTextAt = 0
+    let textTimer: ReturnType<typeof setTimeout> | undefined
+    function flushText() {
+      if (textTimer !== undefined) clearTimeout(textTimer)
+      textTimer = undefined
+      if (!pendingText) return
+      const payload = pendingText
+      pendingText = undefined
+      const current = getAssistantMessage()
+      if (payload.type === 'content') current.content += payload.value
+      else current.reasoningContent = (current.reasoningContent || '') + payload.value
+      current.segments ??= []
+      appendTextSegment(current.segments, payload.type, payload.value)
+      if (current.activity) current.activity = advanceChatActivity(current.activity, payload, lastTextAt, current.toolRuns)
+    }
+
     let activeStreamUnsubscribe: (() => void) | null = null
     try {
       const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       state.activeRequestId = requestId
       activeStreamUnsubscribe = window.LiteConnect.onAiChatStream(requestId, (payload: AiChatStreamPayload) => {
+        if (payload.type === 'content' || payload.type === 'reasoning') {
+          if (!payload.value) return
+          if (pendingText && pendingText.type !== payload.type) flushText()
+          if (pendingText) pendingText.value += payload.value
+          else pendingText = { ...payload }
+          lastTextAt = Date.now()
+          // Let scrolling and rendering share frame time during bursts of IPC events.
+          textTimer ??= setTimeout(flushText, STREAM_TEXT_BATCH_MS)
+          return
+        }
+        // Preserve the order of text, tool cards, and activity transitions.
+        flushText()
         const current = getAssistantMessage()
-        if (payload.type === 'content') {
-          current.content += payload.value
-          if (!current.segments) current.segments = []
-          appendTextSegment(current.segments, 'content', payload.value)
-        } else if (payload.type === 'reasoning') {
-          current.reasoningContent = (current.reasoningContent || '') + payload.value
-          if (!current.segments) current.segments = []
-          appendTextSegment(current.segments, 'reasoning', payload.value)
-        } else if (payload.type === 'usage') {
+        if (payload.type === 'usage') {
           current.usage = plainUsage(payload.value)
         } else if (payload.type === 'context-pressure') {
           state.contextPressure = payload.value
@@ -288,8 +313,10 @@ export function useAiChat() {
           threadId: state.activeThreadId,
           assistantMessageId: assistantMessage.id,
           createdAt: assistantMessage.createdAt,
-          cwd: cwdForSession(sessionId),
+          cwd,
+          ...(requestOptions?.knowledgeWriteOnce ? { knowledgeWriteOnce: true } : {}),
         })
+        flushText()
         const current = getAssistantMessage()
         const aborted = !!(reply as any)?.aborted
         const finalToolRuns = plainToolRuns(reply.toolRuns || current.toolRuns)
@@ -311,6 +338,7 @@ export function useAiChat() {
         })
       } finally {
         activeStreamUnsubscribe?.()
+        flushText()
         activeStreamUnsubscribe = null
         state.activeRequestId = null
       }
@@ -356,8 +384,10 @@ export function useAiChat() {
     text: string,
     onUpdate: (messages: ChatItem[]) => void,
     attachments?: AiImageAttachment[],
+    requestOptions?: { knowledgeWriteOnce?: boolean },
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
+    const cwd = cwdForSession(sessionId)
     const content = text.trim()
     const images = normalizeAiImages(attachments, t)
     if (!content && !images?.length) return false
@@ -388,7 +418,7 @@ export function useAiChat() {
       ElMessage.error(sanitizeAiErrorMessage(err?.message || t('ai.requestFailed')))
       return false
     }
-    return ensureAssistantReply(sessionId, onUpdate)
+    return ensureAssistantReply(sessionId, onUpdate, cwd, requestOptions)
   }
 
   async function regenerateMessage(
@@ -397,6 +427,7 @@ export function useAiChat() {
     onUpdate: (messages: ChatItem[]) => void
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
+    const cwd = cwdForSession(sessionId)
     if (state.loading) {
       ElMessage.warning(t('ai.busy'))
       return false
@@ -425,7 +456,7 @@ export function useAiChat() {
       ElMessage.warning(t('ai.historySaveFailed'))
       return false
     }
-    return ensureAssistantReply(sessionId, onUpdate)
+    return ensureAssistantReply(sessionId, onUpdate, cwd)
   }
 
   async function retryMessage(
@@ -449,6 +480,7 @@ export function useAiChat() {
     onPersisted?: () => void,
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
+    const cwd = cwdForSession(sessionId)
     if (state.loading) {
       ElMessage.warning(t('ai.busy'))
       return false
@@ -479,7 +511,7 @@ export function useAiChat() {
       return false
     }
     onPersisted?.()
-    return ensureAssistantReply(sessionId, onUpdate)
+    return ensureAssistantReply(sessionId, onUpdate, cwd)
   }
 
   async function deleteMessage(
@@ -534,7 +566,7 @@ export function useAiChat() {
     onUpdate: (messages: ChatItem[]) => void
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
-    if (state.loading) {
+    if (state.loading || state.threadChangePending) {
       ElMessage.warning(t('ai.busy'))
       return false
     }
@@ -550,6 +582,7 @@ export function useAiChat() {
       .filter((m) => !m.streaming)
       .map(toHistoryRecord)
 
+    state.threadChangePending = true
     try {
       // Main process: under write lock, flush messages + abort title HTTP + push empty thread
       // cloneForIpc: messages/usage may still carry Vue Proxies if read from reactive state
@@ -572,6 +605,8 @@ export function useAiChat() {
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.newConversationFailed'))
       return false
+    } finally {
+      state.threadChangePending = false
     }
   }
 
@@ -581,7 +616,7 @@ export function useAiChat() {
     onUpdate: (messages: ChatItem[]) => void
   ): Promise<boolean> {
     const state = getAiSessionState(sessionId)
-    if (state.loading) {
+    if (state.loading || state.threadChangePending) {
       ElMessage.warning(t('ai.busy'))
       return false
     }
@@ -590,28 +625,30 @@ export function useAiChat() {
     // One main-process step saves the current thread, selects the target and
     // returns it with image data; the renderer never round-trips the whole store.
     if (!state.activeThreadId) state.activeThreadId = createThreadId()
-    let result: AiSaveConversationResult
+    state.threadChangePending = true
     try {
-      result = await window.LiteConnect.aiSaveConversation(
+      const result = await window.LiteConnect.aiSaveConversation(
         sessionId,
         state.activeThreadId,
         cloneForIpc(conversationPayload(state, false, threadId)),
       )
+      if (!result.thread) {
+        ElMessage.warning(t('ai.conversationNotFound'))
+        return false
+      }
+
+      state.activeThreadId = threadId
+      state.draftImages = []
+      applyThreadMessages(state, result.thread)
+      applyConversationSummary(state, result)
+      onUpdate(state.messages)
+      return true
     } catch (err: any) {
       ElMessage.warning(err?.message || t('ai.switchConversationFailed'))
       return false
+    } finally {
+      state.threadChangePending = false
     }
-    if (!result.thread) {
-      ElMessage.warning(t('ai.conversationNotFound'))
-      return false
-    }
-
-    state.activeThreadId = threadId
-    state.draftImages = []
-    applyThreadMessages(state, result.thread)
-    applyConversationSummary(state, result)
-    onUpdate(state.messages)
-    return true
   }
 
   async function deleteConversation(

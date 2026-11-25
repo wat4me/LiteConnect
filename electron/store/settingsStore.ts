@@ -29,9 +29,11 @@ import { normalizeConnectionSortMode, type ConnectionSortMode } from '../../shar
 import { sanitizeDbOpenMode, type DbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
+import { sanitizeTerminalHighlightRules } from '../../shared/terminalHighlight'
 import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
 import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
 import { normalizeUiDensity } from '../../shared/uiDensity'
+import { TERMINAL_PALETTES, isAppTheme } from '../../shared/appTheme'
 import { TERMINAL_LABEL_MAX_LENGTH } from '../../shared/types/settings'
 import {
   DEFAULT_TERMINAL_PASTE_CONFIRM_MAX_CHARS as PASTE_MAX_CHARS_DEFAULT,
@@ -403,8 +405,7 @@ export class SettingsStore {
   /** UI theme follows data-theme; terminal palette can diverge (e.g. Dracula on dark UI). */
   getTerminalPalette(): string {
     const val = this.settings.terminalPalette
-    const allowed = ['auto', 'dark', 'light', 'eyecare', 'dracula', 'solarized-dark', 'solarized-light', 'monokai']
-    return typeof val === 'string' && allowed.includes(val) ? val : 'auto'
+    return TERMINAL_PALETTES.some(id => id === val) ? val : 'auto'
   }
 
   async setTerminalPalette(palette: string): Promise<void> {
@@ -935,7 +936,7 @@ export class SettingsStore {
 
   getTheme(): string {
     const t = this.settings.theme
-    return t === 'light' || t === 'eyecare' || t === 'custom' ? t : 'dark'
+    return isAppTheme(t) ? t : 'dark'
   }
 
   async setTheme(theme: string): Promise<void> {
@@ -1045,6 +1046,8 @@ export class SettingsStore {
       terminalPasteConfirmMaxChars: this.getTerminalPasteConfirmMaxChars(),
       terminalCommandSuggestEnabled: this.getTerminalCommandSuggestEnabled(),
       terminalLocalEchoEnabled: this.settings.terminalLocalEchoEnabled === true,
+      terminalHighlightEnabled: this.settings.terminalHighlightEnabled !== false,
+      terminalHighlightRules: sanitizeTerminalHighlightRules(this.settings.terminalHighlightRules),
       terminalCommandHistoryExcludePatterns: this.getTerminalCommandHistoryExcludePatterns(),
       downloadConflictStrategy: this.getDownloadConflictStrategy(),
       dirTransferConcurrency: this.getDirTransferConcurrency(),

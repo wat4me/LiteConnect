@@ -1,4 +1,5 @@
 /** Pure helpers for CodeMirror SQL editor ↔ Vue tab sync (no DOM). */
+import { isLightAppTheme } from '@shared/appTheme'
 
 export type SqlEditorSelection = {
   start: number
@@ -262,12 +263,6 @@ export function flushEditorToTab(
   })
 }
 
-/**
- * Whether CodeMirror should use dark facet for a data-theme value.
- * dark / custom / missing → dark; light / eyecare → light.
- */
 export function isCmDarkTheme(dataTheme: string | null | undefined): boolean {
-  if (!dataTheme || dataTheme === 'dark' || dataTheme === 'custom') return true
-  if (dataTheme === 'light' || dataTheme === 'eyecare') return false
-  return true
+  return !isLightAppTheme(dataTheme)
 }

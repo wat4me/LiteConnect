@@ -8,6 +8,7 @@ defineProps<{
   y: number
   selectedText: string
   readOnly: boolean
+  highlightEnabled?: boolean
   aiDisabled?: boolean
 }>()
 
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   (e: 'clear-screen'): void
   (e: 'clear-scrollback'): void
   (e: 'toggle-read-only'): void
+  (e: 'toggle-highlight'): void
   (e: 'send-to-ai', mode: 'send' | 'insert'): void
   (e: 'save-as-snippet'): void
   (e: 'set-ref', el: HTMLElement | null): void
@@ -75,6 +77,16 @@ const { t } = useI18n()
       >
         <AppIcon :name="readOnly ? 'lock-open' : 'lock'" size="sm" />
         <span>{{ readOnly ? t('terminal.readOnlyOffMenu') : t('terminal.readOnlyOnMenu') }}</span>
+      </button>
+      <button
+        type="button"
+        class="ui-menu-item"
+        :class="{ active: highlightEnabled }"
+        :title="t('terminal.highlightMenuTitle')"
+        @click="emit('toggle-highlight')"
+      >
+        <AppIcon :name="highlightEnabled ? 'eye' : 'eye-off'" size="sm" />
+        <span>{{ highlightEnabled ? t('terminal.highlightOffMenu') : t('terminal.highlightOnMenu') }}</span>
       </button>
       <template v-if="selectedText">
         <div v-if="!aiDisabled" class="ui-menu-sep" role="separator"></div>

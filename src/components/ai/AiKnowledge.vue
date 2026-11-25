@@ -15,8 +15,8 @@ import { KNOWLEDGE_GROUPS_ENABLED, knowledgeGroupConnectionId, type KnowledgeGro
 import AiStreamingMarkdown from './AiStreamingMarkdown.vue'
 import AppIcon from '../icons/AppIcon.vue'
 
-const props = defineProps<{ sessionId: string; groupId?: string; active: boolean; busy: boolean }>()
-const emit = defineEmits<{ (event: 'close'): void }>()
+const props = defineProps<{ sessionId: string; groupId?: string; active: boolean; busy: boolean; canPrompt?: boolean; hasMessages?: boolean }>()
+const emit = defineEmits<{ (event: 'close'): void; (event: 'trigger-prompt', payload: { prompt: string; writeOnce: boolean }): void }>()
 const { t } = useI18n()
 const overview = ref<KnowledgeOverview>({ storagePath: '', targets: [] })
 const open = ref(false), pending = ref(false), editing = ref(false)
@@ -176,7 +176,7 @@ async function setMode(mode: KnowledgeMode, server = target.value) {
   pending.value = true
   try {
     if (!await mayLeave()) return
-    if (mode !== 'off' && knowledgeMode(server) === 'off' && !server.count) await appConfirm({ title: t('ai.knowledge.enableTitle'), message: t('ai.knowledge.enableNotice', { name: server.name }), detail: overview.value.storagePath,
+    if (mode !== 'off' && knowledgeMode(server) === 'off' && !server.count) await appConfirm({ title: t('ai.knowledge.enableTitle'), message: t('ai.knowledge.enableNotice', { name: server.name }),
       confirmText: t('ai.knowledge.enable'), cancelText: t('common.cancel') })
     if (version !== generation || props.busy || scopes.value.find(item => item.connectionId === server.connectionId)?.binding !== server.binding) return
     const input = { action: 'setMode' as const, connectionId: server.connectionId, binding: server.binding, mode }
@@ -327,7 +327,29 @@ watch(() => props.busy, busy => { if (!busy && !pending.value) { void overviewRe
 onDeactivated(() => { generation++; pending.value = false; open.value = false; closeModePicker(); groupDialog.value = false })
 onActivated(() => { void overviewRefresh() })
 onBeforeUnmount(() => { generation++ })
-defineExpose({ show })
+const isTargetBlank = computed(() => {
+  if (!target.value?.enabled) return false
+  if (!documents.value.length) return true
+  if (documents.value.length > 1) return false
+  const only = documents.value[0]
+  if (only.id !== 'memory') return false
+  if (document.value?.id !== 'memory') return false
+  return !document.value.content.trim() && !(document.value.memoryEntries?.length)
+})
+const canOrganizeTarget = computed(() => !props.groupId && props.canPrompt === true && !!target.value && !target.value.groupId && target.value.enabled && !pending.value && !props.busy)
+const canDistillChat = computed(() => !props.groupId && props.canPrompt === true && props.hasMessages === true && enabledCount.value > 0 && !pending.value && !props.busy)
+async function triggerOrganize() {
+  if (!canOrganizeTarget.value || !target.value || !await mayLeave()) return
+  const name = target.value.name
+  open.value = false; editing.value = false
+  emit('trigger-prompt', { prompt: t('ai.knowledge.organizePrompt', { name }), writeOnce: true })
+}
+async function triggerDistill() {
+  if (!canDistillChat.value || !await mayLeave()) return
+  open.value = false; editing.value = false
+  emit('trigger-prompt', { prompt: t('ai.knowledge.distillPrompt'), writeOnce: true })
+}
+defineExpose({ show, refreshOverview: () => overviewRefresh() })
 </script>
 
 <template>
@@ -373,6 +395,7 @@ defineExpose({ show })
         </label>
       </section>
     </ElPopover>
+    <button v-if="canDistillChat" type="button" class="ui-btn ui-btn-ghost ui-btn-xs knowledge-distill-trigger" :title="t('ai.knowledge.distillHint')" :aria-label="t('ai.knowledge.distill')" @click="triggerDistill"><AppIcon name="file-diff" size="xs" /></button>
   </span>
   <Teleport to="body">
     <div v-if="open && active" class="knowledge-layer" @click.self="close" @keydown.esc.stop.prevent="close">
@@ -382,18 +405,28 @@ defineExpose({ show })
           <select :value="connectionId" :disabled="pending" :aria-label="t('ai.knowledge.server')" @change="changeServer"><template v-if="visibleGroups.length"><optgroup :label="t('ai.knowledge.group.shared')"><option v-for="group in visibleGroups" :key="group.connectionId" :value="group.connectionId">{{ t('ai.knowledge.group.scope', { name: group.name, count: group.memberCount }) }}</option></optgroup><optgroup :label="t('ai.knowledge.group.individual')"><option v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></optgroup></template><option v-else v-for="server in overview.targets" :key="server.connectionId" :value="server.connectionId">{{ server.name }} · {{ server.username }}@{{ server.host }}:{{ server.port }}</option></select>
           <label class="knowledge-mode-field" :title="targetUsageHint"><span>{{ t('ai.knowledge.usage') }}</span><select class="knowledge-mode-select" :value="targetMode" :title="targetUsageHint" :aria-label="t('ai.knowledge.modeLabel')" :aria-description="targetUsageHint" :disabled="!target || pending || busy" @change="changeMode($event)"><option v-for="mode in KNOWLEDGE_MODES" :key="mode" :value="mode">{{ t(`ai.knowledge.mode.${mode}`) }}</option></select></label>
           <button v-if="KNOWLEDGE_GROUPS_ENABLED && target?.groupId" type="button" class="ui-btn ui-btn-sm knowledge-group-manage" :disabled="pending || busy" @click="openGroupDialog(true)">{{ t('ai.knowledge.group.manage') }}</button><button v-if="KNOWLEDGE_GROUPS_ENABLED && !groupId" type="button" class="ui-btn ui-btn-sm knowledge-group-create" :disabled="pending || busy || !overview.targets.length" @click="openGroupDialog()">{{ t('ai.knowledge.group.create') }}</button>
+          <button v-if="canOrganizeTarget" type="button" class="ui-btn ui-btn-sm knowledge-organize-btn" :title="t('ai.knowledge.organizeHint')" @click="triggerOrganize">{{ t('ai.knowledge.organize') }}</button>
+          <button v-if="canDistillChat" type="button" class="ui-btn ui-btn-sm knowledge-distill-btn" :title="t('ai.knowledge.distillHint')" @click="triggerDistill">{{ t('ai.knowledge.distill') }}</button>
           <button type="button" class="ui-icon-btn" :disabled="pending" :title="t('ai.knowledge.refresh')" :aria-label="t('ai.knowledge.refresh')" @click="refresh"><AppIcon name="refresh" size="sm" /></button>
         </div>
         <p v-if="KNOWLEDGE_GROUPS_ENABLED && overview.targets.length > 1 && !visibleGroups.length && !guideDismissed" class="knowledge-notice knowledge-group-guide">{{ t('ai.knowledge.group.guide') }} <button type="button" class="ui-btn ui-btn-xs" :disabled="pending || busy" @click="openGroupDialog()">{{ t('ai.knowledge.group.share') }}</button><button type="button" class="ui-icon-btn" :aria-label="t('ai.knowledge.group.dismiss')" @click="dismissGuide"><AppIcon name="close" size="xs" /></button></p>
         <p v-if="target?.groupId" class="knowledge-notice knowledge-group-scope">{{ t(groupId ? 'ai.knowledge.group.offlineHint' : 'ai.knowledge.group.scopeHint', { count: target.memberCount, selected: target.memberConnectionIds?.length }) }}</p>
-        <details class="knowledge-notice knowledge-notice-more">
-          <summary :title="t('ai.knowledge.dataHint')">{{ t('ai.knowledge.dataHint') }}</summary>
-          <p>{{ t('ai.knowledge.storageNotice') }} <span :title="overview.storagePath">{{ overview.storagePath }}</span></p>
-        </details>
         <p v-if="!scopes.length" class="knowledge-notice">{{ t('ai.knowledge.noServer') }}</p>
         <p v-else-if="!target?.enabled" class="knowledge-notice">{{ t('ai.knowledge.disabledHint') }}</p>
         <p v-else-if="target?.groupId && targetMode === 'readwrite'" class="knowledge-notice knowledge-group-write-hint">{{ t('ai.knowledge.group.writeHint') }}</p>
         <p v-else-if="targetMode === 'readonly'" class="knowledge-notice">{{ t('ai.knowledge.modeHint.readonly') }}</p>
+        <details v-if="scopes.length" class="knowledge-rules" :open="isTargetBlank || !target?.enabled">
+          <summary>{{ t('ai.knowledge.rules.title') }}</summary>
+          <ul>
+            <li><strong>{{ t('ai.knowledge.rules.keepLabel') }}</strong>{{ t('ai.knowledge.rules.keep') }}</li>
+            <li><strong>{{ t('ai.knowledge.rules.skipLabel') }}</strong>{{ t('ai.knowledge.rules.skip') }}</li>
+            <li><strong>{{ t('ai.knowledge.rules.controlLabel') }}</strong>{{ t('ai.knowledge.rules.control') }}</li>
+          </ul>
+          <div v-if="isTargetBlank && canOrganizeTarget" class="knowledge-rules-actions">
+            <button type="button" class="ui-btn ui-btn-primary ui-btn-sm" @click="triggerOrganize">{{ t('ai.knowledge.organize') }}</button>
+            <span class="knowledge-meta">{{ t('ai.knowledge.organizeHint') }}</span>
+          </div>
+        </details>
         <p v-if="errorMessage" class="knowledge-error knowledge-notice" role="alert">{{ errorMessage }}</p>
         <div class="knowledge-body">
           <aside><div class="knowledge-create"><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create()">{{ t('ai.knowledge.new') }}</button><button type="button" class="ui-btn ui-btn-sm" :disabled="!target?.enabled || pending" @click="create(true)">{{ t('ai.knowledge.import') }}</button><button v-if="KNOWLEDGE_GROUPS_ENABLED && target?.groupId && !documents.some(doc => doc.id === SYSTEM_DOCUMENT_ID)" type="button" class="ui-btn ui-btn-sm system-create" :disabled="!target?.enabled || pending" @click="createSystem">{{ t('ai.knowledge.system.create') }}</button></div>
@@ -445,7 +478,7 @@ defineExpose({ show })
 .knowledge-mode-field .knowledge-mode-select { flex: 0 0 auto; width: auto; min-width: 0; max-width: 120px; height: 100%; padding: 0 3px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .knowledge-toolbar .knowledge-mode-field { height: var(--control-h-sm); }
 /* Composer toolbar buttons follow the composer's tool size (24px in the terminal panel). */
-.knowledge-trigger, .knowledge-usage-summary { flex: 0 0 auto; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); padding: 0 5px; }
+.knowledge-trigger, .knowledge-usage-summary, .knowledge-distill-trigger { flex: 0 0 auto; gap: 4px; min-width: var(--ai-composer-tool-size, 26px); height: var(--ai-composer-tool-size, 26px); padding: 0 5px; }
 :is(.knowledge-trigger, .knowledge-usage-summary)[aria-expanded="true"]:not(:disabled) { background: var(--tab-selected-surface); color: var(--text-primary); }
 :is(.knowledge-trigger, .knowledge-usage-summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .knowledge-mode-select:disabled { opacity: .5; cursor: not-allowed; }
@@ -474,9 +507,12 @@ header button { margin-left: auto; -webkit-app-region: no-drag; }
 select { flex: 1 1 180px; width: 0; min-width: 0; }
 select, input, textarea { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; font: inherit; }
 .knowledge-notice { margin: 8px 14px; line-height: 1.5; overflow-wrap: anywhere; }
-.knowledge-notice-more > summary { color: var(--text-secondary); cursor: pointer; }
-.knowledge-notice-more > p { margin: 6px 0 0; }
-.knowledge-notice > span { display: block; }
+.knowledge-rules { margin: 6px 14px 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); font-size: var(--font-caption); color: var(--text-secondary); }
+.knowledge-rules summary { cursor: pointer; font-weight: 600; color: var(--text-primary); }
+.knowledge-rules ul { margin: 6px 0 0; padding-left: 16px; line-height: 1.6; }
+.knowledge-rules li + li { margin-top: 2px; }
+.knowledge-rules strong { color: var(--text-primary); }
+.knowledge-rules-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .knowledge-body { display: grid; grid-template-columns: 210px minmax(0, 1fr); flex: 1; min-height: 0; }
 aside, main { min-width: 0; overflow: auto; padding: 12px; }
 aside { border-right: 1px solid var(--border-color); }

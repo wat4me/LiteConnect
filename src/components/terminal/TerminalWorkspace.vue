@@ -193,15 +193,7 @@ const crossHostSplit = computed(
   () => splitHasSecondary.value && !!props.activeSession && !!secondarySession.value &&
     props.activeSession.connectionId !== secondarySession.value.connectionId,
 )
-/*
- * A single terminal has nothing to switch, split or drag, so its tab row is
- * hidden; the active host tab offers "+ new terminal" instead.
- */
-const showSubTabBar = computed(() => {
-  const group = props.activeGroup
-  if (!group || group.sessions.length === 0 || crossHostSplit.value) return false
-  return group.sessions.length > 1 || !!props.dockerTabOpen || props.isSplit
-})
+const showSubTabBar = computed(() => !!props.activeGroup?.sessions.length && !crossHostSplit.value)
 const canUseLayoutButtons = computed(
   () => splitHasSecondary.value || (props.activeGroup?.sessions.length ?? 0) >= 2,
 )

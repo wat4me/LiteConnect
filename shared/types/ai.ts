@@ -164,6 +164,8 @@ export interface AiChatResult {
 export interface AiChatStreamOptions {
   /** Idle-session maintenance; creates no user or assistant history record. */
   compactOnly?: boolean
+  /** One-shot user-initiated grant allowing knowledge_save on read-only targets for this turn only. */
+  knowledgeWriteOnce?: boolean
   sessionId: string
   threadId: string
   assistantMessageId: string

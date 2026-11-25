@@ -8,10 +8,11 @@ import { createToolRunDisplayCache } from '@/utils/ai/toolRunDisplayCache'
 import { useAiToolNameLabel } from '@/composables/ai/useAiToolNameLabel'
 import { splitToolReason } from '@/utils/ai/toolReason'
 import { toolRunPresentation, toolStateKeys } from '@/utils/ai/toolRunPresentation'
+import { diffPreviewRows } from '@/utils/ai/diffPreviewRows'
 import AppIcon from '../icons/AppIcon.vue'
 
-const props = withDefaults(defineProps<{ run: AiToolRun; streaming?: boolean; open?: boolean; executionHistoryAvailable?: boolean }>(), { open: undefined })
-const emit = defineEmits<{ (event: 'toggle', open: boolean): void; (event: 'view-execution'): void; (event: 'view-knowledge'): void }>()
+const props = withDefaults(defineProps<{ run: AiToolRun; streaming?: boolean; open?: boolean; executionHistoryAvailable?: boolean; knowledgeUndone?: boolean; knowledgeUndoing?: boolean }>(), { open: undefined })
+const emit = defineEmits<{ (event: 'toggle', open: boolean): void; (event: 'view-execution'): void; (event: 'view-knowledge'): void; (event: 'undo-knowledge'): void }>()
 const { t } = useI18n()
 const toolNameLabel = useAiToolNameLabel()
 const localOpen = ref(false)
@@ -32,7 +33,19 @@ const exitLabel = computed(() => {
 })
 const detail = computed(() => {
   const state = presentation.value
-  return [state.detailKey ? t(state.detailKey, state.detailParams || {}) : '', state.truncated ? t('ai.toolOutputTruncated') : ''].filter(Boolean).join(' · ')
+  return [
+    props.run.name === 'knowledge_save' && !props.run.isError ? (props.run.diffSummary || '') : '',
+    state.detailKey ? t(state.detailKey, state.detailParams || {}) : '',
+    state.truncated ? t('ai.toolOutputTruncated') : '',
+  ].filter(Boolean).join(' · ')
+})
+const canUndoKnowledge = computed(() => {
+  if (props.run.name !== 'knowledge_save' || props.run.status !== 'done' || props.run.isError) return false
+  try {
+    const parsed = JSON.parse(props.run.content) as { documentId?: unknown; revision?: unknown; created?: unknown; previousRevision?: unknown }
+    return typeof parsed.documentId === 'string' && typeof parsed.revision === 'number' && parsed.revision >= 1 &&
+      (parsed.created === true || (typeof parsed.previousRevision === 'number' && parsed.previousRevision > 0))
+  } catch { return false }
 })
 function onToggle(event: Event) {
   localOpen.value = (event.currentTarget as HTMLDetailsElement).open
@@ -71,6 +84,7 @@ function onToggle(event: Event) {
             <span v-if="detail" class="tool-run-detail">{{ detail }}</span>
           </span>
           <button v-if="run.name === 'knowledge_save' && run.status === 'done' && !run.isError" type="button" class="ui-btn ui-btn-ghost ui-btn-xs tool-run-knowledge" :title="t('ai.knowledge.view')" :aria-label="t('ai.knowledge.view')" @click.stop.prevent="emit('view-knowledge')">{{ t('ai.knowledge.view') }}</button>
+          <button v-if="canUndoKnowledge" type="button" class="ui-btn ui-btn-ghost ui-btn-xs tool-run-knowledge tool-run-knowledge-undo" :disabled="knowledgeUndone || knowledgeUndoing" :title="t(knowledgeUndone ? 'ai.knowledge.undoneShort' : 'ai.knowledge.undo')" :aria-label="t(knowledgeUndone ? 'ai.knowledge.undoneShort' : 'ai.knowledge.undo')" @click.stop.prevent="emit('undo-knowledge')">{{ t(knowledgeUndone ? 'ai.knowledge.undoneShort' : 'ai.knowledge.undo') }}</button>
         </summary>
         <template v-if="isOpen">
         <div v-if="executionHistoryAvailable && run.name === 'exec'" class="tool-run-section"><button type="button" class="ui-btn ui-btn-xs tool-run-view-execution" @click="emit('view-execution')"><AppIcon name="terminal-history" size="xs" />{{ t('ai.execution.view') }}</button></div>
@@ -82,7 +96,12 @@ function onToggle(event: Event) {
         </div>
         <div v-if="run.diffPreview || (view.body && run.status !== 'denied' && run.status !== 'blocked' && run.status !== 'reclassify') || run.status === 'blocked' || run.status === 'reclassify'" class="tool-run-section">
           <div v-if="run.diffSummary" class="tool-run-result-summary">{{ run.diffSummary }}</div>
-          <pre v-if="run.diffPreview" class="tool-run-out">{{ run.diffPreview }}</pre>
+          <pre v-if="run.diffPreview" class="tool-run-out tool-run-diff"><span
+            v-for="(row, i) in diffPreviewRows(run.diffPreview)"
+            :key="i"
+            class="diff-row"
+            :class="`diff-${row.kind}`"
+          >{{ row.text }}</span></pre>
           <pre v-else-if="view.body && run.status !== 'denied' && run.status !== 'blocked' && run.status !== 'reclassify'" class="tool-run-out">{{ view.body }}</pre>
           <div v-else-if="run.status === 'blocked'" class="tool-run-result-summary">{{ t('ai.toolAskForbidden') }}</div>
           <div v-else-if="run.status === 'reclassify'" class="tool-run-result-summary">{{ t('ai.toolReclassifyHint') }}</div>
@@ -301,6 +320,30 @@ function onToggle(event: Event) {
   line-height: 1.5;
 }
 
+
+.tool-run-diff {
+  padding: 5px 0;
+  white-space: pre;
+}
+.tool-run-diff .diff-row {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 8px;
+  color: var(--text-primary);
+}
+.tool-run-diff .diff-head,
+.tool-run-diff .diff-hunk {
+  color: var(--text-secondary);
+}
+.tool-run-diff .diff-add {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+.tool-run-diff .diff-del {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
 
 .tool-run { min-width: 0; }
 .tool-run > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

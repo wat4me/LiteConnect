@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import TerminalSearchBar from '../terminal/TerminalSearchBar.vue'
 import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
+import { useTerminalSelectionHighlight } from '../../composables/terminal/useTerminalSelectionHighlight'
 import {
   dockerExecStateI18nKey,
   useDockerContainerExec,
@@ -25,6 +26,7 @@ import {
 } from '@/utils/terminal/terminalFontZoom'
 import { useTerminalPasteConfirm } from '@/composables/terminal/useTerminalPasteConfirm'
 import { useTerminalSettings } from '@/composables/terminal/useTerminalSettings'
+import { createTerminalHighlighter } from '@/utils/terminal/terminalHighlighter'
 import type { DockerExecShell } from '../../env.d'
 import { DOCKER_EXEC_WRITE_MAX_BYTES } from '@shared/types/docker'
 
@@ -131,7 +133,18 @@ const {
   scrollbackLines,
   pasteConfirmEnabled,
   pasteConfirmMaxChars,
+  highlightEnabled,
+  highlightRules,
 } = terminalSettings
+
+const { bindSelectionHighlight, disposeSelectionHighlight } = useTerminalSelectionHighlight({
+  isSearchActive: () => searchVisible.value && searchQuery.value.trim().length > 0,
+})
+
+const dockerHighlighter = createTerminalHighlighter(highlightEnabled.value, highlightRules.value)
+let dockerDecoder = new TextDecoder('utf-8')
+watch(highlightEnabled, (next) => dockerHighlighter.setEnabled(next))
+watch(highlightRules, (next) => dockerHighlighter.setRules(next), { deep: true })
 
 const {
   searchVisible,
@@ -267,11 +280,20 @@ function createXterm(): void {
   terminal.open(terminalHostRef.value)
   terminal.element?.addEventListener('paste', handlePasteEvent, true)
   bindSearchAddon(searchAddon)
+  bindSelectionHighlight(terminal)
 
+  dockerDecoder = new TextDecoder('utf-8')
+  dockerHighlighter.reset()
   setDataHandler((data) => {
     if (!terminal) return
     try {
-      terminal.write(data)
+      const isAlternate = terminal.buffer.active.type === 'alternate'
+      if (!highlightEnabled.value || isAlternate) {
+        terminal.write(data)
+        return
+      }
+      const text = dockerDecoder.decode(data, { stream: true })
+      if (text) terminal.write(dockerHighlighter.transform(text, false))
     } catch {}
   })
 
@@ -332,6 +354,7 @@ function disposeXterm(): void {
   resizeObserver?.disconnect()
   resizeObserver = null
   disposeSearchListeners()
+  disposeSelectionHighlight()
   try {
     onDataDisposable?.dispose()
   } catch {}

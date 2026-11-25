@@ -6,16 +6,44 @@ const { pathToFileURL } = require('node:url')
 const artifacts = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'liteconnect-dock-ui-'))
 app.setPath('userData', path.join(artifacts, 'profile'))
 let database, window, stage = 'starting', failSave = false, saveCount = 0
+const aiTerminal = new URL(process.env.LITECONNECT_UI_TEST_URL).searchParams.has('aiTerminal')
 const timeout = setTimeout(() => { console.error('Dock UI timed out', { stage, artifacts }); app.exit(1) }, 360000)
 app.whenReady().then(async () => {
   const bundle = path.join(artifacts, 'runtime.mjs')
-  await require('esbuild').build({ stdin: { contents: "export {initializeAppDatabase,closeAppDatabase} from './electron/store/appDatabase'; export {SettingsStore} from './electron/store/settingsStore';", resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', packages: 'external', outfile: bundle })
+  await require('esbuild').build({ stdin: { contents: `
+    export { initializeAppDatabase, closeAppDatabase } from './electron/store/appDatabase'
+    export { SettingsStore } from './electron/store/settingsStore'
+    export { createAiKnowledgeService } from './electron/application/aiKnowledge'
+    export { registerAiHandlers } from './electron/ipc/registerAiHandlers'
+  `, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', packages: 'external', outfile: bundle })
   const runtime = await import(pathToFileURL(bundle))
   const preload = path.join(artifacts, 'preload.cjs')
-  fs.writeFileSync(preload, "const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('__dockBackend',{invoke:(op,value)=>ipcRenderer.invoke('dock-settings',op,value),settings:fn=>{const listener=(_e,value)=>fn(value);ipcRenderer.on('settings:changed',listener);return()=>ipcRenderer.removeListener('settings:changed',listener)}});")
+  fs.writeFileSync(preload, `
+    const { contextBridge, ipcRenderer } = require('electron')
+    contextBridge.exposeInMainWorld('__dockBackend', {
+      invoke: (op, value) => ipcRenderer.invoke('dock-settings', op, value),
+      knowledge: (id, input) => ipcRenderer.invoke('ai:knowledge', id, input),
+      settings: fn => {
+        const listener = (_event, value) => fn(value)
+        ipcRenderer.on('settings:changed', listener)
+        return () => ipcRenderer.removeListener('settings:changed', listener)
+      },
+    })
+  `)
   const store = new runtime.SettingsStore()
   database = await runtime.initializeAppDatabase(path.join(artifacts, 'profile'))
   await store.init()
+  if (aiTerminal) {
+    const profile = { id: 'production', name: 'Production', host: 'production.test', port: 22, username: 'ops' }
+    const knowledge = runtime.createAiKnowledgeService({
+      getSessionSnapshot: id => id === 'ai-production' ? { connectionId: profile.id } : undefined,
+    }, {
+      getConnections: () => [profile],
+      getConnection: id => id === profile.id ? profile : undefined,
+    })
+    runtime.registerAiHandlers(store, { knowledgeAccess: (id, owner) => knowledge.access(id, owner) },
+      id => id === 'ai-production' ? 'host-v1:22:production.test' : undefined)
+  }
   ipcMain.handle('dock-settings', async (_event, op, value) => {
     if (op === 'get') return store.getAll()
     if (op === 'set') {
@@ -33,7 +61,7 @@ app.whenReady().then(async () => {
     }
     throw new Error('Unknown fixture operation')
   })
-  window = new BrowserWindow({ show: false, frame: false, width: 1200, height: 900, webPreferences: { preload, contextIsolation: true, backgroundThrottling: false } })
+  window = new BrowserWindow({ show: false, frame: false, width: 1200, height: 900, webPreferences: { preload, contextIsolation: true, backgroundThrottling: false, offscreen: aiTerminal } })
   window.webContents.debugger.attach('1.3')
   const run = async source => {
     let raw
@@ -70,6 +98,383 @@ app.whenReady().then(async () => {
   }
   stage = 'loading real SSH workspace'
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
+  if (aiTerminal) {
+    const composer = '.lite-ai-chat .composer-input'
+    const draftInput = '.ai-draft-input'
+    const draftTerminalButton = '.ai-draft .ai-open-terminal'
+    const terminalButton = '.ai-open-terminal[aria-label="显示终端"]'
+    const aiTab = '.ai-workspace-tab'
+    const selectAiTab = `${aiTab} .ai-workspace-tab-select`
+    const productionTab = '.tab[data-host-drop-id="production"]'
+    const dockHost = '.ssh-linked-ai-host'
+    const terminal = '.terminal-host .xterm-screen'
+    const domClick = selector => run(`document.querySelector(${JSON.stringify(selector)}).click()`)
+    const assertProductionLabel = async selector => {
+      const label = await run(`(() => {
+        const host = document.querySelector(${JSON.stringify(selector)})
+        return { text: host.textContent.trim(), title: host.title }
+      })()`)
+      assert.deepEqual(label, { text: 'Production', title: 'Production (ops@production.test:22)' })
+    }
+    const fill = (selector, value) => run(`(() => {const input=document.querySelector(${JSON.stringify(selector)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+    const openTerminalMenu = () => run(`document.querySelector('.terminal-wrapper').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:500,clientY:120}))`)
+    const clickMenuItem = label => run(`[...document.querySelectorAll('.ui-menu-item')].find(item=>item.textContent.trim()===${JSON.stringify(label)}).click()`)
+    const useTerminalSelection = async (action = '放入 AI 输入框') => {
+      await openTerminalMenu()
+      await clickMenuItem('全选')
+      await openTerminalMenu()
+      await clickMenuItem(action)
+    }
+    stage = 'clearing selected servers from the connection manager'
+    await wait('document.querySelector(\'.smart-item[data-view="all"]\')?.checkVisibility()')
+    await domClick('.smart-item[data-view="all"]')
+    const productionRow = '.connection-row:has(.conn-name-text[title="Production"])'
+    const fleetRow = '.connection-row:has(.conn-name-text[title="Fleet 02"])'
+    await wait(`document.querySelector('${productionRow}') && document.querySelector('${fleetRow}')`)
+    await domClick(`${productionRow} .select-check`)
+    await domClick(`${fleetRow} .select-check`)
+    await wait('document.querySelectorAll(".selection-chip").length === 2')
+    await domClick('.group-block[data-group-id="fleet"] > .group-item')
+    await wait(`!document.querySelector('${productionRow}') && document.querySelector('${fleetRow}')?.classList.contains('selected')`)
+    assert.equal(await run('document.querySelector(".clear-connection-selection")?.textContent.trim()'), '清空选择')
+    await domClick('.clear-connection-selection')
+    await wait('!document.querySelector(".selection-action-bar, .connection-row.selected")')
+    await domClick('.smart-item[data-view="all"]')
+    await wait(`document.querySelector('${productionRow}')`)
+    assert.equal(await run('document.querySelectorAll(".select-check[aria-checked=true]").length'), 0)
+
+    stage = 'connecting a terminal from an unsent AI draft'
+    const productionAi = `${productionRow} .action-btn.ai`
+    await wait(`document.querySelector(${JSON.stringify(productionAi)})?.checkVisibility()`)
+    await domClick(productionAi)
+    await wait(`document.querySelector('${draftInput}')?.checkVisibility()`)
+    await assertProductionLabel('.ai-draft-header .workspace-target-host')
+    await fill(draftInput, '帮我看一下最近的终端输出')
+    await run(`window.__savedDraftInput=document.querySelector('${draftInput}')`)
+    stage = 'switching between the connection list and a standalone AI tab'
+    await wait(`document.querySelector('${aiTab}[data-active-tab="true"]')?.checkVisibility()`)
+    await domClick('.ai-back-to-connections')
+    await wait(`document.querySelector('.home-btn[aria-pressed="true"]')?.checkVisibility() && document.querySelector('${aiTab}[data-active-tab="false"]')?.checkVisibility() && document.querySelector('${productionRow}')?.checkVisibility()`)
+    await domClick(selectAiTab)
+    await wait(`document.querySelector('${aiTab}[data-active-tab="true"]')?.checkVisibility() && window.__savedDraftInput.checkVisibility()`)
+    assert.ok(await run(`document.querySelector('${draftInput}') === window.__savedDraftInput && window.__savedDraftInput.value === '帮我看一下最近的终端输出'`))
+
+    stage = 'connecting a terminal from an unsent AI draft'
+    assert.equal(await run(`document.querySelector('${draftTerminalButton}').textContent.trim()`), '连接终端')
+    await domClick(draftTerminalButton)
+    await wait('document.querySelector(".host-key-dialog button.ui-btn-primary")?.checkVisibility()')
+    await domClick('.host-key-dialog button.ui-btn-primary')
+    const x11Notice = '[...document.querySelectorAll(".el-message")].some(message => message.checkVisibility() && message.textContent.includes("首次启动可能需要几秒") && message.textContent.includes("后续连接可复用"))'
+    await wait(x11Notice)
+    await run('window.__dock.finishX11Preparation()')
+    await wait(`document.querySelector('${dockHost} ${draftInput}')?.checkVisibility() && document.querySelector('${terminal}')?.checkVisibility()`)
+    assert.equal(await run(`document.querySelector('${dockHost} .ai-draft-state').textContent.trim()`), '终端已连接 · 发送后连接 AI')
+    await wait(`!(${x11Notice})`)
+    assert.equal(await run(`document.querySelector('${dockHost} ${draftInput}')===window.__savedDraftInput`), true)
+    assert.equal(await run('window.__savedDraftInput.value'), '帮我看一下最近的终端输出')
+    assert.equal(await run('document.getElementById("dock-content-files")?.checkVisibility()'), false)
+    assert.deepEqual(await run('window.__dock.calls.aiWorkspaceConnects'), [])
+    assert.deepEqual(await run('window.__dock.calls.terminalConnects'), ['production'])
+    await run(`window.__savedTerminal=document.querySelector('${terminal}')`)
+    assert.equal(await run(`!!document.querySelector('${aiTab}')`), false, 'A docked AI view has no duplicate top tab')
+    await domClick('.home-btn')
+    await wait(`document.querySelector('${productionRow}')?.checkVisibility() && !window.__savedDraftInput.checkVisibility()`)
+    assert.equal(await run(`!!document.querySelector('${aiTab}')`), false)
+    await domClick(productionTab)
+    await wait(`document.querySelector('${dockHost} ${draftInput}') === window.__savedDraftInput && window.__savedDraftInput.checkVisibility()`)
+
+    stage = 'changing knowledge mode before an AI SSH connection exists'
+    const draftKnowledgeMode = `${dockHost} .ai-draft .knowledge-mode-select`
+    const setDraftKnowledgeMode = value => run(`(() => {
+      const field = document.querySelector('${draftKnowledgeMode}')
+      field.value = ${JSON.stringify(value)}
+      field.dispatchEvent(new Event('change', { bubbles: true }))
+    })()`)
+    await wait(`document.querySelector('${draftKnowledgeMode}:enabled')?.value === 'off'`)
+    assert.equal(await run(`document.querySelector('${dockHost} .knowledge-count')`), null)
+    await setDraftKnowledgeMode('readonly')
+    await wait('document.querySelector(".app-dialog-title")?.textContent.includes("启用本地服务器知识")')
+    assert.ok(await run('document.querySelector(".app-dialog-message").textContent.includes("AI 服务") && !document.querySelector(".app-dialog-detail")'))
+    await domClick('.app-dialog-actions .ui-btn-primary')
+    await wait(`document.querySelector('${draftKnowledgeMode}:enabled')?.value === 'readonly'`)
+    await domClick(`${dockHost} .knowledge-trigger`)
+    await wait('document.querySelector(".knowledge-panel .knowledge-actions button:nth-of-type(2):enabled")?.checkVisibility()')
+    assert.equal(await run('document.querySelector(".knowledge-panel .knowledge-local").textContent'), '文档保存在本机')
+    assert.ok(await run('!document.querySelector(".knowledge-panel").textContent.includes(".sqlite") && [...document.querySelectorAll(".knowledge-actions button")].some(button => button.textContent.trim() === "导出 Markdown" && !button.disabled)'))
+    await domClick('.knowledge-panel header button')
+    await wait('!document.querySelector(".knowledge-panel")')
+    await setDraftKnowledgeMode('off')
+    await wait(`document.querySelector('${draftKnowledgeMode}:enabled')?.value === 'off'`)
+    assert.deepEqual(await run('window.__dock.calls.aiWorkspaceConnects'), [])
+
+    stage = 'returning to the draft and reusing its terminal before the first message'
+    await domClick(`${dockHost} ${draftTerminalButton}`)
+    await wait(`document.querySelector('.connections-ai-workspace ${draftInput}')===window.__savedDraftInput && !window.__savedTerminal.checkVisibility()`)
+    await wait(`document.querySelector('${aiTab}[data-active-tab="true"]')?.checkVisibility()`)
+    await domClick(productionTab)
+    await wait(`window.__savedTerminal.checkVisibility() && !window.__savedDraftInput.checkVisibility() && document.querySelector('${aiTab}[data-active-tab="false"]')?.checkVisibility()`)
+    assert.equal(await run('document.querySelector("#dock-content-ai")?.checkVisibility()'), false, 'Moving the AI view out does not open a blank SSH AI pane')
+    await domClick(selectAiTab)
+    await wait(`document.querySelector('.connections-ai-workspace ${draftInput}')===window.__savedDraftInput && window.__savedDraftInput.checkVisibility()`)
+    await domClick(draftTerminalButton)
+    await wait(`document.querySelector('${dockHost} ${draftInput}')===window.__savedDraftInput && window.__savedTerminal.checkVisibility()`)
+    await wait(`document.querySelector('${terminal} .xterm-rows')?.textContent.includes('Workspace layout preview')`)
+    await useTerminalSelection()
+    await wait(`window.__savedDraftInput.value.startsWith(${JSON.stringify('帮我看一下最近的终端输出\n')}) && window.__savedDraftInput.value.includes('Workspace layout preview')`)
+
+    stage = 'sending terminal output while preserving the unsent draft'
+    const unsentText = '这段说明我还没写完'
+    await fill(`${dockHost} ${draftInput}`, unsentText)
+    await run(`import('/src/utils/sftp/sftpListedCwd.ts').then(({ setSftpListedCwd }) => setSftpListedCwd('terminal-production-1', '/home/ops/working'))`)
+    await useTerminalSelection('发送给 AI')
+    await wait(`document.querySelector('${dockHost} ${composer}')?.checkVisibility() && window.__dock.hasAiReply() && window.__savedTerminal.checkVisibility()`)
+    assert.equal(await run(`document.querySelector('${dockHost} ${composer}').value`), unsentText)
+    assert.ok(await run(`document.querySelector('${dockHost} .chat-list').textContent.includes('Workspace layout preview') && !document.querySelector('${dockHost} .chat-list').textContent.includes('${unsentText}')`))
+    assert.equal(await run('window.__dock.calls.aiCwds.at(-1)'), '/home/ops/working')
+    await assertProductionLabel(`${dockHost} .workspace-chat .workspace-target-host`)
+    await wait(`document.querySelector('${dockHost} .ai-sidebar .knowledge-mode-select')?.value === 'off' && document.querySelector('${dockHost} .knowledge-count')?.textContent === '1'`)
+    assert.deepEqual(await run('window.__dock.calls.aiWorkspaceConnects'), ['production'])
+    await run(`window.__savedChatInput=document.querySelector('${composer}')`)
+    await domClick(`${dockHost} .ai-open-terminal`)
+    await wait(`document.querySelector('.connections-ai-workspace ${composer}')===window.__savedChatInput && !window.__savedTerminal.checkVisibility()`)
+    await domClick(terminalButton)
+    await wait(`document.querySelector('${dockHost} ${composer}')===window.__savedChatInput && window.__savedTerminal.checkVisibility()`)
+    const terminalCommand = 'printf "%s" "Fixture"'
+    const codeReply = ['Done', '', '```bash', terminalCommand, '```'].join('\n')
+    await run(`window.__dock.finishAiReply(${JSON.stringify(codeReply)})`)
+    await wait(`document.querySelector('${dockHost}')?.textContent.includes('Done')`)
+
+    stage = 'routing AI code actions to the visible terminal'
+    const fillCode = `${dockHost} .code-action-btn[title="填入终端（不执行）"]`
+    const runCode = `${dockHost} .code-action-btn[title="发送到终端并执行"]`
+    const dialogConfirm = '.app-dialog-actions button:last-child'
+    const commandWrites = () => run(`window.__dock.calls.writes.filter(([, text]) => text.startsWith(${JSON.stringify(terminalCommand)}))`)
+    await wait(`document.querySelector('${fillCode}')?.checkVisibility()`)
+    await domClick(fillCode)
+    await wait(`document.querySelector('${dialogConfirm}')?.checkVisibility()`)
+    assert.deepEqual(await commandWrites(), [])
+    await domClick(dialogConfirm)
+    assert.deepEqual(await commandWrites(), [['terminal-production-1', terminalCommand]])
+    await domClick(runCode)
+    await wait(`document.querySelector('${dialogConfirm}')?.checkVisibility()`)
+    await domClick(dialogConfirm)
+    assert.deepEqual(await commandWrites(), [['terminal-production-1', terminalCommand], ['terminal-production-1', terminalCommand + '\n']])
+    await domClick(fillCode)
+    await wait(`document.querySelector('${dialogConfirm}')?.checkVisibility()`)
+    await domClick(`${dockHost} .ai-open-terminal`)
+    await wait(`!window.__savedTerminal.checkVisibility() && document.querySelector('.connections-ai-workspace ${composer}')===window.__savedChatInput`)
+    await domClick(dialogConfirm)
+    assert.equal((await commandWrites()).length, 2, 'Changing the terminal view invalidates an open confirmation')
+    assert.equal(await run('document.querySelector(".connections-ai-workspace .code-action-btn[title=\\"填入终端（不执行）\\"]")'), null)
+    await domClick(terminalButton)
+    await wait(`document.querySelector('${dockHost} ${composer}')===window.__savedChatInput && window.__savedTerminal.checkVisibility()`)
+    await openTerminalMenu()
+    await clickMenuItem('开启只读模式')
+    await wait(`document.querySelector('.read-only-badge')?.checkVisibility() && !document.querySelector('${fillCode}') && !document.querySelector('${runCode}')`)
+    await openTerminalMenu()
+    await clickMenuItem('关闭只读模式')
+    await wait(`document.querySelector('${fillCode}')?.checkVisibility()`)
+    await fill(`${dockHost} ${composer}`, '这是刚才的终端输出：')
+
+    stage = 'inserting a terminal selection into the docked draft'
+    await useTerminalSelection()
+    try {
+      await wait(`window.__savedChatInput.value.startsWith(${JSON.stringify('这是刚才的终端输出：\n')}) && window.__savedChatInput.value.includes('Workspace layout preview')`)
+    } catch (error) {
+      throw new Error(`Unexpected linked draft: ${await run('JSON.stringify(window.__savedChatInput.value)')}`, { cause: error })
+    }
+    stage = 'checking toolbar icon colors across themes'
+    const icons = [
+      `${dockHost} .ai-open-terminal svg`, `${dockHost} .ai-execution-history-trigger svg`,
+      `${tool('files')} svg`, '.titlebar-icon-btn:not(.active) svg', '.app-module-button[data-module="database"] svg',
+    ]
+    for (const [theme, color] of [['light', 'rgb(99, 99, 94)'], ['eyecare', 'rgb(138, 127, 112)'], ['dark', 'rgb(210, 207, 198)']]) {
+      await run(`window.__dock.theme('${theme}', 'zh-CN')`)
+      await wait(`${JSON.stringify(icons)}.every(selector => getComputedStyle(document.querySelector(selector)).stroke === '${color}')`)
+    }
+    await click(terminal)
+    window.webContents.invalidate()
+    await screenshot('ai-terminal-alongside.png')
+
+    stage = 'restoring the same conversation and terminal in a narrow window'
+    await domClick(`${dockHost} .ai-open-terminal`)
+    await wait(`document.querySelector('.connections-ai-workspace ${composer}')===window.__savedChatInput && !window.__savedTerminal.checkVisibility()`)
+    window.setContentSize(820, 700)
+    await wait('innerWidth < 900')
+    await domClick(terminalButton)
+    await wait(`document.querySelector('${dockHost} ${composer}')===window.__savedChatInput && window.__savedTerminal.checkVisibility()`)
+    assert.ok(await run(`(() => {const term=document.querySelector('.workspace-dock-center').getBoundingClientRect(),ai=document.querySelector('${dockHost}').getBoundingClientRect();return ai.width>=240 && term.width>=240 && (ai.right<=term.left+1 || term.right<=ai.left+1)})()`))
+    assert.ok(await run(`(() => {const button=document.querySelector('${dockHost} .ai-open-terminal');return button?.getAttribute('aria-label')==='只显示 AI' && button.title==='只显示 AI' && button.querySelector('svg')?.checkVisibility() && !button.textContent.trim()})()`))
+    assert.equal(await run('window.__dock.calls.terminalConnects.length'), 1)
+    assert.equal(await run('window.__dock.calls.dataSubscriptions'), 1)
+    stage = 'continuing a recent AI conversation from a standalone draft'
+    window.setContentSize(1200, 900)
+    await wait('innerWidth >= 900')
+    await domClick(`${dockHost} .ai-open-terminal`)
+    await wait('document.querySelector(".ai-rail-new")?.checkVisibility()')
+    await domClick('.ai-rail-new')
+    const picker = '.host-picker.is-card-picker'
+    const stagingCard = `${picker} .host-picker-item:has(strong[title="Staging"])`
+    const productionCard = `${picker} .host-picker-item:has(strong[title="Production"])`
+    await wait(`document.querySelector('${productionCard}')?.getAttribute('aria-pressed') === 'true' && document.querySelector('${stagingCard}')?.checkVisibility()`)
+    await domClick(productionCard)
+    await domClick(stagingCard)
+    await domClick(`${picker} footer .ui-btn-primary`)
+    const recentThread = '.ai-recent-conversation[title="First staging conversation"]'
+    const draftRecent = `.ai-draft ${recentThread}`
+    await wait(`document.querySelector('${draftRecent}')?.checkVisibility()`)
+    assert.equal(await run('document.querySelector(".ai-draft .ai-recent-conversations h4").textContent.trim()'), '继续最近的对话')
+    await domClick(draftRecent)
+    const activeTitle = '.connections-ai-workspace .ai-title'
+    await wait(`document.querySelector('${activeTitle}')?.textContent.includes('First staging conversation') && document.querySelector(${JSON.stringify(terminalButton)})?.matches(':enabled')`)
+
+    stage = 'switching historical conversations on the same host while the terminal is connecting'
+    const historyAction = '.ai-conversation-menu [data-action="history"]'
+    const secondHistory = '.ai-history-item-main[title^="Second staging conversation"]'
+    await domClick(terminalButton)
+    await wait('window.__dock.calls.terminalConnects.at(-1) === "staging"')
+    await domClick('.ai-conversation-menu-trigger')
+    await domClick(historyAction)
+    await wait(`document.querySelector('${secondHistory}')?.matches(':enabled')`)
+    await domClick(secondHistory)
+    await wait('window.__dock.stagingThreadSwitchPending()')
+    await run('window.__dock.finishStagingConnect()')
+    await wait('document.querySelector(\'.tab[data-host-drop-id="staging"][data-active-tab="false"]\')?.checkVisibility()')
+    await run('window.__dock.finishStagingThreadSwitch()')
+    await wait(`document.querySelector('${activeTitle}')?.textContent.includes('Second staging conversation') && document.querySelector(${JSON.stringify(terminalButton)})?.matches(':enabled')`)
+    assert.ok(await run(`document.querySelector('${activeTitle}')?.checkVisibility() && document.querySelector('${activeTitle}')?.textContent.includes('Second staging conversation')`))
+    assert.equal(await run(`document.querySelector('${dockHost}')?.checkVisibility()`), false)
+    await domClick(terminalButton)
+    await wait(`document.querySelector('${dockHost} .ai-title')?.textContent.includes('Second staging conversation') && document.querySelector('${dockHost} ${composer}')?.checkVisibility()`)
+    assert.deepEqual(await run('window.__dock.calls.terminalConnects'), ['production', 'staging'])
+
+    stage = 'resuming recent history from a draft without hiding its terminal'
+    const stagingTab = '.tab[data-host-drop-id="staging"]'
+    const visibleStagingTerminal = `[...document.querySelectorAll('${terminal}')].find(screen => screen.checkVisibility())`
+    await run(`window.__sshRecentTerminal = ${visibleStagingTerminal}`)
+    await domClick(`${dockHost} .ai-open-terminal`)
+    const stagingChat = '.ai-rail-row[data-session-id="ai-staging"]'
+    await wait(`document.querySelector('${stagingChat} .ai-rail-close')?.checkVisibility()`)
+    await domClick(`${stagingChat} .ai-rail-close`)
+    await wait(`!document.querySelector('${stagingChat}')`)
+    await domClick('.ai-rail-new')
+    await wait(`document.querySelector('${stagingCard}')?.checkVisibility()`)
+    if (await run(`document.querySelector('${stagingCard}').getAttribute('aria-pressed') !== 'true'`)) await domClick(stagingCard)
+    await domClick(`${picker} footer .ui-btn-primary`)
+    await wait(`document.querySelector('${draftRecent}')?.checkVisibility()`)
+    await fill(draftInput, '保留这条草稿')
+    await domClick(draftTerminalButton)
+    await wait(`document.querySelector('${dockHost} ${draftRecent}')?.checkVisibility() && window.__sshRecentTerminal.checkVisibility()`)
+    await domClick(`${dockHost} ${draftRecent}`)
+    await wait(`document.querySelector('${dockHost} .ai-title')?.textContent.includes('First staging conversation') && window.__sshRecentTerminal.checkVisibility()`)
+    assert.ok(await run(`window.__sshRecentTerminal === ${visibleStagingTerminal}`))
+    assert.deepEqual(await run('window.__dock.calls.terminalConnects'), ['production', 'staging'])
+
+    stage = 'selecting a new AI conversation from responsive server cards'
+    await domClick(`${dockHost} .ai-open-terminal`)
+    await wait('document.querySelector(".ai-rail-new")?.checkVisibility()')
+    await domClick('.ai-rail-draft')
+    await wait(`document.querySelector('${draftInput}')?.value === '保留这条草稿'`)
+    await domClick('.ai-rail-new')
+    const search = `${picker} .host-picker-search`
+    const fleetGroup = `${picker} .host-picker-group:has(strong[title="Fleet"])`
+    const fleetHeading = `${fleetGroup} .host-picker-group-heading`
+    const fleetCard = `${fleetGroup} .host-picker-item:has(strong[title="Fleet 02"])`
+    const fleetCards = `${fleetGroup} .host-picker-item`
+    const selectedChips = `${picker} .host-picker-selected-host`
+    const selectedNames = () => run(`[...document.querySelectorAll('${selectedChips}')].map(chip => chip.textContent.trim())`)
+    await wait(`document.querySelector('${search}') === document.activeElement && document.querySelectorAll('${fleetCards}').length === 12`)
+    const widePicker = await run(`(() => {
+      const dialog = document.querySelector('${picker}')
+      const listBottom = dialog.querySelector('.host-picker-list').getBoundingClientRect().bottom
+      const cards = [...document.querySelectorAll('${fleetCards}')].map(card => card.getBoundingClientRect())
+      return {
+        width: dialog.clientWidth,
+        columns: cards.filter(card => card.top === cards[0].top).length,
+        cardsInView: cards.filter(card => card.bottom <= listBottom + 1).length,
+      }
+    })()`)
+    assert.ok(widePicker.width >= 880 && widePicker.columns >= 3 && widePicker.cardsInView === 12, JSON.stringify(widePicker))
+    await domClick(fleetCard)
+    await wait(`document.querySelector('${fleetCard}')?.getAttribute('aria-pressed') === 'true'`)
+    assert.deepEqual(await selectedNames(), ['Staging', 'Fleet 02'])
+    await screenshot('ai-new-conversation-cards.png')
+    await domClick(`${fleetCards}:has(strong[title="Fleet 03"])`)
+    await domClick(fleetHeading)
+    await wait(`!document.querySelector('${fleetCard}')?.checkVisibility()`)
+    await fill(search, 'fleet-02.test')
+    await wait(`document.querySelector('${fleetCard}')?.checkVisibility() && document.querySelectorAll('${picker} .host-picker-item').length === 1`)
+    assert.equal(await run(`document.querySelector('${fleetCard}').getAttribute('aria-pressed')`), 'true')
+    assert.deepEqual(await selectedNames(), ['Staging', 'Fleet 02', 'Fleet 03'])
+    await run(`(() => { const chip = document.querySelector('${selectedChips}[aria-label="取消选择 Staging"]'); chip.focus(); chip.click() })()`)
+    await wait(`document.querySelector('${search}') === document.activeElement && document.querySelectorAll('${selectedChips}').length === 2`)
+    assert.deepEqual(await selectedNames(), ['Fleet 02', 'Fleet 03'])
+    assert.equal(await run(`document.querySelector('${search}').value`), 'fleet-02.test')
+    const clearPicker = `${picker} .host-picker-clear-selection`
+    assert.equal(await run(`document.querySelector('${clearPicker}')?.textContent.trim()`), '清空选择')
+    await domClick(clearPicker)
+    await wait(`document.querySelector('${picker} .host-picker-footer [aria-live]')?.textContent.includes('已选 0 台') && document.querySelector('${picker} footer .ui-btn-primary')?.disabled`)
+    assert.equal(await run(`document.querySelector('${search}').value`), 'fleet-02.test')
+    assert.equal(await run(`document.querySelector('${fleetCard}').getAttribute('aria-pressed')`), 'false')
+    assert.deepEqual(await selectedNames(), [])
+    await domClick(fleetCard)
+    await fill(search, '')
+    await wait(`document.querySelector('${fleetHeading}')?.matches(':enabled')`)
+    assert.equal(await run(`document.querySelector('${stagingCard}').getAttribute('aria-pressed')`), 'false')
+    assert.equal(await run(`document.querySelector('${fleetCards}:has(strong[title="Fleet 03"])').getAttribute('aria-pressed')`), 'false')
+    await domClick(stagingCard)
+    await domClick(fleetHeading)
+    window.setContentSize(500, 490)
+    await wait('innerWidth <= 520 && innerHeight <= 510')
+    await wait(`(() => {
+      const dialog = document.querySelector('${picker}')
+      const list = dialog.querySelector('.host-picker-list')
+      const grid = dialog.querySelector('.host-picker-group-items')
+      const box = dialog.getBoundingClientRect()
+      const footer = dialog.querySelector('footer').getBoundingClientRect()
+      return getComputedStyle(grid).gridTemplateColumns.split(' ').length === 1
+        && list.scrollHeight > list.clientHeight && list.scrollWidth <= list.clientWidth + 1
+        && box.left >= 0 && box.right <= innerWidth && footer.bottom <= innerHeight
+    })()`)
+    assert.deepEqual(await selectedNames(), ['Fleet 02', 'Staging'])
+    await domClick(`${picker} footer .ui-btn-primary`)
+    await wait(`!document.querySelector('${picker}') && document.querySelectorAll('.ai-draft .ai-draft-host-chip').length === 2`)
+    assert.deepEqual(await run('[...document.querySelectorAll(".ai-draft .ai-draft-host-chip")].map(host => host.textContent.trim()).sort()'), ['Fleet 02', 'Staging'])
+    assert.deepEqual(await run('window.__dock.calls.aiWorkspaceConnects'), ['production', 'staging'])
+
+    stage = 'hiding the terminal action for multiple servers'
+    assert.equal(await run(`!!document.querySelector('${draftTerminalButton}')`), false, 'A multi-host draft has no terminal action')
+    await fill(draftInput, '看看两台服务器的状态')
+    await wait('document.querySelector(".ai-draft-send")?.matches(":enabled")')
+    await domClick('.ai-draft-send')
+    await wait('document.querySelector(".connections-ai-workspace .workspace-scope-details")?.checkVisibility() && window.__dock.hasAiReply()')
+    assert.equal(await run('!!document.querySelector(".connections-ai-workspace .ai-open-terminal")'), false, 'A live multi-host conversation has no terminal action')
+    await run('window.__dock.finishAiReply()')
+
+    stage = 'continuing a recent AI conversation from an open SSH terminal'
+    window.setContentSize(1200, 900)
+    await wait(`innerWidth >= 900 && document.querySelector('${stagingTab}')?.checkVisibility()`)
+    await domClick(stagingTab)
+    await wait(`document.querySelector('${stagingTab}[data-active-tab="true"]')?.checkVisibility() && !!${visibleStagingTerminal}`)
+    await run(`window.__sshRecentTerminal = ${visibleStagingTerminal}`)
+    const workspaceConnects = await run('window.__dock.calls.aiWorkspaceConnects')
+    if (await run(`document.querySelector('${tool('ai')}')?.getAttribute('aria-pressed') !== 'true'`)) await domClick(tool('ai'))
+    const sshRecent = `#dock-content-ai ${recentThread}`
+    await wait(`document.querySelector('${sshRecent}')?.checkVisibility() && document.querySelector('${sshRecent}')?.matches(':enabled')`)
+    assert.equal(await run('document.querySelector("#dock-content-ai .ai-recent-conversations h4").textContent.trim()'), '继续最近的对话')
+    await domClick(sshRecent)
+    await wait(`[...document.querySelectorAll('#dock-content-ai .ai-sidebar')].some(panel => panel.checkVisibility() && panel.querySelector('.ai-title')?.textContent.includes('First staging conversation') && panel.querySelector('.chat-list')?.textContent.includes('First staging conversation'))`)
+    assert.ok(await run(`window.__sshRecentTerminal === ${visibleStagingTerminal}`), 'The original SSH terminal stays visible')
+    assert.deepEqual(await run('window.__dock.calls.terminalConnects'), ['production', 'staging'])
+    assert.deepEqual(await run('window.__dock.calls.aiWorkspaceConnects'), workspaceConnects)
+    stage = 'closing the standalone AI tab while an SSH terminal stays active'
+    await wait(`document.querySelector('${aiTab}[data-active-tab="false"]')?.checkVisibility()`)
+    await domClick(`${aiTab} .tab-close`)
+    await wait(`!document.querySelector('${aiTab}') && document.querySelector('${stagingTab}[data-active-tab="true"]')?.checkVisibility() && window.__sshRecentTerminal.checkVisibility()`)
+    assert.equal(await run('window.__dockError || null'), null)
+    console.log(JSON.stringify({ passed: true, flows: ['clear connection selection across groups', 'terminal beside an unsent AI draft', 'SSH host-key confirmation', 'X11 startup notice and cleanup', 'knowledge mode changes without an AI SSH connection', 'first send while preserving the unsent draft', 'AI code actions target the visible terminal', 'live AI reply', 'selection and draft retention', 'terminal instance reuse', 'narrow side-by-side layout', 'late SSH connect after a same-host thread switch', 'responsive new conversation cards and selected hosts while filtering', 'terminal action only for a single server', 'resume the same recent AI conversation from standalone AI, docked AI and from SSH'], artifacts }))
+    clearTimeout(timeout); window.destroy(); runtime.closeAppDatabase(); app.quit(); return
+  }
   await wait('window.__dock?.snapshot().ready && !!document.querySelector(".xterm-screen")')
   await wait('window.__dock.calls.resizes.length>0')
   assert.equal(await run('window.__dockError || null'), null)
@@ -87,7 +492,8 @@ app.whenReady().then(async () => {
     }
     const setJobs = (status = 'running') => {
       const jobs = ['one', 'three'].map(sessionId => ({
-        sessionId, jobId: sessionId, command: `fixture-${sessionId}`, startedAt: Date.now(),
+        sessionId, jobId: sessionId, startedAt: Date.now(),
+        command: sessionId === 'one' ? ['fixture-one', 'fixture-token-'.repeat(35), ...Array(24).fill('fixture output line')].join('\n') : 'fixture-three',
         status: sessionId === 'one' ? status : 'running',
         finishedAt: sessionId === 'one' && status === 'completed' ? Date.now() : undefined,
       }))
@@ -112,7 +518,35 @@ app.whenReady().then(async () => {
     await wait('!window.__dock.snapshot().panels.ai')
     await at(terminal)
     await click(trigger)
-    await wait(`document.querySelector('${visibleTasks} .background-popover')?.textContent.includes('fixture-one')`)
+    const taskPanel = `${visibleTasks} .background-popover`
+    await wait(`(() => {
+      const panel = document.querySelector('${taskPanel}')
+      return panel?.textContent.includes('fixture-one') && panel.getAnimations().length === 0
+    })()`)
+    await click(`${taskPanel} .background-job summary`)
+    await wait(`!!document.querySelector('${taskPanel} .tool-run-out')`)
+    const typeSizes = () => run(`(() => {
+      const panel = document.querySelector('${taskPanel}')
+      const query = selector => panel.querySelector(selector)
+      const size = selector => parseFloat(getComputedStyle(query(selector)).fontSize)
+      const body = query('.background-task-body')
+      const blocks = [query('.tool-run-args'), query('.tool-run-out')]
+      return {
+        heading: size('.background-heading-main'), status: size('.tool-run-state'), time: size('.background-job-elapsed'),
+        preview: size('.tool-run-desc'), command: size('.tool-run-args'), output: size('.tool-run-out'),
+        wraps: blocks.every(block => block.scrollWidth <= block.clientWidth + 1),
+        scrolls: body.scrollHeight > body.clientHeight && getComputedStyle(body).overflowY === 'auto',
+      }
+    })()`)
+    const lightType = await typeSizes()
+    assert.ok(lightType.heading >= 12.8 && lightType.command >= 12.8 && lightType.output >= 12.8, JSON.stringify(lightType))
+    assert.ok(lightType.status >= 11.9 && lightType.time >= 11.9 && lightType.preview >= 11.9, JSON.stringify(lightType))
+    assert.ok(lightType.wraps && lightType.scrolls, JSON.stringify(lightType))
+    await screenshot('ssh-task-popover-type.png')
+    await run('window.__dock.theme("dark", "zh-CN")')
+    const darkType = await typeSizes()
+    assert.ok(darkType.command > lightType.command && darkType.time > lightType.time && darkType.wraps && darkType.scrolls, JSON.stringify(darkType))
+    await run('window.__dock.theme("light", "zh-CN")')
     await run('window.__dock.session("three")')
     await wait(`!document.querySelector('${trigger}') && !document.querySelector('.background-popover')`)
     await click(tool('ai'))
@@ -232,6 +666,7 @@ app.whenReady().then(async () => {
   assert.ok(await run('document.querySelector(".ai-sidebar .composer textarea")===window.__savedAiInput'))
   assert.equal(await run('window.__savedAiInput.value'), 'Keep this draft while moving')
   stage = 'hiding and restoring the terminal without remounting AI or xterm'
+  assert.ok(await run(`(() => {const toggle=document.querySelector('.ssh-ai-terminal-toggle');return toggle.getAttribute('aria-label')==='只显示 AI' && toggle.querySelector('svg')?.checkVisibility() && !toggle.textContent.trim()})()`))
   await click('.ssh-ai-terminal-toggle')
   await wait('!!document.querySelector(".workspace-dock.is-panel-focused")')
   assert.ok(await run(`(() => {

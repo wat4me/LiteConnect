@@ -24,6 +24,14 @@ export function normalizeTerminalText(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
+/** Fill without pressing Enter. Multiline text requires the terminal's paste protection. */
+export function terminalFillPayload(value: string, protectedPaste: boolean): string | undefined {
+  const text = normalizeTerminalText(value).replace(/\n+$/, '')
+  if (!text.trim() || /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/.test(text)) return undefined
+  if (!text.includes('\n')) return text
+  if (protectedPaste) return `\x1b[200~${text.replace(/\n/g, '\r')}\x1b[201~`
+}
+
 export function shouldConfirmPaste(text: string, maxChars: number = PASTE_CONFIRM_MAX_CHARS): boolean {
   if (!text) return false
   if (text.includes('\n') || text.includes('\r')) return true

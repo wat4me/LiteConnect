@@ -135,12 +135,25 @@ it('resolves draft: session ids directly from saved connection profiles without 
     { id: 'c1', name: 'Web 1', host: '10.0.0.1', port: 22, username: 'root' },
     { id: 'c2', name: 'Web 2', host: '10.0.0.2', port: 22, username: 'ops' },
   ]
-  const ssh = { getSessionSnapshot: () => undefined } as unknown as Parameters<typeof createAiKnowledgeService>[0]
+  const ssh = {
+    getSessionSnapshot: (sessionId: string) => sessionId === 'ssh-c1' ? { connectionId: 'c1' } : undefined,
+  } as unknown as Parameters<typeof createAiKnowledgeService>[0]
   const credentials = {
     getConnections: () => profiles,
     getConnection: (id: string) => profiles.find(profile => profile.id === id),
   } as unknown as Parameters<typeof createAiKnowledgeService>[1]
   const service = createAiKnowledgeService(ssh, credentials)
-  const overview = await service.access('draft:c1,c2,missing,c1', 1).manage({ action: 'overview' })
+  const draft = service.access('draft:c1,c2,missing,c1', 1)
+  const overview = await draft.manage({ action: 'overview' })
   expect(overview.targets.map(target => target.connectionId)).toEqual(['c1', 'c2'])
+  const [server] = overview.targets
+  expect(server).toMatchObject({ mode: 'off', count: 0 })
+  await draft.manage({ action: 'setMode', connectionId: server.connectionId, binding: server.binding, mode: 'readonly' })
+  await expect(draft.manage({ action: 'setMode', connectionId: 'missing', binding: server.binding, mode: 'readonly' })).rejects.toThrow('OUT_OF_SCOPE')
+
+  const terminal = service.access('ssh-c1', 1)
+  const [connected] = (await terminal.manage({ action: 'overview' })).targets
+  expect(connected).toMatchObject({ binding: server.binding, mode: 'readonly', count: 1 })
+  await terminal.manage({ action: 'setMode', binding: connected.binding, mode: 'off' })
+  expect((await draft.manage({ action: 'overview' })).targets[0]).toMatchObject({ mode: 'off', count: 1 })
 })

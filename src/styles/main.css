@@ -11,8 +11,6 @@
   /* Chat text uses its own sizes independently of interface density. */
   --font-ai-content: 13px;
   --font-ai-heading: 14px;
-  /* Tables and code: whole pixels, and no smaller than 12px so CJK strokes stay solid. */
-  --font-ai-detail: 12px;
   /** Left icon rail + TabBar home zone share this so vertical borders line up */
   --left-toolbar-width: calc(40px * var(--ui-scale));
   --icon-xs: calc(12px * var(--ui-scale));
@@ -97,6 +95,12 @@ html:not([data-theme]),
   --mica-highlight: rgba(255, 255, 255, 0.08);
 }
 
+html:not([data-theme]),
+[data-theme="dark"] {
+  --icon-button-color: #d2cfc6;
+  --titlebar-symbol: var(--icon-button-color);
+}
+
 /* Light: Radix Colors "sand" scale, the gray Radix pairs with orange/brown accents.
    1 #fdfdfc · 2 #f9f9f8 chrome · 3 #f1f0ef raised · 5 #e2e1de border · 11 #63635e · 12 #21201c text */
 [data-theme="light"] {
@@ -132,6 +136,88 @@ html:not([data-theme]),
   --mica-chrome-bg: rgba(246, 245, 243, 0.42);
   --mica-composer-bg: rgba(255, 255, 255, 0.78);
   --mica-highlight: rgba(255, 255, 255, 0.85);
+}
+
+/* Nord, Catppuccin Mocha and Solarized Light, adapted for LiteConnect. */
+[data-theme="nord"],
+[data-theme="catppuccin-mocha"],
+[data-theme="solarized-light"] {
+  --accent-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+  --selection-bg: color-mix(in srgb, var(--accent) 30%, transparent);
+  --hover-bg: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --overlay-bg: color-mix(in srgb, var(--text-primary) 10%, rgba(0, 0, 0, 0.52));
+  --scrollbar-thumb: color-mix(in srgb, var(--border-color) 75%, var(--text-secondary));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--border-color) 55%, var(--text-secondary));
+  --file-folder: var(--warning);
+  --file-archive: var(--accent-hover);
+  --file-image: var(--success);
+  --file-code: var(--accent);
+  --file-database: var(--warning);
+  --titlebar-bg: var(--bg-secondary);
+  --titlebar-symbol: var(--icon-button-color);
+  --mica-backdrop: radial-gradient(ellipse at 18% 12%, var(--accent-bg), transparent 58%),
+                   linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+  --mica-chrome-bg: color-mix(in srgb, var(--bg-secondary) 75%, transparent);
+  --mica-composer-bg: color-mix(in srgb, var(--bg-tertiary) 85%, transparent);
+  --mica-highlight: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+[data-theme="nord"],
+[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
+  --icon-button-color: color-mix(in srgb, var(--text-primary) 70%, var(--text-secondary));
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23bac2de' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+}
+
+[data-theme="nord"] {
+  --bg-primary: #2e3440;
+  --bg-secondary: #272d38;
+  --bg-tertiary: #3b4252;
+  --border-color: #4c566a;
+  --text-primary: #eceff4;
+  --text-secondary: #b9c3d4;
+  --accent: #88c0d0;
+  --accent-hover: #a3d4df;
+  --danger: #e08791;
+  --success: #a3be8c;
+  --warning: #ebcb8b;
+}
+
+[data-theme="catppuccin-mocha"] {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-tertiary: #313244;
+  --border-color: #45475a;
+  --text-primary: #cdd6f4;
+  --text-secondary: #a6adc8;
+  --accent: #cba6f7;
+  --accent-hover: #ddc2ff;
+  --danger: #f38ba8;
+  --success: #a6e3a1;
+  --warning: #f9e2af;
+}
+
+[data-theme="solarized-light"] {
+  color-scheme: light;
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --bg-tertiary: #e7e0cb;
+  --border-color: #d1c9b3;
+  --text-primary: #334c54;
+  --text-secondary: #4c646c;
+  --accent: #14727b;
+  --accent-hover: #0f5a63;
+  --danger: #a93636;
+  --success: #4f641a;
+  --warning: #8b5819;
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%234c646c' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+}
+
+[data-theme="light"],
+[data-theme="eyecare"],
+[data-theme="solarized-light"],
+[data-theme="custom"] {
+  --icon-button-color: var(--text-secondary);
 }
 
 [data-theme="eyecare"] {
@@ -537,11 +623,7 @@ input[type="number"] {
 /* ---------- Shared UI primitives ---------- */
 
 :root,
-html:not([data-theme]),
-[data-theme="dark"],
-[data-theme="light"],
-[data-theme="eyecare"],
-[data-theme="custom"] {
+[data-theme] {
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -565,8 +647,13 @@ html:not([data-theme]),
   --control-h-sm: calc(32px * var(--ui-scale));
   --control-h-xs: calc(26px * var(--ui-scale));
   --font-ui: calc(13px * var(--ui-font-scale));
-  --font-ui-sm: calc(12px * var(--ui-font-scale));
-  --font-caption: calc(11px * var(--ui-font-scale));
+  --small-text-adjustment: 0px;
+  --font-ui-sm: calc((12px + var(--small-text-adjustment)) * var(--ui-font-scale));
+  --font-caption: calc((11px + var(--small-text-adjustment)) * var(--ui-font-scale));
+  /* Chat tables and tool details use whole pixels independently of interface density. */
+  --font-ai-detail: calc(12px + var(--small-text-adjustment));
+  --accent-foreground: #fff;
+  --danger-foreground: #fff;
   --font-section: calc(14px * var(--ui-font-scale));
   --font-title: calc(20px * var(--ui-font-scale));
   --line-ui: 1.4;
@@ -593,9 +680,23 @@ html:not([data-theme]),
   --sftp-row-font: 0.75rem;
 }
 
+html:not([data-theme]),
+[data-theme="dark"],
+[data-theme="nord"],
+[data-theme="catppuccin-mocha"] {
+  --small-text-adjustment: 1px;
+}
+
+[data-theme="nord"],
+[data-theme="catppuccin-mocha"] {
+  --accent-foreground: var(--bg-secondary);
+  --danger-foreground: var(--bg-secondary);
+}
+
 /* Light themes: a selected item reads as a white chip resting on the chrome. */
 [data-theme="light"],
-[data-theme="eyecare"] {
+[data-theme="eyecare"],
+[data-theme="solarized-light"] {
   --tab-selected-surface: var(--bg-primary);
   --tab-selected-edge: color-mix(in srgb, var(--border-color) 85%, transparent);
   --tab-selected-shadow: 0 1px 2px rgba(31, 30, 29, 0.06);
@@ -603,6 +704,59 @@ html:not([data-theme]),
   --segment-selected: var(--bg-primary);
   --segment-selected-shadow: 0 1px 2px rgba(31, 30, 29, 0.12), 0 0 0 1px rgba(31, 30, 29, 0.06);
   --window-shadow: 0 1px 2px rgba(31, 30, 29, 0.05), 0 4px 16px rgba(31, 30, 29, 0.04);
+}
+
+.ui-window-tab {
+  --window-tab-curve: var(--radius-tab);
+  position: relative;
+  border-radius: var(--radius-tab) var(--radius-tab) 0 0;
+}
+
+.ui-window-tab.active[data-active-tab="true"] {
+  --window-tab-surface: var(--bg-primary);
+  --window-tab-outline: var(--border-color);
+  z-index: 1;
+  background: var(--window-tab-surface);
+  border-color: var(--window-tab-outline);
+  border-bottom-color: transparent;
+  color: var(--text-primary);
+}
+
+/* Concave corners ease the sides of the selected tab into the strip edge. */
+.ui-window-tab.active[data-active-tab="true"]::before,
+.ui-window-tab.active[data-active-tab="true"]::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  width: calc(var(--window-tab-curve) + 1px);
+  height: calc(var(--window-tab-curve) + 1px);
+  background: radial-gradient(circle at var(--window-tab-curve-origin) top,
+    transparent calc(var(--window-tab-curve) - 0.5px),
+    var(--window-tab-outline) var(--window-tab-curve) calc(var(--window-tab-curve) + 0.5px),
+    var(--window-tab-surface) calc(var(--window-tab-curve) + 1px));
+  pointer-events: none;
+}
+
+.ui-window-tab.active[data-active-tab="true"]::before {
+  --window-tab-curve-origin: left;
+  right: 100%;
+}
+
+.ui-window-tab.active[data-active-tab="true"]::after {
+  --window-tab-curve-origin: right;
+  left: 100%;
+}
+
+@media (forced-colors: active) {
+  .ui-window-tab.active[data-active-tab="true"] {
+    --window-tab-surface: Canvas;
+    --window-tab-outline: Highlight;
+  }
+
+  .ui-window-tab.active[data-active-tab="true"]::before,
+  .ui-window-tab.active[data-active-tab="true"]::after {
+    forced-color-adjust: none;
+  }
 }
 
 :focus-visible {
@@ -653,7 +807,7 @@ select:focus:not(:focus-visible) {
 .ui-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-foreground);
 }
 
 .ui-btn-primary:disabled {
@@ -666,7 +820,7 @@ select:focus:not(:focus-visible) {
 .ui-btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-foreground);
 }
 
 .ui-btn-ghost {
@@ -696,13 +850,13 @@ select:focus:not(:focus-visible) {
 .ui-btn-danger-solid {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--danger-foreground);
 }
 
 .ui-btn-danger-solid:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 88%, #000);
   border-color: color-mix(in srgb, var(--danger) 88%, #000);
-  color: #fff;
+  color: var(--danger-foreground);
 }
 
 .ui-btn-sm {
@@ -734,7 +888,7 @@ select:focus:not(:focus-visible) {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--icon-button-color, var(--text-secondary));
   cursor: pointer;
   transition: color 0.12s, background 0.12s;
   box-sizing: border-box;
@@ -1563,6 +1717,14 @@ html.fancy-cursor-on .xterm-helper-textarea {
   height: 16px;
   margin: -8px 0 0 -8px;
   opacity: 0.85;
+}
+
+/* Xterm selection occurrence highlight (VS Code / WindTerm style). */
+.xterm-decoration.terminal-selection-occurrence {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 52%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

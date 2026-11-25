@@ -10,6 +10,7 @@ import { applyUiSizes } from '@/composables/app/useUiDensity'
 import AppDialogHost from '@/components/app/AppDialogHost.vue'
 import UploadConflictDialog from '@/components/sftp/UploadConflictDialog.vue'
 import { measureRendererModule, measureRendererLayout, recordRendererTiming } from '@/composables/app/rendererPerformance'
+import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 
 const SettingsView = defineAsyncComponent(() => measureRendererModule('settings-load', () => import('./views/SettingsView.vue')))
 const DatabaseView = defineAsyncComponent(() => measureRendererModule('database-load', () => import('./views/DatabaseView.vue')))
@@ -52,6 +53,7 @@ import { useAppWindowRouting } from '@/composables/app/useAppWindowRouting'
 import { useWorkspacePanels } from '@/composables/workspace/useWorkspacePanels'
 import { useWorkspaceLayout } from '@/composables/workspace/useWorkspaceLayout'
 import { useWorkspacePanelPolicy } from '@/composables/workspace/useWorkspacePanelPolicy'
+import { useAiTerminalLink } from '@/composables/workspace/useAiTerminalLink'
 import { workspacePanelEdge, type WorkspacePanel } from '@shared/workspaceLayout'
 import { useDockerWorkspaceMode } from './composables/docker/useDockerWorkspaceMode'
 import { useSessionActions } from './composables/session/useSessionActions'
@@ -155,6 +157,17 @@ const {
   hydrateConnectionData,
   restoreWorkspaceTabs,
 } = session
+
+const standaloneAiSelected = ref(false)
+function selectConnectionsHome() {
+  standaloneAiSelected.value = false
+  onSelectHome()
+}
+
+function selectStandaloneAi() {
+  standaloneAiSelected.value = true
+  onSelectHome()
+}
 
 const connectionsBootstrap = ref<Pick<AppBootstrapData, 'connections' | 'groups'> | null>(null)
 const appSettingsSnapshot = shallowRef<AppSettingsAll>()
@@ -393,7 +406,7 @@ const {
   enterDatabase,
   toggleSettingsPage,
   ensureSshWorkspaceMounted,
-} = useAppNavigation({ onSelectHome })
+} = useAppNavigation({ onSelectHome: selectConnectionsHome })
 
 watch([appMode, showSettingsPage, isHomeActive], (_value, _previous, onCleanup) => {
   onCleanup(measureRendererLayout())
@@ -449,6 +462,55 @@ const {
   },
 })
 
+const aiTabActive = computed(() => isHomeActive.value && standaloneAiSelected.value && !!connectionsViewRef.value?.aiWorkspaceOpen)
+const {
+  linkedAiSessionId, linkedTerminalSessionId, hasDockedAi, hasLinkedAiView, workspaceAiSessionId, openingAiTerminal, showAiTerminal, showLinkedAiOnly, undockAi,
+  deliverSelectionToLinkedAi, revealLinkedAiApproval, confirmHostKey: confirmLinkedHostKey, rejectHostKey: rejectLinkedHostKey,
+} = useAiTerminalLink({
+  activeConversation: () => connectionsViewRef.value?.activeAiConversation,
+  isSshMode,
+  isStandaloneAiActive: aiTabActive,
+  isDockerMode,
+  activeSessionId,
+  aiSidebarVisible,
+  disconnectedSessionIds,
+  getGroup: getGroupByConnectionId,
+  awaitingHostKey: connectionId => connectionStages.value[connectionId] === 'host-key',
+  connectTerminal: connectionId => onConnect(connectionId, { activateWorkspace: false, preserveActiveSession: true }),
+  adoptTerminalInBackground: (connectionId, sessionId) => adoptSession(connectionId, sessionId, { activateWorkspace: false, preserveActiveSession: true }),
+  selectTerminal(sessionId) {
+    standaloneAiSelected.value = false
+    ensureSshWorkspaceMounted()
+    selectWorkspaceSession(sessionId)
+    if (isDockerMode.value) enterTerminal()
+  },
+  selectStandaloneAi,
+  sendSelection: (conversation, text, mode) => connectionsViewRef.value?.sendTerminalSelection(conversation, text, mode) === true,
+})
+const aiTabVisible = computed(() => !!connectionsViewRef.value?.aiWorkspaceOpen && !hasDockedAi.value)
+
+function openStandaloneAiTab() {
+  undockAi()
+  selectStandaloneAi()
+}
+
+function closeStandaloneAiTab() {
+  standaloneAiSelected.value = false
+  connectionsViewRef.value?.closeAiWorkspace()
+}
+
+async function navigateAiTab() {
+  if (aiTabVisible.value) return requestModuleAction('ssh', openStandaloneAiTab)
+}
+
+const linkedAiHost = shallowRef<HTMLElement>()
+const aiTerminalPanel = computed(() => ({
+  host: hasLinkedAiView.value ? linkedAiHost.value : undefined,
+  sessionId: linkedTerminalSessionId.value,
+  visible: aiSidebarVisible.value,
+  opening: openingAiTerminal.value,
+}))
+
 function guardedToggleSidebar() {
   if (isDockerMode.value) return
   toggleSidebar()
@@ -459,11 +521,12 @@ function guardedToggleAiSidebar() {
 }
 function guardedAiSelection(text: string, mode: 'send' | 'insert') {
   if (isDockerMode.value) return
-  handleAiSelection(text, mode)
+  if (hasLinkedAiView.value) deliverSelectionToLinkedAi(text, mode)
+  else handleAiSelection(text, mode)
 }
 
 async function navigateSshHome() {
-  return requestModuleAction('ssh', onSelectHome)
+  return requestModuleAction('ssh', selectConnectionsHome)
 }
 
 async function navigateQuickConnect(connectionId: string) {
@@ -471,9 +534,10 @@ async function navigateQuickConnect(connectionId: string) {
 }
 
 async function jumpToAiApproval(sessionId: string) {
+  if (revealLinkedAiApproval(sessionId)) return
   if (connectionsViewRef.value?.hasAiConversation(sessionId)) {
     await requestModuleAction('ssh', () => {
-      onSelectHome()
+      if (revealLinkedAiApproval(sessionId)) return
       connectionsViewRef.value?.revealAiConversation(sessionId)
     })
     return
@@ -532,8 +596,8 @@ const {
   hostKeyMismatchData,
   decryptionFailedVisible,
   decryptionFailedData,
-  handleHostKeyAccept,
-  handleHostKeyReject,
+  handleHostKeyAccept: confirmHostKey,
+  handleHostKeyReject: rejectHostKey,
   handleDecryptionFailedGoEdit,
   handleDecryptionFailedDismiss,
   keyboardPrompt,
@@ -543,13 +607,20 @@ const {
   connections,
   onSelectHome: navigateSshHome,
   editConnection: (conn) => requestModuleAction('ssh', async () => {
-    onSelectHome()
+    selectConnectionsHome()
     await nextTick()
     connectionsViewRef.value?.editConnection?.(conn)
   }),
   adoptSession,
   hasOpenSession,
 })
+
+const handleHostKeyAccept = () => confirmLinkedHostKey(hostKeyMismatchData.value, confirmHostKey)
+
+function handleHostKeyReject() {
+  rejectLinkedHostKey(hostKeyMismatchData.value)
+  rejectHostKey()
+}
 
 const { pendingApprovalSessions, hasPending: hasAiApprovalPending } = useAiApprovalHint()
 
@@ -685,6 +756,7 @@ watch(liveSessionIds, (ids) => syncSplitAvailability(ids.length, ids))
 provide('theme', theme)
 provide('customColors', customColors)
 provide('pwdTracker', pwdTracker)
+provide(synchronizedInputKey, createSynchronizedInput())
 
 let unsubReplyComplete: (() => void) | null = null
 let unsubAiApprovalNotification: (() => void) | null = null
@@ -693,7 +765,7 @@ let unsubRuntimeSettings: (() => void) | null = null
 let unsubSettingsChanged: (() => void) | null = null
 
 watch(
-  [activeSessionId, aiSidebarVisible],
+  [workspaceAiSessionId, aiSidebarVisible],
   ([sid, aiVisible]) => {
     if (sid && aiVisible) clearUnread(sid)
   },
@@ -748,7 +820,7 @@ onMounted(async () => {
     jumpToAiApproval(sessionId)
   })
   unsubReplyComplete = onAiReplyComplete((sessionId) => {
-    if (sessionId === activeSessionId.value && aiSidebarVisible.value) return
+    if (sessionId === workspaceAiSessionId.value && aiSidebarVisible.value) return
     markUnread(sessionId)
   })
   document.addEventListener('keydown', handleKeydown)
@@ -761,6 +833,7 @@ onMounted(async () => {
   try {
     const bootstrap = await window.LiteConnect.getAppBootstrap()
     appSettingsSnapshot.value ??= bootstrap.settings
+    if (appSettingsSnapshot.value) applyAppSettings(appSettingsSnapshot.value, ['theme', 'customColors'])
     if (!receivedUiSizes) applyUiSizes(bootstrap)
     hydrateConnectionData({
       connections: bootstrap.connections,
@@ -872,7 +945,9 @@ onBeforeUnmount(() => {
           :unread-sessions="unreadSessions"
           :ai-approval-sessions="pendingApprovalSessions"
           :disconnected-session-ids="disconnectedSessionIds"
-          :home-active="isHomeActive"
+          :home-active="isHomeActive && !aiTabActive"
+          :ai-tab-visible="aiTabVisible"
+          :ai-tab-active="aiTabActive"
           :terminal-container="terminalDropContainer"
           :split-primary-session-id="splitPrimarySessionId"
           :split-secondary-session-id="secondarySessionId"
@@ -880,8 +955,9 @@ onBeforeUnmount(() => {
           :split-group-active="isSplit"
           @select="selectConnectionGroup"
           @close="onCloseGroup"
-          @add-session="createStandaloneSession"
           @select-home="navigateSshHome"
+          @select-ai="navigateAiTab"
+          @close-ai="closeStandaloneAiTab"
           @quick-connect="navigateQuickConnect"
           @split-preview="setSplitPreview"
           @split-commit="onDragSplitCommit"
@@ -912,8 +988,14 @@ onBeforeUnmount(() => {
             :connecting-connection-ids="connectingConnectionIds"
             :connection-stages="connectionStages"
             :connection-errors="connectionErrors"
+            :ai-terminal-panel="aiTerminalPanel"
+            :ai-tab-active="aiTabActive"
             @cancel-connect="cancelConnection"
             @connect="onConnect"
+            @show-ai-terminal="showAiTerminal"
+            @show-ai-only="showLinkedAiOnly"
+            @select-ai-tab="openStandaloneAiTab"
+            @select-connections="selectConnectionsHome"
             @connection-saved="syncConnectionName"
             @open-settings="openSettingsPage"
           />
@@ -948,9 +1030,11 @@ onBeforeUnmount(() => {
           :all-sessions="allSessions"
           :unread-sessions="unreadSessions"
           :ai-approval-sessions="pendingApprovalSessions"
-          :show-ai-unread="!aiSidebarVisible && !!activeSessionId && hasUnread(activeSessionId)"
-          :show-ai-approval="!aiSidebarVisible && !!activeSessionId && hasAiApprovalPending(activeSessionId)"
+          :show-ai-unread="!aiSidebarVisible && !!workspaceAiSessionId && hasUnread(workspaceAiSessionId)"
+          :show-ai-approval="!aiSidebarVisible && !!workspaceAiSessionId && hasAiApprovalPending(workspaceAiSessionId)"
           :ai-sidebar-visible="aiSidebarVisible"
+          :has-linked-ai-view="hasLinkedAiView"
+          :linked-ai-session-id="linkedAiSessionId"
           :sidebar-visible="sidebarVisible"
           :sidebar-session-id="sidebarSessionId"
           :ai-selection-request="aiSelectionRequest"
@@ -1023,7 +1107,11 @@ onBeforeUnmount(() => {
           @close-snippet-palette="closeSnippetPalette"
           @clear-snippet-draft="clearSnippetDraftCommand"
           @save-as-snippet="openSnippetsPanelWithDraft"
-        />
+        >
+          <template #linked-ai>
+            <div ref="linkedAiHost" class="ssh-linked-ai-host" />
+          </template>
+        </SshWorkspace>
       </div>
     </AppWorkspaceShell>
 

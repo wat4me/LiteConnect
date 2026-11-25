@@ -131,21 +131,32 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
   // escalate-only floor on top of it, so a call labelled `read` that is
   // really a delete cannot ride through `auto` mode unexamined.
   const toolPermission = opts.getToolPermission()
-  const gate = applyCommandFloor(
+  const assessed = applyCommandFloor(
     assessAiToolCall(call.function.name, call.function.name === 'knowledge_save' && boundArgs.risk === 'read' ? { ...boundArgs, risk: 'write' } : boundArgs, toolPermission, t),
     commandContentRisk(call.function.name, boundArgs),
     toolPermission,
   )
+  // Per-server local knowledge writes are scoped by knowledge mode (or explicit one-shot trigger)
+  // and remain locally reversible with revision history, so they execute without blocking approval in ask mode.
+  // Shared group writes (groupId) affect members outside this chat and keep ask-mode approval with diff preview.
+  const gate = call.function.name === 'knowledge_save' && boundArgs.groupId === undefined && assessed.action === 'ask'
+    ? { action: 'allow' as const, risk: assessed.risk, reason: assessed.reason }
+    : assessed
   const mcpArgs = omitDeclaredRiskArg(boundArgs)
   const callArgs = opts.foregroundOnly && call.function.name === 'exec' ? JSON.stringify(boundArgs) : call.function.arguments || '{}'
   // Approval should not be blind: diff the file we are about to rewrite.
   // edit_file yields a small focused diff; write_file a whole-file one.
-  const needsDiffPreview = gate.action === 'ask' &&
+  // knowledge_save also computes a local unified diff so completed cards show exact changes.
+  const needsRemoteDiffPreview = gate.action === 'ask' &&
     (call.function.name === 'write_file' || call.function.name === 'edit_file')
-  if (needsDiffPreview) send({ type: 'model-status', value: 'tool-prepare' })
-  const diffPreview = needsDiffPreview
+  const needsKnowledgeDiffPreview = call.function.name === 'knowledge_save' &&
+    (gate.action === 'allow' || gate.action === 'ask')
+  if (needsRemoteDiffPreview) send({ type: 'model-status', value: 'tool-prepare' })
+  const diffPreview = needsRemoteDiffPreview
     ? await buildFileChangeDiffPreview(sshMcpRuntime, call.function.name, mcpArgs)
-    : undefined
+    : needsKnowledgeDiffPreview
+      ? await opts.knowledge?.previewSave?.(mcpArgs).catch(() => undefined)
+      : undefined
   send({
     type: 'tool',
     value: {
@@ -261,6 +272,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
     isError: result.isError,
     structured: result.structuredContent,
   })
+  const keepDiff = !result.isError && diffPreview ? { diffSummary: diffPreview.summary, diffPreview: diffPreview.diff } : {}
   const run: AiToolRun = {
     id: call.id,
     name: call.function.name,
@@ -272,6 +284,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
     jobIds,
     target: targetLabel,
     reason: gate.reason,
+    ...keepDiff,
   }
   send({
     type: 'tool',
@@ -287,6 +300,7 @@ export async function executeAiToolCall(call: AiFunctionToolCall, opts: AiToolEx
       target: run.target,
       reason: run.reason,
       status: run.status,
+      ...keepDiff,
     },
   })
   return { run, message: { role: 'tool', toolCallId: call.id, content: result.content } }

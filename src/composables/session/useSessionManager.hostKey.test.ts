@@ -147,4 +147,15 @@ describe('first SSH connection host-key confirmation', () => {
     expect(s.sessions.connectionErrors.value).toEqual({})
     expect(ElMessage.error).toHaveBeenCalledTimes(1)
   })
+
+  it('adds background and confirmed terminals without selecting over an open tab on the same host', async () => {
+    const { api, sessions } = setup()
+    api.sshConnect.mockResolvedValueOnce('foreground').mockResolvedValueOnce('background')
+    const background = { activateWorkspace: false, preserveActiveSession: true }
+    await sessions.onConnect('c1')
+    await sessions.onConnect('c1', background)
+    await sessions.adoptSession('c1', 'confirmed', background)
+    expect(sessions.activeSessionId.value).toBe('foreground')
+    expect(sessions.activeGroup.value?.sessions.map(session => session.id)).toEqual(['foreground', 'background', 'confirmed'])
+  })
 })

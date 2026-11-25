@@ -10,6 +10,11 @@ function current(settings: Record<string, any>) {
 }
 
 describe('applySettingsPatch', () => {
+  it.each(['nord', 'catppuccin-mocha', 'solarized-light'])('stores %s as an app theme and terminal palette', id => {
+    const settings: Record<string, unknown> = {}
+    applySettingsPatch(settings, { theme: id, terminalPalette: id }, current(settings))
+    expect(settings).toEqual({ theme: id, terminalPalette: id })
+  })
   it('normalizes layout settings at the persistence boundary and leaves them untouched by unrelated saves', () => {
     const settings: Record<string, unknown> = {}
     applySettingsPatch(settings, { sshWorkspaceLayout: { version: 1, tools: [{ id: 'ai', edge: 'right', panelEdge: 'right' }], sizes: { left: NaN }, locked: true } as unknown as ReturnType<typeof defaultWorkspaceLayout> }, current(settings))

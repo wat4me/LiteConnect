@@ -430,7 +430,7 @@ watch(
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--icon-button-color, var(--text-secondary));
   cursor: pointer;
   -webkit-app-region: no-drag;
   transition: background 0.12s, color 0.12s;

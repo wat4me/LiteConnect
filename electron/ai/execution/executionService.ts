@@ -78,7 +78,7 @@ export interface AiExecutionPorts {
   /** The window that owns a connected SSH session; scheduled results are delivered there. */
   sessionOwner?: (sessionId: string) => number | undefined
   runtime?: SshMcpRuntime
-  knowledge?: (sessionId: string, owner: number | string) => AiKnowledgeAccess
+  knowledge?: (sessionId: string, owner: number | string, options?: { allowReadonlyWrite?: boolean }) => AiKnowledgeAccess
   knowledgeGroups?: (input: KnowledgeGroupRequest) => KnowledgeGroupResponse
   groupKnowledge?: (groupId: string, input: KnowledgeRequest) => Promise<KnowledgeResponse>
   onError?: (error: unknown) => void
@@ -259,6 +259,7 @@ export class AiExecutionService {
       : owner.kind !== 'automation' || typeof owner.id !== 'string' || !owner.id)) throw new Error('Invalid AI execution owner')
     if (owner.isAlive?.() === false) throw new Error('AI execution owner is unavailable')
     if (target.compactOnly !== undefined && typeof target.compactOnly !== 'boolean') throw new Error('Invalid AI compaction mode')
+    if (target.knowledgeWriteOnce !== undefined && typeof target.knowledgeWriteOnce !== 'boolean') throw new Error('Invalid AI knowledge write mode')
   }
 
   private jobOwner(request: AiExecutionRequest, targets = this.ports.workspaceTargets?.(request.target.sessionId, request.owner.id)): AiJobOwner {
@@ -281,7 +282,7 @@ export class AiExecutionService {
       await this.ports.settings.ready()
       control.controller.signal.throwIfAborted()
       const workspaceTargets = this.ports.workspaceTargets?.(target.sessionId, request.owner.id)
-      const knowledge = this.ports.knowledge?.(target.sessionId, owner.id)
+      const knowledge = this.ports.knowledge?.(target.sessionId, owner.id, owner.kind === 'interactive' && target.knowledgeWriteOnce === true ? { allowReadonlyWrite: true } : undefined)
       if (this.ports.runtime && !(workspaceTargets ? workspaceTargets.every(item => this.ports.runtime?.hasSession(item.sessionId)) : this.ports.runtime.hasSession(target.sessionId))) throw new Error('SSH session is unavailable for AI execution')
       const initial = await this.ports.history.read(historyId, this.ports.settings.limits())
       if (!initial.threads.some(thread => thread.id === target.threadId)) throw new Error('AI execution conversation no longer exists')

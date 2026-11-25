@@ -3,6 +3,11 @@ import type { ITerminalOptions, Terminal } from '@xterm/xterm'
 import type { TerminalPaletteId } from '@/composables/app/useTheme'
 import { PASTE_CONFIRM_MAX_CHARS, normalizePasteConfirmMaxChars } from '@/utils/terminal/terminalPaste'
 import {
+  cloneDefaultTerminalHighlightRules,
+  sanitizeTerminalHighlightRules,
+  type TerminalHighlightRule,
+} from '@shared/terminalHighlight'
+import {
   addAppEventListener,
   removeAppEventListener,
   type AppEvent,
@@ -28,6 +33,8 @@ export function useTerminalSettings(deps: {
   const scrollbackLines = ref(5000)
   const pasteConfirmEnabled = ref(true)
   const pasteConfirmMaxChars = ref(PASTE_CONFIRM_MAX_CHARS)
+  const highlightEnabled = ref(true)
+  const highlightRules = ref<TerminalHighlightRule[]>(cloneDefaultTerminalHighlightRules())
   // A change event that arrives while the initial read is pending wins over the read.
   let fontVersion = 0, paletteVersion = 0, behaviorVersion = 0
 
@@ -66,6 +73,10 @@ export function useTerminalSettings(deps: {
     if (detail.pasteConfirmMaxChars !== undefined) {
       pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(detail.pasteConfirmMaxChars)
     }
+    if (typeof detail.highlightEnabled === 'boolean') highlightEnabled.value = detail.highlightEnabled
+    if (Array.isArray(detail.highlightRules)) {
+      highlightRules.value = sanitizeTerminalHighlightRules(detail.highlightRules)
+    }
   }
 
   function attachSettingsListeners() {
@@ -83,13 +94,14 @@ export function useTerminalSettings(deps: {
   async function loadTerminalSettings() {
     const versions = { font: fontVersion, palette: paletteVersion, behavior: behaviorVersion }
     try {
-      const [size, family, palette, scrollback, pasteConfirm, pasteMaxChars] = await Promise.all([
+      const [size, family, palette, scrollback, pasteConfirm, pasteMaxChars, allSettings] = await Promise.all([
         window.LiteConnect.getTerminalFontSize(),
         window.LiteConnect.getTerminalFontFamily(),
         window.LiteConnect.getTerminalPalette(),
         window.LiteConnect.getTerminalScrollback(),
         window.LiteConnect.getTerminalPasteConfirmEnabled(),
         window.LiteConnect.getTerminalPasteConfirmMaxChars().catch(() => PASTE_CONFIRM_MAX_CHARS),
+        window.LiteConnect.getAllSettings?.().catch(() => null) ?? Promise.resolve(null),
       ])
       if (versions.font === fontVersion) { fontSize.value = size; fontFamily.value = family }
       if (versions.palette === paletteVersion) terminalPalette.value = (palette as TerminalPaletteId) || 'auto'
@@ -97,6 +109,10 @@ export function useTerminalSettings(deps: {
         scrollbackLines.value = scrollback
         pasteConfirmEnabled.value = pasteConfirm
         pasteConfirmMaxChars.value = normalizePasteConfirmMaxChars(pasteMaxChars)
+        if (allSettings) {
+          highlightEnabled.value = allSettings.terminalHighlightEnabled !== false
+          highlightRules.value = sanitizeTerminalHighlightRules(allSettings.terminalHighlightRules)
+        }
       }
     } catch {
       if (versions.font === fontVersion) fontSize.value = 14
@@ -124,6 +140,8 @@ export function useTerminalSettings(deps: {
     scrollbackLines,
     pasteConfirmEnabled,
     pasteConfirmMaxChars,
+    highlightEnabled,
+    highlightRules,
     attachSettingsListeners,
     detachSettingsListeners,
     loadTerminalSettings,

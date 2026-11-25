@@ -136,11 +136,6 @@ app.whenReady().then(async () => {
   assert.equal(await titlebarLabel(), 'SSH')
   await click('mcp')
   await wait('document.querySelector("#mcp-port")?.value === "18766"')
-  assert.ok(await run(`(() => {
-    const active=getComputedStyle(document.querySelector('[data-module=mcp]'));
-    const inactive=getComputedStyle(document.querySelector('[data-module=ssh]'));
-    return active.backgroundColor!==inactive.backgroundColor && parseFloat(active.borderRadius)>=8;
-  })()`), 'The active module has a rounded selection fill')
   assert.equal(await run('document.querySelector(".mcp-approval-option[aria-pressed=true]").dataset.approvalMode'), 'ask-destructive')
   let layouts = 0
   for (const locale of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark', 'eyecare']) for (const width of [700, 1200]) for (const scale of [1, 1.25]) {
@@ -163,10 +158,53 @@ app.whenReady().then(async () => {
     })()`), `Persistent rail and content fit: ${locale}/${theme}/${width}/${scale}`)
     layouts++
   }
-  await run(`window.__navigation.theme('light','zh-CN',1)`)
-  await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-  const rail = await run(`(() => {const r=document.querySelector('.app-module-rail').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:212}})()`)
-  fs.writeFileSync(path.join(artifacts,'module-rail.png'),(await window.webContents.capturePage(rail)).toPNG())
+  stage = 'comparing the selected module across built-in themes'
+  await click('ssh')
+  await wait('document.querySelector(".app-module-button[aria-current=page]")?.dataset.module === "ssh"')
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 200, y: 100 })
+  const snapshotStyles = await window.webContents.insertCSS('.app-module-button { transition: none !important; }')
+  const themes = await run('window.__navigation.themes')
+  for (const theme of themes) {
+    stage = `comparing the selected module in ${theme}`
+    await run(`window.__navigation.theme('${theme}','zh-CN',1)`)
+    await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    const selection = await run(`(() => {
+      const active = document.querySelector('.app-module-button[aria-current=page]')
+      const inactive = document.querySelector('.app-module-button:not([aria-current])')
+      const fill = getComputedStyle(active).backgroundColor
+      const marker = getComputedStyle(active, '::before')
+      const luminance = color => {
+        const divisor = color.startsWith('color(srgb ') ? 1 : 255
+        const channels = color.slice(color.lastIndexOf('(') + 1, -1).replace(/^srgb /, '').split(/[ ,]+/)
+        const [red, green, blue] = channels.slice(0, 3).map(value => {
+          const channel = Number(value) / divisor
+          return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+        })
+        return red * 0.2126 + green * 0.7152 + blue * 0.0722
+      }
+      const contrastWithFill = color => {
+        const a = luminance(color) + 0.05, b = luminance(fill) + 0.05
+        return Math.max(a, b) / Math.min(a, b)
+      }
+      return {
+        markerContrast: contrastWithFill(marker.borderInlineStartColor),
+        textContrast: contrastWithFill(getComputedStyle(active).color),
+        colors: [fill, marker.borderInlineStartColor, getComputedStyle(active).color],
+        markerWidth: parseFloat(marker.borderInlineStartWidth),
+        markerHeight: parseFloat(marker.height),
+        inactiveMarker: getComputedStyle(inactive, '::before').content,
+      }
+    })()`)
+    assert.ok(selection.markerWidth >= 3 && selection.markerHeight >= 24 && selection.inactiveMarker === 'none', `${theme} marker geometry ${JSON.stringify(selection)}`)
+    assert.ok(selection.markerContrast >= 3 && selection.textContrast >= 4.5, `${theme} selection contrast ${JSON.stringify(selection)}`)
+    const rail = await run(`(() => {
+      const { x, y, width } = document.querySelector('.app-module-rail').getBoundingClientRect()
+      return { x: Math.floor(x), y: Math.floor(y), width: Math.ceil(width), height: 164 }
+    })()`)
+    const screenshot = await window.webContents.capturePage(rail)
+    fs.writeFileSync(path.join(artifacts, 'module-rail-' + theme + '.png'), screenshot.toPNG())
+  }
+  await window.webContents.removeInsertedCSS(snapshotStyles)
   await run('window.__navigation.dedicated(true)')
   assert.equal(await run('!!document.querySelector(".app-module-rail")'), false)
   await clickSelector('.titlebar-brand-module')
@@ -180,6 +218,6 @@ app.whenReady().then(async () => {
     return Math.abs(content.left-shell.getBoundingClientRect().left-parseFloat(getComputedStyle(shell).paddingLeft))<1;
   })()`), 'Dedicated window layout only reserves the frame inset')
   assert.equal(await run('window.__navigationError || null'), null)
-  console.log(JSON.stringify({ passed: true, layouts, flows: ['in-place module switching', 'all titlebar module entries', 'pointer and keyboard', 'lazy mount', 'draft/DOM/scroll retention', 'current SSH reselect', 'settings cancel/close', 'MCP port and permission updates', 'dedicated window layout'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, themes, flows: ['in-place module switching', 'all titlebar module entries', 'pointer and keyboard', 'lazy mount', 'draft/DOM/scroll retention', 'current SSH reselect', 'settings cancel/close', 'MCP port and permission updates', 'dedicated window layout'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); app.exit(1) })

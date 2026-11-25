@@ -23,7 +23,7 @@ function revealActiveTab() {
   const strip = stripRef.value
   const active = strip?.querySelector<HTMLElement>('[data-active-tab="true"]')
   if (strip?.clientWidth && active) {
-    strip.scrollLeft += tabScrollDelta(strip.getBoundingClientRect(), active.getBoundingClientRect(), 0)
+    strip.scrollLeft += tabScrollDelta(strip.getBoundingClientRect(), active.getBoundingClientRect())
   }
   updateScrollDirections()
 }
@@ -133,9 +133,9 @@ onBeforeUnmount(() => observer?.disconnect())
 .tabs-track {
   display: flex;
   flex: none;
-  align-items: center;
+  align-items: var(--tabs-track-alignment, center);
   gap: var(--tabs-track-gap, 0);
-  padding-inline-start: var(--tabs-track-padding, 0);
+  padding-inline: 8px;
 }
 
 /* Narrow full-height chevron strip at the tab-bar edges. */

@@ -9,6 +9,7 @@ import {
   rememberDetachedWindow,
 } from '../window/windowRegistry'
 import { isValidUUID } from '../utils/validation'
+import { isAppTheme } from '../../shared/appTheme'
 
 export type WindowHandlerDeps = {
   /** The dedicated DB window was closed (drop its DB sessions). */
@@ -95,10 +96,10 @@ export function registerWindowHandlers(
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win || win.isDestroyed()) return
 
-      let finalColors = { color: '#1f1e1d', symbolColor: '#a19e95' }
+      let finalColors = { color: '#1f1e1d', symbolColor: '#d2cfc6' }
       try {
         const { titleBarThemes } = await import('../window/createWindow')
-        finalColors = titleBarThemes[theme as keyof typeof titleBarThemes] || titleBarThemes.dark
+        finalColors = isAppTheme(theme) && theme !== 'custom' ? titleBarThemes[theme] : titleBarThemes.dark
         if (theme === 'custom' && colors) {
           finalColors = colors
         }

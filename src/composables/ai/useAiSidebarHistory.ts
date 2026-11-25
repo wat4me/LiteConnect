@@ -8,11 +8,17 @@ import type { ChatItem } from '@/domain/ai/chat'
 type HistoryOperation = (sessionId: string, sync: (messages: ChatItem[]) => void) => Promise<unknown>
 type ThreadOperation = (sessionId: string, threadId: string, sync: (messages: ChatItem[]) => void) => Promise<unknown>
 
+function savedConversations(threads: AiThreadSummary[]) {
+  return threads.filter(thread => thread.messageCount > 0)
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
+}
+
 export function useAiSidebarHistory(deps: {
   sessionId: () => string
   threadSummaries: Ref<AiThreadSummary[]>
   activeThreadId: () => string | null
   loading: Ref<boolean>
+  recentVisible: () => boolean
   syncMessages: (messages: ChatItem[]) => void
   syncFromState: () => void
   switchConversation: ThreadOperation
@@ -27,6 +33,7 @@ export function useAiSidebarHistory(deps: {
   const historyQuery = ref('')
   const historyBody = shallowRef<Record<string, string[]>>({})
   const historyBusy = ref(false)
+  const refreshedSummaries = shallowRef<AiThreadSummary[]>()
   let disposed = false
   let revision = 0
   let indexRequest = 0
@@ -41,10 +48,21 @@ export function useAiSidebarHistory(deps: {
   }
   onScopeDispose(() => { disposed = true; indexRequest++ })
   watch(deps.sessionId, () => { revision++; historyBusy.value = false; closeHistoryPanel() }, { flush: 'sync' })
-  const historyItems = computed(() => deps.threadSummaries.value
-    .filter(thread => (thread.messageCount || 0) > 0)
-    .slice()
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt)
+  watch([deps.sessionId, () => deps.recentVisible() && !showHistory.value], async ([sessionId, visible], _previous, onCleanup) => {
+    refreshedSummaries.value = undefined
+    if (!visible) return
+    let current = true
+    onCleanup(() => { current = false })
+    try {
+      const summaries = await window.LiteConnect.getAiConversationSummaries(sessionId)
+      if (current && deps.sessionId() === sessionId) refreshedSummaries.value = summaries
+    } catch { /* Keep the loaded summaries available when the refresh fails. */ }
+  }, { immediate: true })
+  const recentConversations = computed(() => savedConversations(refreshedSummaries.value ?? deps.threadSummaries.value)
+    .filter(thread => thread.id !== deps.activeThreadId())
+    .slice(0, 3)
+    .map(thread => ({ id: thread.id, title: thread.customTitle || thread.title || deps.t('ai.newConversationTitle'), updatedAt: thread.updatedAt || thread.createdAt })))
+  const historyItems = computed(() => savedConversations(deps.threadSummaries.value)
     .map(thread => ({
       id: thread.id,
       title: thread.title || deps.t('ai.newConversationTitle'),
@@ -181,7 +199,7 @@ export function useAiSidebarHistory(deps: {
     })
   }
 
-  return { showHistory, historyQuery, historyItems, filteredHistoryItems, historyBusy,
+  return { showHistory, historyQuery, historyItems, filteredHistoryItems, historyBusy, recentConversations,
     openHistoryPanel, closeHistoryPanel, handleSwitchConversation,
     handleDeleteConversation, handleRenameConversation, handleTogglePin,
     handleClearAllHistory, formatHistoryTime }

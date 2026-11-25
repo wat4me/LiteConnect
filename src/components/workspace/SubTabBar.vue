@@ -148,7 +148,7 @@ function onTabClick(sessionId: string) {
         <template v-for="item in displayTabs" :key="item.kind === 'split' ? 'split-group' : item.item.id">
           <div
             v-if="item.kind === 'split'"
-            class="sub-tab split-group-tab"
+            class="sub-tab split-group-tab ui-window-tab"
             :class="{ active: !dockerTabActive && splitGroupActive }"
             :data-active-tab="!dockerTabActive && splitGroupActive"
             :title="t('terminal.restoreSplit')"
@@ -185,7 +185,7 @@ function onTabClick(sessionId: string) {
           <div
             v-else
             :key="item.item.id"
-            class="sub-tab"
+            class="sub-tab ui-window-tab"
             :class="{
               active: !dockerTabActive && !splitGroupActive && item.item.id === activeSessionId,
               dragging: draggingSessionId === item.item.id,
@@ -220,7 +220,7 @@ function onTabClick(sessionId: string) {
         </template>
         <div
           v-if="dockerTabOpen"
-          class="sub-tab"
+          class="sub-tab ui-window-tab"
           :class="{ active: dockerTabActive }"
           :data-active-tab="dockerTabActive"
           :title="t('docker.title')"
@@ -238,7 +238,7 @@ function onTabClick(sessionId: string) {
           </button>
         </div>
       </ScrollableTabs>
-      <button type="button" class="sub-tab-add" @click="emit('add', connectionId)" :title="t('terminal.newWindow')" :aria-label="t('terminal.newWindow')">
+      <button type="button" class="sub-tab-add" @click="emit('add', connectionId)" :title="t('terminal.newTerminal')" :aria-label="t('terminal.newTerminal')">
         <AppIcon name="plus" size="xs" />
       </button>
       <div v-if="$slots.actions" class="sub-tab-actions">
@@ -261,10 +261,11 @@ function onTabClick(sessionId: string) {
 }
 
 .sub-tab-bar {
+  --tab-top-inset: 3px;
   height: var(--icon-btn-sm);
   min-height: var(--icon-btn-sm);
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  box-shadow: inset 0 -1px var(--border-color);
   display: flex;
   align-items: center;
   padding-left: 6px;
@@ -297,15 +298,17 @@ function onTabClick(sessionId: string) {
 .sub-tabs-wrap {
   flex: 0 1 auto;
   --tabs-track-gap: 2px;
+  --tabs-track-alignment: flex-end;
 }
 
 .sub-tab {
+  --window-tab-curve: 5px;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  height: 20px;
-  border-radius: var(--radius-tab);
+  height: calc(100% - var(--tab-top-inset));
+  border: 1px solid transparent;
   cursor: pointer;
   font-size: var(--font-caption);
   color: var(--text-secondary);
@@ -319,19 +322,13 @@ function onTabClick(sessionId: string) {
   cursor: grabbing;
 }
 
-.sub-tab:hover {
+.sub-tab:hover:not(.active) {
   background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
-.sub-tab.active {
-  background: var(--tab-selected-surface);
-  box-shadow: inset 0 0 0 1px var(--tab-selected-edge), var(--tab-selected-shadow);
-  color: var(--text-primary);
-}
-
 .split-group-tab {
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
   padding-left: 6px;
 }
 
@@ -411,6 +408,7 @@ function onTabClick(sessionId: string) {
 }
 
 .sub-tab-add {
+  margin-block-start: var(--tab-top-inset);
   margin-inline-start: 2px;
   width: 22px;
   height: 22px;

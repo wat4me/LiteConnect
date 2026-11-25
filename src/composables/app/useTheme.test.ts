@@ -37,6 +37,9 @@ describe('theme highlights and preset compatibility', () => {
     { theme: 'dark', palette: 'light', expected: 4.5 },
     { theme: 'light', palette: 'dark', expected: 1 },
     { theme: 'dark', palette: 'solarized-light', expected: 4.5 },
+    { theme: 'solarized-light', palette: 'auto', expected: 4.5 },
+    { theme: 'nord', palette: 'auto', expected: 1 },
+    { theme: 'catppuccin-mocha', palette: 'auto', expected: 1 },
   ] as const)('uses the actual terminal palette for contrast protection: $theme / $palette', async ({ theme, palette, expected }) => {
     const { getTerminalMinimumContrastRatio } = await import('./useTheme')
     expect(getTerminalMinimumContrastRatio(theme, undefined, palette)).toBe(expected)
@@ -96,11 +99,25 @@ describe('theme highlights and preset compatibility', () => {
     const theme = useTheme()
     theme.setTheme('custom')
     expect(variables.get('--selection-bg')).toContain('30%')
+    expect(variables.get('--small-text-adjustment')).toBe('1px')
     theme.setCustomColors({ fontColor: '#222222', bgColor: '#ffffff' })
     expect(variables.get('--selection-bg')).toContain('20%')
     expect(variables.get('--accent-bg')).toContain('8%')
+    expect(variables.get('--small-text-adjustment')).toBe('0px')
     expect(variables.get('--text-primary')).toBe('#222222')
     expect(JSON.parse(storage.get('liteconnect-custom-colors')!)).toEqual(theme.customColors.value)
+  })
+
+  it.each([
+    ['nord', '#2e3440'], ['catppuccin-mocha', '#1e1e2e'], ['solarized-light', '#fdf6e3'],
+  ] as const)('restores %s at startup and uses its colors for automatic and manual terminal palettes', async (id, background) => {
+    storage.set('liteconnect-theme', id)
+    const { useTheme, getTerminalColors } = await import('./useTheme')
+    expect(useTheme().theme.value).toBe(id)
+    expect(attributes.get('data-theme')).toBe(id)
+    expect(updateTitleBar).toHaveBeenLastCalledWith(id)
+    expect(getTerminalColors(id).background).toBe(background)
+    expect(getTerminalColors('dark', undefined, id)).toEqual(getTerminalColors(id))
   })
 
   it('restores persisted custom colors and live accent-derived highlights at startup', async () => {

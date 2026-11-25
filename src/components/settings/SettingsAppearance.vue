@@ -24,13 +24,6 @@ const props = defineProps<{
 const { t } = useI18n()
 const { themeOrder, themeLabels } = useTheme()
 
-const themeSwatches: Record<Theme, { bg: string; fg: string }> = {
-  dark: { bg: '#262624', fg: '#ece9e1' },
-  light: { bg: '#ffffff', fg: '#21201c' },
-  eyecare: { bg: '#f5f0e8', fg: '#5c5346' },
-  custom: { bg: '#262624', fg: '#ece9e1' },
-}
-
 const styleOptions = computed(() =>
   FANCY_CURSOR_STYLES.map((id) => ({
     id,
@@ -304,21 +297,20 @@ onBeforeUnmount(() => {
         <div class="settings-label" data-setting="appearance.theme">{{ t('settingsAppearance.theme') }}</div>
         <div class="theme-options">
           <button
-            v-for="t in themeOrder"
-            :key="t"
+            v-for="id in themeOrder"
+            :key="id"
             type="button"
             class="theme-option"
-            :class="{ active: draft.theme === t }"
-            @click="selectTheme(t)"
+            :class="{ active: draft.theme === id }"
+            :aria-pressed="draft.theme === id"
+            @click="selectTheme(id)"
           >
             <span
               class="theme-swatch"
-              :style="{
-                backgroundColor: t === 'custom' ? draft.bgColor : themeSwatches[t].bg,
-                color: t === 'custom' ? draft.fontColor : themeSwatches[t].fg,
-              }"
+              :data-theme="id === 'custom' ? undefined : id"
+              :style="id === 'custom' ? { backgroundColor: draft.bgColor, color: draft.fontColor } : undefined"
             >Aa</span>
-            <span>{{ themeLabels[t as Theme] }}</span>
+            <span>{{ themeLabels[id] }}</span>
           </button>
         </div>
 
@@ -547,7 +539,7 @@ onBeforeUnmount(() => {
 
 .theme-options {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   gap: 8px;
 }
 
@@ -561,7 +553,9 @@ onBeforeUnmount(() => {
   background: var(--bg-primary);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-ui-sm);
+  text-align: start;
+  overflow-wrap: anywhere;
 }
 
 .theme-option:hover,
@@ -585,7 +579,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-caption);
   font-weight: 700;
   border: 1px solid rgba(128, 128, 128, 0.25);
   flex-shrink: 0;
@@ -870,7 +866,7 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 .ui-preview-side-item {
-  font-size: 11px;
+  font-size: calc(11px + var(--small-text-adjustment));
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
@@ -951,7 +947,7 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
 }
 .ui-preview-meta {
-  font-size: 10px;
+  font-size: calc(10px + var(--small-text-adjustment));
   color: var(--text-secondary);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }
@@ -961,7 +957,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 500;
-  color: #fff;
+  color: var(--accent-foreground);
   background: var(--accent);
   white-space: nowrap;
 }

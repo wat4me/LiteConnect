@@ -4,6 +4,7 @@ import type { DbOpenMode } from '../dbOpenMode'
 import type { AppLocale, LocalePreference } from '../appLocale'
 import type { SshWorkspaceLayout } from '../workspaceLayout'
 import type { UiDensity } from '../uiDensity'
+import type { TerminalHighlightRule } from '../terminalHighlight'
 
 export type AppBackgroundFit = 'cover' | 'contain' | 'fill'
 export const TERMINAL_LABEL_MAX_LENGTH = 48
@@ -48,6 +49,8 @@ export type AppSettingsAll = {
   terminalPasteConfirmMaxChars: number
   terminalCommandSuggestEnabled: boolean
   terminalLocalEchoEnabled: boolean
+  terminalHighlightEnabled: boolean
+  terminalHighlightRules: TerminalHighlightRule[]
   /** Case-insensitive shell globs; matching commands never enter local history. */
   terminalCommandHistoryExcludePatterns: string[]
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'

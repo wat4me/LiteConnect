@@ -56,6 +56,7 @@ app.whenReady().then(async () => {
     field.dispatchEvent(new Event('change', { bubbles: true }));
   })()`)
   const defaultSizes = await uiSizes()
+  const defaultTheme = await run('document.documentElement.dataset.theme')
   await chooseSize('appearance-ui-font-size', 'comfortable')
   assert.deepEqual(await uiSizes(), defaultSizes, 'Draft sizes apply when saved')
   await click('.settings-footer .ui-btn-primary')
@@ -77,6 +78,7 @@ app.whenReady().then(async () => {
   await window.webContents.capturePage()
   await new Promise(resolve => setTimeout(resolve, 250))
   fs.writeFileSync(path.join(artifacts, 'appearance-sizes.png'), (await window.webContents.capturePage()).toPNG())
+  await run(`window.__settings.theme(${JSON.stringify(defaultTheme)},'zh-CN')`)
   await run('window.__settings.remoteSnapshot({uiDensity:"standard",uiFontSize:"standard"},["uiDensity","uiFontSize"])')
   await wait('document.querySelector("#appearance-ui-density").value==="standard" && document.querySelector("#appearance-ui-font-size").value==="standard"')
   assert.deepEqual(await uiSizes(), defaultSizes, 'A remote window can restore both defaults')
@@ -131,7 +133,28 @@ app.whenReady().then(async () => {
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: 1200, height: 850, deviceScaleFactor: 1, mobile: false })
   await run(`window.__settings.theme('light','zh-CN')`)
   fs.writeFileSync(path.join(artifacts, 'database-settings.png'), (await window.webContents.capturePage()).toPNG())
+  stage = 'previewing and saving built-in appearance themes'
+  await click('.nav-list .nav-item')
+  await wait('document.querySelectorAll(".theme-option").length === 7')
+  for (const [theme, background, metaSize] of [
+    ['nord', 'rgb(46, 52, 64)', '11px'],
+    ['catppuccin-mocha', 'rgb(30, 30, 46)', '11px'],
+    ['solarized-light', 'rgb(253, 246, 227)', '10px'],
+  ]) {
+    const swatch = `.theme-swatch[data-theme="${theme}"]`
+    await click(`.theme-option:has(${swatch})`)
+    await wait(`document.querySelector('.ui-preview')?.dataset.theme === '${theme}'`)
+    assert.equal(await run(`getComputedStyle(document.querySelector('${swatch}')).backgroundColor`), background)
+    assert.equal(await run(`getComputedStyle(document.querySelector('.ui-preview .ui-preview-meta')).fontSize`), metaSize)
+    assert.notEqual(await run('document.documentElement.dataset.theme'), theme, 'The preview shows the pending theme before saving')
+    await click('.settings-footer .ui-btn-primary')
+    await wait(`document.documentElement.dataset.theme === '${theme}' && !document.querySelector('.settings-fields').disabled`)
+    assert.deepEqual(await run('window.__settings.patches().at(-1)'), { theme })
+    await run('document.querySelector(".theme-options").scrollIntoView({block:"center"})')
+    await window.webContents.capturePage()
+    fs.writeFileSync(path.join(artifacts, `appearance-${theme}.png`), (await window.webContents.capturePage()).toPNG())
+  }
   assert.equal(await run('window.__settingsError || null'), null)
-  console.log(JSON.stringify({ passed: true, layouts, flows: ['settings snapshot during stalled refresh', 'failed read/retry/leave', 'advanced search/reveal/save', 'independent UI sizes and remote defaults', 'monitor hide/show and panel close', 'remote-window setting notification', 'dirty draft rebase', 'partial save preserves external changes', 'save-in-progress close guard'], artifacts }))
+  console.log(JSON.stringify({ passed: true, layouts, flows: ['settings snapshot during stalled refresh', 'failed read/retry/leave', 'advanced search/reveal/save', 'independent UI sizes and remote defaults', 'monitor hide/show and panel close', 'remote-window setting notification', 'dirty draft rebase', 'partial save preserves external changes', 'save-in-progress close guard', 'built-in theme previews and saves'], artifacts }))
   clearTimeout(timeout); window.destroy(); app.quit()
 }).catch(error => { console.error(error, { stage, artifacts }); clearTimeout(timeout); window?.destroy(); app.exit(1) })

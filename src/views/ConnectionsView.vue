@@ -18,6 +18,7 @@ import { useBatchTest } from '@/composables/connections/useBatchTest'
 import { normalizeConnectionSortMode, type ConnectionSortMode } from '@shared/connectionSort'
 import { KNOWLEDGE_GROUPS_ENABLED, type KnowledgeGroup } from '@shared/aiKnowledgeGroups'
 import { AI_WORKSPACE_MAX_HOSTS } from '@shared/aiWorkspace'
+import type { AiTerminalConversation } from '@/domain/ai/chat'
 import { measureRendererModule } from '@/composables/app/rendererPerformance'
 
 const AiKnowledgeGroupDialog = defineAsyncComponent(() => import('../components/ai/AiKnowledgeGroupDialog.vue'))
@@ -46,6 +47,10 @@ const emit = defineEmits<{
   (e: 'cancel-connect', connectionId: string): void
   (e: 'connection-saved', connection: Connection): void
   (e: 'open-settings', tab?: 'network'): void
+  (e: 'show-ai-terminal', conversation: AiTerminalConversation): void
+  (e: 'show-ai-only'): void
+  (e: 'select-ai-tab'): void
+  (e: 'select-connections'): void
 }>()
 
 const props = withDefaults(defineProps<{
@@ -58,11 +63,14 @@ const props = withDefaults(defineProps<{
   connectingConnectionIds?: Set<string>
   connectionStages?: Record<string, import('@shared/sshConnectionProgress').SshConnectionStage>
   connectionErrors?: Record<string, string>
+  aiTerminalPanel?: InstanceType<typeof ConnectionsAiWorkspace>['$props']['terminalPanel']
+  aiTabActive?: boolean
 }>(), {
   active: true,
   initialData: null,
   initialDataPending: false,
   connectingConnectionIds: () => new Set<string>(),
+  aiTabActive: undefined,
 })
 
 const showForm = ref(false)
@@ -81,6 +89,7 @@ const selectedConnectionIds = ref<string[]>([])
 const lastSelectedId = ref<string | null>(null)
 const aiWorkspaceMounted = ref(false)
 const aiWorkspaceOpen = ref(false)
+const showStandaloneAi = computed(() => aiWorkspaceOpen.value && (props.aiTabActive ?? true))
 const aiWorkspaceRef = ref<InstanceType<typeof ConnectionsAiWorkspace> | null>(null)
 const aiWorkspaceRefreshToken = ref(0)
 const pendingAiConnections = ref<Connection[] | null>(null)
@@ -130,20 +139,34 @@ function onSelectConnection(connectionId: string, modifiers: { ctrl: boolean; sh
 }
 
 function showAiWorkspace() {
-  if (!aiWorkspaceOpen.value && document.activeElement instanceof HTMLElement && pageRootRef.value?.contains(document.activeElement)) {
+  if (!showStandaloneAi.value && document.activeElement instanceof HTMLElement && pageRootRef.value?.contains(document.activeElement)) {
     aiReturnFocus = document.activeElement
   }
   aiWorkspaceMounted.value = true
   aiWorkspaceOpen.value = true
+  emit('select-ai-tab')
 }
 
 function closeAiWorkspace() {
   aiWorkspaceOpen.value = false
   pendingAiConnections.value = null
+  restoreConnectionsFocus()
+}
+
+function returnToConnections() {
+  if (props.aiTabActive === undefined) {
+    closeAiWorkspace()
+    return
+  }
+  emit('select-connections')
+  restoreConnectionsFocus()
+}
+
+function restoreConnectionsFocus() {
   const focusTarget = aiReturnFocus
   aiReturnFocus = null
   void nextTick(() => {
-    if (aiWorkspaceOpen.value) return
+    if (!props.active || showStandaloneAi.value) return
     const target = focusTarget?.checkVisibility() ? focusTarget : pageRootRef.value?.querySelector<HTMLElement>('.ai-entry[data-view=ai-chats]')
     target?.focus({ preventScroll: true })
   })
@@ -297,7 +320,7 @@ const list = useConnectionList({
   pageRootRef,
   connectionsListRef,
   getSearchInput: () => toolbarRef.value?.searchInputRef ?? null,
-  isModalOpen: () => aiWorkspaceOpen.value || showForm.value || showCredentialManager.value,
+  isModalOpen: () => showStandaloneAi.value || showForm.value || showCredentialManager.value,
   onConnect: onConnectFromRow,
   onToggleSelect: (connectionId) => onSelectConnection(connectionId, { ctrl: true, shift: false }),
   onClearSelection: clearSelection,
@@ -477,9 +500,14 @@ const colorFilterItems = computed(() => CONNECTION_COLOR_TAGS.map(tag => ({
 const activeColorTag = computed(() => CONNECTION_COLOR_TAGS.find(tag => tag.id && tag.id === colorTagFilter.value))
 
 defineExpose({
+  aiWorkspaceOpen,
+  closeAiWorkspace,
+  activeAiConversation: computed(() => aiWorkspaceRef.value?.activeAiConversation || null),
+  sendTerminalSelection: (conversation: AiTerminalConversation, text: string, mode: 'send' | 'insert') =>
+    aiWorkspaceRef.value?.sendTerminalSelection(conversation, text, mode) === true,
   loadData,
   editConnection(connection: Connection) {
-    if (aiWorkspaceOpen.value) closeAiWorkspace()
+    if (showStandaloneAi.value) returnToConnections()
     onEditConnection(connection)
   },
   hasAiConversation,
@@ -490,7 +518,7 @@ defineExpose({
 <template>
   <div ref="pageRootRef" class="connections-page">
     <GroupPanel
-      :inert="aiWorkspaceOpen"
+      :inert="showStandaloneAi"
       :groups="groups"
       :active-group-id="activeGroupId"
       :smart-view="smartView"
@@ -520,7 +548,7 @@ defineExpose({
       @pin="togglePin"
     />
 
-    <div class="connections-main" :inert="aiWorkspaceOpen">
+    <div class="connections-main" :inert="showStandaloneAi">
       <ConnectionsToolbar
         ref="toolbarRef"
         :active-group-name="activeGroupName"
@@ -732,6 +760,9 @@ defineExpose({
           </button>
         </div>
         <div class="selection-bar-actions">
+          <button type="button" class="ui-btn ui-btn-ghost ui-btn-sm clear-connection-selection" @click="clearSelection">
+            {{ t('connections.clearSelection') }}
+          </button>
           <button
             type="button"
             class="ui-btn ui-btn-primary ui-btn-sm"
@@ -740,28 +771,22 @@ defineExpose({
             <AppIcon name="ai-chat" size="sm" />
             <span>{{ selectedConnections.length > 1 ? t('connections.aiStartSelected', { count: selectedConnections.length }) : t('connections.aiChat') }}</span>
           </button>
-          <button
-            type="button"
-            class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ui-icon-btn-close"
-            :title="t('connections.clearSelection')"
-            :aria-label="t('connections.clearSelection')"
-            @click="clearSelection"
-          >
-            <AppIcon name="close" size="xs" />
-          </button>
         </div>
       </div>
     </div>
 
     <ConnectionsAiWorkspace
       v-if="aiWorkspaceMounted"
-      v-show="aiWorkspaceOpen"
+      v-show="showStandaloneAi"
       ref="aiWorkspaceRef"
-      :active="active"
+      :active="active && showStandaloneAi"
       :open="aiWorkspaceOpen"
       :refresh-token="aiWorkspaceRefreshToken"
-      @close="closeAiWorkspace"
+      :terminal-panel="aiTerminalPanel"
+      @close="returnToConnections"
       @connect="onConnectFromRow"
+      @show-terminal="emit('show-ai-terminal', $event)"
+      @show-ai-only="emit('show-ai-only')"
     />
 
     <AiKnowledgeGroupDialog v-if="KNOWLEDGE_GROUPS_ENABLED && showKnowledgeGroup && active" :initial-ids="knowledgeSelection" @close="showKnowledgeGroup = false" @saved="knowledgeGroupSaved" />
@@ -799,10 +824,11 @@ defineExpose({
   min-height: 0;
 }
 
-/* Appears only while several hosts are selected (Ctrl/Shift-click). */
+/* Keep bulk actions visible while the connection list scrolls. */
 .selection-action-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   flex-shrink: 0;
   margin-top: 10px;
@@ -820,7 +846,7 @@ defineExpose({
 
 .selection-chips {
   display: flex;
-  flex: 1;
+  flex: 1 1 80px;
   flex-wrap: wrap;
   gap: 5px;
   min-width: 0;
@@ -865,7 +891,10 @@ defineExpose({
 .selection-bar-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  max-width: 100%;
+  margin-inline-start: auto;
   flex-shrink: 0;
 }
 

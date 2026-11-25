@@ -3,6 +3,7 @@ import type { WorkspacePanel } from '@shared/workspaceLayout'
 import type { Connection } from '@shared/types/connection'
 import type { ConnectionGroup, Session } from '@/domain/session/types'
 import type { AppEvent } from '@/utils/shared/appEvents'
+import type { AiTerminalConversation } from '@/domain/ai/chat'
 
 export interface SessionDeps {
   canShowAlongside?: (a: WorkspacePanel, b: WorkspacePanel) => boolean
@@ -33,6 +34,10 @@ export function useSidebarState(deps: SessionDeps) {
     editConnection: (connection: Connection) => void
     hasAiConversation: (sessionId: string) => boolean
     revealAiConversation: (sessionId: string) => void
+    activeAiConversation: AiTerminalConversation | null
+    aiWorkspaceOpen: boolean
+    closeAiWorkspace: () => void
+    sendTerminalSelection: (conversation: AiTerminalConversation, text: string, mode: 'send' | 'insert') => boolean
   } | null>(null)
   const fileSidebarRef = ref<any>(null)
 
@@ -127,8 +132,8 @@ export function useSidebarState(deps: SessionDeps) {
     if (!deps.canShowAlongside?.('ai', 'files')) sidebarVisible.value = false
   }
 
-  function handleAiSelectionConsumed(_id: number) {
-    aiSelectionRequest.value = null
+  function handleAiSelectionConsumed(id: number) {
+    if (aiSelectionRequest.value?.id === id) aiSelectionRequest.value = null
   }
 
   function handleMonitorSettingsChange(e: AppEvent<'monitor-settings-change'>) {

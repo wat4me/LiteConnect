@@ -3,6 +3,7 @@ import { defineAsyncComponent, nextTick, onMounted, ref } from 'vue'
 import AppTitlebar from '../../src/components/app/AppTitlebar.vue'
 import AppWorkspaceShell from '../../src/components/app/AppWorkspaceShell.vue'
 import GlobalJumpPalette from '../../src/components/app/GlobalJumpPalette.vue'
+import { APP_THEME_PRESETS, type PresetAppTheme } from '../../shared/appTheme'
 import type { Connection } from '../../shared/types/connection'
 import { useAppNavigation } from '../../src/composables/app/useAppNavigation'
 import { useAppWindowRouting } from '../../src/composables/app/useAppWindowRouting'
@@ -23,7 +24,8 @@ const sshCommand = ref('tail -f /var/log/app.log'), query = ref('SELECT * FROM u
 settingsViewRef.value = { requestClose: () => { if (settingsCloseAllowed.value) closeSettingsPage() } }
 onMounted(() => {
   ;(window as any).__navigation = {
-    async theme(value: 'light' | 'dark' | 'eyecare', locale: 'zh-CN' | 'en-US', scale: number) { theme.setTheme(value); setAppLocale(locale); document.documentElement.style.setProperty('--ui-scale', String(scale)); await nextTick() },
+    themes: APP_THEME_PRESETS,
+    async theme(value: PresetAppTheme, locale: 'zh-CN' | 'en-US', scale: number) { theme.setTheme(value); setAppLocale(locale); document.documentElement.style.setProperty('--ui-scale', String(scale)); await nextTick() },
     async settings(allow: boolean) { settingsCloseAllowed.value = allow; openSettingsPage(); await nextTick() },
     async dedicated(value: boolean) { showModules.value = !value; await nextTick() },
     jump: () => { jumpVisible.value = true },

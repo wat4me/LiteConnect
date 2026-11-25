@@ -16,12 +16,14 @@ async function setup() {
   })))
   let top = 0
   let scrollHeight = 20000
+  let rowSpacing = 100
   const conversationKey = ref('thread-1')
   let api: ReturnType<typeof useAiChatViewport>
   const firstIndex = () => messages.value.findIndex(message => message.id === api.visibleMessages.value[0]?.id)
   const rows = messages.value.map((message, index) => ({
     dataset: { messageId: message.id },
-    get offsetTop() { return (index - firstIndex()) * 100 },
+    get offsetTop() { return (index - firstIndex()) * rowSpacing },
+    getAttribute: () => 'user',
     getBoundingClientRect() { return { top: this.offsetTop - top } },
   }))
   const visibleRows = () => rows.filter(row => api.visibleMessages.value.some(message => message.id === row.dataset.messageId))
@@ -29,6 +31,7 @@ async function setup() {
     get scrollHeight() { return scrollHeight }, set scrollHeight(value: number) { scrollHeight = value },
     clientHeight: 500,
     get scrollTop() { return top }, set scrollTop(value: number) { top = Math.max(0, Math.min(value, scrollHeight - 500)) },
+    get children() { return visibleRows() },
     querySelectorAll: visibleRows,
     querySelector: (selector: string) => selector === '[data-message-id]' ? visibleRows()[0] : visibleRows().find(row => selector.includes(`"${row.dataset.messageId}"`)),
     contains: (row: typeof rows[number]) => visibleRows().includes(row),
@@ -45,7 +48,7 @@ async function setup() {
     }
   }
   await flush()
-  return { api, scope, messages, element, frames, flush, conversationKey }
+  return { api, scope, messages, element, frames, flush, conversationKey, setRowSpacing: (value: number) => { rowSpacing = value } }
 }
 
 it('preserves the reader position across stream updates and follows only after returning to the bottom', async () => {
@@ -200,6 +203,36 @@ it('measures timeline positions once per frame during a burst of manual scroll e
   await f.flush()
   expect(measure).toHaveBeenCalledOnce()
   expect(f.element.scrollTop).toBe(139)
+})
+
+it('reuses measured timeline positions across scroll frames until the rows resize', async () => {
+  let resized: () => void = () => {}
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { resized = callback }
+    observe() {}
+    disconnect() {}
+  })
+  vi.stubGlobal('MutationObserver', class {
+    observe() {}
+    disconnect() {}
+  })
+  const f = await setup()
+  const measure = vi.spyOn(f.element, 'querySelectorAll')
+  f.element.scrollTop = 100
+  f.api.onListScroll()
+  await f.flush()
+  expect(f.api.activeTurnId.value).toBe('turn-196')
+  f.element.scrollTop = 200
+  f.api.onListScroll()
+  await f.flush()
+  expect(f.api.activeTurnId.value).toBe('turn-197')
+  expect(measure).toHaveBeenCalledOnce()
+
+  f.setRowSpacing(200)
+  resized()
+  await f.flush()
+  expect(f.api.activeTurnId.value).toBe('turn-196')
+  expect(measure).toHaveBeenCalledTimes(2)
 })
 
 it('does not read tool-output signatures or measure layout while the user reads history', async () => {

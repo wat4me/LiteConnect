@@ -47,12 +47,13 @@ describe('ConnectionService cancellation', () => {
       cleanupSession: vi.fn(), bumpSessionEpoch: () => 1, getSessionEpoch: () => 1,
     })
     const controller = new AbortController()
-    const callbacks: SSHCallbacks = { signal: controller.signal, onData: vi.fn(), onError: vi.fn(), onClose: vi.fn() }
+    const callbacks: SSHCallbacks = { signal: controller.signal, onData: vi.fn(), onError: vi.fn(), onClose: vi.fn(), onProgress: vi.fn() }
     const result = service.connect({ id: 'c1', name: 'Server', host: 'host', username: 'root' } as Connection, callbacks)
     const rejection = expect(result).rejects.toThrow(SSH_CONNECTION_CANCELLED)
     await vi.advanceTimersByTimeAsync(0)
     const client = clients[0]
-    if (ready) { client.emit('ready'); await vi.advanceTimersByTimeAsync(0) }
+    if (ready) { client.emit('ready'); await vi.advanceTimersByTimeAsync(1000) }
+    expect(callbacks.onProgress).not.toHaveBeenCalledWith('x11')
     controller.abort()
     await rejection
     expect(client.destroy).toHaveBeenCalled()
@@ -75,7 +76,7 @@ describe('ConnectionService cancellation', () => {
       sessions, decoders: new Map(), pendingHostKeys: new Map(), knownHosts: {} as any,
       cleanupSession: vi.fn(), bumpSessionEpoch: () => 1, getSessionEpoch: () => 1,
     })
-    const callbacks: SSHCallbacks = { onData: vi.fn(), onError: vi.fn(), onClose: vi.fn() }
+    const callbacks: SSHCallbacks = { onData: vi.fn(), onError: vi.fn(), onClose: vi.fn(), onProgress: vi.fn() }
     const result = service.connect({ id: 'cold-start', host: 'host', username: 'root' } as Connection, callbacks)
     await vi.advanceTimersByTimeAsync(0)
     const client = clients[0]
@@ -83,8 +84,12 @@ describe('ConnectionService cancellation', () => {
     client.emit('ready')
     await vi.advanceTimersByTimeAsync(0)
     expect(client.shell).not.toHaveBeenCalled()
+    expect(callbacks.onProgress).not.toHaveBeenCalledWith('x11')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(callbacks.onProgress).toHaveBeenLastCalledWith('x11')
     finish({ useX11: false })
     await vi.advanceTimersByTimeAsync(0)
+    expect(callbacks.onProgress).toHaveBeenLastCalledWith('shell')
     expect(client.shell).toHaveBeenCalledOnce()
     const stream = Object.assign(new EventEmitter(), { stderr: new EventEmitter() })
     await client.shell.mock.calls[0][1](null, stream)
@@ -101,14 +106,18 @@ describe('ConnectionService cancellation', () => {
       cleanupSession: vi.fn(), bumpSessionEpoch: () => 1, getSessionEpoch: () => 1,
     })
     const controller = new AbortController()
+    const onProgress = vi.fn()
     const result = service.connect({ id: 'cancel-start', host: 'host', username: 'root' } as Connection,
-      { signal: controller.signal, onData: vi.fn(), onError: vi.fn(), onClose: vi.fn() })
+      { signal: controller.signal, onData: vi.fn(), onError: vi.fn(), onClose: vi.fn(), onProgress })
     const rejected = expect(result).rejects.toThrow(SSH_CONNECTION_CANCELLED)
     await vi.advanceTimersByTimeAsync(0)
     const client = clients[0]
     client.emit('ready')
     controller.abort()
     await rejected
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(onProgress).not.toHaveBeenCalledWith('x11')
     finish({ useX11: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(client.shell).not.toHaveBeenCalled()

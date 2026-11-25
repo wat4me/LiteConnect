@@ -32,7 +32,6 @@
 .workspace-target-host { flex: 0 1 auto; max-width: 360px; min-width: 0; gap: var(--space-2); padding: 0 8px; text-align: left; }
 .workspace-target-host.is-static { display: inline-flex; align-items: center; padding: 0 4px; font-size: var(--font-ui-sm); }
 .workspace-target-host strong { color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-target-host > span { color: var(--text-secondary); font-size: var(--font-caption); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-target-host :deep(.app-icon) { color: var(--text-secondary); flex-shrink: 0; }
 .workspace-target-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); white-space: nowrap; font-size: var(--font-caption); flex-shrink: 0; }
 .workspace-target-status.connected { color: var(--success); }
@@ -69,7 +68,6 @@
 
 @container (max-width: 560px) {
   .workspace-target { gap: var(--space-2); }
-  .workspace-target-host > span { display: none; }
 }
 
 .host-picker-layer {

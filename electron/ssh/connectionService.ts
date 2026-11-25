@@ -140,9 +140,11 @@ export class ConnectionService {
       let remoteForwardHandles: RemoteForwardHandle[] | undefined
       let jumpForwardTimeout: ReturnType<typeof setTimeout> | null = null
       let shellOpenTimeout: ReturnType<typeof setTimeout> | null = null
+      let x11ProgressTimer: ReturnType<typeof setTimeout> | undefined
       const keepalive = resolveSshKeepalive(connection.keepaliveInterval)
 
       const abortPendingResources = () => {
+        clearTimeout(x11ProgressTimer)
         if (shellOpenTimeout) { clearTimeout(shellOpenTimeout); shellOpenTimeout = null }
         if (jumpForwardTimeout) {
           clearTimeout(jumpForwardTimeout)
@@ -279,9 +281,21 @@ export class ConnectionService {
          * that used to surface only as "Unable to request X11" with no start-failure hint.
          */
         const ensureLocalXBeforeShell = async () => {
-          const resolved = await x11
+          let reportedX11Wait = false
+          const onProgress = callbacks.onProgress
+          if (onProgress) {
+            // A ready display is usually reused immediately. Report X11 only
+            // when the shell is actually waiting for display preparation.
+            x11ProgressTimer = setTimeout(() => {
+              if (settled || !this.isLiveEpoch(sessionId, epoch)) return
+              reportedX11Wait = true
+              onProgress('x11')
+            }, 500)
+          }
+          const resolved = await x11.finally(() => clearTimeout(x11ProgressTimer))
           if (settled) return
           if (!this.isLiveEpoch(sessionId, epoch)) { rejectStale(); return }
+          if (reportedX11Wait) onProgress?.('shell')
           startShellDeadline()
           activeUseX11 = resolved.useX11
           prepared = resolved.prepared

@@ -87,7 +87,7 @@ export function useAiSidebarSession(deps: {
     if (deps.active()) void ensureOpenPrepared().catch(() => {})
   })
 
-  async function handleSendText(text: string, images?: AiImageAttachment[]): Promise<boolean> {
+  async function handleSendText(text: string, images?: AiImageAttachment[], requestOptions?: { knowledgeWriteOnce?: boolean }): Promise<boolean> {
     const content = text.trim()
     if (disposed || (!content && !images?.length) || deps.sendBlocked()) return false
     let target = capture()
@@ -100,7 +100,7 @@ export function useAiSidebarSession(deps: {
     try {
       return await chat.sendText(target.sessionId, content, items => {
         if (target.current()) syncMessages(items)
-      }, images)
+      }, images, requestOptions)
     } finally {
       if (target.visible()) loading.value = state().loading
     }
@@ -151,12 +151,13 @@ export function useAiSidebarSession(deps: {
     if (!request?.text || request.sessionId !== deps.sessionId() || consumedSelectionIds.has(request.id)) return
     const target = capture()
     await ensureOpenPrepared()
-    if (!target.visible() || (target.threadId && !target.current()) || consumedSelectionIds.has(request.id)) return
+    if (!target.visible() || (target.threadId && !target.current()) || deps.selectionRequest()?.id !== request.id || consumedSelectionIds.has(request.id)) return
     consumedSelectionIds.add(request.id)
     deps.selectionConsumed(request.id)
-    if (request.mode === 'insert') { input.value = request.text; return }
+    const insert = () => { input.value = input.value ? `${input.value}\n${request.text}` : request.text }
+    if (request.mode === 'insert') { insert(); return }
     const origin = capture()
-    if (!await handleSendText(request.text) && origin.current()) input.value = request.text
+    if (!await handleSendText(request.text) && origin.current()) insert()
   }, { immediate: true })
 
   return { messages, input, loading, threadSummaries, syncMessages, syncFromState,

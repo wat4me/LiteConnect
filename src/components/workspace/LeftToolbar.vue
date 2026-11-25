@@ -110,7 +110,7 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
   justify-content: center;
   background: none;
   border: none;
-  color: var(--text-secondary);
+  color: var(--icon-button-color, var(--text-secondary));
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: background 0.15s, color 0.15s, opacity 0.15s;
@@ -201,8 +201,8 @@ function menu(id: WorkspaceTool | undefined, event: MouseEvent) {
   padding: 0 3px;
   border-radius: 7px;
   background: var(--accent);
-  color: #fff;
-  font-size: 9px;
+  color: var(--accent-foreground);
+  font-size: calc(9px + var(--small-text-adjustment));
   font-weight: 700;
   line-height: 14px;
   display: inline-flex;

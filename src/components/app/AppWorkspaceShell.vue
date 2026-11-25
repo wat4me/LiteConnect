@@ -49,10 +49,27 @@ const modules = [
 }
 .app-shell.with-module-rail { padding-inline-start: 0; }
 .app-module-rail { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 0 0 calc(48px * var(--ui-scale)); width: calc(48px * var(--ui-scale)); min-height: 0; box-sizing: border-box; padding: 4px 5px; -webkit-app-region: no-drag; }
-.app-module-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease; }
-.app-module-button > span { font-size: max(10px, calc(10px * var(--ui-font-scale))); line-height: 1.2; font-weight: 600; letter-spacing: .2px; }
+.app-module-button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 0 0 calc(48px * var(--ui-scale)); height: calc(48px * var(--ui-scale)); width: 100%; box-sizing: border-box; padding: 5px 2px; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; color: var(--icon-button-color, var(--text-secondary)); font: inherit; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease; }
+.app-module-button > span { font-size: calc(max(10px, 10px * var(--ui-font-scale)) + var(--small-text-adjustment)); line-height: 1.2; font-weight: 600; letter-spacing: .2px; }
 .app-module-button:hover:not(:disabled):not(.active) { background: var(--tab-hover-surface); color: var(--text-primary); }
-.app-module-button.active { color: var(--text-primary); background: var(--tab-selected-surface); border-color: var(--tab-selected-edge); box-shadow: var(--tab-selected-shadow); }
+.app-module-button.active {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 16%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--text-primary) 36%, var(--bg-secondary));
+}
+.app-module-button.active > span { font-weight: 700; }
+.app-module-button.active::before {
+  content: '';
+  position: absolute;
+  inset-block: 18%;
+  inset-inline-start: -5px;
+  border-inline-start: 3px solid color-mix(in srgb, var(--accent) 60%, var(--text-primary));
+  border-radius: 3px;
+  pointer-events: none;
+}
+@media (forced-colors: active) {
+  .app-module-button.active, .app-module-button.active::before { border-color: Highlight; }
+}
 .app-module-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .app-module-button:disabled { cursor: wait; opacity: .6; }
 .workspace {

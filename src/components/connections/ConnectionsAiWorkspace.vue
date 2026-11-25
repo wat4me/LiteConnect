@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { Connection } from '@shared/types/connection'
 import type { AiWorkspaceConversationItem } from '@shared/aiWorkspaceConversations'
 import type { AiPendingAction } from '@/utils/ai/pendingAction'
+import type { AiTerminalConversation } from '@/domain/ai/chat'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import AiWorkspaceChatPane from '@/components/ai/AiWorkspaceChatPane.vue'
 import AiWorkspaceHostPicker from '@/components/ai/AiWorkspaceHostPicker.vue'
@@ -17,15 +18,18 @@ const props = defineProps<{
   active: boolean
   open: boolean
   refreshToken?: number
+  terminalPanel?: { host?: HTMLElement; sessionId?: string; visible: boolean; opening: boolean }
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'connect', connectionId: string): void
+  (e: 'show-terminal', conversation: AiTerminalConversation): void
+  (e: 'show-ai-only'): void
 }>()
 
 const { t } = useI18n()
-const { settings, refreshSettings, replaceSettings } = useAiChat()
+const { settings, refreshSettings, replaceSettings, getSessionState } = useAiChat()
 
 const {
   connections,
@@ -63,6 +67,8 @@ const {
   trapPickerFocus,
   openHostPicker,
   closeHostPicker,
+  clearPickerSelection,
+  removePickerHost,
   pickHost,
   openScope,
   openCurrent,
@@ -79,7 +85,7 @@ const {
   showSchedules,
   scheduleCreateToken,
   openSchedules,
-} = useAiWorkspace({ active: () => props.active && props.open })
+} = useAiWorkspace({ active: () => props.open && (props.active || !!props.terminalPanel?.host) })
 
 const rootRef = ref<HTMLElement | null>(null)
 const backButton = ref<HTMLButtonElement | null>(null)
@@ -101,17 +107,21 @@ watch(narrow, value => { if (!value) railOpen.value = false })
 function closeRailIfFloating() { if (narrow.value) railOpen.value = false }
 
 /* ---------- Draft: a conversation that connects when its first message is sent ---------- */
-type Draft = { connectionIds: string[]; text: string }
+type Draft = { id: number; connectionIds: string[]; text: string }
+type DraftAction = { kind: 'send'; text: string; keepInput: boolean } | { kind: 'resume'; threadId: string }
 const draft = ref<Draft | null>(null)
+const promotedDraft = ref<{ id: number; sessionId: string; threadId: string }>()
 const draftVisible = ref(false)
 const draftStatus = ref<'idle' | 'connecting' | 'error'>('idle')
 const draftError = ref('')
-const pendingSend = ref<{ connectionIds: string[]; text: string } | null>(null)
-const sendRequest = ref<{ id: number; sessionId: string; text: string; mode: 'send' } | null>(null)
-let sending = false
+const pendingDraftAction = ref<{ id: number; connectionIds: string[]; action: DraftAction }>()
+const sendRequest = ref<{ id: number; sessionId: string; text: string; mode: 'send' | 'insert' } | null>(null)
+let connectingDraft = false
 let requestSeq = 0
+let draftSeq = 0
 
 const draftHosts = computed(() => (draft.value?.connectionIds || []).flatMap(id => connections.value.find(host => host.id === id) || []))
+const selectedPickerHosts = computed(() => pickerSelection.value.flatMap(id => connections.value.find(host => host.id === id) || []))
 const draftRecent = computed(() => {
   const ids = draft.value?.connectionIds
   if (!ids || ids.length !== 1) return []
@@ -130,7 +140,7 @@ function sameIds(a: string[], b: string[]) {
 function showDraft(connectionIds: string[]) {
   showSchedules.value = false
   if (!draft.value || !sameIds(draft.value.connectionIds, connectionIds)) {
-    draft.value = { connectionIds: [...connectionIds], text: '' }
+    draft.value = { id: ++draftSeq, connectionIds: [...connectionIds], text: '' }
     draftStatus.value = 'idle'
     draftError.value = ''
   }
@@ -150,56 +160,67 @@ function removeDraftHost(connectionId: string) {
   draft.value.connectionIds = draft.value.connectionIds.filter(id => id !== connectionId)
 }
 
-/** Hands the queued text to the conversation once the matching target is ready. */
-function tryDeliver() {
-  const pending = pendingSend.value
+/** Switches from the draft once its connection and intended thread are ready. */
+function finishDraftAction() {
+  const pending = pendingDraftAction.value
   if (!pending) return
+  const current = draft.value
+  const id = sessionId.value
   const single = pending.connectionIds.length === 1
   const matches = single
     ? !activeScope.value && selectedId.value === pending.connectionIds[0]
     : !!activeScope.value && sameIds(activeScope.value.connectionIds, pending.connectionIds)
-  if (matches && sessionId.value && !browsing.value && !selectionLocked.value) {
-    sendRequest.value = { id: ++requestSeq, sessionId: sessionId.value, text: pending.text, mode: 'send' }
-    pendingSend.value = null
-    draft.value = null
-    draftVisible.value = false
-    draftStatus.value = 'idle'
-    return
+  const { action } = pending
+  if (connectingDraft || selectionLocked.value) return
+  if (matches && current?.id === pending.id && id && !browsing.value) {
+    const state = getSessionState(id)
+    if (action.kind === 'send' || state.activeThreadId === action.threadId) {
+      if (single) promotedDraft.value = { id: current.id, sessionId: id, threadId: state.activeThreadId }
+      if (action.kind === 'send') {
+        if (action.keepInput) state.input = current.text
+        sendRequest.value = { id: ++requestSeq, sessionId: id, text: action.text, mode: 'send' }
+        draft.value = null
+      }
+      draftVisible.value = false
+      pendingDraftAction.value = undefined
+      draftStatus.value = 'idle'
+      return
+    }
   }
-  // A single host may still be waiting for host-key or credential confirmation.
-  if (sending || selectionLocked.value) return
-  if (single && connectingId.value === pending.connectionIds[0]) return
-  failDraft()
-}
-
-function failDraft() {
-  pendingSend.value = null
+  if (current?.id === pending.id && action.kind === 'send' && action.keepInput) {
+    current.text = current.text ? `${current.text}\n${action.text}` : action.text
+  }
+  pendingDraftAction.value = undefined
   const message = error.value || pickerError.value
   draftStatus.value = message ? 'error' : 'idle'
   draftError.value = message
 }
 
-watch([pendingSend, sessionId, selectionLocked, browsing, connectingId], () => { if (!sending) tryDeliver() })
+watch([pendingDraftAction, sessionId, selectionLocked, browsing], finishDraftAction)
 
-async function sendDraft() {
+async function connectDraft(action: DraftAction, open: () => Promise<unknown>) {
   const current = draft.value
-  const text = current?.text.trim()
-  if (!current || !text || selectionLocked.value || !configured.value) return
-  const hosts = draftHosts.value
-  if (!hosts.length) return
+  if (!current || connectingDraft || pendingDraftAction.value) return
   draftStatus.value = 'connecting'
   draftError.value = ''
   error.value = ''
   pickerError.value = ''
-  pendingSend.value = { connectionIds: hosts.map(host => host.id), text }
-  sending = true
+  pendingDraftAction.value = { id: current.id, connectionIds: draftHosts.value.map(host => host.id), action }
+  connectingDraft = true
   try {
-    if (hosts.length === 1) await startChat(hosts[0], '', true)
-    else await openScope({ connectionIds: hosts.map(host => host.id) })
+    await open()
   } finally {
-    sending = false
+    connectingDraft = false
+    finishDraftAction()
   }
-  tryDeliver()
+}
+
+async function sendDraft(selection?: string) {
+  const text = (selection ?? draft.value?.text)?.trim()
+  const hosts = draftHosts.value
+  if (!text || !hosts.length || selectionLocked.value || !configured.value) return
+  await connectDraft({ kind: 'send', text, keepInput: selection !== undefined }, () =>
+    hosts.length === 1 ? startChat(hosts[0], '', true) : openScope({ connectionIds: hosts.map(host => host.id) }))
 }
 
 async function cancelDraftConnect() {
@@ -237,6 +258,12 @@ async function selectCurrent(item: (typeof currentConversations.value)[number]) 
 }
 
 async function selectHistory(item: AiWorkspaceConversationItem) {
+  if (selectionLocked.value || pendingDraftAction.value) return
+  if (docked.value && view.value === 'draft' && !item.workspaceId && item.connectionId === terminalTarget.value?.connectionId) {
+    await connectDraft({ kind: 'resume', threadId: item.threadId }, () => openHistory(item))
+    return
+  }
+  if (docked.value) emit('show-ai-only')
   draftVisible.value = false
   closeRailIfFloating()
   await openHistory(item)
@@ -249,6 +276,7 @@ function selectDraft() {
 }
 
 function newConversation() {
+  if (docked.value) emit('show-ai-only')
   closeRailIfFloating()
   openHostPicker('create', draft.value?.connectionIds || activeScope.value?.connectionIds || (selectedId.value ? [selectedId.value] : []))
 }
@@ -267,9 +295,59 @@ function startFromPicker(connectionIds: string[]) {
 }
 
 const terminalTarget = computed(() => {
-  if (selected.value) return { connectionId: selected.value.id, name: selected.value.name }
-  return scopeTargets.value?.find(target => !!target.sessionId) ?? scopeTargets.value?.[0]
+  if (view.value === 'draft') {
+    const host = draftHosts.value.length === 1 ? draftHosts.value[0] : undefined
+    return host && { connectionId: host.id, name: host.name }
+  }
+  if (activeScope.value) return activeScope.value.connectionIds.length === 1 ? scopeTargets.value?.[0] : undefined
+  const host = selected.value
+  return host && { connectionId: host.id, name: host.name }
 })
+const activeAiConversation = computed<AiTerminalConversation | null>(() => {
+  if (!props.open) return null
+  if (view.value === 'draft' && draft.value && draftHosts.value.length === 1) {
+    return { connectionId: draftHosts.value[0].id, draftId: draft.value.id }
+  }
+  const connectionId = selected.value?.id
+  if (view.value !== 'chat' || !connectionId || activeScope.value || !sessionId.value) return null
+  // A history switch can wait on IPC while the previous thread is still rendered.
+  const state = getSessionState(sessionId.value)
+  const threadId = selectionLocked.value || state.threadChangePending ? '' : state.activeThreadId
+  const promoted = promotedDraft.value
+  const draftId = promoted?.sessionId === sessionId.value && promoted.threadId === threadId ? promoted.id : undefined
+  return { connectionId, sessionId: sessionId.value, threadId, draftId }
+})
+const docked = computed(() => !!props.terminalPanel?.host)
+const terminalControl = ref<HTMLButtonElement>()
+const canLinkTerminal = computed(() => !!props.terminalPanel && !!activeAiConversation.value)
+const terminalOpening = computed(() => !!props.terminalPanel?.opening || (canLinkTerminal.value && activeAiConversation.value?.threadId === ''))
+const terminalAction = computed(() => t(docked.value ? 'toolbar.showOnlyAi' : canLinkTerminal.value && view.value === 'chat' ? 'toolbar.showTerminal' : 'connections.openTerminal'))
+
+function toggleTerminal() {
+  const target = terminalTarget.value
+  if (!target) return
+  if (docked.value) {
+    emit('show-ai-only')
+    void nextTick(() => terminalControl.value?.focus({ preventScroll: true }))
+  } else if (props.terminalPanel && activeAiConversation.value) emit('show-terminal', activeAiConversation.value)
+  else emit('connect', target.connectionId)
+}
+
+function sendTerminalSelection(conversation: AiTerminalConversation, text: string, mode: 'send' | 'insert'): boolean {
+  const current = activeAiConversation.value
+  if (!current || current.connectionId !== conversation.connectionId || current.sessionId !== conversation.sessionId
+    || current.threadId !== conversation.threadId || current.draftId !== conversation.draftId) return false
+  const aiSessionId = current.sessionId
+  if (!aiSessionId) {
+    if (draftStatus.value === 'connecting' || selectionLocked.value) return false
+    if (mode === 'send' && configured.value) void sendDraft(text)
+    else draftText.value = draftText.value ? `${draftText.value}\n${text}` : text
+    return true
+  }
+  if (!current.threadId) return false
+  sendRequest.value = { id: ++requestSeq, sessionId: aiSessionId, text, mode }
+  return true
+}
 
 const disconnectedScopeTargets = computed(() => scopeTargets.value?.filter(target => !target.sessionId) ?? [])
 const disconnectedScopeNames = computed(() => disconnectedScopeTargets.value.map(target => target.name).join(t('ai.workspace.scopeHostSeparator')))
@@ -281,6 +359,8 @@ function pendingActionHint(action: AiPendingAction) {
 /* ---------- Model settings modal ---------- */
 const showModelSettings = ref(false)
 const modelSettingsRef = ref<InstanceType<typeof AiSettingsPanel> | null>(null)
+const aiViewVisible = computed(() => props.open && (docked.value ? !!props.terminalPanel?.visible : props.active))
+const aiViewActive = computed(() => aiViewVisible.value && !hostPicker.value && !showModelSettings.value)
 async function openModelSettings() {
   try { await refreshSettings() } catch { /* the panel shows its own load error */ }
   showModelSettings.value = true
@@ -294,6 +374,7 @@ watch(() => props.open, async open => {
   if (!open) return
   void refreshSettings().catch(() => {})
   await nextTick()
+  if (!aiViewVisible.value) return
   if (view.value === 'draft') draftRef.value?.focus()
   else if (!narrow.value) backButton.value?.focus({ preventScroll: true })
 }, { immediate: true })
@@ -312,6 +393,8 @@ const busy = computed(() => loading.value || selectionLocked.value)
 
 defineExpose({
   busy,
+  activeAiConversation,
+  sendTerminalSelection,
   pendingCount: pendingConversationCount,
   openCount: computed(() => currentConversations.value.length),
   openForConnections,
@@ -339,6 +422,7 @@ defineExpose({
     <Teleport to="body">
       <div
         v-if="showModelSettings"
+        v-show="aiViewVisible"
         class="ai-model-settings-overlay"
         role="dialog"
         aria-modal="true"
@@ -491,97 +575,111 @@ defineExpose({
         return-to-chat
         @close="showSchedules = false"
       />
-      <ConnectionsAiDraft
-        v-if="view === 'draft' && draft"
-        ref="draftRef"
-        v-model:text="draftText"
-        :hosts="draftHosts"
-        :status="draftStatus"
-        :error="draftError"
-        :configured="configured"
-        :recent="draftRecent"
-        :locked="selectionLocked && draftStatus !== 'connecting'"
-        :active="props.active && props.open && view === 'draft' && !hostPicker && !showModelSettings"
-        @send="sendDraft"
-        @cancel-connect="cancelDraftConnect"
-        @open-settings="openModelSettings"
-        @open-history="selectHistory"
-        @remove-host="removeDraftHost"
-      >
-        <template v-if="narrow" #header-leading>
-          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-rail-toggle" :title="t('connections.aiSessions')" :aria-label="t('connections.aiSessions')" @click="railOpen = true">
-            <AppIcon name="list" size="sm" />
-            <span v-if="pendingConversationCount" class="ai-rail-toggle-dot" aria-hidden="true" />
-          </button>
-        </template>
-        <template #header-trailing>
-          <button
-            v-if="draftHosts[0]"
-            type="button"
-            class="ui-btn ui-btn-sm ai-open-terminal"
-            :title="t('connections.aiOpenTerminalNamed', { name: draftHosts[0].name })"
-            :aria-label="t('connections.aiOpenTerminalNamed', { name: draftHosts[0].name })"
-            @click="emit('connect', draftHosts[0].id)"
-          >
-            <AppIcon name="terminal" size="sm" />
-            <span>{{ t('connections.openTerminal') }}</span>
-          </button>
-        </template>
-      </ConnectionsAiDraft>
-
-      <AiWorkspaceChatPane
-        v-if="!browsing"
-        v-show="view === 'chat'"
-        :session-id="sessionId"
-        :reveal-generation="revealGeneration"
-        :active-scope="activeScope ?? null"
-        :scope-targets="scopeTargets"
-        :scope-ready="scopeReady"
-        :scope-busy="scopeBusy"
-        :disconnected-scope-targets="disconnectedScopeTargets"
-        :disconnected-scope-names="disconnectedScopeNames"
-        :selected="selected"
-        :selected-id="selectedId"
-        :connecting-id="connectingId"
-        :closing="closing"
-        :selection-locked="selectionLocked"
-        :error="error"
-        :active="props.active && props.open && view === 'chat' && !hostPicker && !showModelSettings"
-        :selection-request="sendRequest"
-        hide-switch-host
-        @request-other-host-chat="newConversation"
-        @disconnect="disconnect()"
-        @conversation-cleared="refreshRecent"
-        @retry-scope="id => openScope({ id })"
-        @retry-connect="retryConnect"
-        @cancel-connect="cancelConnect"
-        @selection-consumed="sendRequest = null"
-      >
-        <template v-if="narrow" #header-leading>
-          <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-rail-toggle" :title="t('connections.aiSessions')" :aria-label="t('connections.aiSessions')" @click="railOpen = true">
-            <AppIcon name="list" size="sm" />
-            <span v-if="pendingConversationCount" class="ai-rail-toggle-dot" aria-hidden="true" />
-          </button>
-        </template>
-        <template #header-trailing>
-          <button
-            v-if="terminalTarget"
-            type="button"
-            class="ui-btn ui-btn-sm ai-open-terminal"
-            :title="t('connections.aiOpenTerminalNamed', { name: terminalTarget.name })"
-            :aria-label="t('connections.aiOpenTerminalNamed', { name: terminalTarget.name })"
-            @click="emit('connect', terminalTarget.connectionId)"
-          >
-            <AppIcon name="terminal" size="sm" />
-            <span>{{ t('connections.openTerminal') }}</span>
-          </button>
-        </template>
-        <template #connect-secondary-actions>
-          <button type="button" class="ui-btn ui-btn-sm" :disabled="busy" @click="newConversation">
-            {{ t('connections.aiChooseHosts') }}
-          </button>
-        </template>
-      </AiWorkspaceChatPane>
+      <!-- Move the draft or live conversation without remounting its input. -->
+      <Teleport :to="terminalPanel?.host" :disabled="!docked">
+        <ConnectionsAiDraft
+          v-if="view === 'draft' && draft"
+          ref="draftRef"
+          v-model:text="draftText"
+          :hosts="draftHosts"
+          :status="draftStatus"
+          :resuming-history="pendingDraftAction?.action.kind === 'resume'"
+          :terminal-connected="!!terminalPanel?.sessionId"
+          :error="draftError"
+          :configured="configured"
+          :recent="draftRecent"
+          :locked="selectionLocked && draftStatus !== 'connecting'"
+          :active="aiViewActive"
+          @send="sendDraft"
+          @cancel-connect="cancelDraftConnect"
+          @open-settings="openModelSettings"
+          @open-history="selectHistory"
+          @remove-host="removeDraftHost"
+        >
+          <template v-if="narrow && !docked" #header-leading>
+            <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-rail-toggle" :title="t('connections.aiSessions')" :aria-label="t('connections.aiSessions')" @click="railOpen = true">
+              <AppIcon name="list" size="sm" />
+              <span v-if="pendingConversationCount" class="ai-rail-toggle-dot" aria-hidden="true" />
+            </button>
+          </template>
+          <template #header-trailing>
+            <button
+              v-if="terminalTarget"
+              ref="terminalControl"
+              type="button"
+              class="ai-open-terminal"
+              :class="docked ? 'ui-icon-btn ai-return-to-chat' : 'ui-btn ui-btn-sm'"
+              :disabled="!docked && terminalOpening"
+              :aria-busy="!docked && terminalOpening"
+              :title="docked ? terminalAction : t('connections.aiOpenTerminalNamed', { name: terminalTarget.name })"
+              :aria-label="docked ? terminalAction : t('connections.aiOpenTerminalNamed', { name: terminalTarget.name })"
+              @click="toggleTerminal"
+            >
+              <AppIcon :name="docked ? 'maximize' : 'terminal'" size="sm" />
+              <span v-if="!docked">{{ terminalPanel?.opening ? t('connections.connecting') : terminalAction }}</span>
+            </button>
+          </template>
+        </ConnectionsAiDraft>
+        <AiWorkspaceChatPane
+          v-if="!browsing"
+          v-show="view === 'chat'"
+          :class="{ 'terminal-linked-chat': docked }"
+          :session-id="sessionId"
+          :terminal-session-id="terminalPanel?.sessionId"
+          :reveal-generation="revealGeneration"
+          :active-scope="activeScope ?? null"
+          :scope-targets="scopeTargets"
+          :scope-ready="scopeReady"
+          :scope-busy="scopeBusy"
+          :disconnected-scope-targets="disconnectedScopeTargets"
+          :disconnected-scope-names="disconnectedScopeNames"
+          :selected="selected"
+          :selected-id="selectedId"
+          :connecting-id="connectingId"
+          :closing="closing"
+          :selection-locked="selectionLocked"
+          :error="error"
+          :active="aiViewActive && view === 'chat'"
+          :selection-request="sendRequest"
+          hide-switch-host
+          @request-other-host-chat="newConversation"
+          @disconnect="disconnect()"
+          @conversation-cleared="refreshRecent"
+          @retry-scope="id => openScope({ id })"
+          @retry-connect="retryConnect"
+          @cancel-connect="cancelConnect"
+          @selection-consumed="id => { if (sendRequest?.id === id) sendRequest = null }"
+        >
+          <template v-if="narrow && !docked" #header-leading>
+            <button type="button" class="ui-icon-btn ui-icon-btn-ghost ui-icon-btn-sm ai-rail-toggle" :title="t('connections.aiSessions')" :aria-label="t('connections.aiSessions')" @click="railOpen = true">
+              <AppIcon name="list" size="sm" />
+              <span v-if="pendingConversationCount" class="ai-rail-toggle-dot" aria-hidden="true" />
+            </button>
+          </template>
+          <template #header-trailing>
+            <button
+              v-if="view === 'chat' && terminalTarget"
+              ref="terminalControl"
+              type="button"
+              class="ai-open-terminal"
+              :class="docked ? 'ui-icon-btn ai-return-to-chat' : 'ui-btn ui-btn-sm'"
+              :disabled="!docked && terminalOpening"
+              :aria-busy="!docked && terminalOpening"
+              :title="docked ? terminalAction : t('connections.aiOpenTerminalNamed', { name: terminalTarget.name })"
+              :aria-label="docked || canLinkTerminal ? terminalAction : t('connections.aiOpenTerminalNamed', { name: terminalTarget.name })"
+              @click="toggleTerminal"
+            >
+              <AppIcon :name="docked ? 'maximize' : 'terminal'" size="sm" />
+              <span v-if="!docked">{{ terminalPanel?.opening ? t('connections.connecting') : terminalAction }}</span>
+            </button>
+          </template>
+          <template #connect-secondary-actions>
+            <button type="button" class="ui-btn ui-btn-sm" :disabled="busy" @click="newConversation">
+              {{ t('connections.aiChooseHosts') }}
+            </button>
+          </template>
+        </AiWorkspaceChatPane>
+      </Teleport>
 
       <div v-if="view === 'empty'" class="ai-main-empty ui-empty">
         <button v-if="narrow" type="button" class="ui-btn ui-btn-sm ai-rail-toggle ai-empty-rail-toggle" @click="railOpen = true">
@@ -607,6 +705,7 @@ defineExpose({
       :picker-hosts="pickerHosts"
       :picker-groups="pickerGroups"
       :picker-selection="pickerSelection"
+      :selected-hosts="selectedPickerHosts"
       :selected-id="selectedId"
       :sessions="sessions"
       :connecting-id="connectingId"
@@ -619,6 +718,8 @@ defineExpose({
       @toggle-group="togglePickerGroup"
       @pick="pickHost"
       @cancel-connect="cancelConnect"
+      @clear-selection="clearPickerSelection"
+      @remove-selection="removePickerHost"
       @start-scope="startFromPicker"
     />
   </section>
@@ -782,6 +883,11 @@ defineExpose({
 
 .ai-main > :deep(.workspace-chat) { flex: 1; }
 .ai-open-terminal { flex-shrink: 0; white-space: nowrap; }
+@container ai-sidebar (max-width: 700px) {
+  .terminal-linked-chat :deep(.ai-header) { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .terminal-linked-chat :deep(.ai-header-actions) { grid-column: 2; }
+  .ai-return-to-chat { grid-column: 3; grid-row: 1; }
+}
 @container ai-sidebar (max-width: 520px) {
   .ai-open-terminal span { display: none; }
 }

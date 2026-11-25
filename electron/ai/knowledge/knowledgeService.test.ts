@@ -299,3 +299,27 @@ it('keeps legacy text intact until an explicit linked-entry save and can restore
   expect(restored.document?.content).toBe(original)
   expect(restored.document?.memoryEntries).toBeUndefined()
 })
+
+it('supports one-shot write grants on read-only servers without changing persisted mode and builds save diffs', async () => {
+  await action({ action: 'setMode', connectionId: 'a', mode: 'readonly' })
+  const normal = service.access('session', 1)
+  expect(await normal.tools!()).toEqual(['knowledge_search', 'knowledge_read'])
+  const oneShot = service.access('session', 1, { allowReadonlyWrite: true })
+  expect(await oneShot.tools!()).toContain('knowledge_save')
+  expect(await oneShot.prompt()).toContain('temporarily writable for this turn only')
+  const createDiff = await oneShot.previewSave!({ connectionId: 'a', title: 'Nginx', content: 'Config: /etc/nginx/nginx.conf' })
+  expect(createDiff?.diff).toContain('+Config: /etc/nginx/nginx.conf')
+  const created = await oneShot.call('knowledge_save', { connectionId: 'a', title: 'Nginx', content: 'Config: /etc/nginx/nginx.conf', expectedRevision: 0 }, signal())
+  expect(created.isError).toBe(false)
+  expect(created.structuredContent).toMatchObject({ saved: true, created: true, previousRevision: 0, revision: 1, alwaysInclude: false })
+  const docId = (created.structuredContent as { documentId: string }).documentId
+  const updateDiff = await oneShot.previewSave!({ connectionId: 'a', documentId: docId, title: 'Nginx', content: 'Config: /etc/nginx/conf.d' })
+  expect(updateDiff?.diff).toContain('-Config: /etc/nginx/nginx.conf')
+  expect(updateDiff?.diff).toContain('+Config: /etc/nginx/conf.d')
+  const updated = await oneShot.call('knowledge_save', { connectionId: 'a', documentId: docId, title: 'Nginx', content: 'Config: /etc/nginx/conf.d', expectedRevision: 1 }, signal())
+  expect(updated.structuredContent).toMatchObject({ saved: true, created: false, previousRevision: 1, revision: 2 })
+  // Disabled server b remains blocked even under one-shot grant, and server a stays readonly afterward.
+  expect((await oneShot.call('knowledge_save', { connectionId: 'b', title: 'Blocked', content: 'nope', expectedRevision: 0 }, signal())).structuredContent).toMatchObject({ code: 'KNOWLEDGE_DISABLED' })
+  expect((await normal.manage({ action: 'overview' })).targets[0].mode).toBe('readonly')
+  expect((await normal.call('knowledge_save', { connectionId: 'a', title: 'Later', content: 'blocked', expectedRevision: 0 }, signal())).structuredContent).toMatchObject({ code: 'KNOWLEDGE_READ_ONLY' })
+})

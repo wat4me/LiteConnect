@@ -19,7 +19,7 @@ export function createAiExecutionService(settings: SettingsStore, runtime?: SshM
     },
     history: { read: readAiSessionStore, save: upsertAiHistoryRecord, checkpoint: writeAiContextCheckpoint, hydrate: hydrateAiImages },
     runtime,
-    knowledge: knowledge ? (sessionId, owner) => knowledge.access(sessionId, owner) : undefined,
+    knowledge: knowledge ? (sessionId, owner, options) => knowledge.access(sessionId, owner, options) : undefined,
     knowledgeGroups: knowledge ? input => knowledge.groups.manage(input) : undefined,
     groupKnowledge: knowledge ? (groupId, input) => knowledge.groupAccess(groupId).manage(input) : undefined,
     workspaceOwned: (id, owner) => {

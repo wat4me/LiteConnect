@@ -72,7 +72,7 @@ export function chatProcessLayout(source: ChatProcessSource): Map<number, ChatPr
     if (FAILED.has(state)) stats.failed++
     else if (BLOCKED.has(state)) stats.blocked++
     if (MODIFYING.has(run.risk || '') && PERFORMED.has(state)) stats.changes++
-    if (ACTION_REQUIRED.has(state)) group.pinnedRunIds.add(run.id)
+    if (ACTION_REQUIRED.has(state) || (run.name === 'knowledge_save' && !run.isError && state === 'completed')) group.pinnedRunIds.add(run.id)
   }
   if (group) {
     group.live = Boolean(source.streaming)

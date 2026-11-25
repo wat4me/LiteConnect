@@ -5,7 +5,7 @@ import { useAiClearConversation } from '@/composables/ai/useAiClearConversation'
 import { useAiSidebarSession } from '@/composables/ai/useAiSidebarSession'
 import { useAiMessageActions } from '@/composables/ai/useAiMessageActions'
 import { useAiSidebarModelMenu } from '@/composables/ai/useAiSidebarModelMenu'
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch } from 'vue'
+import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { AiToolRun } from '../../env.d.ts'
@@ -14,7 +14,9 @@ import { appConfirm } from '@/composables/app/useAppDialog'
 import {
   buildAiTerminalConfirmCopy,
   normalizeTerminalText,
+  terminalFillPayload,
 } from '@/utils/terminal/terminalPaste'
+import { synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import AppIcon from '../icons/AppIcon.vue'
 import AiImageStrip from './AiImageStrip.vue'
 import AiToolApprovals from './AiToolApprovals.vue'
@@ -27,6 +29,7 @@ import AiComposerSelector from './AiComposerSelector.vue'
 import AiContextMeter from './AiContextMeter.vue'
 import type { AiToolPermissionMode } from '@shared/aiToolPolicy'
 import AiChatView from './AiChatView.vue'
+import AiRecentConversations from './AiRecentConversations.vue'
 import AiExecutionHistory from './AiExecutionHistory.vue'
 import AiKnowledge from './AiKnowledge.vue'
 import { formatTokenCount, modelContextSource } from '@shared/aiContext'
@@ -42,9 +45,11 @@ import { threadTitleTooltip } from '@/utils/ai/threadTitle'
 import { sftpListedCwdState } from '@/utils/sftp/sftpListedCwd'
 
 const { t } = useI18n()
+const terminalRegistry = inject(synchronizedInputKey, null)
 
 const props = withDefaults(defineProps<{
   sessionId: string
+  terminalSessionId?: string | null
   workspace?: boolean
   disconnectAvailable?: boolean
   connectionBusy?: boolean
@@ -71,7 +76,11 @@ const emit = defineEmits<{
   (e: 'conversation-cleared'): void
 }>()
 
-const chat = useAiChat()
+const cwd = computed(() => {
+  const paths = sftpListedCwdState()
+  return paths[props.terminalSessionId || props.sessionId] || paths[props.sessionId]
+})
+const chat = useAiChat({ cwd: sessionId => sessionId === props.sessionId ? cwd.value : undefined })
 const {
   settings,
   refreshSettings,
@@ -96,11 +105,57 @@ const {
 } = chat
 
 const knowledgeRef = ref<InstanceType<typeof AiKnowledge> | null>(null)
+const undoneKnowledgeRuns = ref<Set<string>>(new Set())
+const undoingKnowledgeRuns = ref<Set<string>>(new Set())
+watch(() => props.sessionId, () => {
+  undoneKnowledgeRuns.value = new Set()
+  undoingKnowledgeRuns.value = new Set()
+})
 function openKnowledge(run: AiToolRun) {
   try {
     const result = JSON.parse(run.content)
     void knowledgeRef.value?.show(result.groupId ? knowledgeGroupConnectionId(result.groupId) : result.connectionId, result.documentId)
   } catch { void knowledgeRef.value?.show() }
+}
+async function undoKnowledge(run: AiToolRun) {
+  if (undoneKnowledgeRuns.value.has(run.id) || undoingKnowledgeRuns.value.has(run.id)) return
+  let parsed: { connectionId?: string; groupId?: string; documentId?: string; revision?: number; created?: boolean; previousRevision?: number }
+  try { parsed = JSON.parse(run.content) } catch { return }
+  if (!parsed.documentId || typeof parsed.revision !== 'number') return
+  const nextUndoing = new Set(undoingKnowledgeRuns.value)
+  nextUndoing.add(run.id)
+  undoingKnowledgeRuns.value = nextUndoing
+  try {
+    const overview = parsed.groupId
+      ? await window.LiteConnect.aiGroupKnowledge(parsed.groupId, { action: 'overview' })
+      : await window.LiteConnect.aiKnowledge(props.sessionId, { action: 'overview' })
+    const scope = parsed.groupId
+      ? overview.groups?.find(item => item.groupId === parsed.groupId)
+      : overview.targets.find(item => item.connectionId === parsed.connectionId)
+    if (!scope) throw new Error('KNOWLEDGE_NOT_FOUND')
+    const request = parsed.created
+      ? { action: 'delete' as const, connectionId: scope.connectionId, groupId: scope.groupId, binding: scope.binding, documentId: parsed.documentId, expectedRevision: parsed.revision }
+      : { action: 'restore' as const, connectionId: scope.connectionId, groupId: scope.groupId, binding: scope.binding, documentId: parsed.documentId, revision: parsed.previousRevision, expectedRevision: parsed.revision }
+    if (parsed.groupId) await window.LiteConnect.aiGroupKnowledge(parsed.groupId, request)
+    else await window.LiteConnect.aiKnowledge(props.sessionId, request)
+    const nextUndone = new Set(undoneKnowledgeRuns.value)
+    nextUndone.add(run.id)
+    undoneKnowledgeRuns.value = nextUndone
+    ElMessage.success(t('ai.knowledge.undone'))
+    void knowledgeRef.value?.refreshOverview()
+  } catch (error) {
+    const code = String(error instanceof Error ? error.message : error).match(/KNOWLEDGE_([A-Z_]+)/)?.[1]
+    if (code === 'CONFLICT' || code === 'NOT_FOUND') ElMessage.warning(t('ai.knowledge.undoConflict'))
+    else ElMessage.error(t('ai.knowledge.errors.UNAVAILABLE'))
+  } finally {
+    const cleared = new Set(undoingKnowledgeRuns.value)
+    cleared.delete(run.id)
+    undoingKnowledgeRuns.value = cleared
+  }
+}
+function triggerKnowledgePrompt(payload: { prompt: string; writeOnce: boolean }) {
+  if (!props.executionAvailable || !hasApiConfigured.value || loading.value || savingComposer.value || newConversationBusy.value || clearingConversation.value) return
+  void handleSendText(payload.prompt, undefined, payload.writeOnce ? { knowledgeWriteOnce: true } : undefined)
 }
 const compactionCount = computed(() => getSessionState(props.sessionId).compactionCount)
 const reminderKey = computed(() => `${props.sessionId}:${getSessionState(props.sessionId).activeThreadId}`)
@@ -122,7 +177,7 @@ const composerAreaRef = ref<HTMLElement | null>(null)
 const composerInputRef = ref<HTMLTextAreaElement | null>(null)
 const modelMenuId = useId()
 const { messages, input, loading, threadSummaries, syncMessages, syncFromState,
-  ensureInitialLoad, sendMessage, handleStop, onSettingsSaved,
+  ensureInitialLoad, handleSendText, sendMessage, handleStop, onSettingsSaved,
 } = useAiSidebarSession({
   chat, sessionId: () => props.sessionId, active: () => props.active,
   openGeneration: () => props.openGeneration, selectionRequest: () => props.selectionRequest,
@@ -240,7 +295,7 @@ async function savePermission(value: string) {
   finally { savingComposer.value = false }
 }
 const {
-  showHistory, historyQuery, historyItems, filteredHistoryItems, historyBusy,
+  showHistory, historyQuery, historyItems, filteredHistoryItems, historyBusy, recentConversations,
   openHistoryPanel, closeHistoryPanel, handleSwitchConversation,
   handleDeleteConversation, handleRenameConversation, handleTogglePin,
   handleClearAllHistory, formatHistoryTime,
@@ -249,6 +304,7 @@ const {
   threadSummaries,
   activeThreadId: () => getSessionState(props.sessionId).activeThreadId,
   loading,
+  recentVisible: () => props.active && !showSettings.value && !messages.value.length && getSessionState(props.sessionId).loaded,
   syncMessages,
   syncFromState,
   switchConversation,
@@ -351,7 +407,7 @@ const contextDroppedCount = computed(() => {
     toolGroups: toolGroups.value,
     toolPermission: settings.value.toolPermission,
     sessionId: props.sessionId,
-    cwd: sftpListedCwdState()[props.sessionId],
+    cwd: cwd.value,
     model: settings.value.activeModel || displayModelName.value,
     contextWindowTokens: activeContextWindowTokens.value,
   }).droppedCount
@@ -367,7 +423,7 @@ const contextPressure = computed(() => {
     translate: t,
     ...contextModelConfig.value, model: displayModelName.value, contextWindowTokens: activeContextWindowTokens.value,
     systemPrompt: settings.value.systemPrompt, messages: projected,
-    toolContext: toolContext.value, sessionId: props.sessionId, cwd: sftpListedCwdState()[props.sessionId],
+    toolContext: toolContext.value, sessionId: props.sessionId, cwd: cwd.value,
     toolGroups: toolGroups.value, toolPermission: settings.value.toolPermission,
   }).pressure
 })
@@ -497,30 +553,36 @@ async function confirmAiTerminalAction(action: 'fill' | 'run', code: string): Pr
   return text
 }
 
-async function fillCodeToTerminal(code: string) {
-  const sessionId = props.sessionId
-  const threadId = getSessionState(sessionId).activeThreadId
-  const text = await confirmAiTerminalAction('fill', code)
-  if (!text || sidebarDisposed || props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
-  try {
-    window.LiteConnect.sshWrite(sessionId, text)
-    ElMessage.success(t('ai.filledTerminal'))
-  } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.fillFailed'))
-  }
-}
+const terminalActionSessionId = computed(() => {
+  if (!props.active) return undefined
+  const id = !props.workspace && props.terminalSessionId === undefined ? props.sessionId : props.terminalSessionId
+  return id && (!terminalRegistry || terminalRegistry.available(id)) ? id : undefined
+})
+let terminalActionRevision = 0
+watch([terminalActionSessionId, reminderKey], () => { terminalActionRevision++ }, { flush: 'sync' })
 
-async function runCodeToTerminal(code: string) {
-  const sessionId = props.sessionId
-  const threadId = getSessionState(sessionId).activeThreadId
-  const text = await confirmAiTerminalAction('run', code)
-  if (!text || sidebarDisposed || props.sessionId !== sessionId || getSessionState(sessionId).activeThreadId !== threadId) return
-  const payload = text.endsWith('\n') ? text : `${text}\n`
+async function writeCodeToTerminal(action: 'fill' | 'run', code: string) {
+  const sessionId = terminalActionSessionId.value
+  if (!sessionId) return
+  const fillPayload = (text: string) => terminalFillPayload(text, terminalRegistry?.supportsBracketedPaste(sessionId) === true)
+  if (action === 'fill' && !fillPayload(code)) {
+    ElMessage.warning(t('ai.fillNeedsSafePaste'))
+    return
+  }
+  const revision = terminalActionRevision
+  const text = await confirmAiTerminalAction(action, code)
+  if (!text || sidebarDisposed || revision !== terminalActionRevision) return
+  const run = action === 'run'
+  const payload = run ? (text.endsWith('\n') ? text : `${text}\n`) : fillPayload(text)
+  if (!payload) {
+    ElMessage.warning(t('ai.fillNeedsSafePaste'))
+    return
+  }
   try {
     window.LiteConnect.sshWrite(sessionId, payload)
-    ElMessage.success(t('ai.sentTerminal'))
+    ElMessage.success(t(run ? 'ai.sentTerminal' : 'ai.filledTerminal'))
   } catch (err: any) {
-    ElMessage.warning(err?.message || t('ai.sendFailed'))
+    ElMessage.warning(err?.message || t(run ? 'ai.sendFailed' : 'ai.fillFailed'))
   }
 }
 
@@ -580,8 +642,11 @@ async function runCodeToTerminal(code: string) {
       <AiChatView
         @view-execution="openExecutionHistory"
         @view-knowledge="openKnowledge"
+        @undo-knowledge="undoKnowledge"
+        :undone-knowledge-runs="undoneKnowledgeRuns"
+        :undoing-knowledge-runs="undoingKnowledgeRuns"
         :conversation-key="reminderKey"
-        :terminal-actions="!workspace"
+        :terminal-actions="!!terminalActionSessionId"
         :workspace-host-count="workspaceTargets?.length"
         :workspace-targets="workspaceTargets"
         ref="chatViewRef"
@@ -590,14 +655,18 @@ async function runCodeToTerminal(code: string) {
         :loading="loading"
         :context-dropped-count="contextDroppedCount"
         @open-settings="openSettingsCta"
-        @fill-code="fillCodeToTerminal"
-        @run-code="runCodeToTerminal"
+        @fill-code="writeCodeToTerminal('fill', $event)"
+        @run-code="writeCodeToTerminal('run', $event)"
         @regenerate="handleRegenerate"
         @retry="handleRetry"
         @edit-resend="handleEditResend"
         @delete-message="handleDeleteMessage"
         @use-example="(text) => { input = text }"
-      />
+      >
+        <template #empty-extra>
+          <AiRecentConversations :items="recentConversations" :disabled="historyBusy || loading || connectionBusy" @select="handleSwitchConversation" />
+        </template>
+      </AiChatView>
     </div>
 
     <AiToolApprovals v-if="!showSettings && !showHistory" :key="sessionId" :session-id="sessionId" :runs="pendingApprovals" />
@@ -614,7 +683,15 @@ async function runCodeToTerminal(code: string) {
       </div>
       <div class="composer-context-files">
         <div class="composer-context-strip">
-          <AiKnowledge ref="knowledgeRef" :session-id="sessionId" :active="active" :busy="loading" />
+          <AiKnowledge
+            ref="knowledgeRef"
+            :session-id="sessionId"
+            :active="active"
+            :busy="loading"
+            :can-prompt="executionAvailable && hasApiConfigured && !loading && !savingComposer && !newConversationBusy && !clearingConversation"
+            :has-messages="messages.length > 0"
+            @trigger-prompt="triggerKnowledgePrompt"
+          />
         </div>
       </div>
       <AiImageStrip v-if="draftImages.length" class="composer-images" :images="draftImages" removable :disabled="loading || imageBusy" @remove="draftImages.splice($event, 1)" />

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, inject, nextTick, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
 import SynchronizedInputBar from '@/components/terminal/SynchronizedInputBar.vue'
 import { createSynchronizedInput, synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useI18n } from 'vue-i18n'
 import WorkspaceDock from '@/components/workspace/WorkspaceDock.vue'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import { WORKSPACE_TOOLS, type SshWorkspaceLayout, type WorkspaceTool } from '@shared/workspaceLayout'
-const synchronizedInput = createSynchronizedInput()
+const synchronizedInput = inject(synchronizedInputKey, null) ?? createSynchronizedInput()
 provide(synchronizedInputKey, synchronizedInput)
 import { useAiBackgroundJobs } from '@/composables/ai/useAiBackgroundJobs'
 import TerminalWorkspace from '@/components/terminal/TerminalWorkspace.vue'
@@ -60,6 +60,8 @@ const props = withDefaults(defineProps<{
   showAiApproval?: boolean
 
   aiSidebarVisible: boolean
+  hasLinkedAiView?: boolean
+  linkedAiSessionId?: string
   sidebarVisible: boolean
   sidebarSessionId: string | null
   aiSelectionRequest: {
@@ -99,7 +101,8 @@ const props = withDefaults(defineProps<{
   disconnectedSessionIds?: Set<string>
 }>(), { active: true, monitorEnabled: true })
 
-const { runningCount: aiBackgroundTaskCount, scheduledCount: aiScheduledTaskCount } = useAiBackgroundJobs(() => props.activeSessionId)
+const visibleAiSessionId = computed(() => props.hasLinkedAiView ? props.linkedAiSessionId ?? null : props.activeSessionId)
+const { runningCount: aiBackgroundTaskCount, scheduledCount: aiScheduledTaskCount } = useAiBackgroundJobs(() => visibleAiSessionId.value)
 watch(() => props.dockerMode, (active) => { if (active) synchronizedInput.stop() })
 
 const emit = defineEmits<{
@@ -169,7 +172,7 @@ const aiFreshOpenTokens = reactive<Record<string, number>>({})
 let aiFreshOpenCounter = 0
 const dockerCacheSessionIds = reactive(new Map<string, string>())
 const aiOnlySessions = reactive(new Set<string>())
-const aiOnly = computed(() => !props.dockerMode && props.aiSidebarVisible && !!props.activeSession && aiOnlySessions.has(props.activeSession.id))
+const aiOnly = computed(() => !props.hasLinkedAiView && !props.dockerMode && props.aiSidebarVisible && !!props.activeSession && aiOnlySessions.has(props.activeSession.id))
 const terminalVisible = computed(() => !props.dockerMode && !aiOnly.value)
 
 function toggleTerminalVisibility(sessionId: string) {
@@ -208,13 +211,13 @@ watch(
 )
 
 watch(
-  [() => props.aiSidebarVisible, () => props.activeSession?.id],
-  ([visible, sessionId], [wasVisible]) => {
-    if (!visible || !sessionId) return
+  [() => props.aiSidebarVisible, () => props.activeSession?.id, () => props.hasLinkedAiView],
+  ([visible, sessionId, linked], [wasVisible, , wasLinked]) => {
+    if (!visible || !sessionId || linked) return
     rememberWorkspace('ai', sessionId as string)
     // Track explicit panel opens for context-file status refresh. Opening the
     // panel resumes the session's current conversation, including after tab switches.
-    if (!wasVisible) {
+    if (!wasVisible || wasLinked) {
       aiFreshOpenTokens[sessionId as string] = ++aiFreshOpenCounter
     }
   },
@@ -260,15 +263,16 @@ const approvalHint = computed(() => {
   const set = props.aiApprovalSessions
   if (!set || set.size === 0) return null
   const hidden: string[] = []
+  const currentAiId = visibleAiSessionId.value
   for (const id of set) {
-    if (!(id === props.activeSessionId && props.aiSidebarVisible)) hidden.push(id)
+    if (!(id === currentAiId && props.aiSidebarVisible)) hidden.push(id)
   }
   if (!hidden.length) return null
   const sessionId = hidden[0]
   const session = props.allSessions.find((item) => item.id === sessionId)
   return {
     sessionId,
-    current: sessionId === props.activeSessionId || !session,
+    current: sessionId === currentAiId || !session,
     name: session?.connectionName || '',
     extra: hidden.length - 1,
   }
@@ -384,7 +388,7 @@ function toggleTool(id: WorkspaceTool) {
 
 <template>
   <div ref="workspaceRoot" class="workspace-content">
-    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :split-mode="isSplit ? splitMode : 'none'" :focused-panel="aiOnly ? 'ai' : undefined"
+    <WorkspaceDock :layout="layout" :ready="layoutReady" :error="layoutError" :saving="layoutSaving" :active="activeTools" :available="availableTools" :toolbar="toolbar" :split-mode="isSplit ? splitMode : 'none'" :focused-panel="aiOnly ? 'ai' : undefined" :ai-alongside-terminal="hasLinkedAiView"
       @toggle="toggleTool" @change="emit('layout-change', $event)" @retry="emit('layout-retry')" @single-panel-mode="emit('single-panel-mode', $event)">
       <template #center>
         <div class="workspace-main">
@@ -475,14 +479,18 @@ function toggleTool(id: WorkspaceTool) {
         </div>
       </template>
       <template #ai>
+      <div v-show="hasLinkedAiView" class="ssh-linked-ai">
+        <slot name="linked-ai" />
+      </div>
       <AiSidebar
         v-for="sessionId in workspaceCacheKeys.ai"
-        v-show="activeSession?.id === sessionId"
+        v-show="!hasLinkedAiView && activeSession?.id === sessionId"
         :key="sessionId"
         :session-id="sessionId"
-        :active="activeSession?.id === sessionId && activeTools.ai"
+        :terminal-session-id="disconnectedSessionIds?.has(sessionId) ? null : sessionId"
+        :active="!hasLinkedAiView && activeSession?.id === sessionId && activeTools.ai"
         :task-float-target="workspaceRoot"
-        :task-float-active="active && !dockerMode && activeSession?.id === sessionId"
+        :task-float-active="active && !hasLinkedAiView && !dockerMode && activeSession?.id === sessionId"
         :open-generation="aiFreshOpenTokens[sessionId] || 0"
         :selection-request="activeSession?.id === sessionId ? aiSelectionRequest : null"
         :class="{ 'ssh-split-ai': isSplit }"
@@ -492,13 +500,14 @@ function toggleTool(id: WorkspaceTool) {
         <template #header-leading>
           <button
             type="button"
-            class="ui-btn ui-btn-sm ssh-ai-terminal-toggle"
+            class="ssh-ai-terminal-toggle"
+            :class="aiOnly ? 'ui-btn ui-btn-sm' : 'ui-icon-btn ui-icon-btn-sm'"
             :title="t(aiOnly ? 'toolbar.showTerminal' : 'toolbar.showOnlyAi')"
             :aria-label="t(aiOnly ? 'toolbar.showTerminal' : 'toolbar.showOnlyAi')"
             @click="toggleTerminalVisibility(sessionId)"
           >
             <AppIcon :name="aiOnly ? 'terminal' : 'maximize'" size="sm" />
-            <span>{{ t(aiOnly ? 'toolbar.showTerminal' : 'toolbar.showOnlyAi') }}</span>
+            <span v-if="aiOnly">{{ t('toolbar.showTerminal') }}</span>
           </button>
         </template>
         <template v-if="isSplit" #header-trailing>
@@ -583,6 +592,7 @@ function toggleTool(id: WorkspaceTool) {
 }
 
 .ssh-split-ai :deep(.ai-header) { flex-wrap: wrap; }
+.ssh-linked-ai, .ssh-linked-ai :deep(.ssh-linked-ai-host) { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .ssh-ai-terminal-toggle { flex-shrink: 0; white-space: nowrap; }
 @container ai-sidebar (max-width: 320px) {
   .ssh-ai-terminal-toggle span { display: none; }

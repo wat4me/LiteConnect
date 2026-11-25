@@ -17,6 +17,11 @@ export type { Session, ConnectionGroup }
 
 export const HOME_ID = '__home__'
 
+interface SessionOpenOptions {
+  activateWorkspace?: boolean
+  preserveActiveSession?: boolean
+}
+
 export interface SidebarDeps {
   sidebarVisible: Ref<boolean>
   aiSidebarVisible: Ref<boolean>
@@ -236,6 +241,12 @@ export function useSessionManager(deps: {
     () => schedulePersistWorkspace(),
   )
 
+  watch(() => Object.values(connectionStages.value).includes('x11'), (waiting, _previous, onCleanup) => {
+    if (!waiting) return
+    const message = ElMessage.info({ message: t('connections.stageX11Notice'), duration: 0, showClose: true })
+    onCleanup(() => message.close())
+  })
+
   function onWorkspaceRestoreSetting(e: AppEvent<'workspace-restore-settings-change'>) {
     const enabled = e.detail?.enabled === true
     if (enabled) void persistWorkspaceTabs()
@@ -270,7 +281,7 @@ export function useSessionManager(deps: {
 
   async function createSession(
     connectionId: string,
-    options: { activateWorkspace?: boolean } = {},
+    options: SessionOpenOptions = {},
   ): Promise<string | null> {
     const activateWorkspace = options.activateWorkspace !== false
     const prev = connectTail.get(connectionId) ?? Promise.resolve()
@@ -301,7 +312,7 @@ export function useSessionManager(deps: {
       // Defensive: skip if this session id is already listed (should not happen after
       // main-process stopped sharing in-flight connect promises).
       if (group?.sessions.some((s) => s.id === sessionId)) {
-        group.activeSessionId = sessionId
+        if (!options.preserveActiveSession || !group.activeSessionId) group.activeSessionId = sessionId
         if (activateWorkspace) activeGroupId.value = connectionId
         return sessionId
       }
@@ -316,7 +327,7 @@ export function useSessionManager(deps: {
       if (group) {
         session.tabNumber = group.nextTabNumber++
         group.sessions.push(session)
-        group.activeSessionId = sessionId
+        if (!options.preserveActiveSession || !group.activeSessionId) group.activeSessionId = sessionId
       } else {
         session.tabNumber = 1
         group = {
@@ -382,17 +393,17 @@ export function useSessionManager(deps: {
     }
   }
 
-  function connectFromEntry(connectionId: string) {
+  function connectFromEntry(connectionId: string, options?: SessionOpenOptions) {
     if (connectionStages.value[connectionId] === 'host-key') return Promise.resolve(null)
     return entryAttemptGate.run(
       connectionId,
-      () => createSession(connectionId),
+      () => createSession(connectionId, options),
       setConnectionPending,
     )
   }
 
-  function onConnect(connectionId: string) {
-    return connectFromEntry(connectionId)
+  function onConnect(connectionId: string, options?: SessionOpenOptions) {
+    return connectFromEntry(connectionId, options)
   }
   async function cancelConnection(connectionId: string) {
     try { await window.LiteConnect.sshCancelConnect(connectionId) }
@@ -527,7 +538,7 @@ export function useSessionManager(deps: {
    * Attach a main-process session that already exists (e.g. after Host Key confirm
    * on first connect). Avoids orphan sessions that never get a TerminalTab.
    */
-  async function adoptSession(connectionId: string, sessionId: string) {
+  async function adoptSession(connectionId: string, sessionId: string, options: SessionOpenOptions = {}) {
     if (!sessionId || hasOpenSession(sessionId)) return
 
     let conn = connections.value.find((c) => c.id === connectionId)
@@ -551,7 +562,7 @@ export function useSessionManager(deps: {
     if (group) {
       session.tabNumber = group.nextTabNumber++
       group.sessions.push(session)
-      group.activeSessionId = sessionId
+      if (!options.preserveActiveSession || !group.activeSessionId) group.activeSessionId = sessionId
     } else {
       session.tabNumber = 1
       group = {
@@ -564,11 +575,13 @@ export function useSessionManager(deps: {
       groups.value.push(group)
     }
 
-    activeGroupId.value = connectionId
-    const sb = requireSidebar()
-    sb.setSidebarTarget(connectionId, sessionId)
-    sb.aiSidebarVisible.value = false
-    sb.sidebarVisible.value = true
+    if (options.activateWorkspace !== false) {
+      activeGroupId.value = connectionId
+      const sb = requireSidebar()
+      sb.setSidebarTarget(connectionId, sessionId)
+      sb.aiSidebarVisible.value = false
+      sb.sidebarVisible.value = true
+    }
     await window.LiteConnect.recordRecentConnection(connectionId)
     await loadRecentConnections()
   }

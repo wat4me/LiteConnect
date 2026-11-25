@@ -24,6 +24,7 @@ export function getAiSessionState(sessionId: string): AiSessionState {
       input: '',
       loading: false,
       persisting: false,
+      threadChangePending: false,
       activeThreadId: '',
       threads: reactive([]) as AiThreadSummary[],
       activeRequestId: null,

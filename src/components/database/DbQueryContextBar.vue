@@ -666,7 +666,7 @@ defineExpose({
   align-items: center;
   justify-content: center;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-foreground);
   border-radius: 10px;
   font-size: 9px;
   line-height: 1;

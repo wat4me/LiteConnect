@@ -26,9 +26,21 @@ beforeEach(() => {
 })
 function setup() {
   const scope = new ServiceIpcScope()
-  registerAiHandlers(settings, { knowledgeAccess: mocks.access, knowledgeGroups: mocks.groups, groupKnowledge: mocks.groupKnowledge } as unknown as AiExecutionService, () => 'host-history', scope)
+  registerAiHandlers(settings, { knowledgeAccess: mocks.access, knowledgeGroups: mocks.groups, groupKnowledge: mocks.groupKnowledge } as unknown as AiExecutionService,
+    id => id.startsWith('draft:') ? undefined : 'host-history', scope)
   return scope
 }
+it('manages and exports knowledge from a draft before an SSH history exists', async () => {
+  setup()
+  const draft = 'draft:server-a'
+  const change = { action: 'setMode', connectionId: 'server-a', binding: 'profile-a', mode: 'readonly' }
+  await handler('knowledge')(event, draft, { action: 'overview' })
+  await handler('knowledge')(event, draft, change)
+  expect(await handler('exportKnowledge')(event, draft, 'server-a', 'doc')).toBe(true)
+  expect(mocks.access).toHaveBeenCalledWith(draft, 7)
+  expect(mocks.manage.mock.calls).toEqual([[{ action: 'overview' }], [change], [{ action: 'read', connectionId: 'server-a', documentId: 'doc' }]])
+  await expect(handler('getSessionStore')(event, draft)).rejects.toThrow('SSH host is unavailable')
+})
 it('validates window ownership before exposing a workspace knowledge scope', async () => {
   setup()
   await handler('knowledge')(event, 'workspace:one', { action: 'overview' })

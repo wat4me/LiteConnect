@@ -45,7 +45,7 @@ export function useSecurityDialogs(deps: {
     showNext()
   }
 
-  async function handleHostKeyAccept() {
+  async function handleHostKeyAccept(adoptSession = deps.adoptSession) {
     if (!hostKeyMismatchData.value) return
     const connectionId = hostKeyMismatchData.value.connectionId
     const purpose = hostKeyMismatchData.value.purpose
@@ -58,7 +58,7 @@ export function useSecurityDialogs(deps: {
       // Reconnect path: TerminalTab already mounted under sessionId (reconnected event clears UI).
       // First-connect path: no tab yet — adopt so we do not leave an orphan main-process session.
       if (sessionId && !deps.hasOpenSession?.(sessionId)) {
-        await deps.adoptSession?.(connectionId, sessionId)
+        await adoptSession?.(connectionId, sessionId)
       }
     } catch (err: any) {
       if (isSshHostKeyConfirmationRequired(err) || isSshConnectionCancelled(err)) return

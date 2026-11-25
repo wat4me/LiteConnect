@@ -3,9 +3,11 @@ import { isAppLocale, isLocalePreference } from '../../shared/appLocale'
 import { normalizeWorkspaceLayout } from '../../shared/workspaceLayout'
 import { normalizeConnectionSortMode } from '../../shared/connectionSort'
 import { normalizeUiDensity } from '../../shared/uiDensity'
+import { TERMINAL_PALETTES, isAppTheme } from '../../shared/appTheme'
 import { sanitizeDbOpenMode } from '../../shared/dbOpenMode'
 import { DEFAULT_GLOBAL_HOTKEY, normalizeGlobalHotkey } from '../../shared/globalHotkey'
 import { normalizeShellHistoryExcludePatterns } from '../../shared/shellHistoryPrivacy'
+import { sanitizeTerminalHighlightRules } from '../../shared/terminalHighlight'
 import { sanitizeTerminalPasteConfirmMaxChars } from './pasteConfirmMaxChars'
 import { sanitizeSftpFontSize } from '../../shared/sftpFontSize'
 import {
@@ -26,7 +28,7 @@ export function applySettingsPatch(
   current: CurrentSettings,
 ): void {
   if (patch.sshWorkspaceLayout !== undefined) settings.sshWorkspaceLayout = normalizeWorkspaceLayout(patch.sshWorkspaceLayout)
-  if (patch.theme !== undefined) settings.theme = patch.theme
+  if (isAppTheme(patch.theme)) settings.theme = patch.theme
   if (patch.uiDensity !== undefined) settings.uiDensity = normalizeUiDensity(patch.uiDensity)
   if (patch.uiFontSize !== undefined) settings.uiFontSize = normalizeUiDensity(patch.uiFontSize)
   if (patch.customColors !== undefined) settings.customColors = patch.customColors
@@ -40,10 +42,7 @@ export function applySettingsPatch(
         ? patch.terminalFontFamily.trim()
         : 'Cascadia Code, Fira Code, Consolas, Courier New, monospace'
   }
-  if (patch.terminalPalette !== undefined) {
-    const allowed = ['auto', 'dark', 'light', 'eyecare', 'dracula', 'solarized-dark', 'solarized-light', 'monokai']
-    if (allowed.includes(patch.terminalPalette)) settings.terminalPalette = patch.terminalPalette
-  }
+  if (TERMINAL_PALETTES.some(id => id === patch.terminalPalette)) settings.terminalPalette = patch.terminalPalette
   if (patch.terminalScrollback !== undefined) {
     settings.terminalScrollback = Math.max(2000, Math.min(20000, Math.round(patch.terminalScrollback)))
   }
@@ -58,6 +57,12 @@ export function applySettingsPatch(
   }
   if (patch.terminalLocalEchoEnabled !== undefined) {
     settings.terminalLocalEchoEnabled = !!patch.terminalLocalEchoEnabled
+  }
+  if (patch.terminalHighlightEnabled !== undefined) {
+    settings.terminalHighlightEnabled = !!patch.terminalHighlightEnabled
+  }
+  if (patch.terminalHighlightRules !== undefined) {
+    settings.terminalHighlightRules = sanitizeTerminalHighlightRules(patch.terminalHighlightRules)
   }
   if (patch.terminalCommandHistoryExcludePatterns !== undefined) {
     settings.terminalCommandHistoryExcludePatterns = normalizeShellHistoryExcludePatterns(

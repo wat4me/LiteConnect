@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import type { AiSaveConversationPayload, AiSaveConversationResult, AiSessionStore } from '@shared/types/ai'
+import type { AiChatStreamPayload, AiSaveConversationPayload, AiSaveConversationResult, AiSessionStore } from '@shared/types/ai'
 import { disposeAiSessionState, useAiChat } from './useAiChat'
 
 vi.mock('../../i18n', () => ({ t: (key: string) => key }))
@@ -11,7 +11,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function setup() {
+function setup(options?: Parameters<typeof useAiChat>[0]) {
   let store: AiSessionStore = {
     version: 1, activeThreadId: 'old', defaultContextFiles: [],
     threads: [{ id: 'old', title: 'old conversation', createdAt: 1, updatedAt: 1, contextFiles: [],
@@ -28,6 +28,7 @@ function setup() {
     return clone(store)
   })
   const stream = vi.fn(async () => ({ content: 'new reply' }))
+  let listener: ((payload: AiChatStreamPayload) => void) | undefined
   const append = vi.fn(async () => {})
   const summary = (): AiSaveConversationResult => ({
     activeThreadId: store.activeThreadId, defaultContextFiles: store.defaultContextFiles,
@@ -57,10 +58,51 @@ function setup() {
     setAiSessionStore: async (_id: string, value: AiSessionStore) => { store = clone(value) },
     aiSaveConversation: save,
     appendAiSessionHistory: append,
-    onAiChatStream: () => () => {}, aiChatStream: stream,
+    onAiChatStream: (_id: string, callback: (payload: AiChatStreamPayload) => void) => {
+      listener = callback
+      return () => { listener = undefined }
+    }, aiChatStream: stream,
   } })
-  return { create, stream, append, store: () => store, chat: useAiChat() }
+  return { create, save, stream, append, store: () => store, chat: useAiChat(options),
+    emit: (payload: AiChatStreamPayload) => listener?.(payload) }
 }
+
+it.each(['finish', 'error'] as const)('batches adjacent text and preserves ordered output through %s', async outcome => {
+  const { chat, stream, emit } = setup()
+  let finish!: (value: { content: string }) => void
+  let fail!: (error: Error) => void
+  stream.mockReturnValueOnce(new Promise((resolve, reject) => { finish = resolve; fail = reject }))
+  const sending = chat.sendText('lifecycle-a', 'check disk space', () => {})
+  await vi.waitFor(() => expect(stream).toHaveBeenCalledOnce())
+  const reply = chat.getSessionState('lifecycle-a').messages.at(-1)!
+  emit({ type: 'reasoning', value: 'Still ' })
+  emit({ type: 'reasoning', value: 'checking.' })
+  expect(reply.reasoningContent).toBeUndefined()
+  await vi.waitFor(() => expect(reply.reasoningContent).toBe('Still checking.'))
+  emit({ type: 'content', value: 'Disk ' })
+  emit({ type: 'content', value: 'space.' })
+  emit({ type: 'tool', value: { id: 'fixture-tool', name: 'fixture', phase: 'done' } })
+  expect(reply.content).toBe('Disk space.')
+  emit({ type: 'content', value: ' Done.' })
+  if (outcome === 'finish') finish({ content: '' })
+  else fail(new Error('test disconnect'))
+  await sending
+  expect(reply.segments).toEqual([
+    { kind: 'reasoning', text: 'Still checking.' },
+    { kind: 'content', text: 'Disk space.' },
+    { kind: 'tool', runId: 'fixture-tool' },
+    { kind: 'content', text: ' Done.' },
+  ])
+  expect(reply.streaming).toBe(false)
+})
+
+it('captures the paired terminal directory at submission while keeping the AI session as the target', async () => {
+  let directory = '/srv/app'
+  const { chat, stream, append } = setup({ cwd: () => directory })
+  append.mockImplementationOnce(async () => { directory = '/home/ops' })
+  expect(await chat.sendText('lifecycle-a', 'check disk space', () => {})).toBe(true)
+  expect(stream).toHaveBeenCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ sessionId: 'lifecycle-a', cwd: '/srv/app' }))
+})
 
 it('starts each SSH window blank, initializes once and retains shared host history', async () => {
   const { chat, create, store } = setup()
@@ -94,6 +136,24 @@ it('keeps an existing window on its selected conversation when host history poin
   expect(store().activeThreadId).not.toBe('old')
   expect((await chat.loadHistory('lifecycle-a')).map(message => message.content)).toEqual(['old question'])
   expect(chat.getSessionState('lifecycle-a').activeThreadId).toBe('old')
+})
+
+it('marks a thread switch pending until its storage request completes', async () => {
+  const { chat, save } = setup()
+  await chat.loadHistory('lifecycle-a')
+  const state = chat.getSessionState('lifecycle-a')
+  const original = state.activeThreadId
+  let rejectSave!: (error: Error) => void
+  save.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectSave = reject }))
+  const switching = chat.switchConversation('lifecycle-a', 'old', () => {})
+  expect(state.threadChangePending).toBe(true)
+  expect(state.activeThreadId).toBe(original)
+  rejectSave(new Error('store unavailable'))
+  expect(await switching).toBe(false)
+  expect(state.threadChangePending).toBe(false)
+  expect(state.activeThreadId).toBe(original)
+  expect(await chat.switchConversation('lifecycle-a', 'old', () => {})).toBe(true)
+  expect(state.activeThreadId).toBe('old')
 })
 
 it('initializes a fresh thread before sending without a mounted sidebar', async () => {

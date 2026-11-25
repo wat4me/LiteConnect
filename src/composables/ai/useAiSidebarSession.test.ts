@@ -122,6 +122,19 @@ it('does not apply selection text when its host changes while history loads', as
   expect(f.api.input.value).toBe('draft-b')
 })
 
+it.each(['insert', 'send'] as const)('preserves the draft with a terminal selection in %s mode', async mode => {
+  const f = setup()
+  f.selection.value = { id: 1, sessionId: 'a', text: 'terminal output', mode }
+  await vi.waitFor(() => expect(f.consumed).toHaveBeenCalledExactlyOnceWith(1))
+  if (mode === 'insert') {
+    expect(f.api.input.value).toBe('draft-a\nterminal output')
+    expect(f.chat.sendText).not.toHaveBeenCalled()
+  } else {
+    await vi.waitFor(() => expect(f.chat.sendText).toHaveBeenCalledWith('a', 'terminal output', expect.any(Function), undefined, undefined))
+    expect(f.api.input.value).toBe('draft-a')
+  }
+})
+
 it('does not update UI settings after disposal and retries a failed history load', async () => {
   const f = setup()
   f.chat.loadHistory.mockRejectedValueOnce(new Error('temporary history failure'))
@@ -160,7 +173,7 @@ it('initializes the first thread before clearing its draft and restores a failed
   })
   f.chat.sendText.mockResolvedValueOnce(false)
   await f.api.sendMessage()
-  expect(f.chat.sendText).toHaveBeenCalledExactlyOnceWith('a', 'draft-a', expect.any(Function), [])
+  expect(f.chat.sendText).toHaveBeenCalledExactlyOnceWith('a', 'draft-a', expect.any(Function), [], undefined)
   expect(f.api.input.value).toBe('draft-a')
   expect(f.api.loading.value).toBe(false)
 })

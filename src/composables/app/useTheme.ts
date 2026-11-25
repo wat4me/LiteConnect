@@ -1,7 +1,9 @@
 import { computed, ref } from 'vue'
 import { t } from '@/i18n'
+import { APP_THEME_PRESETS, TERMINAL_PALETTES, isAppTheme, type AppTheme, type PresetAppTheme, type TerminalPaletteId } from '@shared/appTheme'
 
-export type Theme = 'dark' | 'light' | 'eyecare' | 'custom'
+export type Theme = AppTheme
+export type { TerminalPaletteId }
 
 export interface CustomColors {
   fontColor: string
@@ -11,7 +13,7 @@ export interface CustomColors {
 const THEME_KEY = 'liteconnect-theme'
 const CUSTOM_COLORS_KEY = 'liteconnect-custom-colors'
 
-const themeOrder: Theme[] = ['dark', 'light', 'eyecare', 'custom']
+const themeOrder = [...APP_THEME_PRESETS, 'custom'] as const
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '')
@@ -62,6 +64,7 @@ const CUSTOM_CSS_VARS = [
   '--accent-bg', '--danger', '--success', '--warning',
   '--scrollbar-thumb', '--scrollbar-thumb-hover', '--overlay-bg',
   '--hover-bg', '--selection-bg', '--titlebar-bg', '--titlebar-symbol',
+  '--small-text-adjustment',
 ]
 
 function clearCustomVars() {
@@ -97,6 +100,7 @@ export function customThemeVariables(colors: CustomColors): Record<string, strin
     '--selection-bg': `color-mix(in srgb, var(--accent) ${isDark ? 30 : 20}%, transparent)`,
     '--titlebar-bg': chrome,
     '--titlebar-symbol': mixColors(fontColor, bgColor, 0.5),
+    '--small-text-adjustment': isDark ? '1px' : '0px',
   }
 }
 
@@ -112,16 +116,16 @@ function applyCustomColors(colors: CustomColors) {
   } catch {}
 }
 
-function applyPresetTheme(t: 'dark' | 'light' | 'eyecare') {
+function applyPresetTheme(t: PresetAppTheme) {
   clearCustomVars()
   document.documentElement.setAttribute('data-theme', t)
-  localStorage.setItem(THEME_KEY, t)
   try {
     window.LiteConnect?.updateTitleBar(t)
   } catch {}
 }
 
-const currentTheme = ref<Theme>((localStorage.getItem(THEME_KEY) as Theme) || 'dark')
+const storedTheme = localStorage.getItem(THEME_KEY)
+const currentTheme = ref<Theme>(isAppTheme(storedTheme) ? storedTheme : 'dark')
 const customColors = ref<CustomColors>(loadCustomColors())
 
 function applyTheme(t: Theme) {
@@ -143,23 +147,14 @@ function setCustomColors(colors: CustomColors) {
   }
 }
 
-if (currentTheme.value === 'custom') {
-  applyCustomColors(customColors.value)
-} else {
-  applyPresetTheme(currentTheme.value as 'dark' | 'light' | 'eyecare')
-}
+applyTheme(currentTheme.value)
 
 export function useTheme() {
   function setTheme(next: Theme) {
     applyTheme(next)
   }
 
-  const themeLabels = computed<Record<Theme, string>>(() => ({
-    dark: t('theme.dark'),
-    light: t('theme.light'),
-    eyecare: t('theme.eyecare'),
-    custom: t('theme.custom'),
-  }))
+  const themeLabels = computed(() => Object.fromEntries(themeOrder.map(id => [id, t(`theme.${id}`)])) as Record<Theme, string>)
 
   return {
     theme: currentTheme,
@@ -171,26 +166,7 @@ export function useTheme() {
   }
 }
 
-export type TerminalPaletteId =
-  | 'auto'
-  | 'dark'
-  | 'light'
-  | 'eyecare'
-  | 'dracula'
-  | 'solarized-dark'
-  | 'solarized-light'
-  | 'monokai'
-
-export const terminalPaletteOrder: TerminalPaletteId[] = [
-  'auto',
-  'dark',
-  'light',
-  'eyecare',
-  'dracula',
-  'solarized-dark',
-  'solarized-light',
-  'monokai',
-]
+export const terminalPaletteOrder = TERMINAL_PALETTES
 
 export const terminalPaletteLabels: Record<TerminalPaletteId, string> = new Proxy(
   {
@@ -198,6 +174,8 @@ export const terminalPaletteLabels: Record<TerminalPaletteId, string> = new Prox
     dark: 'Clay Dark',
     light: 'Clay Light',
     eyecare: '',
+    nord: 'Nord',
+    'catppuccin-mocha': 'Catppuccin Mocha',
     dracula: 'Dracula',
     'solarized-dark': 'Solarized Dark',
     'solarized-light': 'Solarized Light',
@@ -321,7 +299,7 @@ export function pickInstalledFontFamily(preferred?: string | null): string {
   return system?.value || installed[0].value
 }
 
-const presetPalettes: Record<string, Record<string, string>> = {
+const presetPalettes: Record<Exclude<TerminalPaletteId, 'auto'>, Record<string, string>> = {
   dark: {
     background: '#262624',
     foreground: '#e8e5dc',
@@ -387,6 +365,22 @@ const presetPalettes: Record<string, Record<string, string>> = {
     brightMagenta: '#9c6a9c',
     brightCyan: '#6aaeae',
     brightWhite: '#3d3630',
+  },
+  nord: {
+    background: '#2e3440', foreground: '#eceff4', cursor: '#88c0d0',
+    selectionBackground: 'rgba(129,161,193,0.35)',
+    black: '#3b4252', red: '#bf616a', green: '#a3be8c', yellow: '#ebcb8b',
+    blue: '#81a1c1', magenta: '#b48ead', cyan: '#88c0d0', white: '#e5e9f0',
+    brightBlack: '#76839b', brightRed: '#e08791', brightGreen: '#b7d2a1', brightYellow: '#f3daaa',
+    brightBlue: '#9db9d9', brightMagenta: '#cea9c7', brightCyan: '#8fbcbb', brightWhite: '#eceff4',
+  },
+  'catppuccin-mocha': {
+    background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#f5e0dc',
+    selectionBackground: 'rgba(166,173,200,0.35)',
+    black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#f9e2af',
+    blue: '#89b4fa', magenta: '#f5c2e7', cyan: '#94e2d5', white: '#bac2de',
+    brightBlack: '#7f849c', brightRed: '#f38ba8', brightGreen: '#a6e3a1', brightYellow: '#f9e2af',
+    brightBlue: '#89b4fa', brightMagenta: '#cba6f7', brightCyan: '#89dceb', brightWhite: '#cdd6f4',
   },
   dracula: {
     background: '#282a36',
@@ -494,7 +488,7 @@ export function getTerminalColors(
       foreground: colors.fontColor,
     }
   }
-  return { ...(presetPalettes[t] || presetPalettes.dark) }
+  return { ...presetPalettes[t === 'custom' ? 'dark' : t] }
 }
 
 /** Protect colored text on colored backgrounds (for example ls 34;42) in light palettes. */

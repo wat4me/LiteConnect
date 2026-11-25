@@ -13,6 +13,7 @@ import {
   normalizeAiContextFile,
   pruneAllAiHistoryStores,
   previewAiHistoryPrune,
+  readAiConversationSummaries,
   readAiSessionStoreAndGc,
   saveAiConversation,
   updateAiConversationMetadata,
@@ -69,6 +70,12 @@ export function registerAiHandlers(
     return historyId
   }
 
+  const knowledgeAccessForView = (sessionId: string, ownerId: number) => {
+    // Draft knowledge is scoped to saved profiles before an SSH session exists.
+    if (typeof sessionId !== 'string' || !sessionId.startsWith('draft:')) historyIdForSession(sessionId, ownerId)
+    return execution.knowledgeAccess(sessionId, ownerId)
+  }
+
   scope.handle('ai:knowledgeGroups', async (_event, input: KnowledgeGroupRequest) => {
     await ensureSettingsReady()
     return execution.knowledgeGroups(input)
@@ -81,8 +88,7 @@ export function registerAiHandlers(
 
   scope.handle('ai:knowledge', async (event, sessionId: string, input: KnowledgeRequest) => {
     await ensureSettingsReady()
-    historyIdForSession(sessionId, event.sender.id)
-    return execution.knowledgeAccess(sessionId, event.sender.id).manage(input)
+    return knowledgeAccessForView(sessionId, event.sender.id).manage(input)
   })
 
   const exportKnowledge = async (event: import('electron').IpcMainInvokeEvent, document: NonNullable<import('../../shared/aiKnowledge').KnowledgeResponse['document']>) => {
@@ -102,8 +108,7 @@ export function registerAiHandlers(
   })
   scope.handle('ai:exportKnowledge', async (event, sessionId: string, connectionId: string, documentId: string) => {
     await ensureSettingsReady()
-    historyIdForSession(sessionId, event.sender.id)
-    const result = await execution.knowledgeAccess(sessionId, event.sender.id).manage({ action: 'read', connectionId, documentId })
+    const result = await knowledgeAccessForView(sessionId, event.sender.id).manage({ action: 'read', connectionId, documentId })
     return exportKnowledge(event, result.document!)
   })
 
@@ -159,6 +164,11 @@ export function registerAiHandlers(
   scope.handle('ai:getSessionStore', async (event, sessionId: string) => {
     await ensureSettingsReady()
     return await readAiSessionStoreAndGc(historyIdForSession(sessionId, event.sender?.id), getHistoryLimits())
+  })
+
+  scope.handle('ai:getConversationSummaries', async (event, sessionId: string) => {
+    await ensureSettingsReady()
+    return readAiConversationSummaries(historyIdForSession(sessionId, event.sender.id))
   })
 
   scope.handle('ai:setSessionStore', async (event, sessionId: string, store: any) => {

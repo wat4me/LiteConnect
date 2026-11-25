@@ -7,6 +7,7 @@ import type {
   AiSaveConversationPayload,
   AiSaveConversationResult,
   AiSessionStore,
+  AiThreadSummary,
   AiSettings,
   AiDiscoveredModel,
 } from '@shared/types/ai'
@@ -221,6 +222,7 @@ export interface LiteConnectApi extends SftpApi {
   aiAnswerQuestion: (requestId: string, callId: string, answer: AiUserAnswer) => Promise<boolean>
   getAiSessionHistory: (sessionId: string) => Promise<AiHistoryRecord[]>
   getAiSessionStore: (sessionId: string) => Promise<AiSessionStore>
+  getAiConversationSummaries: (sessionId: string) => Promise<AiThreadSummary[]>
   aiSuppressBackgroundReplies: (sessionId: string, threadId: string) => Promise<void>
   onAiBackgroundReply: (callback: (event: import('@shared/types/ai').AiBackgroundReplyEvent) => void) => () => void
   aiImportKnowledgeFile: () => Promise<KnowledgeImportFile | null>

@@ -2,6 +2,7 @@ import type { AppSettingsAllPatch } from '@shared/types/settings'
 import type { SettingsDraft } from './useSettingsDraft'
 import { sanitizeDbOpenMode } from '@shared/dbOpenMode'
 import { sanitizeLocalePreference } from '@shared/appLocale'
+import { sanitizeTerminalHighlightRules } from '@shared/terminalHighlight'
 import { clampQueryMaxRows, clampQueryTimeoutSec, sanitizeDefaultRunScopePref } from '@/utils/database/queryTabOptions'
 
 function writableSettings(d: SettingsDraft): AppSettingsAllPatch {
@@ -21,6 +22,8 @@ function writableSettings(d: SettingsDraft): AppSettingsAllPatch {
     terminalPasteConfirmMaxChars: d.terminalPasteConfirmMaxChars,
     terminalCommandSuggestEnabled: d.terminalCommandSuggestEnabled,
     terminalLocalEchoEnabled: d.terminalLocalEchoEnabled,
+    terminalHighlightEnabled: d.terminalHighlightEnabled,
+    terminalHighlightRules: sanitizeTerminalHighlightRules(d.terminalHighlightRules),
     terminalCommandHistoryExcludePatterns: d.terminalCommandHistoryExcludePatterns.split(/\r?\n/).map(pattern => pattern.trim()).filter(Boolean),
     downloadConflictStrategy: d.downloadConflictStrategy,
     dirTransferConcurrency: d.dirTransferConcurrency,

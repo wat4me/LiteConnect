@@ -324,6 +324,11 @@ function summarizeIndex(index: AiHistoryIndex): AiConversationSummary {
   }
 }
 
+export function readAiConversationSummaries(historyId: string): AiConversationSummary['threads'] {
+  const { index } = readAiHistoryIndex(getAppDatabase(), historyId)
+  return index ? summarizeIndex(index).threads : []
+}
+
 /**
  * Replace one conversation's messages instead of rewriting the whole host history.
  * The saved conversation becomes active unless `selectThreadId` names another one;

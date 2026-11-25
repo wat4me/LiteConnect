@@ -21,6 +21,7 @@ defineProps<{
   selectionLocked: boolean
   error: string
   active: boolean
+  terminalSessionId?: string
   hideSwitchHost?: boolean
   /** Text to submit once this conversation is ready (for example a pre-connection draft). */
   selectionRequest?: { id: number; sessionId: string; text: string; mode: 'send' | 'insert' } | null
@@ -51,6 +52,7 @@ const { t } = useI18n()
       <AiSidebar
         :key="sessionId"
         :session-id="sessionId"
+        :terminal-session-id="terminalSessionId"
         :open-generation="revealGeneration"
         :workspace-targets="scopeTargets"
         :disconnect-available="activeScope ? !!scopeTargets?.some(target => !!target.sessionId) : !!sessionId"
@@ -106,19 +108,18 @@ const { t } = useI18n()
           <header v-else-if="selected" class="workspace-target">
             <div v-if="hideSwitchHost" class="workspace-target-host is-static" :title="`${selected.name} (${selected.username}@${selected.host}:${selected.port || 22})`">
               <strong>{{ selected.name }}</strong>
-              <span>{{ selected.username }}@{{ selected.host }}:{{ selected.port || 22 }}</span>
             </div>
             <button
               v-else
               type="button"
               class="ui-btn ui-btn-sm workspace-target-host"
-              :title="t('ai.workspace.switchHost')"
+              :title="`${selected.name} (${selected.username}@${selected.host}:${selected.port || 22})`"
+              :aria-label="`${t('ai.workspace.switchHost')} · ${selected.name}`"
               :disabled="!!connectingId || closing"
               @click="emit('switch-host')"
             >
               <strong>{{ selected.name }}</strong>
-              <span>{{ selected.username }}@{{ selected.host }}:{{ selected.port || 22 }}</span>
-              <AppIcon name="chevron-down" size="xs" />
+              <AppIcon name="chevron-down" size="xs" aria-hidden="true" />
             </button>
             <span class="workspace-target-status" :class="{ connected: !!sessionId, connecting: connectingId === selected.id }">
               <span class="connection-dot" :class="{ connected: !!sessionId, connecting: connectingId === selected.id }" />

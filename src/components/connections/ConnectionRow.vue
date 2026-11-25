@@ -92,7 +92,8 @@ const statsTitle = computed(() => usageStats(true))
 const connectingLabel = computed(() => {
   const labels: Partial<Record<import('@shared/sshConnectionProgress').SshConnectionStage, string>> = {
     jump: t('connections.stageJump'), authenticating: t('connections.stageAuthenticating'),
-    keyboard: t('connections.stageKeyboard'), 'host-key': t('connections.stageHostKey'), shell: t('connections.stageShell'),
+    keyboard: t('connections.stageKeyboard'), 'host-key': t('connections.stageHostKey'),
+    x11: t('connections.stageX11'), shell: t('connections.stageShell'),
   }
   return (props.connectionStage && labels[props.connectionStage]) || t('connections.connecting')
 })

@@ -36,11 +36,14 @@ const props = defineProps<{
   hasApiConfigured: boolean
   loading?: boolean
   contextDroppedCount?: number
+  undoneKnowledgeRuns?: ReadonlySet<string>
+  undoingKnowledgeRuns?: ReadonlySet<string>
 }>()
 
 const emit = defineEmits<{
   (e: 'view-execution', key: string): void
   (e: 'view-knowledge', run: AiToolRun): void
+  (e: 'undo-knowledge', run: AiToolRun): void
   (e: 'open-settings'): void
   (e: 'fill-code', code: string): void
   (e: 'run-code', code: string): void
@@ -375,6 +378,7 @@ async function copyText(text: string, key: string) {
         <button v-if="hasApiConfigured" type="button" class="ui-btn ui-btn-ghost ui-btn-xs empty-model-settings" @click="emit('open-settings')">
           <AppIcon name="models" size="xs" aria-hidden="true" />{{ t('ai.manageModels') }}
         </button>
+        <slot name="empty-extra" />
       </div>
       <div v-if="hasEarlierMessages" class="chat-load-earlier">
         <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" :disabled="loadingEarlier" :aria-busy="loadingEarlier" @click="loadEarlierMessages">
@@ -474,7 +478,7 @@ async function copyText(text: string, key: string) {
           </template>
         </div>
       </details>
-      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" v-show="processStepVisible(message, item)" :class="{ 'process-step': !!item.process }" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" execution-history-available @toggle="onToolRunToggle(message, item.run!, $event)" @view-execution="emit('view-execution', `${message.id}:${item.run!.id}`)" @view-knowledge="emit('view-knowledge', item.run!)" />
+      <AiToolRunRow v-else-if="item.seg.kind === 'tool' && item.run" v-show="processStepVisible(message, item)" :class="{ 'process-step': !!item.process }" :run="item.run" :streaming="message.streaming" :open="isToolRunOpen(message, item.run)" :knowledge-undone="undoneKnowledgeRuns?.has(item.run.id)" :knowledge-undoing="undoingKnowledgeRuns?.has(item.run.id)" execution-history-available @toggle="onToolRunToggle(message, item.run!, $event)" @view-execution="emit('view-execution', `${message.id}:${item.run!.id}`)" @view-knowledge="emit('view-knowledge', item.run!)" @undo-knowledge="emit('undo-knowledge', item.run!)" />
       <div v-else-if="item.seg.kind === 'content' && isChatContentBoundary(item.seg)" class="message-content">
         <AiWorkspaceResponse v-if="!isLiveContentSegment(message, segIndex) && message.role === 'assistant' && (workspaceTargets?.length || 0) > 1" :text="item.seg.text" :targets="workspaceTargets!" />
         <AiStreamingMarkdown

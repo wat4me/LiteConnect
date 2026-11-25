@@ -1,6 +1,11 @@
 import type { AiHistoryRecord, AiConversationContextFile, AiContextCheckpoint, AiContextPressure, AiImageAttachment, AiThreadSummary } from '@shared/types/ai'
 import type { AiChatActivity } from '@/utils/ai/chatActivity'
 
+export type AiTerminalConversation = { connectionId: string } & (
+  | { draftId: number; sessionId?: never; threadId?: never }
+  | { sessionId: string; threadId: string; draftId?: number }
+)
+
 /** Display state extends the canonical history contract with renderer-only activity. */
 export interface ChatItem extends AiHistoryRecord {
   streaming?: boolean
@@ -27,6 +32,7 @@ export type AiSessionState = {
   input: string
   loading: boolean
   persisting: boolean
+  threadChangePending: boolean
   activeThreadId: string
   threads: AiThreadSummary[]
   activeRequestId: string | null

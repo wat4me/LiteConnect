@@ -36,6 +36,9 @@ const HINT_KEYS = [
   'host',
   'name',
   'username',
+  'title',
+  'query',
+  'documentId',
 ] as const
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -294,6 +297,31 @@ function formatFromObject(name: string, obj: Record<string, unknown>, content: s
       }
     }
   }
+  if (name === 'knowledge_search' && Array.isArray(obj.documents)) {
+    return {
+      summary: { kind: 'entries', count: obj.documents.length },
+      hint: '',
+      body: formatRows(obj.documents, (row) => {
+        const title = str(row.title) || str(row.id)
+        const excerpt = str(row.excerpt).replace(/\s+/g, ' ').trim()
+        return excerpt ? `${title}  ${excerpt}` : title
+      }),
+    }
+  }
+  if (name === 'knowledge_read' && typeof obj.content === 'string') {
+    return {
+      summary: { kind: 'ok' },
+      hint: str(obj.title) || str(obj.documentId),
+      body: obj.content,
+    }
+  }
+  if (name === 'knowledge_save' && obj.saved === true) {
+    return {
+      summary: { kind: 'ok' },
+      hint: str(obj.title) || str(obj.documentId),
+      body: '',
+    }
+  }
   if (name === 'connect' || name === 'disconnect' || name === 'save_connection') {
     const host = hostLabel(obj)
     const text =
@@ -452,6 +480,12 @@ export function serializeToolRunForHistory(input: {
       content = JSON.stringify({ [key]: view.summary.count, content: body })
     }
     return { args, content }
+  }
+  if (input.name === 'knowledge_save' && !input.isError) {
+    return {
+      args,
+      content: (input.structured ? JSON.stringify(input.structured) : input.content).slice(0, AI_TOOL_RUN_CONTENT_MAX),
+    }
   }
   return {
     args,

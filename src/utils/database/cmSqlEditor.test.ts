@@ -359,6 +359,9 @@ describe('isCmDarkTheme', () => {
     expect(isCmDarkTheme('custom')).toBe(true)
     expect(isCmDarkTheme('light')).toBe(false)
     expect(isCmDarkTheme('eyecare')).toBe(false)
+    expect(isCmDarkTheme('solarized-light')).toBe(false)
+    expect(isCmDarkTheme('nord')).toBe(true)
+    expect(isCmDarkTheme('catppuccin-mocha')).toBe(true)
   })
 })
 

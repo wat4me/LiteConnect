@@ -1,4 +1,4 @@
-export type SshConnectionStage = 'connecting' | 'jump' | 'authenticating' | 'keyboard' | 'host-key' | 'shell' | 'connected' | 'failed' | 'cancelled'
+export type SshConnectionStage = 'connecting' | 'jump' | 'authenticating' | 'keyboard' | 'host-key' | 'x11' | 'shell' | 'connected' | 'failed' | 'cancelled'
 export interface SshConnectionProgress {
   connectionId: string
   stage: SshConnectionStage

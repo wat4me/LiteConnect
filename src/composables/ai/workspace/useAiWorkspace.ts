@@ -204,6 +204,14 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     hosts.openHostPicker(mode, initialIds)
   }
 
+  function clearPickerSelection() {
+    if (!selectionLocked.value && (hostPicker.value === 'create' || hostPicker.value === 'new')) pickerSelection.value = []
+  }
+
+  function removePickerHost(id: string) {
+    if (!selectionLocked.value) pickerSelection.value = pickerSelection.value.filter(selectedId => selectedId !== id)
+  }
+
   async function pickHost(connection: Connection) {
     const mode = hostPicker.value
     if (!mode || selectionLocked.value) return
@@ -605,6 +613,8 @@ export function useAiWorkspace(options: { active: () => boolean }) {
     openHostPicker,
     closeHostPicker,
     trapPickerFocus,
+    clearPickerSelection,
+    removePickerHost,
     pickHost,
     openScope,
     closeCurrentConversation,

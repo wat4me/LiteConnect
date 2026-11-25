@@ -23,8 +23,10 @@ function store(content: string): AiSessionStore {
 function setup() {
   const session = ref('a')
   const thread = ref('old')
+  const recentVisible = ref(false)
   const getStore = vi.fn(async (_id: string) => store('initial'))
-  vi.stubGlobal('window', { LiteConnect: { getAiSessionStore: getStore } })
+  const getSummaries = vi.fn(async (_id: string): Promise<AiThreadSummary[]> => [])
+  vi.stubGlobal('window', { LiteConnect: { getAiSessionStore: getStore, getAiConversationSummaries: getSummaries } })
   const syncMessages = vi.fn()
   const syncFromState = vi.fn()
   const switchConversation = vi.fn(async (_id: string, _thread: string, _sync: (items: ChatItem[]) => void) => true)
@@ -35,12 +37,37 @@ function setup() {
   const api = scope.run(() => useAiSidebarHistory({ sessionId: () => session.value,
     activeThreadId: () => thread.value, threadSummaries: ref<AiThreadSummary[]>([
       { id: 'old', title: 'old', createdAt: 1, updatedAt: 1, messageCount: 1, active: true },
-    ]), loading: ref(false), syncMessages, syncFromState,
+    ]), loading: ref(false), recentVisible: () => recentVisible.value, syncMessages, syncFromState,
     switchConversation, deleteConversation: remove, clearAllConversations: clear,
     updateConversation: update, closeModelSwitcher: () => {}, closeSettings: () => {}, t: key => key,
   }))!
-  return { api, session, thread, scope, getStore, switchConversation, syncMessages, syncFromState, remove, clear, update }
+  return { api, session, thread, scope, recentVisible, getStore, getSummaries, switchConversation, syncMessages, syncFromState, remove, clear, update }
 }
+
+it('refreshes recent conversations for the visible host and ignores a previous host response', async () => {
+  const f = setup()
+  const previous = deferred<AiThreadSummary[]>()
+  const active = { id: 'old', title: 'old', createdAt: 1, updatedAt: 9, messageCount: 1, active: true }
+  const recent = { ...active, id: 'recent', title: 'Recent', customTitle: 'Renamed conversation', updatedAt: 5, active: false }
+  const empty = { ...recent, id: 'empty', messageCount: 0, updatedAt: 10 }
+  const pinned = { ...recent, id: 'pinned', title: 'Pinned', customTitle: undefined, updatedAt: 2, pinned: true }
+  f.getSummaries.mockReturnValueOnce(previous.promise).mockResolvedValueOnce([active, recent, empty, pinned])
+  expect(f.getSummaries).not.toHaveBeenCalled()
+  f.recentVisible.value = true
+  await nextTick()
+  expect(f.getSummaries).toHaveBeenLastCalledWith('a')
+
+  f.session.value = 'b'
+  await nextTick()
+  previous.resolve([{ ...recent, id: 'stale' }])
+  await nextTick()
+  expect(f.getSummaries).toHaveBeenLastCalledWith('b')
+  expect(f.api.recentConversations.value).toEqual([
+    { id: 'pinned', title: 'Pinned', updatedAt: 2 },
+    { id: 'recent', title: 'Renamed conversation', updatedAt: 5 },
+  ])
+  expect(f.getStore).not.toHaveBeenCalled()
+})
 
 it.each(['delete', 'rename', 'clear'] as const)('does not apply a %s confirmation to a different host', async operation => {
   const f = setup()

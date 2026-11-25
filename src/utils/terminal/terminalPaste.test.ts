@@ -8,8 +8,16 @@ import {
   PASTE_CONFIRM_MAX_CHARS,
   PASTE_CONFIRM_MAX_CHARS_OPTIONS,
   shouldConfirmPaste,
+  terminalFillPayload,
   terminalPasteBytes,
 } from './terminalPaste'
+
+it('fills one line without submitting and uses protected paste for multiple lines', () => {
+  expect(terminalFillPayload('pwd\r\n', false)).toBe('pwd')
+  expect(terminalFillPayload('pwd\nwhoami', false)).toBeUndefined()
+  expect(terminalFillPayload('pwd\r\nwhoami\n', true)).toBe('\x1b[200~pwd\rwhoami\x1b[201~')
+  expect(terminalFillPayload('pwd\x1b[201~\nwhoami', true)).toBeUndefined()
+})
 
 describe('terminalPasteBytes', () => {
   it('counts normalized UTF-8 input plus optional paste markers', () => {

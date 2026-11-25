@@ -7,13 +7,51 @@ const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'liteconnect-markdown-st
 app.setPath('userData', path.join(artifacts, 'profile'))
 const timeout = setTimeout(() => { console.error('Markdown stress timed out', { artifacts }); app.exit(1) }, 180_000)
 app.whenReady().then(async () => {
-  const window = new BrowserWindow({ show: false, width: 1100, height: 900, webPreferences: { contextIsolation: true, backgroundThrottling: false } })
+  const window = new BrowserWindow({ show: false, width: 1100, height: 900, webPreferences: { contextIsolation: true, backgroundThrottling: false, offscreen: true } })
   await window.loadURL(process.env.LITECONNECT_UI_TEST_URL)
   const run = code => window.webContents.executeJavaScript(code)
   while (!await run('!!window.__uiRegression')) await new Promise(resolve => setTimeout(resolve, 50))
+  const scrolling = await run(`(async () => {
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
+    await window.__uiRegression.aiMarkdownStress(30, 100)
+    await frame(); await frame()
+    const list = document.querySelector('.ai-fixture .chat-list')
+    list.scrollTop = Math.min(3000, list.scrollHeight - list.clientHeight)
+    await frame(); await frame()
+    const start = list.scrollTop
+    const offset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop')
+    let offsetReads = 0
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+      ...offset,
+      get() {
+        if (this.classList.contains('chat-row')) offsetReads++
+        return offset.get.call(this)
+      },
+    })
+    const intervals = []
+    let previous = await frame()
+    try {
+      for (let index = 0; index < 36; index++) {
+        list.scrollTop -= 24
+        await window.__uiRegression.appendAiMarkdownStress()
+        const now = await frame()
+        intervals.push(now - previous)
+        previous = now
+      }
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetTop', offset)
+    }
+    return { offsetReads, movedUp: start - list.scrollTop, followLatest: list.classList.contains('follows-latest'),
+      frameP95Ms: intervals.sort((a, b) => a - b)[Math.floor(intervals.length * .95)] }
+  })()`)
+  assert.equal(scrolling.followLatest, false)
+  assert.ok(scrolling.movedUp >= 700, 'Reading position keeps moving up while messages stream')
+  assert.ok(scrolling.offsetReads <= 25, 'Scrolling reuses timeline geometry while only the last reply grows')
+  console.log(JSON.stringify({ scenario: 'scroll while streaming', ...scrolling }))
   const rows = []
   for (const [rounds, historyTurns] of [[10, 0], [50, 0], [200, 0], [50, 100], [50, 300]]) {
     const metrics = await run(`(async () => {
+      await window.__uiRegression.setAiConversationKey('stress-' + ${rounds} + '-' + ${historyTurns});
       const start = performance.now();
       await window.__uiRegression.aiMarkdownStress(${rounds}, ${historyTurns});
       const mountMs = performance.now() - start;
@@ -42,7 +80,7 @@ app.whenReady().then(async () => {
     rows.push(rounded)
     console.log(JSON.stringify(rounded))
   }
-  fs.writeFileSync(path.join(artifacts, 'metrics.json'), JSON.stringify({ environment: 'Electron development renderer; synthetic Markdown; timing is observational', rows }, null, 2))
+  fs.writeFileSync(path.join(artifacts, 'metrics.json'), JSON.stringify({ environment: 'Electron development renderer; synthetic Markdown; timing is observational', scrolling, rows }, null, 2))
   console.log('Markdown stress completed', { artifacts })
   clearTimeout(timeout); app.exit(0)
 }).catch(error => { console.error(error, { artifacts }); clearTimeout(timeout); app.exit(1) })

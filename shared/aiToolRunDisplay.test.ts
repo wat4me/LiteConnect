@@ -153,6 +153,25 @@ describe('formatToolRunDisplay', () => {
     expect(toolRunDefaultOpen()).toBe(false)
   })
 
+  it('formats knowledge_save with its title while preserving JSON metadata for view and undo', () => {
+    const payload = { connectionId: 'host-a', documentId: 'doc-1', title: 'Nginx', revision: 2, previousRevision: 1, created: false, saved: true }
+    const view = formatToolRunDisplay({
+      name: 'knowledge_save',
+      args: JSON.stringify({ title: 'Nginx', content: '/etc/nginx' }),
+      content: JSON.stringify(payload),
+    })
+    expect(view.hint).toBe('Nginx')
+    expect(view.summary).toEqual({ kind: 'ok' })
+    const stored = serializeToolRunForHistory({
+      name: 'knowledge_save',
+      args: JSON.stringify({ title: 'Nginx', content: '/etc/nginx' }),
+      content: JSON.stringify(payload),
+      isError: false,
+      structured: payload,
+    })
+    expect(JSON.parse(stored.content)).toEqual(payload)
+  })
+
   it('pretty-prints JSON arguments without masking secrets', () => {
     const text = formatToolRunArgs(JSON.stringify({ password: 'x', host: 'a' }))
     expect(text).toContain('"password": "x"')

@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
   await wait('!document.querySelector(".ai-rail-draft")')
   await click('.ai-back-to-connections')
   await wait('!document.querySelector(".connections-main").inert')
-  await click('.selection-action-bar .ui-icon-btn-close')
+  await click('.selection-action-bar .clear-connection-selection')
   assert.equal(await run('document.querySelector(".selection-action-bar, .connection-row.selected")'), null, 'Clearing removes the selection and its bar')
   await click('.group-block[data-group-id=servers] > .group-item')
 

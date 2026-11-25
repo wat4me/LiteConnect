@@ -34,6 +34,8 @@ const props = defineProps<{
   aiApprovalSessions?: Set<string>
   /** 当前是否在连接管理页（高亮「返回连接列表」） */
   homeActive?: boolean
+  aiTabVisible?: boolean
+  aiTabActive?: boolean
   disconnectedSessionIds?: Set<string>
   terminalContainer?: HTMLElement | null
   splitPrimarySessionId?: string | null
@@ -45,8 +47,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', connectionId: string): void
   (e: 'close', connectionId: string): void
-  (e: 'add-session', connectionId: string): void
   (e: 'select-home'): void
+  (e: 'select-ai'): void
+  (e: 'close-ai'): void
   (e: 'quick-connect', connectionId: string): void
   (e: 'split-preview', payload: SplitPreviewPayload | null): void
   (e: 'split-commit', payload: SplitDropPayload): void
@@ -70,6 +73,7 @@ const displayHostTabs = computed(() => {
 })
 
 const activeHostTabKey = computed(() => {
+  if (props.aiTabActive) return 'ai-workspace'
   if (props.homeActive) return null
   if (props.splitGroupActive) return JSON.stringify([props.splitPrimarySessionId, props.splitSecondarySessionId])
   return props.groups.find((group) => group.connectionId === props.activeGroupId)?.activeSessionId ?? props.activeGroupId
@@ -368,6 +372,15 @@ onBeforeUnmount(() => {
     </div>
 
     <ScrollableTabs class="tabs-wrap" :active-key="activeHostTabKey">
+      <div v-if="aiTabVisible" class="tab ai-workspace-tab ui-window-tab" :class="{ active: aiTabActive }" :data-active-tab="!!aiTabActive">
+        <button type="button" class="ai-workspace-tab-select" :aria-pressed="!!aiTabActive" @click="emit('select-ai')">
+          <AppIcon name="ai-chat" size="sm" aria-hidden="true" />
+          <span class="tab-name">{{ t('connections.aiWorkspaceTitle') }}</span>
+        </button>
+        <button type="button" class="tab-close" :title="t('connections.closeAiWorkspaceTab')" :aria-label="t('connections.closeAiWorkspaceTab')" @click="emit('close-ai')">
+          <AppIcon name="close" size="xs" />
+        </button>
+      </div>
       <template
         v-for="item in displayHostTabs"
         :key="item.kind === 'split'
@@ -376,9 +389,9 @@ onBeforeUnmount(() => {
       >
         <div
           v-if="item.kind === 'split'"
-          class="tab host-split-tab"
-          :class="{ active: !homeActive && splitGroupActive }"
-          :data-active-tab="!homeActive && splitGroupActive"
+          class="tab host-split-tab ui-window-tab"
+          :class="{ active: !homeActive && !aiTabActive && splitGroupActive }"
+          :data-active-tab="!homeActive && !aiTabActive && splitGroupActive"
           :title="t('terminal.restoreSplit')"
           @click="emit('select-split')"
         >
@@ -411,10 +424,10 @@ onBeforeUnmount(() => {
         </div>
         <div
           v-else
-          class="tab"
-          :data-active-tab="!homeActive && item.item.connectionId === activeGroupId"
+          class="tab ui-window-tab"
+          :data-active-tab="!homeActive && !aiTabActive && item.item.connectionId === activeGroupId"
           :class="{
-            active: !homeActive && item.item.connectionId === activeGroupId,
+            active: !homeActive && !aiTabActive && item.item.connectionId === activeGroupId,
             dragging: draggedConnectionId === item.item.connectionId,
             'drop-target': hoveredDropConnectionId === item.item.connectionId,
           }"
@@ -438,18 +451,6 @@ onBeforeUnmount(() => {
             class="tab-unread-dot"
           ></span>
           <span v-if="item.item.sessions.length > 1" class="tab-count">{{ item.item.sessions.length }}</span>
-          <!-- With one terminal the sub-tab row is hidden; adding a terminal lives on the host tab. -->
-          <button
-            v-else-if="!homeActive && item.item.connectionId === activeGroupId && item.item.sessions.length === 1"
-            type="button"
-            class="tab-add-session"
-            :title="t('terminal.newWindow')"
-            :aria-label="t('terminal.newWindow')"
-            @mousedown.stop
-            @click.stop="emit('add-session', item.item.connectionId)"
-          >
-            <AppIcon name="plus" size="xs" />
-          </button>
           <span
             v-if="isGroupDisconnected(item.item)"
             class="tab-disconnected"
@@ -459,7 +460,14 @@ onBeforeUnmount(() => {
             class="tab-latency"
             :style="{ color: latencyColor(latencyMap[item.item.connectionId]) }"
           >{{ formatLatency(latencyMap[item.item.connectionId]) }}</span>
-          <button class="tab-close" @mousedown.stop @click.stop="emit('close', item.item.connectionId)">
+          <button
+            type="button"
+            class="tab-close"
+            :title="t('terminal.closeSession', { label: item.item.connectionName })"
+            :aria-label="t('terminal.closeSession', { label: item.item.connectionName })"
+            @mousedown.stop
+            @click.stop="emit('close', item.item.connectionId)"
+          >
             <AppIcon name="close" size="xs" />
           </button>
         </div>
@@ -468,19 +476,15 @@ onBeforeUnmount(() => {
     </ScrollableTabs>
 
     <!-- + 移出 tabs-scroll，避免 overflow-x:auto 裁切下拉框 -->
-    <div
-      v-if="groups.length > 0"
-      ref="quickConnectWrapperRef"
-      class="quick-connect-wrapper"
-    >
+    <div ref="quickConnectWrapperRef" class="quick-connect-wrapper">
       <button
         ref="quickConnectButtonRef"
         class="tab-add-btn"
         type="button"
         data-onboarding="quick-connect"
         :class="{ active: showQuickConnect }"
-        :title="t('connections.connectAnother')"
-        :aria-label="t('connections.connectAnother')"
+        :title="t('connections.quickConnect')"
+        :aria-label="t('connections.quickConnect')"
         @click.stop="toggleQuickConnect"
       >
         <AppIcon name="plus" size="sm" />
@@ -489,34 +493,11 @@ onBeforeUnmount(() => {
 
     <div class="spacer"></div>
 
-    <div class="tab-right-actions">
-      <!-- 无会话时：+ 放右侧，避免顶栏左侧空荡荡只剩一个加号 -->
-      <div
-        v-if="groups.length === 0"
-        ref="quickConnectWrapperRef"
-        class="quick-connect-wrapper trailing"
-      >
-        <button
-          ref="quickConnectButtonRef"
-          class="toolbar-btn ui-icon-btn"
-          type="button"
-          data-onboarding="quick-connect"
-          :class="{ active: showQuickConnect }"
-          :title="t('connections.quickConnect')"
-          :aria-label="t('connections.quickConnect')"
-          @click.stop="toggleQuickConnect"
-        >
-          <AppIcon name="plus" size="md" />
-        </button>
-      </div>
-    </div>
-
     <Teleport to="body">
       <div
         v-if="showQuickConnect"
         ref="quickConnectDropdownRef"
         class="quick-connect-dropdown"
-        :class="{ 'dropdown-end': groups.length === 0 }"
         :style="quickConnectDropdownStyle"
         @click.stop
       >
@@ -562,16 +543,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .tab-bar {
+  --tab-top-inset: 5px;
   height: var(--tab-height);
   min-height: var(--tab-height);
   max-height: var(--tab-height);
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   padding-right: 12px;
   overflow: hidden;
-  transition: background-color 0.3s, border-color 0.3s;
+  transition: background-color 0.3s;
   -webkit-app-region: no-drag;
 }
 
@@ -616,6 +597,7 @@ onBeforeUnmount(() => {
 .home-btn.active {
   color: var(--text-primary);
   background: var(--tab-selected-surface);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-edge);
 }
 
 .spacer {
@@ -627,8 +609,8 @@ onBeforeUnmount(() => {
 
 .tabs-wrap {
   flex: 0 1 auto;
-  --tabs-track-padding: 4px;
   --tabs-track-gap: 3px;
+  --tabs-track-alignment: flex-end;
 }
 
 .tab {
@@ -636,9 +618,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  height: calc(100% - 8px);
+  height: calc(100% - var(--tab-top-inset));
   border: 1px solid transparent;
-  border-radius: var(--radius-tab);
   cursor: pointer;
   white-space: nowrap;
   font-size: var(--font-ui-sm);
@@ -650,16 +631,29 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-.tab:hover {
+.tab:hover:not(.active) {
   background: var(--tab-hover-surface);
   color: var(--text-primary);
 }
 
-.tab.active {
-  background: var(--tab-selected-surface);
-  color: var(--text-primary);
-  border-color: var(--tab-selected-edge);
-  box-shadow: var(--tab-selected-shadow);
+.ai-workspace-tab { padding-inline-start: 0; }
+.ai-workspace-tab-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: stretch;
+  padding: 0 0 0 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ai-workspace-tab :is(.ai-workspace-tab-select, .tab-close):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .tab.dragging {
@@ -676,10 +670,6 @@ onBeforeUnmount(() => {
 .host-split-tab {
   gap: 6px;
   border-color: color-mix(in srgb, var(--accent) 26%, transparent);
-}
-
-.host-split-tab.active {
-  border-color: var(--tab-selected-edge);
 }
 
 .host-split-icon {
@@ -731,25 +721,6 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
-.tab-add-session {
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-}
-.tab-add-session:hover {
-  color: var(--text-primary);
-  background: var(--tab-hover-surface);
-}
 .tab-unread-dot,
 .tab-approval-dot {
   width: 7px;
@@ -775,6 +746,8 @@ onBeforeUnmount(() => {
 }
 
 .tab-latency {
+  min-inline-size: 5ch;
+  text-align: end;
   font-size: var(--font-caption);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -784,6 +757,9 @@ onBeforeUnmount(() => {
 }
 
 .tab-close {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -809,6 +785,7 @@ onBeforeUnmount(() => {
 .tab-add-btn {
   width: var(--icon-btn-sm);
   height: calc(100% - 8px);
+  margin-block-start: var(--tab-top-inset);
   border-radius: var(--radius-tab);
   display: flex;
   align-items: center;
@@ -838,25 +815,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-}
-
-.quick-connect-wrapper.trailing {
-  height: auto;
-}
-
-.tab-right-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  padding-left: 8px;
-  padding-right: 4px;
-  height: 100%;
-  position: relative;
-}
-
-.tab-right-actions:not(:empty) {
-  border-left: 1px solid var(--border-color);
 }
 
 .settings-wrapper {
@@ -928,7 +886,7 @@ onBeforeUnmount(() => {
 
 .quick-connect-title {
   padding: 4px 6px 8px;
-  font-size: 11px;
+  font-size: calc(11px + var(--small-text-adjustment));
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -954,13 +912,13 @@ onBeforeUnmount(() => {
 }
 
 .recent-connection-name {
-  font-size: 12px;
+  font-size: calc(12px + var(--small-text-adjustment));
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .recent-connection-meta {
-  font-size: 11px;
+  font-size: calc(11px + var(--small-text-adjustment));
   color: var(--text-secondary);
   font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', Consolas, monospace);
 }

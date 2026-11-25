@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { executeAiToolCall } from './toolExecution'
 import type { AiToolExecutionContext } from './toolExecutionContext'
 import type { AiKnowledgeAccess } from '../../../shared/aiKnowledge'
-import { createAiStreamControl, resolveToolApproval } from './streamControl'
+import { resolveToolApproval } from './streamControl'
 import { buildAiRequestEnvironment } from '../execution/requestContext'
 import { runAiChatStream } from '../execution/chatStream'
 import { AiKnowledgeService } from '../knowledge/knowledgeService'
@@ -34,18 +34,15 @@ it('uses the actual write risk in automatic mode and preserves the saved documen
   expect(result?.run).toMatchObject({ status: 'done', risk: 'write', isError: false })
   expect(JSON.parse(result!.run.content)).toMatchObject({ documentId: 'doc', connectionId: 'host-a' })
 })
-it('waits for approval before writing and supports denial', async () => {
+it('saves without blocking approval in ask mode and attaches diff preview', async () => {
   const { context, save } = setup('ask')
-  const control = createAiStreamControl(context.requestId, 7)
-  context.signal = control.controller.signal
-  try {
-    const waiting = executeAiToolCall(call(), context)
-    await vi.waitFor(() => expect(context.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'tool', value: expect.objectContaining({ phase: 'ask', risk: 'write' }) })))
-    expect(save).not.toHaveBeenCalled()
-    expect(resolveToolApproval(context.requestId, 'knowledge-1', false, 7)).toBe(true)
-    expect((await waiting)?.run.status).toBe('denied')
-    expect(save).not.toHaveBeenCalled()
-  } finally { control.cleanup() }
+  const previewSave = vi.fn(async () => ({ summary: '新建 · +1 行', diff: '--- a/Service\n+++ b/Service\n@@ -1,0 +1,1 @@\n+/opt/app' }))
+  context.knowledge = { call: save, previewSave } as unknown as AiKnowledgeAccess
+  const result = await executeAiToolCall(call(), context)
+  expect(save).toHaveBeenCalledOnce()
+  expect(previewSave).toHaveBeenCalledOnce()
+  expect(result?.run).toMatchObject({ status: 'done', risk: 'write', isError: false, diffSummary: '新建 · +1 行' })
+  expect(result?.run.diffPreview).toContain('+/opt/app')
 })
 it('does not make local reads use a remote session or grant writes', async () => {
   const { context, save, remote } = setup('readonly')
@@ -92,14 +89,15 @@ it('completes a conversation through tool loading, knowledge reads, approved sav
     workspaceTargets: [{ ...targets[0], sessionId: 'd92f01d3-8124-4491-9104-b251e788d812' }], emit: () => {}, knowledge,
     sshMcpRuntime: { call: remote } as unknown as SshMcpRuntime, onToolApprovalRequested: approved,
   })
-  expect(approved).toHaveBeenCalledOnce()
+  expect(approved).not.toHaveBeenCalled()
   expect(remote).not.toHaveBeenCalled()
   const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(init.body))
   expect(bodies[0].messages[0].content).toContain('/opt/app')
   expect(bodies.every(body => body.tools.some((tool: { function: { name: string } }) => tool.function.name === 'knowledge_save'))).toBe(true)
   expect(bodies[1].tools.some((tool: { function: { name: string } }) => tool.function.name === 'upload_file')).toBe(true)
   expect(reply.toolRuns?.at(-1)).toMatchObject({ name: 'knowledge_save', target: 'Host A', risk: 'write', status: 'done', isError: false })
-  expect(JSON.parse(reply.toolRuns!.at(-1)!.content)).toMatchObject({ connectionId: 'host-a', documentId: 'memory', revision: 3, saved: true })
+  expect(reply.toolRuns?.at(-1)?.diffPreview).toContain('+- Confirmed path: /srv/app')
+  expect(JSON.parse(reply.toolRuns!.at(-1)!.content)).toMatchObject({ connectionId: 'host-a', documentId: 'memory', revision: 3, previousRevision: 2, created: false, saved: true })
   expect((await knowledge.manage({ action: 'read', connectionId: 'host-a', documentId: 'memory' })).document).toMatchObject({ revision: 3, content: '- Confirmed path: /srv/app', memoryEntries: [{ text: 'Confirmed path: /srv/app', documentIds: [source.id] }], author: 'ai' })
   fetcher.mockResolvedValueOnce(response('knowledge_read', { connectionId: 'host-a', documentId: source.id, risk: 'read', explanation: '按摘要关联读取服务路径的最新依据。' })).mockResolvedValueOnce(response())
   const followup = await runAiChatStream({ requestId: 'knowledge-followup', settings: { ...settings, toolPermission: 'readonly' }, messages: [{ role: 'user', content: '应用部署路径在哪？' }],
@@ -141,6 +139,6 @@ it('completes a conversation through tool loading, knowledge reads, approved sav
     expect.objectContaining({ name: 'knowledge_save', status: 'blocked' }),
   ])
   expect(records).toEqual(beforeReadonly)
-  expect(approved).toHaveBeenCalledOnce()
+  expect(approved).not.toHaveBeenCalled()
   expect(remote).not.toHaveBeenCalled()
 })

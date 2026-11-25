@@ -9,16 +9,19 @@ import { aiModelId } from '@shared/aiContext'
 import AppIcon from '@/components/icons/AppIcon.vue'
 import AiComposerSelector from '@/components/ai/AiComposerSelector.vue'
 import AiKnowledge from '@/components/ai/AiKnowledge.vue'
+import AiRecentConversations from '@/components/ai/AiRecentConversations.vue'
 import { useAiChat } from '@/composables/ai/useAiChat'
 import { useAiSidebarModelMenu } from '@/composables/ai/useAiSidebarModelMenu'
 
 /**
- * A conversation that has not been sent yet. No SSH connection exists until
- * the first message is submitted; the parent owns the connect-then-send flow.
+ * The AI connection starts when the first message is submitted. The parent
+ * owns this connect-then-send flow and any separately opened terminal.
  */
 const props = withDefaults(defineProps<{
   hosts: Connection[]
   status: 'idle' | 'connecting' | 'error'
+  resumingHistory?: boolean
+  terminalConnected?: boolean
   error?: string
   configured: boolean
   recent: AiWorkspaceConversationItem[]
@@ -39,6 +42,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const recentItems = computed(() => props.recent.map(item => ({ id: item.threadId, title: item.title || item.hostLabel, updatedAt: item.updatedAt })))
+function resumeRecent(id: string) {
+  const item = props.recent.find(entry => entry.threadId === id)
+  if (item) emit('open-history', item)
+}
 const { settings, refreshSettings, replaceSettings } = useAiChat()
 const modelMenuId = useId()
 const inputRef = ref<HTMLTextAreaElement | null>(null)
@@ -47,6 +55,8 @@ const scope = computed(() => props.hosts.length > 1)
 const primary = computed(() => props.hosts[0])
 const knowledgeSessionId = computed(() => props.hosts.length ? `draft:${props.hosts.map(host => host.id).join(',')}` : '')
 const connecting = computed(() => props.status === 'connecting')
+const connectionStatus = computed(() => t(connecting.value ? 'ai.workspace.connecting'
+  : props.terminalConnected ? 'connections.aiDraftTerminalConnected' : 'connections.aiDraftNotConnected'))
 const canSend = computed(() => props.configured && !!text.value.trim() && !connecting.value && !props.locked && props.hosts.length > 0)
 const examples = computed(() => scope.value
   ? [t('ai.workspace.exampleCompare'), t('ai.workspace.exampleServices'), t('ai.workspace.exampleLogs')]
@@ -151,14 +161,13 @@ defineExpose({ focus })
       <slot name="header-leading" />
       <div v-if="!scope && primary" class="ai-draft-target workspace-target-host is-static" :title="`${primary.name} (${address(primary)})`">
         <strong>{{ primary.name }}</strong>
-        <span>{{ address(primary) }}</span>
       </div>
       <div v-else class="ai-draft-target">
         <strong>{{ t('connections.aiDraftScopeLabel', { count: hosts.length }) }}</strong>
       </div>
       <span class="ai-draft-state" :class="{ connecting }">
         <span class="ai-draft-dot" aria-hidden="true" />
-        {{ connecting ? t('ai.workspace.connecting') : t('connections.aiDraftNotConnected') }}
+        {{ connectionStatus }}
       </span>
       <slot name="header-trailing" />
     </header>
@@ -167,7 +176,7 @@ defineExpose({ focus })
       <div class="ai-draft-intro">
         <span class="ai-draft-mark" aria-hidden="true"><AppIcon name="ai-chat" size="xl" /></span>
         <h3>{{ scope ? t('connections.aiDraftScopeTitle', { count: hosts.length }) : t('connections.aiDraftTitle', { name: primary?.name || '' }) }}</h3>
-        <p>{{ t('connections.aiDraftHint') }}</p>
+        <p>{{ t(terminalConnected ? 'connections.aiDraftLinkedHint' : 'connections.aiDraftHint') }}</p>
         <div v-if="scope" class="ai-draft-hosts" :aria-label="t('ai.workspace.selectedServers')">
           <button
             v-for="host in hosts"
@@ -196,29 +205,14 @@ defineExpose({ focus })
             {{ t('ai.manageModels') }}
           </button>
         </div>
-        <section v-if="recent.length" class="ai-draft-recent">
-          <h4>{{ t('connections.aiDraftResume') }}</h4>
-          <button
-            v-for="item in recent"
-            :key="`${item.connectionId}:${item.threadId}`"
-            type="button"
-            class="ai-draft-recent-item"
-            :disabled="connecting || locked"
-            :title="item.title"
-            @click="emit('open-history', item)"
-          >
-            <AppIcon name="history" size="sm" />
-            <span class="ai-draft-recent-title">{{ item.title || item.hostLabel }}</span>
-            <span class="ai-draft-recent-time">{{ new Date(item.updatedAt).toLocaleDateString() }}</span>
-          </button>
-        </section>
+        <AiRecentConversations :items="recentItems" :disabled="connecting || locked" @select="resumeRecent" />
       </div>
     </div>
 
     <div class="ai-draft-composer-area">
       <div v-if="connecting || status === 'error'" class="ai-draft-status" :class="{ error: status === 'error' }" :role="status === 'error' ? 'alert' : 'status'">
         <span class="ai-draft-status-text">
-          {{ connecting ? t('connections.aiDraftConnecting', { name: scope ? t('connections.aiDraftScopeLabel', { count: hosts.length }) : primary?.name }) : (error || t('ai.workspace.connectFailedHint')) }}
+          {{ connecting ? t(resumingHistory ? 'connections.aiDraftResumingHistory' : 'connections.aiDraftConnecting', { name: scope ? t('connections.aiDraftScopeLabel', { count: hosts.length }) : primary?.name }) : (error || t('ai.workspace.connectFailedHint')) }}
         </span>
         <button v-if="connecting" type="button" class="ui-btn ui-btn-ghost ui-btn-xs" @click="emit('cancel-connect')">{{ t('common.cancel') }}</button>
       </div>
@@ -332,6 +326,7 @@ defineExpose({ focus })
 <style scoped src="../ai/aiWorkspaceShared.css"></style>
 <style scoped>
 .ai-draft {
+  --draft-line: var(--workspace-line, var(--border-color));
   position: relative;
   display: flex;
   flex-direction: column;
@@ -397,7 +392,7 @@ defineExpose({ focus })
   gap: 4px;
   max-width: 200px;
   padding: 3px 6px 3px 9px;
-  border: 1px solid var(--workspace-line);
+  border: 1px solid var(--draft-line);
   border-radius: 999px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -417,7 +412,7 @@ defineExpose({ focus })
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid var(--workspace-line);
+  border: 1px solid var(--draft-line);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -430,28 +425,6 @@ defineExpose({ focus })
 .ai-draft-example :deep(.app-icon) { color: var(--text-secondary); flex-shrink: 0; }
 
 .ai-draft-setup { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-ui-sm); }
-
-.ai-draft-recent { width: min(100%, 420px); margin-top: 18px; text-align: left; }
-.ai-draft-recent h4 { margin: 0 0 6px 2px; color: var(--text-secondary); font-size: var(--font-caption); font-weight: 600; }
-.ai-draft-recent-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--font-ui-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.ai-draft-recent-item:hover:not(:disabled) { background: var(--tab-hover-surface); }
-.ai-draft-recent-item :deep(.app-icon) { color: var(--text-secondary); flex-shrink: 0; }
-.ai-draft-recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-draft-recent-time { flex-shrink: 0; color: var(--text-secondary); font-size: var(--font-caption); }
 
 .ai-draft-composer-area {
   position: absolute;
@@ -471,7 +444,7 @@ defineExpose({ focus })
   align-self: center;
   max-width: 100%;
   padding: 5px 6px 5px 12px;
-  border: 1px solid var(--workspace-line);
+  border: 1px solid var(--draft-line);
   border-radius: 999px;
   background: var(--bg-primary);
   box-shadow: var(--shadow-menu);
@@ -565,7 +538,7 @@ defineExpose({ focus })
   border: 0;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-foreground);
   cursor: pointer;
 }
 .ai-draft-send:hover:not(:disabled) { background: var(--accent-hover); }

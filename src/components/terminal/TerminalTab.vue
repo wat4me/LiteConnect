@@ -9,11 +9,13 @@ import { usePasteDetection } from '../../composables/terminal/usePasteDetection'
 import { useCommandBuffer, type SubmittedCommandInfo } from '../../composables/terminal/useCommandBuffer'
 import { useRenderBatch } from '../../composables/terminal/useRenderBatch'
 import { useTerminalLocalEcho } from '../../composables/terminal/useTerminalLocalEcho'
+import { createTerminalHighlighter } from '@/utils/terminal/terminalHighlighter'
 import { createDelayedTerminalOutput, createTypingResponseTracker } from '../../composables/terminal/terminalTypingLatency'
 import { useWriteQueue } from '../../composables/terminal/useWriteQueue'
 import { synchronizedInputKey } from '@/composables/terminal/useSynchronizedInput'
 import { useTerminalPwdQuery } from '../../composables/terminal/useTerminalPwdQuery'
 import { useTerminalSearch } from '../../composables/terminal/useTerminalSearch'
+import { useTerminalSelectionHighlight } from '../../composables/terminal/useTerminalSelectionHighlight'
 import { useTerminalKeyHandler } from '../../composables/terminal/useTerminalKeyHandler'
 import { useXtermInstance } from '../../composables/terminal/useXtermInstance'
 import { useTerminalUserInput } from '../../composables/terminal/useTerminalUserInput'
@@ -114,6 +116,8 @@ const {
   fontSize,
   pasteConfirmEnabled,
   pasteConfirmMaxChars,
+  highlightEnabled,
+  highlightRules,
   terminalPalette,
   performResize,
   scheduleTerminalRefresh,
@@ -168,6 +172,25 @@ const {
   window.LiteConnect.sshSetOutputPaused(props.sessionId, paused)
 })
 const localEcho = useTerminalLocalEcho(getTerminal, terminalRef)
+const sessionHighlightEnabled = ref(highlightEnabled.value)
+const highlighter = createTerminalHighlighter(sessionHighlightEnabled.value, highlightRules.value)
+watch(highlightEnabled, (next) => {
+  sessionHighlightEnabled.value = next
+})
+watch(sessionHighlightEnabled, (next) => highlighter.setEnabled(next))
+watch(highlightRules, (next) => highlighter.setRules(next), { deep: true })
+
+const { bindSelectionHighlight, disposeSelectionHighlight } = useTerminalSelectionHighlight({
+  isSearchActive: () => searchVisible.value && searchQuery.value.trim().length > 0,
+})
+
+function toggleHighlight() {
+  selectionMenuVisible.value = false
+  sessionHighlightEnabled.value = !sessionHighlightEnabled.value
+  ElMessage.info(
+    sessionHighlightEnabled.value ? t('terminal.highlightOn') : t('terminal.highlightOff'),
+  )
+}
 
 flushRenderBatchFn = flushRenderBatch
 
@@ -453,7 +476,8 @@ function appendIncomingTerminalData(data: string) {
     const now = performance.now()
     const typingSample = typingResponse.takeResponse()
     suggest.feedHistorySniff(visibleData)
-    appendRenderBatch(visibleData)
+    const isAlternate = getTerminal()?.buffer.active.type === 'alternate'
+    appendRenderBatch(highlighter.transform(visibleData, isAlternate))
     if (hasPendingTabCompletion()) {
       flushRenderBatch(syncPendingTabCompletion)
     } else {
@@ -525,6 +549,7 @@ onMounted(async () => {
   })
 
   bindSearchAddon(getSearchAddon())
+  bindSelectionHighlight(terminal)
   applyActiveState(isEffectiveActive())
   suggest.bindSuggestScroll(terminal)
 
@@ -597,6 +622,7 @@ onBeforeUnmount(() => {
   reconnect.dispose()
   disposePwdQuery()
   disposeSearchListeners()
+  disposeSelectionHighlight()
   cancelPendingSubmit()
   clearWriteQueue()
   resetCommandBuffer()
@@ -693,6 +719,7 @@ defineExpose({
       :y="selectionMenuY"
       :selected-text="selectedText"
       :read-only="readOnly"
+      :highlight-enabled="sessionHighlightEnabled"
       :ai-disabled="aiDisabled"
       @set-ref="(el) => (selection.selectionMenuRef.value = el)"
       @copy="selection.copySelection"
@@ -701,6 +728,7 @@ defineExpose({
       @clear-screen="clearScreenKeepScrollback"
       @clear-scrollback="clearScrollback"
       @toggle-read-only="toggleReadOnly"
+      @toggle-highlight="toggleHighlight"
       @send-to-ai="selection.sendSelectionToAi"
       @save-as-snippet="selection.saveSelectionAsSnippet"
     />

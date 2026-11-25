@@ -5,6 +5,8 @@
  * the typed helpers below instead of string literals with `CustomEvent` casts.
  */
 
+import type { TerminalHighlightRule } from '@shared/terminalHighlight'
+
 export type TransferFinishedStatus = 'completed' | 'error' | 'skipped' | 'partial' | 'cancelled'
 export type TransferEventDirection = 'download' | 'upload'
 
@@ -30,6 +32,8 @@ export interface AppEventMap {
     pasteConfirmMaxChars?: number
     commandSuggestEnabled?: boolean
     localEchoEnabled?: boolean
+    highlightEnabled?: boolean
+    highlightRules?: TerminalHighlightRule[]
   }
   'latency-settings-change': { enabled?: boolean; intervalMs?: number }
   'connection-usage-stats-settings-change': { enabled?: boolean }

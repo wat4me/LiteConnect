@@ -302,9 +302,9 @@ function fullTimeRange(job: SshMcpJobSummary) {
 /* Keep the collapsed task row to one line; the note belongs to the opened details. */
 .background-job:not([open]) .background-job-note { display: none; }
 .attention:not(.running) .background-float-trigger { color: var(--danger); }
-.background-float-count { position: absolute; top: -4px; right: -4px; display: flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; border: 2px solid var(--bg-primary); background: var(--accent); color: #fff; font-size: 10px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.background-float-count { position: absolute; top: -4px; right: -4px; display: flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; border: 2px solid var(--bg-primary); background: var(--accent); color: var(--accent-foreground); font-size: calc(10px + var(--small-text-adjustment)); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .background-float-attention { position: absolute; bottom: 0; left: 0; width: 8px; height: 8px; border: 2px solid var(--bg-primary); border-radius: 50%; background: var(--danger); }
-.background-popover { --font-ui-sm: calc(11px * var(--ui-font-scale)); --font-caption: calc(10px * var(--ui-font-scale)); position: absolute; display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); background: var(--bg-primary); color: var(--text-secondary); font-size: var(--font-ui-sm); box-shadow: var(--shadow-menu); overflow: hidden; pointer-events: auto; outline: none; -webkit-app-region: no-drag; }
+.background-popover { --font-ui-sm: calc((14px + var(--small-text-adjustment)) * var(--ui-font-scale)); --font-caption: calc((13px + var(--small-text-adjustment)) * var(--ui-font-scale)); position: absolute; display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); background: var(--bg-primary); color: var(--text-secondary); font-size: var(--font-ui-sm); box-shadow: var(--shadow-menu); overflow: hidden; pointer-events: auto; outline: none; -webkit-app-region: no-drag; }
 .background-popover:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .background-popover-content { display: flex; flex: 1; flex-direction: column; min-height: 0; width: calc(var(--task-panel-width) - 2px); max-width: none; }
 .background-heading { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
@@ -326,8 +326,8 @@ li { min-width: 0; color: var(--text-secondary); }
 .details-chevron { flex-shrink: 0; transition: transform .12s ease; }
 .background-job[open] > summary .details-chevron { transform: rotate(90deg); }
 .tool-run-name { flex-shrink: 0; line-height: 20px; }
-.tool-run-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
-.tool-run-outcome { grid-column: 3; grid-row: 1; display: flex; flex-wrap: nowrap; column-gap: var(--space-2); line-height: 20px; font-weight: 400; min-width: 0; }
+.tool-run-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font: var(--font-caption)/1.5 var(--font-mono); }
+.tool-run-outcome { grid-column: 3; grid-row: 1; display: flex; flex-wrap: nowrap; column-gap: var(--space-2); font-size: var(--font-caption); line-height: 1.5; font-weight: 400; min-width: 0; }
 .background-job-elapsed { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-secondary); }
 .tool-run-state { flex-shrink: 0; white-space: nowrap; }
 .background-job-stop { grid-column: 4; grid-row: 1; }
@@ -336,9 +336,9 @@ li { min-width: 0; color: var(--text-secondary); }
 @keyframes background-job-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .background-job-stop[aria-busy="true"] :deep(svg) { animation: none; } }
 .background-job-detail { margin: 2px 0 6px 20px; min-width: 0; }
-.tool-run-section-label { margin: 4px 0 2px; font-size: var(--font-caption); font-weight: 600; }
-.tool-run-args, .tool-run-out { margin: 0; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-caption); }
-.background-job-times { margin-top: 4px; line-height: 1.4; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.tool-run-section-label { margin: 4px 0 2px; color: var(--text-primary); font-size: var(--font-caption); font-weight: 600; }
+.tool-run-args, .tool-run-out { margin: 0; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent); color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; font: var(--font-ui-sm)/1.55 var(--font-mono); }
+.background-job-times { margin-top: 4px; font-size: var(--font-caption); line-height: 1.4; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .background-job-detail p { line-height: 1.5; }
 .background-job-error { color: var(--danger); overflow-wrap: anywhere; }
 .background-job-reload { margin: 4px; vertical-align: middle; }

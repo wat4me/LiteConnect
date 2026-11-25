@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, provide, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, provide, reactive, ref } from 'vue'
 import SshWorkspace from '../../src/components/workspace/SshWorkspace.vue'
 import AppDialogHost from '../../src/components/app/AppDialogHost.vue'
 import { useWorkspaceLayout } from '../../src/composables/workspace/useWorkspaceLayout'
@@ -13,39 +13,77 @@ import { useTheme } from '../../src/composables/app/useTheme'
 import { setAppLocale } from '../../src/i18n'
 import { WORKSPACE_TOOLS, type WorkspacePanel, type WorkspaceTool } from '../../shared/workspaceLayout'
 import type { AppSettingsChange } from '../../shared/types/settings'
-import type { AiChatResult, AiSessionStore, AiSettings } from '../../shared/types/ai'
+import type { AiChatResult, AiChatStreamOptions, AiSaveConversationPayload, AiSessionStore, AiSettings } from '../../shared/types/ai'
+import type { AiWorkspaceScope } from '../../shared/aiWorkspace'
+import type { KnowledgeRequest } from '../../shared/aiKnowledge'
 import type { ConnectionGroup, Session } from '../../src/domain/session/types'
-import type { Connection } from '../../shared/types/connection'
+import type { Connection, Group } from '../../shared/types/connection'
 import type { SshMcpJobSummary } from '../../shared/mcp/types'
+import { markTipSeen, ONBOARDING_TIPS_KEY } from '../../src/utils/shared/featureTips'
+import { SSH_HOST_KEY_CONFIRMATION_REQUIRED } from '../../shared/sshHostKeyConfirmation'
 
 const backend = (window as any).__dockBackend
+const aiTerminal = new URLSearchParams(location.search).has('aiTerminal')
+if (aiTerminal) markTipSeen(ONBOARDING_TIPS_KEY)
+const App = defineAsyncComponent(() => import('../../src/App.vue'))
 const callbacks = new Map<string, Set<(...args: any[]) => void>>()
-const calls = { resizes: [] as unknown[], writes: [] as unknown[], fileLoads: [] as string[], cwdChecks: [] as string[], dataSubscriptions: 0, unknown: [] as string[] }
+const calls = { resizes: [] as unknown[], writes: [] as unknown[], fileLoads: [] as string[], cwdChecks: [] as string[], dataSubscriptions: 0, unknown: [] as string[], terminalConnects: [] as string[], aiWorkspaceConnects: [] as string[], aiCwds: [] as (string | undefined)[] }
 let echoCwdInput = false
 function listen(name: string, fn: (...args: any[]) => void) {
   const set = callbacks.get(name) || new Set(); set.add(fn); callbacks.set(name, set)
   return () => set.delete(fn)
 }
 const stores = new Map<string, AiSessionStore>()
+const historyKey = (id: string) => id === 'terminal-staging' ? 'ai-staging' : id
+function summarizeThreads(store: AiSessionStore | undefined) {
+  return store?.threads.map(({ id, title, createdAt, updatedAt, customTitle, pinned, messages }) => ({
+    id, title, createdAt, updatedAt, customTitle, pinned, messageCount: messages.length, active: id === store.activeThreadId,
+  })) ?? []
+}
+let nextDraftId = 0
+const stagingThreads = ['First staging conversation', 'Second staging conversation'].map((title, index) => ({
+  id: `staging-${index + 1}`, title, createdAt: index + 1, updatedAt: index + 1, contextFiles: [],
+  messages: [{ id: `message-${index + 1}`, role: 'user' as const, content: title, createdAt: index + 1 }],
+}))
+if (aiTerminal) stores.set('ai-staging', { version: 1, activeThreadId: 'staging-1', defaultContextFiles: [], threads: stagingThreads })
 const rendererState = new Map<string, unknown>()
 const settings: AiSettings = { providers: [{ id: 'fixture', name: 'Fixture', baseUrl: 'https://example.test/v1', apiKey: 'fixture-only', models: [{ id: 'fixture-model' }] }], activeProviderId: 'fixture', activeModel: 'fixture-model', systemPrompt: '' }
 let finishAiReply: ((reply: AiChatResult) => void) | undefined
+let finishX11Preparation: (() => void) | undefined
+let finishStagingConnect: ((sessionId: string) => void) | undefined
+let finishStagingThreadSwitch: (() => void) | undefined
 let backgroundJobs: SshMcpJobSummary[] = []
 const api = {
   getAllSettings: () => backend.invoke('get'), setManySettings: (patch: unknown) => backend.invoke('set', patch),
   onSettingsChanged: (fn: (change: AppSettingsChange) => void) => backend.settings(fn),
-  getAiSettings: async () => structuredClone(settings), getAiSessionStore: async (id: string) => stores.get(id) || { version: 1, activeThreadId: 'initial', defaultContextFiles: [], threads: [{ id: 'initial', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] },
+  getAiSettings: async () => structuredClone(settings), getAiSessionStore: async (id: string) => structuredClone(stores.get(historyKey(id)) || { version: 1, activeThreadId: 'initial', defaultContextFiles: [], threads: [{ id: 'initial', title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }),
+  getAiConversationSummaries: async (id: string) => summarizeThreads(stores.get(historyKey(id))),
   aiCreateConversation: async (id: string) => {
-    const store: AiSessionStore = { version: 1, activeThreadId: `draft-${stores.size}`, defaultContextFiles: [], threads: [{ id: `draft-${stores.size}`, title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] }] }
-    stores.set(id, store); return store
+    const threadId = `draft-${++nextDraftId}`
+    const store: AiSessionStore = stores.get(historyKey(id)) || { version: 1, activeThreadId: '', defaultContextFiles: [], threads: [] }
+    store.activeThreadId = threadId
+    store.threads.push({ id: threadId, title: '', createdAt: 1, updatedAt: 1, contextFiles: [], messages: [] })
+    stores.set(historyKey(id), store)
+    return structuredClone(store)
   },
-  setAiSessionStore: async (id: string, store: AiSessionStore) => { stores.set(id, store) },
+  setAiSessionStore: async (id: string, store: AiSessionStore) => { stores.set(historyKey(id), store) },
   setAiSettings: async (next: AiSettings) => { Object.assign(settings, next) },
   appendAiSessionHistory: async () => {},
-  aiChatStream: () => new Promise<AiChatResult>(resolve => { finishAiReply = resolve }),
-  aiKnowledge: async () => ({ storagePath: '/fixture/knowledge.sqlite', targets: [], groups: [] }),
+  aiChatStream: (_request: string, _messages: unknown, target: AiChatStreamOptions) => new Promise<AiChatResult>(resolve => {
+    calls.aiCwds.push(target.cwd)
+    finishAiReply = resolve
+  }),
+  aiSuppressBackgroundReplies: async () => {},
+  aiKnowledge: async (id: string, input: KnowledgeRequest) => aiTerminal && (id === 'draft:production' || id === 'ai-production')
+    ? backend.knowledge(id, input)
+    : { storagePath: '/fixture/knowledge.sqlite', targets: [], groups: [] },
   aiListExecutions: async () => [], listAiModels: async () => [],
   mcpListJobs: async () => backgroundJobs, onMcpJobsChanged: (fn: (jobs: SshMcpJobSummary[]) => void) => listen('jobs', fn),
+  mcpCallTool: async (name: string, input: { jobId?: string }) => {
+    const job = backgroundJobs.find(item => item.jobId === input.jobId)
+    if (name !== 'get_job' || !job) return { isError: true, content: 'Unknown fixture job' }
+    return { isError: false, structuredContent: { ...job, stdout: job.command } }
+  },
   onAiChatStream: (fn: () => void) => listen('ai', fn), onAiBackgroundReply: (fn: () => void) => listen('background', fn),
   getTerminalFontSize: async () => 14, getTerminalFontFamily: async () => 'Consolas, monospace', getTerminalPalette: async () => 'auto', getTerminalScrollback: async () => 5000,
   getTerminalPasteConfirmEnabled: async () => true, getTerminalPasteConfirmMaxChars: async () => 500, getTerminalCommandSuggestEnabled: async () => false,
@@ -73,7 +111,56 @@ const api = {
   monitorStart: async () => {}, monitorStop: async () => {}, onMonitorData: (_id: string, fn: () => void) => listen('monitor', fn),
   monitorGetAlertRule: async () => ({ enabled: false, backgroundEnabled: false, cpuThreshold: 90, memoryThreshold: 90, maxNotificationsPer24h: 5 }),
 }
-;(window as any).LiteConnect = new Proxy(api, { get(target, key) {
+const appApi = aiTerminal ? {
+  getAppBootstrap: async () => ({ connections, groups, recentConnections: [], encryptionAvailable: true, monitorEnabled: true, settings: await backend.invoke('get') }),
+  getConnections: async () => connections,
+  getGroups: async () => groups,
+  getRecentConnections: async () => [],
+  recordRecentConnection: async () => {},
+  getConnectionUsageStatsEnabled: async () => false,
+  updateTitleBar: () => {},
+  onMonitorAlertClick: (fn: () => void) => listen('monitor-alert', fn),
+  onAiApprovalNotificationClick: (fn: () => void) => listen('ai-approval', fn),
+  onMcpConnectRequest: (fn: () => void) => listen('mcp-connect', fn),
+  onSshHostKeyMismatch: (fn: () => void) => listen('host-key', fn),
+  onSshConnectionProgress: (fn: () => void) => listen('ssh-progress', fn),
+  onSshDecryptionFailed: (fn: () => void) => listen('decryption', fn),
+  onSshKeyboardInteractive: (fn: () => void) => listen('keyboard-interactive', fn),
+  aiListWorkspaceConversations: async () => stagingThreads.map(thread => ({ connectionId: 'staging', hostLabel: 'Staging',
+    threadId: thread.id, title: thread.title, updatedAt: thread.updatedAt, messageCount: thread.messages.length })),
+  aiSaveConversation: async (id: string, threadId: string, input: AiSaveConversationPayload) => {
+    if (input.selectThreadId === 'staging-2') await new Promise<void>(resolve => { finishStagingThreadSwitch = resolve })
+    const store = stores.get(historyKey(id))!
+    const thread = store.threads.find(item => item.id === threadId)
+    if (thread && input.messages) thread.messages = structuredClone(input.messages)
+    if (input.selectThreadId) store.activeThreadId = input.selectThreadId
+    return structuredClone({ activeThreadId: store.activeThreadId, defaultContextFiles: store.defaultContextFiles,
+      threads: summarizeThreads(store),
+      thread: store.threads.find(item => item.id === store.activeThreadId) })
+  },
+  aiOpenWorkspaceConnection: async (id: string) => { calls.aiWorkspaceConnects.push(id); return `ai-${id}` },
+  aiOpenWorkspaceScope: async ({ connectionIds = [] }: { connectionIds?: string[] }): Promise<AiWorkspaceScope> => ({
+    id: 'workspace:dock-fixture', connectionIds: [...connectionIds], createdAt: 1,
+  }),
+  onAiWorkspaceConnection: (fn: () => void) => listen('ai-workspace', fn),
+  sshConnect: async (id: string) => {
+    calls.terminalConnects.push(id)
+    if (calls.terminalConnects.length === 1) {
+      callbacks.get('ssh-progress')?.forEach(fn => fn({ connectionId: id, stage: 'host-key' }))
+      callbacks.get('host-key')?.forEach(fn => fn({ connectionId: id, host: 'production.test', port: 22, existingFingerprint: '', newFingerprint: 'SHA256:fixture' }))
+      throw new Error(SSH_HOST_KEY_CONFIRMATION_REQUIRED)
+    }
+    return new Promise<string>(resolve => { finishStagingConnect = resolve })
+  },
+  sshConfirmHostKey: async (id: string) => {
+    callbacks.get('ssh-progress')?.forEach(fn => fn({ connectionId: id, stage: 'x11' }))
+    await new Promise<void>(resolve => { finishX11Preparation = resolve })
+    callbacks.get('ssh-progress')?.forEach(fn => fn({ connectionId: id, stage: 'shell' }))
+    callbacks.get('ssh-progress')?.forEach(fn => fn({ connectionId: id, stage: 'connected' }))
+    return `terminal-${id}-${calls.terminalConnects.length}`
+  },
+} : {}
+;(window as any).LiteConnect = new Proxy({ ...api, ...appApi }, { get(target, key) {
   if (key in target) return target[key as keyof typeof target]
   calls.unknown.push(String(key)); return undefined
 } })
@@ -93,6 +180,15 @@ const allSessions = computed(() => [...production.sessions, ...staging.sessions]
 const current = computed(() => group.value.sessions.find(session => session.id === group.value.activeSessionId)!)
 const connection: Connection = { id: 'production', name: 'Production', host: 'production.test', port: 22, username: 'ops', password: '', group: '', createdAt: 1, updatedAt: 1 }
 const connections = [connection, { ...connection, id: 'staging', name: 'Staging', host: 'staging.test' }]
+const groups: Group[] = []
+if (aiTerminal) {
+  groups.push({ id: 'fleet', name: 'Fleet', order: 0, isDefault: false })
+  for (let index = 1; index <= 12; index++) {
+    const number = String(index).padStart(2, '0')
+    const id = `fleet-${number}`
+    connections.push({ ...connection, id, name: `Fleet ${number}`, host: `${id}.test`, group: 'fleet', pinned: index === 1 })
+  }
+}
 const batchTargets = sessions.map(session => ({ ...session, terminalLabel: String(session.tabNumber), displayName: `Production / ${session.tabNumber}`, sshAddress: 'ops@production.test:22', host: 'production.test', port: 22, user: 'ops' }))
 const docker = ref(false)
 const { isSplit: split, splitMode, splitRatio, isResizing, splitPrimarySessionId, secondarySessionId, secondarySide, previewMode, previewActive, previewSide, previewSessionId,
@@ -123,13 +219,19 @@ onMounted(() => {
     async reset() { preferences.update({ ...preferences.layout.value, locked: false }); await nextTick() },
     tools: WORKSPACE_TOOLS,
     enableCwdInputEcho() { echoCwdInput = true },
-    finishAiReply() { finishAiReply?.({ content: 'Done' }); finishAiReply = undefined },
+    hasAiReply: () => !!finishAiReply,
+    finishAiReply(content = 'Done') { finishAiReply?.({ content }); finishAiReply = undefined },
+    finishX11Preparation() { finishX11Preparation?.(); finishX11Preparation = undefined },
+    finishStagingConnect() { finishStagingConnect?.('terminal-staging'); finishStagingConnect = undefined },
+    stagingThreadSwitchPending: () => !!finishStagingThreadSwitch,
+    finishStagingThreadSwitch() { finishStagingThreadSwitch?.(); finishStagingThreadSwitch = undefined },
   }
 })
 </script>
 
 <template>
-  <div class="dock-fixture">
+  <App v-if="aiTerminal" />
+  <div v-else class="dock-fixture">
     <div class="dock-fixture-titlebar">LiteConnect · SSH</div>
     <SshWorkspace :layout="preferences.layout.value" :layout-ready="preferences.ready.value" :layout-error="preferences.error.value" :layout-saving="preferences.saving.value" :sync-input-open="panels.sync.value"
       :active-group="group" :active-session="current" :active-session-id="current.id" :all-sessions="allSessions" :live-session-ids="allSessions.map(session => session.id)" :connections="connections" :unread-sessions="new Set()" :show-ai-unread="false"

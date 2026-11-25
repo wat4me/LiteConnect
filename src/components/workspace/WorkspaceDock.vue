@@ -14,6 +14,7 @@ const props = defineProps<{
   toolbar: InstanceType<typeof LeftToolbar>['$props']
   splitMode?: SplitMode
   focusedPanel?: WorkspacePanel
+  aiAlongsideTerminal?: boolean
 }>()
 const emit = defineEmits<{
   (event: 'toggle', id: WorkspaceTool): void
@@ -48,6 +49,7 @@ const dragHint = computed(() => {
 })
 const panelIds = WORKSPACE_TOOLS.filter(isWorkspacePanel)
 const singlePanel = computed(() => width.value < 900 || height.value < 520)
+const overlayPanel = computed(() => singlePanel.value && !(props.aiAlongsideTerminal && props.active.ai))
 const railTools = (edge: WorkspaceEdge) => props.layout.tools.filter(tool => tool.edge === edge && props.available.includes(tool.id)).map(tool => tool.id)
 const controlEdge = computed(() => WORKSPACE_EDGES.find(edge => railTools(edge).length))
 const edgePanels = (edge: WorkspaceEdge) => props.layout.tools.filter(tool => isWorkspacePanel(tool.id) && tool.panelEdge === edge && props.available.includes(tool.id)).map(tool => tool.id as WorkspacePanel)
@@ -58,8 +60,11 @@ const railStyle = computed(() => ({
 function preferredSize(edge: WorkspaceEdge) { return resizeDraft.value?.edge === edge ? resizeDraft.value.size : props.layout.sizes[edge] }
 const areaSizes = computed(() => {
   // Reserve room for side-by-side terminals without changing the saved widths.
-  const terminalMinimum = props.splitMode === 'vertical' ? 486 : 320
-  const available = canvasWidth.value - (singlePanel.value ? 32 : terminalMinimum)
+  const preferredTerminalMinimum = props.splitMode === 'vertical' ? 486 : 320
+  const terminalMinimum = props.aiAlongsideTerminal && singlePanel.value
+    ? Math.min(preferredTerminalMinimum, Math.max(240, canvasWidth.value - 300))
+    : preferredTerminalMinimum
+  const available = canvasWidth.value - (overlayPanel.value ? 32 : terminalMinimum)
   const requested = WORKSPACE_EDGES.map(edge => activeAt(edge) ? preferredSize(edge) : 0)
   const active = requested.filter(size => size > 0).length
   const minimums = requested.map(size => Math.min(size, Math.max(0, available) / Math.max(1, active), 240))
@@ -69,11 +74,11 @@ const areaSizes = computed(() => {
   return { left: Math.floor(minimums[0] + extras[0] * scale), right: Math.floor(minimums[1] + extras[1] * scale) }
 })
 const canvasStyle = computed(() => ({
-  gridTemplateColumns: props.focusedPanel || singlePanel.value ? '0 minmax(0,1fr) 0' : `${areaSizes.value.left}px minmax(0,1fr) ${areaSizes.value.right}px`,
+  gridTemplateColumns: props.focusedPanel || overlayPanel.value ? '0 minmax(0,1fr) 0' : `${areaSizes.value.left}px minmax(0,1fr) ${areaSizes.value.right}px`,
 }))
 function regionStyle(edge: WorkspaceEdge): CSSProperties {
   if (props.focusedPanel) return { gridArea: 'center' }
-  if (!singlePanel.value) return { gridArea: edge }
+  if (!overlayPanel.value) return { gridArea: edge }
   return { position: 'absolute', [edge]: 0, top: 0, bottom: 0, width: `${areaSizes.value[edge]}px` }
 }
 function bindBody(edge: WorkspaceEdge, element: Element | ComponentPublicInstance | null) {
@@ -224,7 +229,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
 </script>
 
 <template>
-  <div ref="root" class="workspace-dock" :class="{ 'is-single-panel': singlePanel && !focusedPanel, 'is-panel-focused': focusedPanel }" :style="railStyle" @dragover="dragOver" @drop="drop" @dragleave="event => { if (!root?.contains(event.relatedTarget as Node)) dropTarget = undefined }">
+  <div ref="root" class="workspace-dock" :class="{ 'is-single-panel': overlayPanel && !focusedPanel, 'is-panel-focused': focusedPanel }" :style="railStyle" @dragover="dragOver" @drop="drop" @dragleave="event => { if (!root?.contains(event.relatedTarget as Node)) dropTarget = undefined }">
     <LeftToolbar v-for="edge in WORKSPACE_EDGES" v-show="!focusedPanel && railTools(edge).length" :key="edge" v-bind="toolbar" class="workspace-tool-rail" :style="{ gridArea: `rail-${edge}` }" :edge="edge" :tool-ids="railTools(edge)" :drop-marker="dropTarget?.edge === edge ? dropTarget.marker : undefined" rearrange :locked="layout.locked || !ready"
       @toggle-ai="emit('toggle', 'ai')" @toggle-files="emit('toggle', 'files')" @toggle-monitor="emit('toggle', 'monitor')" @toggle-batch="emit('toggle', 'batch')" @toggle-sync="emit('toggle', 'sync')" @toggle-snippets="emit('toggle', 'snippets')" @toggle-docker="emit('toggle', 'docker')"
       @tool-menu="openMenu" @tool-drag="startDrag" @tool-drag-end="endDrag">
@@ -233,7 +238,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopResize?.(false); window.remo
     <div ref="canvas" class="workspace-dock-canvas" :style="canvasStyle">
       <div v-show="!focusedPanel" class="workspace-dock-center"><slot name="center" /></div>
       <div v-if="error" class="dock-layout-error" role="alert"><span>{{ t('toolbar.layout.saveError') }}</span><button class="ui-btn ui-btn-xs" type="button" @click="emit('retry')">{{ t('toolbar.layout.retry') }}</button></div>
-      <div v-if="!focusedPanel && singlePanel && panelIds.some(id => active[id])" class="dock-backdrop" @click="panelIds.filter(id => active[id]).forEach(id => emit('toggle', id))"></div>
+      <div v-if="!focusedPanel && overlayPanel && panelIds.some(id => active[id])" class="dock-backdrop" @click="panelIds.filter(id => active[id]).forEach(id => emit('toggle', id))"></div>
       <section v-for="edge in WORKSPACE_EDGES" v-show="activeAt(edge)" :key="edge" class="workspace-dock-region" :class="`dock-${edge}`" :data-dock-edge="edge" :style="regionStyle(edge)" :aria-label="t(`toolbar.layout.${edge}`)">
         <div :ref="element => bindBody(edge, element)" class="workspace-dock-body"></div>
         <div v-show="!focusedPanel" class="workspace-dock-resize" :class="`resize-${edge}`" role="separator" :aria-label="t('toolbar.layout.resize', { name: t(`toolbar.layout.${edge}`) })" aria-orientation="vertical" :aria-valuenow="areaSizes[edge]" aria-valuemin="240" aria-valuemax="720" :aria-disabled="layout.locked || !ready" :tabindex="layout.locked || !ready ? -1 : 0" @pointerdown.prevent="resize(edge, $event)" @keydown="resizeKey(edge, $event)"></div>

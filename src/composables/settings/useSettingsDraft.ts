@@ -1,5 +1,6 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch, type Ref, type ComputedRef } from 'vue'
 import type { AppSettingsAll } from '@shared/types/settings'
+import { isAppTheme } from '@shared/appTheme'
 import { buildSettingsDraftPatch } from './settingsDraftPatch'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { getStoredLocale, t } from '@/i18n'
@@ -63,6 +64,11 @@ import {
   type LocalePreference,
 } from '@shared/appLocale'
 import { DEFAULT_UI_DENSITY, normalizeUiDensity, type UiDensity } from '@shared/uiDensity'
+import {
+  cloneDefaultTerminalHighlightRules,
+  sanitizeTerminalHighlightRules,
+  type TerminalHighlightRule,
+} from '@shared/terminalHighlight'
 
 export interface SettingsDraft {
   theme: Theme
@@ -84,6 +90,8 @@ export interface SettingsDraft {
   /** Local shell history / parameter popup. Defaults off. */
   terminalCommandSuggestEnabled: boolean
   terminalLocalEchoEnabled: boolean
+  terminalHighlightEnabled: boolean
+  terminalHighlightRules: TerminalHighlightRule[]
   /** Newline-separated, case-insensitive shell glob exclusions. */
   terminalCommandHistoryExcludePatterns: string
   downloadConflictStrategy: 'overwrite' | 'skip' | 'rename'
@@ -151,6 +159,8 @@ export function createEmptyDraft(): SettingsDraft {
     terminalPasteConfirmMaxChars: PASTE_CONFIRM_MAX_CHARS,
     terminalCommandSuggestEnabled: false,
     terminalLocalEchoEnabled: false,
+    terminalHighlightEnabled: true,
+    terminalHighlightRules: cloneDefaultTerminalHighlightRules(),
     terminalCommandHistoryExcludePatterns: '',
     downloadConflictStrategy: 'rename',
     dirTransferConcurrency: 3,
@@ -190,6 +200,7 @@ export function cloneDraft(d: SettingsDraft): SettingsDraft {
   return {
     ...d,
     appBackground: { ...d.appBackground },
+    terminalHighlightRules: d.terminalHighlightRules.map(rule => ({ ...rule })),
   }
 }
 
@@ -210,6 +221,8 @@ function draftsEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     && a.terminalPasteConfirmMaxChars === b.terminalPasteConfirmMaxChars
     && a.terminalCommandSuggestEnabled === b.terminalCommandSuggestEnabled
     && a.terminalLocalEchoEnabled === b.terminalLocalEchoEnabled
+    && a.terminalHighlightEnabled === b.terminalHighlightEnabled
+    && JSON.stringify(a.terminalHighlightRules) === JSON.stringify(b.terminalHighlightRules)
     && a.terminalCommandHistoryExcludePatterns === b.terminalCommandHistoryExcludePatterns
     && a.downloadConflictStrategy === b.downloadConflictStrategy
     && a.dirTransferConcurrency === b.dirTransferConcurrency
@@ -306,6 +319,8 @@ export function useSettingsDraft(options: {
       terminalPasteConfirmMaxChars: PASTE_CONFIRM_MAX_CHARS,
       terminalCommandSuggestEnabled: false,
       terminalLocalEchoEnabled: false,
+      terminalHighlightEnabled: true,
+      terminalHighlightRules: cloneDefaultTerminalHighlightRules(),
       terminalCommandHistoryExcludePatterns: '',
       downloadConflictStrategy: 'rename',
       dirTransferConcurrency: 3,
@@ -347,7 +362,7 @@ export function useSettingsDraft(options: {
       ? (all.dbPageSize as DbPageSize)
       : DEFAULT_DB_PAGE_SIZE
     const next: SettingsDraft = {
-      theme: (['dark', 'light', 'eyecare', 'custom'].includes(all.theme) ? all.theme : theme.value) as Theme,
+      theme: isAppTheme(all.theme) ? all.theme : theme.value,
       uiDensity: normalizeUiDensity(all.uiDensity),
       uiFontSize: normalizeUiDensity(all.uiFontSize),
       bgColor: all.customColors?.bgColor || customColors.value.bgColor,
@@ -362,6 +377,8 @@ export function useSettingsDraft(options: {
       terminalPasteConfirmMaxChars: normalizePasteConfirmMaxChars(all.terminalPasteConfirmMaxChars),
       terminalCommandSuggestEnabled: all.terminalCommandSuggestEnabled === true,
       terminalLocalEchoEnabled: all.terminalLocalEchoEnabled === true,
+      terminalHighlightEnabled: all.terminalHighlightEnabled !== false,
+      terminalHighlightRules: sanitizeTerminalHighlightRules(all.terminalHighlightRules),
       terminalCommandHistoryExcludePatterns: Array.isArray(all.terminalCommandHistoryExcludePatterns)
         ? all.terminalCommandHistoryExcludePatterns.join('\n')
         : '',
